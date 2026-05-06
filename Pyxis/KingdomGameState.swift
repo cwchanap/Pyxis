@@ -14,6 +14,20 @@ struct KingdomGameState: Codable, Equatable {
         let goldEarned: Int
     }
 
+    struct IdleProgressResult: Equatable {
+        let elapsedSeconds: Int
+        let damageDealt: Int
+        let conqueredCities: Int
+        let goldEarned: Int
+
+        static let none = IdleProgressResult(
+            elapsedSeconds: 0,
+            damageDealt: 0,
+            conqueredCities: 0,
+            goldEarned: 0
+        )
+    }
+
     enum UpgradeResult: Equatable {
         case upgraded(cost: Int, newAttackPower: Int)
         case insufficientGold(cost: Int, currentGold: Int)
@@ -90,6 +104,53 @@ struct KingdomGameState: Codable, Equatable {
         cityRemainingPower = cityMaxPower
 
         return AttackResult(damageDealt: damage, conqueredCities: 1, goldEarned: reward)
+    }
+
+    mutating func enterBackground(at date: Date) {
+        lastBackgroundedAt = date
+    }
+
+    @discardableResult
+    mutating func returnFromBackground(at date: Date) -> IdleProgressResult {
+        guard let lastBackgroundedAt else {
+            return .none
+        }
+
+        self.lastBackgroundedAt = nil
+
+        let rawElapsed = Int(date.timeIntervalSince(lastBackgroundedAt))
+        let elapsedSeconds = min(max(0, rawElapsed), Self.maxIdleCatchUpSeconds)
+
+        guard elapsedSeconds > 0 else {
+            return .none
+        }
+
+        let totalDamage = elapsedSeconds * normalSoldierAttackPower
+        var remainingDamage = totalDamage
+        var conqueredCities = 0
+        var goldEarned = 0
+
+        while remainingDamage > 0 {
+            if remainingDamage < cityRemainingPower {
+                cityRemainingPower -= remainingDamage
+                remainingDamage = 0
+            } else {
+                remainingDamage -= cityRemainingPower
+                let reward = currentGoldReward
+                gold += reward
+                goldEarned += reward
+                conqueredCities += 1
+                cityLevel += 1
+                cityRemainingPower = cityMaxPower
+            }
+        }
+
+        return IdleProgressResult(
+            elapsedSeconds: elapsedSeconds,
+            damageDealt: totalDamage,
+            conqueredCities: conqueredCities,
+            goldEarned: goldEarned
+        )
     }
 
     @discardableResult

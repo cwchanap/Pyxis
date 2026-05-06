@@ -109,4 +109,62 @@ struct KingdomGameStateTests {
         #expect(result == .insufficientGold(cost: 10, currentGold: 9))
         #expect(state == original)
     }
+
+    @Test func idleCatchUpAppliesAutomaticDamageAndClearsTimestamp() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let end = start.addingTimeInterval(5)
+        var state = KingdomGameState(cityRemainingPower: 20)
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        #expect(result.elapsedSeconds == 5)
+        #expect(result.damageDealt == 5)
+        #expect(result.conqueredCities == 0)
+        #expect(result.goldEarned == 0)
+        #expect(state.cityRemainingPower == 15)
+        #expect(state.lastBackgroundedAt == nil)
+    }
+
+    @Test func idleCatchUpCanConquerMultipleCitiesWithCarryOverDamage() {
+        let start = Date(timeIntervalSinceReferenceDate: 2_000)
+        let end = start.addingTimeInterval(80)
+        var state = KingdomGameState(cityRemainingPower: 10)
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        #expect(result.elapsedSeconds == 80)
+        #expect(result.damageDealt == 80)
+        #expect(result.conqueredCities == 2)
+        #expect(result.goldEarned == 20)
+        #expect(state.cityLevel == 3)
+        #expect(state.cityRemainingPower == 65)
+    }
+
+    @Test func idleCatchUpCannotBeAppliedTwice() {
+        let start = Date(timeIntervalSinceReferenceDate: 3_000)
+        let end = start.addingTimeInterval(5)
+        var state = KingdomGameState(cityRemainingPower: 20)
+
+        state.enterBackground(at: start)
+        _ = state.returnFromBackground(at: end)
+        let secondResult = state.returnFromBackground(at: end.addingTimeInterval(5))
+
+        #expect(secondResult.elapsedSeconds == 0)
+        #expect(secondResult.damageDealt == 0)
+        #expect(state.cityRemainingPower == 15)
+    }
+
+    @Test func idleCatchUpIsCappedAtEightHours() {
+        let start = Date(timeIntervalSinceReferenceDate: 4_000)
+        let end = start.addingTimeInterval(Double(KingdomGameState.maxIdleCatchUpSeconds + 120))
+        var state = KingdomGameState(cityRemainingPower: 30_000)
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        #expect(result.elapsedSeconds == KingdomGameState.maxIdleCatchUpSeconds)
+        #expect(result.damageDealt == KingdomGameState.maxIdleCatchUpSeconds)
+    }
 }
