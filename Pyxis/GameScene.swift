@@ -5,6 +5,7 @@
 //  Created by Chan Wai Chan on 5/5/2026.
 //
 
+import Foundation
 import SpriteKit
 
 final class GameScene: SKScene {
@@ -16,6 +17,7 @@ final class GameScene: SKScene {
     private let store: KingdomGameStore
     private var state: KingdomGameState
     private var didBuildInterface = false
+    private var isObservingLifecycle = false
 
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -45,6 +47,10 @@ final class GameScene: SKScene {
         super.init(coder: aDecoder)
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func didMove(to view: SKView) {
         backgroundColor = SKColor(red: 0.07, green: 0.10, blue: 0.13, alpha: 1.0)
 
@@ -53,6 +59,7 @@ final class GameScene: SKScene {
             didBuildInterface = true
         }
 
+        observeLifecycleNotificationsIfNeeded()
         redraw()
         layoutInterface()
     }
@@ -273,6 +280,43 @@ final class GameScene: SKScene {
         }
 
         store.save(state)
+        redraw()
+    }
+
+    private func observeLifecycleNotificationsIfNeeded() {
+        guard !isObservingLifecycle else {
+            return
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sceneDidEnterBackground),
+            name: .pyxisSceneDidEnterBackground,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sceneWillEnterForeground),
+            name: .pyxisSceneWillEnterForeground,
+            object: nil
+        )
+        isObservingLifecycle = true
+    }
+
+    @objc private func sceneDidEnterBackground(_ notification: Notification) {
+        state.enterBackground(at: Date())
+        store.save(state)
+    }
+
+    @objc private func sceneWillEnterForeground(_ notification: Notification) {
+        let result = state.returnFromBackground(at: Date())
+
+        store.save(state)
+
+        if result.elapsedSeconds > 0 {
+            feedbackText = "Idle attacks dealt \(result.damageDealt) damage and conquered \(result.conqueredCities) cities."
+        }
+
         redraw()
     }
 
