@@ -51,4 +51,41 @@ struct KingdomGameStateTests {
         #expect(state.normalSoldierUpgradeLevel == 1)
         #expect(state.lastBackgroundedAt == nil)
     }
+
+    @Test func spawningSoldierDamagesCurrentCity() {
+        var state = KingdomGameState(cityRemainingPower: 20)
+
+        let result = state.spawnSoldierAttack()
+
+        #expect(result.damageDealt == 1)
+        #expect(result.conqueredCities == 0)
+        #expect(result.goldEarned == 0)
+        #expect(state.cityRemainingPower == 19)
+        #expect(state.cityLevel == 1)
+        #expect(state.gold == 0)
+    }
+
+    @Test func spawnConquersCityAndGrantsGold() {
+        var state = KingdomGameState(cityRemainingPower: 1)
+
+        let result = state.spawnSoldierAttack()
+
+        #expect(result.damageDealt == 1)
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == 8)
+        #expect(state.gold == 8)
+        #expect(state.cityLevel == 2)
+        #expect(state.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
+    }
+
+    @Test func foregroundSpawnDoesNotCarryOverExcessDamage() {
+        var state = KingdomGameState(cityRemainingPower: 1, normalSoldierUpgradeLevel: 4)
+
+        let result = state.spawnSoldierAttack()
+
+        #expect(result.damageDealt == 3)
+        #expect(result.conqueredCities == 1)
+        #expect(state.cityLevel == 2)
+        #expect(state.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
+    }
 }

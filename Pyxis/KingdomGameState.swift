@@ -8,6 +8,12 @@ import Foundation
 struct KingdomGameState: Codable, Equatable {
     static let maxIdleCatchUpSeconds = 8 * 60 * 60
 
+    struct AttackResult: Equatable {
+        let damageDealt: Int
+        let conqueredCities: Int
+        let goldEarned: Int
+    }
+
     var gold: Int
     var cityLevel: Int
     var cityRemainingPower: Int
@@ -62,6 +68,23 @@ struct KingdomGameState: Codable, Equatable {
 
     var normalSoldierUpgradeCost: Int {
         Self.normalSoldierUpgradeCost(for: normalSoldierUpgradeLevel)
+    }
+
+    @discardableResult
+    mutating func spawnSoldierAttack() -> AttackResult {
+        let damage = normalSoldierAttackPower
+        cityRemainingPower -= damage
+
+        guard cityRemainingPower <= 0 else {
+            return AttackResult(damageDealt: damage, conqueredCities: 0, goldEarned: 0)
+        }
+
+        let reward = currentGoldReward
+        gold += reward
+        cityLevel += 1
+        cityRemainingPower = cityMaxPower
+
+        return AttackResult(damageDealt: damage, conqueredCities: 1, goldEarned: reward)
     }
 
     static func cityMaxPower(for level: Int) -> Int {
