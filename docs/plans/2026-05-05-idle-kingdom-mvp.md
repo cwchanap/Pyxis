@@ -61,7 +61,7 @@ struct KingdomGameStateTests {
         #expect(KingdomGameState.cityMaxPower(for: 1) == 20)
         #expect(KingdomGameState.cityMaxPower(for: 2) == 43)
         #expect(KingdomGameState.cityMaxPower(for: 3) == 92)
-        #expect(KingdomGameState.cityMaxPower(for: 10) == 19631)
+        #expect(KingdomGameState.cityMaxPower(for: 10) == 19633)
 
         #expect(KingdomGameState.goldReward(for: 1) == 8)
         #expect(KingdomGameState.goldReward(for: 2) == 12)
