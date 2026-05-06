@@ -88,4 +88,25 @@ struct KingdomGameStateTests {
         #expect(state.cityLevel == 2)
         #expect(state.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
     }
+
+    @Test func successfulUpgradeSpendsGoldAndRaisesAttackPower() {
+        var state = KingdomGameState(gold: 30)
+
+        let result = state.upgradeNormalSoldier()
+
+        #expect(result == .upgraded(cost: 10, newAttackPower: 2))
+        #expect(state.gold == 20)
+        #expect(state.normalSoldierUpgradeLevel == 2)
+        #expect(state.normalSoldierAttackPower == 2)
+    }
+
+    @Test func failedUpgradeDoesNotMutateState() {
+        let original = KingdomGameState(gold: 9)
+        var state = original
+
+        let result = state.upgradeNormalSoldier()
+
+        #expect(result == .insufficientGold(cost: 10, currentGold: 9))
+        #expect(state == original)
+    }
 }

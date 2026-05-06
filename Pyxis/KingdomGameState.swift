@@ -14,6 +14,11 @@ struct KingdomGameState: Codable, Equatable {
         let goldEarned: Int
     }
 
+    enum UpgradeResult: Equatable {
+        case upgraded(cost: Int, newAttackPower: Int)
+        case insufficientGold(cost: Int, currentGold: Int)
+    }
+
     var gold: Int
     var cityLevel: Int
     var cityRemainingPower: Int
@@ -85,6 +90,20 @@ struct KingdomGameState: Codable, Equatable {
         cityRemainingPower = cityMaxPower
 
         return AttackResult(damageDealt: damage, conqueredCities: 1, goldEarned: reward)
+    }
+
+    @discardableResult
+    mutating func upgradeNormalSoldier() -> UpgradeResult {
+        let cost = normalSoldierUpgradeCost
+
+        guard gold >= cost else {
+            return .insufficientGold(cost: cost, currentGold: gold)
+        }
+
+        gold -= cost
+        normalSoldierUpgradeLevel += 1
+
+        return .upgraded(cost: cost, newAttackPower: normalSoldierAttackPower)
     }
 
     static func cityMaxPower(for level: Int) -> Int {
