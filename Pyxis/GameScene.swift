@@ -504,17 +504,22 @@ final class GameScene: SKScene {
         soldier.removeFromParent()
 
         let result = state.spawnSoldierAttack()
+        let conqueredCity = result.conqueredCities > 0
 
-        if result.conqueredCities > 0 {
+        if conqueredCity {
             feedbackText = "City conquered! +\(result.goldEarned) gold."
-            playCityConquestFeedback()
         } else {
             feedbackText = "Soldier dealt \(result.damageDealt) damage."
-            playCityHitFeedback()
         }
 
         store.save(state)
         redraw()
+
+        if conqueredCity {
+            playCityConquestFeedback()
+        } else {
+            playCityHitFeedback()
+        }
     }
 
     private func makeSoldierNode() -> SKNode {
