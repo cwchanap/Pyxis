@@ -346,8 +346,13 @@ final class GameScene: SKScene {
         let safeTopY = min(hpBarBottomY - verticalPadding, feedbackY - feedbackClearance)
         let safeBottomY = spawnButtonTopY + verticalPadding
         let availableHeight = safeTopY - safeBottomY
+        let tallestStructureHeightMultiplier: CGFloat = 1.04
+        let laneHeight = groundLaneHeight()
+        let minimumStructureHeight: CGFloat = 28
+        let laneY = safeBottomY + laneHeight / 2
+        let maxStructureHeight = (safeTopY - laneY) / tallestStructureHeightMultiplier
 
-        guard availableHeight >= 44 else {
+        guard availableHeight >= 44, maxStructureHeight >= minimumStructureHeight else {
             setBattlefieldHidden(true)
             battleGroundLane?.removeFromParent()
             battleGroundLane = nil
@@ -358,14 +363,13 @@ final class GameScene: SKScene {
 
         setBattlefieldHidden(false)
 
-        let laneY = safeBottomY + min(max(availableHeight * 0.18, 8), 24)
-        let targetHeight = max(28, min(96, availableHeight - 10, size.height * 0.16, contentWidth * 0.30))
+        let targetHeight = min(96, maxStructureHeight, size.height * 0.16, contentWidth * 0.30)
 
         if let playerCastleNode {
             fitBattleNode(playerCastleNode, targetHeight: targetHeight)
         }
         if let enemyCityNode {
-            fitBattleNode(enemyCityNode, targetHeight: targetHeight * 1.04)
+            fitBattleNode(enemyCityNode, targetHeight: targetHeight * tallestStructureHeightMultiplier)
         }
 
         let horizontalInset = max(24, (size.width - contentWidth) / 2 + 18)
@@ -373,7 +377,7 @@ final class GameScene: SKScene {
         let cityWidth = enemyCityNode?.calculateAccumulatedFrame().width ?? targetHeight
         let castleX = horizontalInset + castleWidth / 2
         let enemyX = size.width - horizontalInset - cityWidth / 2
-        let gateY = laneY + max(8, targetHeight * 0.10)
+        let gateY = laneY + min(max(8, targetHeight * 0.10), max(0, safeTopY - laneY))
 
         playerCastleNode?.position = CGPoint(x: castleX, y: laneY)
         enemyCityNode?.position = CGPoint(x: enemyX, y: laneY)
@@ -413,7 +417,7 @@ final class GameScene: SKScene {
     private func drawGroundLane(from start: CGPoint, to end: CGPoint) {
         battleGroundLane?.removeFromParent()
 
-        let laneHeight = max(14, min(26, size.height * 0.025))
+        let laneHeight = groundLaneHeight()
         let laneInset: CGFloat = 20
         let minX = min(start.x, end.x) - laneInset
         let maxX = max(start.x, end.x) + laneInset
@@ -426,6 +430,10 @@ final class GameScene: SKScene {
         lane.zPosition = -1
         environmentLayer.addChild(lane)
         battleGroundLane = lane
+    }
+
+    private func groundLaneHeight() -> CGFloat {
+        max(14, min(26, size.height * 0.025))
     }
 
     private func setBattlefieldHidden(_ isHidden: Bool) {
