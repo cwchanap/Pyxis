@@ -352,6 +352,8 @@ final class GameScene: SKScene {
         let laneY = safeBottomY + laneHeight / 2
         let maxStructureHeight = (safeTopY - laneY) / tallestStructureHeightMultiplier
 
+        cancelCityFeedbackActions()
+
         guard availableHeight >= 44, maxStructureHeight >= minimumStructureHeight else {
             setBattlefieldHidden(true)
             battleGroundLane?.removeFromParent()
@@ -587,6 +589,11 @@ final class GameScene: SKScene {
         let fade = SKAction.fadeOut(withDuration: 0.22)
         let remove = SKAction.removeFromParent()
         flash.run(SKAction.sequence([SKAction.group([expand, fade]), remove]))
+    }
+
+    private func cancelCityFeedbackActions() {
+        enemyCityNode?.removeAction(forKey: "cityConquestFeedback")
+        enemyCityNode?.removeAction(forKey: "cityHitFeedback")
     }
 
     private func cityShakeAction() -> SKAction {
