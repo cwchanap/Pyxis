@@ -597,8 +597,17 @@ final class GameScene: SKScene {
     }
 
     private func cancelCityFeedbackActions() {
-        enemyCityNode?.removeAction(forKey: "cityConquestFeedback")
-        enemyCityNode?.removeAction(forKey: "cityHitFeedback")
+        guard let enemyCityNode else {
+            return
+        }
+
+        enemyCityNode.removeAction(forKey: "cityConquestFeedback")
+        enemyCityNode.removeAction(forKey: "cityHitFeedback")
+
+        if let sprite = enemyCityNode as? SKSpriteNode {
+            sprite.colorBlendFactor = 0
+            sprite.color = .clear
+        }
     }
 
     private func cityShakeAction() -> SKAction {
