@@ -9,6 +9,19 @@ import Foundation
 import SpriteKit
 
 final class GameScene: SKScene {
+    private enum BattleAssetName {
+        static let playerCastle = "player-castle"
+        static let enemyCity = "enemy-city"
+        static let normalSoldier = "normal-soldier"
+    }
+
+    private struct SoldierAnimationConfiguration {
+        let walkDuration: TimeInterval
+        let attackDuration: TimeInterval
+
+        static let live = SoldierAnimationConfiguration(walkDuration: 1.2, attackDuration: 0.18)
+    }
+
     private enum ButtonName {
         static let spawn = "spawnSoldierButton"
         static let upgrade = "upgradeSoldierButton"
@@ -18,6 +31,17 @@ final class GameScene: SKScene {
     private var state: KingdomGameState
     private var didBuildInterface = false
     private var isObservingLifecycle = false
+
+    private let battlefieldLayer = SKNode()
+    private let environmentLayer = SKNode()
+    private let soldierLayer = SKNode()
+    private let effectsLayer = SKNode()
+    private var playerCastleNode: SKNode?
+    private var enemyCityNode: SKNode?
+    private var castleGatePoint = CGPoint.zero
+    private var enemyGatePoint = CGPoint.zero
+    private var pendingSoldiers: [SKNode] = []
+    private let animationConfiguration = SoldierAnimationConfiguration.live
 
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -85,6 +109,31 @@ final class GameScene: SKScene {
     }
 
     private func buildInterface() {
+        battlefieldLayer.zPosition = 0
+        environmentLayer.zPosition = 10
+        soldierLayer.zPosition = 20
+        effectsLayer.zPosition = 30
+
+        addChild(battlefieldLayer)
+        battlefieldLayer.addChild(environmentLayer)
+        battlefieldLayer.addChild(soldierLayer)
+        battlefieldLayer.addChild(effectsLayer)
+
+        let castleNode = makeBattleStructureNode(
+            name: BattleAssetName.playerCastle,
+            size: CGSize(width: 76, height: 98),
+            color: SKColor(red: 0.22, green: 0.40, blue: 0.64, alpha: 1.0)
+        )
+        let cityNode = makeBattleStructureNode(
+            name: BattleAssetName.enemyCity,
+            size: CGSize(width: 86, height: 112),
+            color: SKColor(red: 0.58, green: 0.28, blue: 0.26, alpha: 1.0)
+        )
+        playerCastleNode = castleNode
+        enemyCityNode = cityNode
+        environmentLayer.addChild(castleNode)
+        environmentLayer.addChild(cityNode)
+
         configureLabel(goldLabel, fontSize: 28, color: SKColor(red: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
         configureLabel(cityLevelLabel, fontSize: 22, color: .white)
         configureLabel(soldierAttackLabel, fontSize: 18, color: SKColor(red: 0.74, green: 0.86, blue: 1.0, alpha: 1.0))
@@ -111,6 +160,18 @@ final class GameScene: SKScene {
             name: ButtonName.upgrade,
             color: SKColor(red: 0.56, green: 0.30, blue: 0.78, alpha: 1.0)
         )
+
+        [
+            goldLabel,
+            cityLevelLabel,
+            soldierAttackLabel,
+            cityHPLabel,
+            hpBarBackground,
+            hpBarFill,
+            feedbackLabel,
+            spawnButton,
+            upgradeButton
+        ].forEach { $0.zPosition = 100 }
 
         addChild(goldLabel)
         addChild(cityLevelLabel)
@@ -175,6 +236,18 @@ final class GameScene: SKScene {
         let upgradeButtonY = bottomMargin + buttonHeight / 2
         let spawnButtonY = upgradeButtonY + buttonHeight + buttonGap
         let spawnButtonTopY = spawnButtonY + buttonHeight / 2
+
+        let battlefieldBottomY = spawnButtonTopY + 28
+        let battlefieldTopY = max(battlefieldBottomY + 90, size.height - topMargin - 148)
+        let laneY = battlefieldBottomY + (battlefieldTopY - battlefieldBottomY) * 0.42
+        let sideInset = max(52, min(size.width * 0.18, 86))
+        let castleX = sideInset
+        let enemyX = size.width - sideInset
+
+        playerCastleNode?.position = CGPoint(x: castleX, y: laneY)
+        enemyCityNode?.position = CGPoint(x: enemyX, y: laneY)
+        castleGatePoint = CGPoint(x: castleX + 34, y: laneY - 24)
+        enemyGatePoint = CGPoint(x: enemyX - 38, y: laneY - 24)
 
         goldLabel.position = CGPoint(x: centerX, y: topY)
         cityLevelLabel.position = CGPoint(x: centerX, y: topY - primaryStatusGap)
@@ -245,6 +318,18 @@ final class GameScene: SKScene {
         button.position = position
     }
 
+    private func makeBattleStructureNode(name: String, size: CGSize, color: SKColor) -> SKNode {
+        let node = SKShapeNode(
+            rectOf: size,
+            cornerRadius: 8
+        )
+        node.name = name
+        node.fillColor = color
+        node.strokeColor = SKColor(white: 1.0, alpha: 0.22)
+        node.lineWidth = 2
+        return node
+    }
+
     private func redraw() {
         goldLabel.text = "Gold: \(state.gold)"
         cityLevelLabel.text = "City Level: \(state.cityLevel)"
@@ -257,17 +342,78 @@ final class GameScene: SKScene {
     }
 
     private func spawnSoldier() {
+        let soldier = makeSoldierNode()
+        soldier.position = castleGatePoint
+        soldierLayer.addChild(soldier)
+        pendingSoldiers.append(soldier)
+        runSoldierAttackAnimation(for: soldier)
+    }
+
+    private func runSoldierAttackAnimation(for soldier: SKNode) {
+        let bob = SKAction.repeatForever(
+            SKAction.sequence([
+                SKAction.moveBy(x: 0, y: 4, duration: 0.18),
+                SKAction.moveBy(x: 0, y: -4, duration: 0.18)
+            ])
+        )
+        soldier.run(bob, withKey: "soldierBob")
+
+        let walk = SKAction.move(to: enemyGatePoint, duration: animationConfiguration.walkDuration)
+        walk.timingMode = .easeInEaseOut
+
+        let stopBob = SKAction.run { [weak soldier] in
+            soldier?.removeAction(forKey: "soldierBob")
+        }
+        let lungeForward = SKAction.moveBy(x: 12, y: 0, duration: animationConfiguration.attackDuration / 2)
+        lungeForward.timingMode = .easeOut
+        let lungeBack = SKAction.moveBy(x: -12, y: 0, duration: animationConfiguration.attackDuration / 2)
+        lungeBack.timingMode = .easeIn
+        let impact = SKAction.run { [weak self, weak soldier] in
+            guard let soldier else {
+                return
+            }
+
+            self?.completeSoldierAttack(soldier)
+        }
+
+        soldier.run(SKAction.sequence([walk, stopBob, lungeForward, lungeBack, impact]))
+    }
+
+    private func completeSoldierAttack(_ soldier: SKNode) {
+        guard let index = pendingSoldiers.firstIndex(where: { $0 === soldier }) else {
+            return
+        }
+
+        pendingSoldiers.remove(at: index)
+        soldier.removeAllActions()
+        soldier.removeFromParent()
+
         let result = state.spawnSoldierAttack()
 
         if result.conqueredCities > 0 {
             feedbackText = "City conquered! +\(result.goldEarned) gold."
+            playCityConquestFeedback()
         } else {
             feedbackText = "Soldier dealt \(result.damageDealt) damage."
+            playCityHitFeedback()
         }
 
         store.save(state)
         redraw()
     }
+
+    private func makeSoldierNode() -> SKNode {
+        let soldier = SKShapeNode(circleOfRadius: 10)
+        soldier.name = BattleAssetName.normalSoldier
+        soldier.fillColor = SKColor(red: 0.18, green: 0.52, blue: 1.0, alpha: 1.0)
+        soldier.strokeColor = SKColor(white: 1.0, alpha: 0.4)
+        soldier.lineWidth = 2
+        return soldier
+    }
+
+    private func playCityHitFeedback() {}
+
+    private func playCityConquestFeedback() {}
 
     private func upgradeSoldier() {
         let result = state.upgradeNormalSoldier()
@@ -338,5 +484,35 @@ final class GameScene: SKScene {
         while label.frame.width > maxWidth && label.fontSize > 12 {
             label.fontSize -= 1
         }
+    }
+}
+
+extension GameScene {
+    var pendingSoldierAttackCountForTesting: Int {
+        pendingSoldiers.count
+    }
+
+    var cityRemainingPowerForTesting: Int {
+        state.cityRemainingPower
+    }
+
+    var cityLevelForTesting: Int {
+        state.cityLevel
+    }
+
+    var goldForTesting: Int {
+        state.gold
+    }
+
+    func spawnSoldierForTesting() {
+        spawnSoldier()
+    }
+
+    func completeFirstPendingSoldierAttackForTesting() {
+        guard let soldier = pendingSoldiers.first else {
+            return
+        }
+
+        completeSoldierAttack(soldier)
     }
 }
