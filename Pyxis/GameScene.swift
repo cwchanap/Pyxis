@@ -487,6 +487,7 @@ final class GameScene: SKScene {
     }
 }
 
+#if DEBUG
 extension GameScene {
     var pendingSoldierAttackCountForTesting: Int {
         pendingSoldiers.count
@@ -516,3 +517,4 @@ extension GameScene {
         completeSoldierAttack(soldier)
     }
 }
+#endif
