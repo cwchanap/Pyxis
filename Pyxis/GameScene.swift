@@ -7,6 +7,7 @@
 
 import Foundation
 import SpriteKit
+import UIKit
 
 final class GameScene: SKScene {
     private enum BattleAssetName {
@@ -41,6 +42,7 @@ final class GameScene: SKScene {
     private var castleGatePoint = CGPoint.zero
     private var enemyGatePoint = CGPoint.zero
     private var pendingSoldiers: [SKNode] = []
+    private var battleGroundLane: SKShapeNode?
     private let animationConfiguration = SoldierAnimationConfiguration.live
 
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -119,20 +121,7 @@ final class GameScene: SKScene {
         battlefieldLayer.addChild(soldierLayer)
         battlefieldLayer.addChild(effectsLayer)
 
-        let castleNode = makeBattleStructureNode(
-            name: BattleAssetName.playerCastle,
-            size: CGSize(width: 76, height: 98),
-            color: SKColor(red: 0.22, green: 0.40, blue: 0.64, alpha: 1.0)
-        )
-        let cityNode = makeBattleStructureNode(
-            name: BattleAssetName.enemyCity,
-            size: CGSize(width: 86, height: 112),
-            color: SKColor(red: 0.58, green: 0.28, blue: 0.26, alpha: 1.0)
-        )
-        playerCastleNode = castleNode
-        enemyCityNode = cityNode
-        environmentLayer.addChild(castleNode)
-        environmentLayer.addChild(cityNode)
+        buildBattlefield()
 
         configureLabel(goldLabel, fontSize: 28, color: SKColor(red: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
         configureLabel(cityLevelLabel, fontSize: 22, color: .white)
@@ -237,18 +226,6 @@ final class GameScene: SKScene {
         let spawnButtonY = upgradeButtonY + buttonHeight + buttonGap
         let spawnButtonTopY = spawnButtonY + buttonHeight / 2
 
-        let battlefieldBottomY = spawnButtonTopY + 28
-        let battlefieldTopY = max(battlefieldBottomY + 90, size.height - topMargin - 148)
-        let laneY = battlefieldBottomY + (battlefieldTopY - battlefieldBottomY) * 0.42
-        let sideInset = max(52, min(size.width * 0.18, 86))
-        let castleX = sideInset
-        let enemyX = size.width - sideInset
-
-        playerCastleNode?.position = CGPoint(x: castleX, y: laneY)
-        enemyCityNode?.position = CGPoint(x: enemyX, y: laneY)
-        castleGatePoint = CGPoint(x: castleX + 34, y: laneY - 24)
-        enemyGatePoint = CGPoint(x: enemyX - 38, y: laneY - 24)
-
         goldLabel.position = CGPoint(x: centerX, y: topY)
         cityLevelLabel.position = CGPoint(x: centerX, y: topY - primaryStatusGap)
         soldierAttackLabel.position = CGPoint(x: centerX, y: cityLevelLabel.position.y - secondaryStatusGap)
@@ -289,6 +266,8 @@ final class GameScene: SKScene {
         layoutButton(spawnButton, background: spawnButtonBackground, size: buttonSize, position: CGPoint(x: centerX, y: spawnButtonY))
         layoutButton(upgradeButton, background: upgradeButtonBackground, size: buttonSize, position: CGPoint(x: centerX, y: upgradeButtonY))
 
+        layoutBattlefield(contentWidth: contentWidth, hpBarBottomY: hpBarBottomY, spawnButtonTopY: spawnButtonTopY)
+
         fitLabel(goldLabel, maxWidth: contentWidth)
         fitLabel(cityLevelLabel, maxWidth: contentWidth)
         fitLabel(soldierAttackLabel, maxWidth: contentWidth)
@@ -318,16 +297,108 @@ final class GameScene: SKScene {
         button.position = position
     }
 
-    private func makeBattleStructureNode(name: String, size: CGSize, color: SKColor) -> SKNode {
-        let node = SKShapeNode(
-            rectOf: size,
-            cornerRadius: 8
+    private func buildBattlefield() {
+        let castleNode = makeBattleSprite(
+            named: BattleAssetName.playerCastle,
+            fallbackColor: SKColor(red: 0.22, green: 0.40, blue: 0.64, alpha: 1.0)
         )
-        node.name = name
-        node.fillColor = color
+        let cityNode = makeBattleSprite(
+            named: BattleAssetName.enemyCity,
+            fallbackColor: SKColor(red: 0.58, green: 0.28, blue: 0.26, alpha: 1.0)
+        )
+
+        castleNode.name = BattleAssetName.playerCastle
+        cityNode.name = BattleAssetName.enemyCity
+        playerCastleNode = castleNode
+        enemyCityNode = cityNode
+        environmentLayer.addChild(castleNode)
+        environmentLayer.addChild(cityNode)
+    }
+
+    private func makeBattleSprite(named assetName: String, fallbackColor: SKColor) -> SKNode {
+        if UIImage(named: assetName) != nil {
+            let sprite = SKSpriteNode(imageNamed: assetName)
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            return sprite
+        }
+
+        let node = SKShapeNode(rect: CGRect(x: -48, y: 0, width: 96, height: 92), cornerRadius: 8)
+        node.fillColor = fallbackColor
         node.strokeColor = SKColor(white: 1.0, alpha: 0.22)
         node.lineWidth = 2
         return node
+    }
+
+    private func layoutBattlefield(contentWidth: CGFloat, hpBarBottomY: CGFloat, spawnButtonTopY: CGFloat) {
+        let availableHeight = max(96, hpBarBottomY - spawnButtonTopY)
+        let laneY = spawnButtonTopY + max(42, availableHeight * 0.22)
+        let targetHeight = max(72, min(132, availableHeight * 0.34, size.height * 0.17, contentWidth * 0.34))
+
+        if let playerCastleNode {
+            fitBattleNode(playerCastleNode, targetHeight: targetHeight)
+        }
+        if let enemyCityNode {
+            fitBattleNode(enemyCityNode, targetHeight: targetHeight * 1.04)
+        }
+
+        let horizontalInset = max(24, (size.width - contentWidth) / 2 + 18)
+        let castleWidth = playerCastleNode?.calculateAccumulatedFrame().width ?? targetHeight
+        let cityWidth = enemyCityNode?.calculateAccumulatedFrame().width ?? targetHeight
+        let castleX = horizontalInset + castleWidth / 2
+        let enemyX = size.width - horizontalInset - cityWidth / 2
+        let gateY = laneY + max(8, targetHeight * 0.10)
+
+        playerCastleNode?.position = CGPoint(x: castleX, y: laneY)
+        enemyCityNode?.position = CGPoint(x: enemyX, y: laneY)
+        castleGatePoint = CGPoint(x: castleX + castleWidth * 0.32, y: gateY)
+        enemyGatePoint = CGPoint(x: enemyX - cityWidth * 0.34, y: gateY)
+
+        for soldier in pendingSoldiers {
+            fitBattleNode(soldier, targetHeight: max(28, min(42, size.height * 0.05)))
+        }
+
+        drawGroundLane(from: CGPoint(x: castleX, y: laneY), to: CGPoint(x: enemyX, y: laneY))
+    }
+
+    private func fitBattleNode(_ node: SKNode, targetHeight: CGFloat) {
+        guard targetHeight > 0 else {
+            return
+        }
+
+        node.setScale(1)
+
+        let currentHeight: CGFloat
+        if let sprite = node as? SKSpriteNode {
+            currentHeight = sprite.size.height
+        } else if let shape = node as? SKShapeNode {
+            currentHeight = shape.frame.height
+        } else {
+            currentHeight = node.calculateAccumulatedFrame().height
+        }
+
+        guard currentHeight > 0 else {
+            return
+        }
+
+        node.setScale(targetHeight / currentHeight)
+    }
+
+    private func drawGroundLane(from start: CGPoint, to end: CGPoint) {
+        battleGroundLane?.removeFromParent()
+
+        let laneHeight = max(14, min(26, size.height * 0.025))
+        let laneInset: CGFloat = 20
+        let minX = min(start.x, end.x) - laneInset
+        let maxX = max(start.x, end.x) + laneInset
+        let laneRect = CGRect(x: minX, y: start.y - laneHeight / 2, width: maxX - minX, height: laneHeight)
+        let lane = SKShapeNode(rect: laneRect, cornerRadius: laneHeight / 2)
+        lane.name = "battleGroundLane"
+        lane.fillColor = SKColor(red: 0.25, green: 0.34, blue: 0.27, alpha: 1.0)
+        lane.strokeColor = SKColor(red: 0.43, green: 0.52, blue: 0.36, alpha: 1.0)
+        lane.lineWidth = 2
+        lane.zPosition = -1
+        environmentLayer.addChild(lane)
+        battleGroundLane = lane
     }
 
     private func redraw() {
@@ -343,6 +414,7 @@ final class GameScene: SKScene {
 
     private func spawnSoldier() {
         let soldier = makeSoldierNode()
+        fitBattleNode(soldier, targetHeight: max(28, min(42, size.height * 0.05)))
         soldier.position = castleGatePoint
         soldierLayer.addChild(soldier)
         pendingSoldiers.append(soldier)
@@ -403,11 +475,21 @@ final class GameScene: SKScene {
     }
 
     private func makeSoldierNode() -> SKNode {
-        let soldier = SKShapeNode(circleOfRadius: 10)
+        let soldier: SKNode
+
+        if UIImage(named: BattleAssetName.normalSoldier) != nil {
+            let sprite = SKSpriteNode(imageNamed: BattleAssetName.normalSoldier)
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            soldier = sprite
+        } else {
+            let shape = SKShapeNode(rect: CGRect(x: -10, y: 0, width: 20, height: 28), cornerRadius: 5)
+            shape.fillColor = SKColor(red: 0.18, green: 0.52, blue: 1.0, alpha: 1.0)
+            shape.strokeColor = SKColor(white: 1.0, alpha: 0.4)
+            shape.lineWidth = 2
+            soldier = shape
+        }
+
         soldier.name = BattleAssetName.normalSoldier
-        soldier.fillColor = SKColor(red: 0.18, green: 0.52, blue: 1.0, alpha: 1.0)
-        soldier.strokeColor = SKColor(white: 1.0, alpha: 0.4)
-        soldier.lineWidth = 2
         return soldier
     }
 
