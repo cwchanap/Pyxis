@@ -266,7 +266,12 @@ final class GameScene: SKScene {
         layoutButton(spawnButton, background: spawnButtonBackground, size: buttonSize, position: CGPoint(x: centerX, y: spawnButtonY))
         layoutButton(upgradeButton, background: upgradeButtonBackground, size: buttonSize, position: CGPoint(x: centerX, y: upgradeButtonY))
 
-        layoutBattlefield(contentWidth: contentWidth, hpBarBottomY: hpBarBottomY, spawnButtonTopY: spawnButtonTopY)
+        layoutBattlefield(
+            contentWidth: contentWidth,
+            hpBarBottomY: hpBarBottomY,
+            spawnButtonTopY: spawnButtonTopY,
+            feedbackY: feedbackY
+        )
 
         fitLabel(goldLabel, maxWidth: contentWidth)
         fitLabel(cityLevelLabel, maxWidth: contentWidth)
@@ -329,10 +334,32 @@ final class GameScene: SKScene {
         return node
     }
 
-    private func layoutBattlefield(contentWidth: CGFloat, hpBarBottomY: CGFloat, spawnButtonTopY: CGFloat) {
-        let availableHeight = max(96, hpBarBottomY - spawnButtonTopY)
-        let laneY = spawnButtonTopY + max(42, availableHeight * 0.22)
-        let targetHeight = max(72, min(132, availableHeight * 0.34, size.height * 0.17, contentWidth * 0.34))
+    private func layoutBattlefield(
+        contentWidth: CGFloat,
+        hpBarBottomY: CGFloat,
+        spawnButtonTopY: CGFloat,
+        feedbackY: CGFloat
+    ) {
+        let actualGap = hpBarBottomY - spawnButtonTopY
+        let verticalPadding: CGFloat = 8
+        let feedbackClearance = max(24, feedbackLabel.fontSize + 10)
+        let safeTopY = min(hpBarBottomY - verticalPadding, feedbackY - feedbackClearance)
+        let safeBottomY = spawnButtonTopY + verticalPadding
+        let availableHeight = safeTopY - safeBottomY
+
+        guard availableHeight >= 44 else {
+            setBattlefieldHidden(true)
+            battleGroundLane?.removeFromParent()
+            battleGroundLane = nil
+            castleGatePoint = CGPoint(x: size.width * 0.24, y: spawnButtonTopY + max(10, actualGap * 0.25))
+            enemyGatePoint = CGPoint(x: size.width * 0.76, y: castleGatePoint.y)
+            return
+        }
+
+        setBattlefieldHidden(false)
+
+        let laneY = safeBottomY + min(max(availableHeight * 0.18, 8), 24)
+        let targetHeight = max(28, min(96, availableHeight - 10, size.height * 0.16, contentWidth * 0.30))
 
         if let playerCastleNode {
             fitBattleNode(playerCastleNode, targetHeight: targetHeight)
@@ -399,6 +426,12 @@ final class GameScene: SKScene {
         lane.zPosition = -1
         environmentLayer.addChild(lane)
         battleGroundLane = lane
+    }
+
+    private func setBattlefieldHidden(_ isHidden: Bool) {
+        environmentLayer.isHidden = isHidden
+        soldierLayer.isHidden = isHidden
+        effectsLayer.isHidden = isHidden
     }
 
     private func redraw() {
