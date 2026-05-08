@@ -17,6 +17,7 @@ struct GameSceneAnimationTests {
         scene.spawnSoldierForTesting()
 
         #expect(scene.pendingSoldierAttackCountForTesting == 1)
+        #expect(scene.cityRemainingPowerForTesting == 20)
         #expect(store.load().cityRemainingPower == 20)
 
         scene.completeFirstPendingSoldierAttackForTesting()
@@ -48,6 +49,15 @@ struct GameSceneAnimationTests {
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
+
+        #expect(scene.cityRemainingPowerForTesting == 1)
+        #expect(scene.cityLevelForTesting == 1)
+        #expect(scene.goldForTesting == 0)
+        let preImpactState = store.load()
+        #expect(preImpactState.cityRemainingPower == 1)
+        #expect(preImpactState.cityLevel == 1)
+        #expect(preImpactState.gold == 0)
+
         scene.completeFirstPendingSoldierAttackForTesting()
 
         let savedState = store.load()
