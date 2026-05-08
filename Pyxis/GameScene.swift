@@ -534,9 +534,69 @@ final class GameScene: SKScene {
         return soldier
     }
 
-    private func playCityHitFeedback() {}
+    private func playCityHitFeedback() {
+        guard let enemyCityNode else {
+            return
+        }
 
-    private func playCityConquestFeedback() {}
+        enemyCityNode.removeAction(forKey: "cityHitFeedback")
+
+        if let sprite = enemyCityNode as? SKSpriteNode {
+            let originalColor = sprite.color
+            let originalBlendFactor = sprite.colorBlendFactor
+            let flash = SKAction.colorize(with: .white, colorBlendFactor: 0.8, duration: 0.06)
+            let restore = SKAction.colorize(with: originalColor, colorBlendFactor: originalBlendFactor, duration: 0.12)
+            sprite.run(SKAction.sequence([flash, restore]), withKey: "cityHitFeedback")
+        } else {
+            enemyCityNode.run(cityShakeAction(), withKey: "cityHitFeedback")
+        }
+
+        playImpactFlash()
+    }
+
+    private func playCityConquestFeedback() {
+        guard let enemyCityNode else {
+            return
+        }
+
+        enemyCityNode.removeAction(forKey: "cityConquestFeedback")
+
+        let originalXScale = enemyCityNode.xScale
+        let originalYScale = enemyCityNode.yScale
+        let pulse = SKAction.scaleX(to: originalXScale * 1.12, y: originalYScale * 1.12, duration: 0.09)
+        pulse.timingMode = .easeOut
+        let restore = SKAction.scaleX(to: originalXScale, y: originalYScale, duration: 0.14)
+        restore.timingMode = .easeIn
+        enemyCityNode.run(SKAction.sequence([pulse, restore]), withKey: "cityConquestFeedback")
+
+        playImpactFlash()
+    }
+
+    private func playImpactFlash() {
+        let flash = SKShapeNode(circleOfRadius: 9)
+        flash.fillColor = SKColor(red: 1.0, green: 0.78, blue: 0.16, alpha: 0.9)
+        flash.strokeColor = SKColor(red: 1.0, green: 0.38, blue: 0.08, alpha: 0.95)
+        flash.lineWidth = 2
+        flash.position = enemyGatePoint
+        flash.zPosition = 40
+        flash.setScale(0.4)
+        effectsLayer.addChild(flash)
+
+        let expand = SKAction.scale(to: 2.2, duration: 0.22)
+        expand.timingMode = .easeOut
+        let fade = SKAction.fadeOut(withDuration: 0.22)
+        let remove = SKAction.removeFromParent()
+        flash.run(SKAction.sequence([SKAction.group([expand, fade]), remove]))
+    }
+
+    private func cityShakeAction() -> SKAction {
+        SKAction.sequence([
+            SKAction.moveBy(x: -5, y: 0, duration: 0.03),
+            SKAction.moveBy(x: 10, y: 0, duration: 0.05),
+            SKAction.moveBy(x: -8, y: 0, duration: 0.04),
+            SKAction.moveBy(x: 3, y: 0, duration: 0.03)
+        ])
+    }
 
     private func upgradeSoldier() {
         let result = state.upgradeNormalSoldier()
