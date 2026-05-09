@@ -39,7 +39,11 @@ struct KingdomGameStateTests {
           "cityLevel": 0,
           "cityRemainingPower": -9,
           "normalSoldierUpgradeLevel": 0,
-          "lastBackgroundedAt": null
+          "lastBackgroundedAt": null,
+          "countryNumber": 0,
+          "cityNumberInCountry": 0,
+          "completedCityCount": -3,
+          "stageStatus": "battleActive"
         }
         """.data(using: .utf8)!
 
@@ -50,6 +54,10 @@ struct KingdomGameStateTests {
         #expect(state.cityRemainingPower == 1)
         #expect(state.normalSoldierUpgradeLevel == 1)
         #expect(state.lastBackgroundedAt == nil)
+        #expect(state.countryNumber == 1)
+        #expect(state.cityNumberInCountry == 1)
+        #expect(state.completedCityCount == 0)
+        #expect(state.stageStatus == .battleActive)
     }
 
     @Test func decodingOldPrototypeSaveInfersCampaignProgressFromCityLevel() throws {
