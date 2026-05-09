@@ -72,19 +72,84 @@ struct KingdomGameStateTests {
         #expect(state.cityRemainingPower == 12)
     }
 
+    @Test func decodingInvalidStageStatusFallsBackWithoutDiscardingRecoverableFields() throws {
+        let data = """
+        {
+          "gold": 40,
+          "cityLevel": 4,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 2,
+          "countryNumber": 1,
+          "cityNumberInCountry": 4,
+          "completedCityCount": 3,
+          "stageStatus": "renamedStatus"
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.gold == 40)
+        #expect(state.cityLevel == 4)
+        #expect(state.cityRemainingPower == 12)
+        #expect(state.normalSoldierUpgradeLevel == 2)
+        #expect(state.countryNumber == 1)
+        #expect(state.cityNumberInCountry == 4)
+        #expect(state.completedCityCount == 3)
+        #expect(state.stageStatus == .battleActive)
+    }
+
     @Test func countryCompleteInitializationNormalizesCompletedCityCount() {
         let state = KingdomGameState(
-            cityLevel: 15,
+            cityLevel: 4,
             countryNumber: 1,
-            cityNumberInCountry: 15,
+            cityNumberInCountry: 3,
             completedCityCount: 3,
             stageStatus: .countryComplete
         )
 
         #expect(state.completedCityCount == KingdomGameState.firstCountryCityCount)
+        #expect(state.cityNumberInCountry == KingdomGameState.firstCountryCityCount)
+        #expect(state.cityLevel == KingdomGameState.firstCountryCityCount)
         #expect(state.stageStatus == .countryComplete)
         #expect(state.mapStatus(for: 15) == .completed)
         #expect(state.hasNextCityInCountry == false)
+    }
+
+    @Test func pendingMapStateIncludesCurrentCityInCompletedCount() {
+        let state = KingdomGameState(
+            cityLevel: 4,
+            cityRemainingPower: 0,
+            countryNumber: 1,
+            cityNumberInCountry: 4,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        #expect(state.cityLevel == 4)
+        #expect(state.cityNumberInCountry == 4)
+        #expect(state.completedCityCount == 4)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.mapStatus(for: 4) == .completed)
+        #expect(state.mapStatus(for: 5) == .unlocked)
+    }
+
+    @Test func activeBattleNormalizesAwayFromCompletedCity() {
+        let state = KingdomGameState(
+            cityLevel: 2,
+            cityRemainingPower: 11,
+            countryNumber: 1,
+            cityNumberInCountry: 2,
+            completedCityCount: 5,
+            stageStatus: .battleActive
+        )
+
+        #expect(state.cityNumberInCountry == 6)
+        #expect(state.cityLevel == 6)
+        #expect(state.completedCityCount == 5)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.cityRemainingPower == 11)
+        #expect(state.mapStatus(for: 5) == .completed)
+        #expect(state.mapStatus(for: 6) == .unlocked)
     }
 
     @Test func firstLaunchStartsBattleReadyAtCountryOneCityOne() {

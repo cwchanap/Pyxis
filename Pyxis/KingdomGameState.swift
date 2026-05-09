@@ -98,7 +98,10 @@ struct KingdomGameState: Codable, Equatable {
         let clampedCompletedCityCount = min(max(0, completedCityCount), Self.firstCountryCityCount)
         let clampedCityNumber = min(max(1, cityNumberInCountry), Self.firstCountryCityCount)
         let clampedCityLevel = max(1, cityLevel)
-        let resolvedStatus: StageStatus
+        var resolvedStatus: StageStatus
+        var normalizedCompletedCityCount = clampedCompletedCityCount
+        var normalizedCityNumber = clampedCityNumber
+        var normalizedCityLevel = clampedCityLevel
 
         if clampedCompletedCityCount >= Self.firstCountryCityCount || stageStatus == .countryComplete {
             resolvedStatus = .countryComplete
@@ -108,19 +111,39 @@ struct KingdomGameState: Codable, Equatable {
             resolvedStatus = .battleActive
         }
 
+        switch resolvedStatus {
+        case .battleActive:
+            normalizedCityNumber = min(normalizedCompletedCityCount + 1, Self.firstCountryCityCount)
+            normalizedCityLevel = normalizedCityNumber
+        case .cityConqueredPendingMap:
+            normalizedCompletedCityCount = min(
+                Self.firstCountryCityCount,
+                max(normalizedCompletedCityCount, normalizedCityNumber)
+            )
+            if normalizedCompletedCityCount >= Self.firstCountryCityCount {
+                resolvedStatus = .countryComplete
+                normalizedCityNumber = Self.firstCountryCityCount
+                normalizedCityLevel = Self.firstCountryCityCount
+            } else {
+                normalizedCityLevel = normalizedCityNumber
+            }
+        case .countryComplete:
+            normalizedCompletedCityCount = Self.firstCountryCityCount
+            normalizedCityNumber = Self.firstCountryCityCount
+            normalizedCityLevel = Self.firstCountryCityCount
+        }
+
         self.gold = max(0, gold)
-        self.cityLevel = clampedCityLevel
+        self.cityLevel = normalizedCityLevel
         self.normalSoldierUpgradeLevel = max(1, normalSoldierUpgradeLevel)
         self.lastBackgroundedAt = lastBackgroundedAt
         self.countryNumber = clampedCountryNumber
-        self.cityNumberInCountry = clampedCityNumber
-        self.completedCityCount = resolvedStatus == .countryComplete
-            ? Self.firstCountryCityCount
-            : clampedCompletedCityCount
+        self.cityNumberInCountry = normalizedCityNumber
+        self.completedCityCount = normalizedCompletedCityCount
         self.stageStatus = resolvedStatus
 
         if resolvedStatus == .battleActive {
-            self.cityRemainingPower = max(1, cityRemainingPower ?? Self.cityMaxPower(for: clampedCityLevel))
+            self.cityRemainingPower = max(1, cityRemainingPower ?? Self.cityMaxPower(for: normalizedCityLevel))
         } else {
             self.cityRemainingPower = max(0, cityRemainingPower ?? 0)
         }
@@ -128,6 +151,13 @@ struct KingdomGameState: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedStageStatus: StageStatus
+
+        if let rawStageStatus = try? container.decodeIfPresent(String.self, forKey: .stageStatus) {
+            decodedStageStatus = StageStatus(rawValue: rawStageStatus) ?? .battleActive
+        } else {
+            decodedStageStatus = .battleActive
+        }
 
         self.init(
             gold: try container.decodeIfPresent(Int.self, forKey: .gold) ?? 0,
@@ -140,7 +170,7 @@ struct KingdomGameState: Codable, Equatable {
                 ?? min(max(1, try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1), Self.firstCountryCityCount),
             completedCityCount: try container.decodeIfPresent(Int.self, forKey: .completedCityCount)
                 ?? min(max(0, (try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1) - 1), Self.firstCountryCityCount),
-            stageStatus: try container.decodeIfPresent(StageStatus.self, forKey: .stageStatus) ?? .battleActive
+            stageStatus: decodedStageStatus
         )
     }
 
