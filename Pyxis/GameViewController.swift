@@ -8,21 +8,18 @@
 import UIKit
 import SpriteKit
 
-class GameViewController: UIViewController {
+final class GameViewController: UIViewController {
+    private let store = KingdomGameStore.shared
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        if let view = self.view as? SKView {
-            let scene = BattleScene(size: view.bounds.size)
-            scene.scaleMode = .resizeFill
-            view.presentScene(scene)
-            
-            view.ignoresSiblingOrder = true
-            
-            view.showsFPS = true
-            view.showsNodeCount = true
+
+        guard let view = self.view as? SKView else {
+            return
         }
+
+        configure(view)
+        presentInitialScene(in: view)
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
@@ -34,6 +31,55 @@ class GameViewController: UIViewController {
     }
 
     override var prefersStatusBarHidden: Bool {
-        return true
+        true
+    }
+
+    private func configure(_ view: SKView) {
+        view.ignoresSiblingOrder = true
+        view.showsFPS = true
+        view.showsNodeCount = true
+    }
+
+    private func presentInitialScene(in view: SKView) {
+        let state = store.load()
+
+        switch state.stageStatus {
+        case .battleActive:
+            presentBattleScene(in: view)
+        case .cityConqueredPendingMap, .countryComplete:
+            presentCountryMapScene(in: view)
+        }
+    }
+
+    private func presentBattleScene(in view: SKView) {
+        let scene = BattleScene(size: view.bounds.size, store: store, router: self)
+        scene.scaleMode = .resizeFill
+        view.presentScene(scene)
+    }
+
+    private func presentCountryMapScene(in view: SKView) {
+        let scene = CountryMapScene(size: view.bounds.size, store: store, router: self)
+        scene.scaleMode = .resizeFill
+        view.presentScene(scene)
+    }
+}
+
+extension GameViewController: BattleSceneRouting {
+    func battleSceneDidRequestCountryMap(_ scene: BattleScene) {
+        guard let view = self.view as? SKView else {
+            return
+        }
+
+        presentCountryMapScene(in: view)
+    }
+}
+
+extension GameViewController: CountryMapSceneRouting {
+    func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) {
+        guard let view = self.view as? SKView else {
+            return
+        }
+
+        presentBattleScene(in: view)
     }
 }
