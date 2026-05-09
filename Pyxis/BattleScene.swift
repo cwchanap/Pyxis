@@ -696,6 +696,8 @@ final class BattleScene: SKScene {
             feedbackText = "Upgraded for \(cost) gold. Attack: \(newAttackPower)."
         case let .insufficientGold(cost, currentGold):
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
+        case .unavailable:
+            feedbackText = "Enter a city to upgrade soldiers."
         }
 
         store.save(state)

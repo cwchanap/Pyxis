@@ -332,6 +332,21 @@ struct KingdomGameStateTests {
         #expect(state == original)
     }
 
+    @Test func upgradeIsRejectedWhenBattleIsPausedForMap() {
+        let original = KingdomGameState(
+            gold: 30,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        var state = original
+
+        _ = state.upgradeNormalSoldier()
+
+        #expect(state == original)
+    }
+
     @Test func idleCatchUpAppliesAutomaticDamageAndClearsTimestamp() {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         let end = start.addingTimeInterval(5)

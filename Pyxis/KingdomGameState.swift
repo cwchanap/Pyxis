@@ -59,6 +59,7 @@ struct KingdomGameState: Codable, Equatable {
     enum UpgradeResult: Equatable {
         case upgraded(cost: Int, newAttackPower: Int)
         case insufficientGold(cost: Int, currentGold: Int)
+        case unavailable
     }
 
     var gold: Int
@@ -329,6 +330,10 @@ struct KingdomGameState: Codable, Equatable {
 
     @discardableResult
     mutating func upgradeNormalSoldier() -> UpgradeResult {
+        guard stageStatus == .battleActive else {
+            return .unavailable
+        }
+
         let cost = normalSoldierUpgradeCost
 
         guard gold >= cost else {

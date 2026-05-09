@@ -67,6 +67,19 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackTextForTesting == "Country 1 conquered.")
     }
 
+    @Test func completedCountryStartsWithConqueredFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 15,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 15,
+            completedCityCount: 15,
+            stageStatus: .countryComplete
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.feedbackTextForTesting == "Country 1 conquered.")
+    }
+
     @Test func enteringCityUsesLatestStoredState() throws {
         let initialState = KingdomGameState(
             cityRemainingPower: 0,

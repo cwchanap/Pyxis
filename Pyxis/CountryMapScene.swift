@@ -46,6 +46,7 @@ final class CountryMapScene: SKScene {
     override func didMove(to view: SKView) {
         backgroundColor = SKColor(red: 0.07, green: 0.12, blue: 0.14, alpha: 1.0)
         state = store.load()
+        feedbackText = defaultFeedbackText(for: state)
 
         if !didBuildInterface {
             buildInterface()
@@ -225,6 +226,14 @@ final class CountryMapScene: SKScene {
                 cityLabels[cityNumber]?.fontColor = SKColor(white: 1.0, alpha: 0.55)
             }
         }
+    }
+
+    private func defaultFeedbackText(for state: KingdomGameState) -> String {
+        if state.stageStatus == .countryComplete {
+            return "Country \(state.countryNumber) conquered."
+        }
+
+        return "Select the unlocked city."
     }
 
     private func cityNumber(at point: CGPoint) -> Int? {
