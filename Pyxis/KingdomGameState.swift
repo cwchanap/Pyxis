@@ -7,11 +7,39 @@ import Foundation
 
 struct KingdomGameState: Codable, Equatable {
     static let maxIdleCatchUpSeconds = 8 * 60 * 60
+    static let firstCountryCityCount = 15
+
+    enum StageStatus: String, Codable, Equatable {
+        case battleActive
+        case cityConqueredPendingMap
+        case countryComplete
+    }
+
+    enum MapCityStatus: Equatable {
+        case completed
+        case unlocked
+        case locked
+    }
+
+    enum CityEntryResult: Equatable {
+        case entered(country: Int, city: Int)
+        case locked
+        case alreadyCompleted
+        case countryComplete
+    }
 
     struct AttackResult: Equatable {
+        let attackApplied: Bool
         let damageDealt: Int
         let conqueredCities: Int
         let goldEarned: Int
+
+        static let blocked = AttackResult(
+            attackApplied: false,
+            damageDealt: 0,
+            conqueredCities: 0,
+            goldEarned: 0
+        )
     }
 
     struct IdleProgressResult: Equatable {
@@ -38,6 +66,10 @@ struct KingdomGameState: Codable, Equatable {
     var cityRemainingPower: Int
     var normalSoldierUpgradeLevel: Int
     var lastBackgroundedAt: Date?
+    var countryNumber: Int
+    var cityNumberInCountry: Int
+    var completedCityCount: Int
+    var stageStatus: StageStatus
 
     private enum CodingKeys: String, CodingKey {
         case gold
@@ -45,6 +77,10 @@ struct KingdomGameState: Codable, Equatable {
         case cityRemainingPower
         case normalSoldierUpgradeLevel
         case lastBackgroundedAt
+        case countryNumber
+        case cityNumberInCountry
+        case completedCityCount
+        case stageStatus
     }
 
     init(
@@ -52,13 +88,40 @@ struct KingdomGameState: Codable, Equatable {
         cityLevel: Int = 1,
         cityRemainingPower: Int? = nil,
         normalSoldierUpgradeLevel: Int = 1,
-        lastBackgroundedAt: Date? = nil
+        lastBackgroundedAt: Date? = nil,
+        countryNumber: Int = 1,
+        cityNumberInCountry: Int = 1,
+        completedCityCount: Int = 0,
+        stageStatus: StageStatus = .battleActive
     ) {
+        let clampedCountryNumber = max(1, countryNumber)
+        let clampedCompletedCityCount = min(max(0, completedCityCount), Self.firstCountryCityCount)
+        let clampedCityNumber = min(max(1, cityNumberInCountry), Self.firstCountryCityCount)
+        let clampedCityLevel = max(1, cityLevel)
+        let resolvedStatus: StageStatus
+
+        if clampedCompletedCityCount >= Self.firstCountryCityCount || stageStatus == .countryComplete {
+            resolvedStatus = .countryComplete
+        } else if stageStatus == .cityConqueredPendingMap {
+            resolvedStatus = .cityConqueredPendingMap
+        } else {
+            resolvedStatus = .battleActive
+        }
+
         self.gold = max(0, gold)
-        self.cityLevel = max(1, cityLevel)
-        self.cityRemainingPower = max(1, cityRemainingPower ?? Self.cityMaxPower(for: max(1, cityLevel)))
+        self.cityLevel = clampedCityLevel
         self.normalSoldierUpgradeLevel = max(1, normalSoldierUpgradeLevel)
         self.lastBackgroundedAt = lastBackgroundedAt
+        self.countryNumber = clampedCountryNumber
+        self.cityNumberInCountry = clampedCityNumber
+        self.completedCityCount = clampedCompletedCityCount
+        self.stageStatus = resolvedStatus
+
+        if resolvedStatus == .battleActive {
+            self.cityRemainingPower = max(1, cityRemainingPower ?? Self.cityMaxPower(for: clampedCityLevel))
+        } else {
+            self.cityRemainingPower = max(0, cityRemainingPower ?? 0)
+        }
     }
 
     init(from decoder: Decoder) throws {
@@ -69,7 +132,13 @@ struct KingdomGameState: Codable, Equatable {
             cityLevel: try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1,
             cityRemainingPower: try container.decodeIfPresent(Int.self, forKey: .cityRemainingPower),
             normalSoldierUpgradeLevel: try container.decodeIfPresent(Int.self, forKey: .normalSoldierUpgradeLevel) ?? 1,
-            lastBackgroundedAt: try container.decodeIfPresent(Date.self, forKey: .lastBackgroundedAt)
+            lastBackgroundedAt: try container.decodeIfPresent(Date.self, forKey: .lastBackgroundedAt),
+            countryNumber: try container.decodeIfPresent(Int.self, forKey: .countryNumber) ?? 1,
+            cityNumberInCountry: try container.decodeIfPresent(Int.self, forKey: .cityNumberInCountry)
+                ?? min(max(1, try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1), Self.firstCountryCityCount),
+            completedCityCount: try container.decodeIfPresent(Int.self, forKey: .completedCityCount)
+                ?? min(max(0, (try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1) - 1), Self.firstCountryCityCount),
+            stageStatus: try container.decodeIfPresent(StageStatus.self, forKey: .stageStatus) ?? .battleActive
         )
     }
 
@@ -89,21 +158,82 @@ struct KingdomGameState: Codable, Equatable {
         Self.normalSoldierUpgradeCost(for: normalSoldierUpgradeLevel)
     }
 
+    var displayCityTitle: String {
+        "Country \(countryNumber) - City \(cityNumberInCountry)"
+    }
+
+    var hasNextCityInCountry: Bool {
+        completedCityCount < Self.firstCountryCityCount
+    }
+
+    func mapStatus(for cityNumber: Int) -> MapCityStatus {
+        guard (1...Self.firstCountryCityCount).contains(cityNumber) else {
+            return .locked
+        }
+
+        if cityNumber <= completedCityCount {
+            return .completed
+        }
+
+        if stageStatus != .countryComplete && cityNumber == completedCityCount + 1 {
+            return .unlocked
+        }
+
+        return .locked
+    }
+
+    @discardableResult
+    mutating func startCityFromMap(_ cityNumber: Int) -> CityEntryResult {
+        guard stageStatus != .countryComplete else {
+            return .countryComplete
+        }
+
+        guard (1...Self.firstCountryCityCount).contains(cityNumber) else {
+            return .locked
+        }
+
+        if cityNumber <= completedCityCount {
+            return .alreadyCompleted
+        }
+
+        guard cityNumber == completedCityCount + 1 else {
+            return .locked
+        }
+
+        cityNumberInCountry = cityNumber
+        cityLevel = completedCityCount + 1
+        cityRemainingPower = cityMaxPower
+        stageStatus = .battleActive
+        lastBackgroundedAt = nil
+
+        return .entered(country: countryNumber, city: cityNumberInCountry)
+    }
+
     @discardableResult
     mutating func spawnSoldierAttack() -> AttackResult {
+        guard stageStatus == .battleActive else {
+            return .blocked
+        }
+
         let damage = normalSoldierAttackPower
         cityRemainingPower -= damage
 
         guard cityRemainingPower <= 0 else {
-            return AttackResult(damageDealt: damage, conqueredCities: 0, goldEarned: 0)
+            return AttackResult(attackApplied: true, damageDealt: damage, conqueredCities: 0, goldEarned: 0)
         }
 
         let reward = currentGoldReward
         gold += reward
-        cityLevel += 1
-        cityRemainingPower = cityMaxPower
+        cityRemainingPower = 0
+        completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
 
-        return AttackResult(damageDealt: damage, conqueredCities: 1, goldEarned: reward)
+        if completedCityCount >= Self.firstCountryCityCount {
+            stageStatus = .countryComplete
+        } else {
+            stageStatus = .cityConqueredPendingMap
+        }
+
+        return AttackResult(attackApplied: true, damageDealt: damage, conqueredCities: 1, goldEarned: reward)
     }
 
     mutating func enterBackground(at date: Date) {

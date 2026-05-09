@@ -52,6 +52,19 @@ struct KingdomGameStateTests {
         #expect(state.lastBackgroundedAt == nil)
     }
 
+    @Test func firstLaunchStartsBattleReadyAtCountryOneCityOne() {
+        let state = KingdomGameState()
+
+        #expect(state.countryNumber == 1)
+        #expect(state.cityNumberInCountry == 1)
+        #expect(state.completedCityCount == 0)
+        #expect(state.cityLevel == 1)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.displayCityTitle == "Country 1 - City 1")
+        #expect(state.mapStatus(for: 1) == .unlocked)
+        #expect(state.mapStatus(for: 2) == .locked)
+    }
+
     @Test func spawningSoldierDamagesCurrentCity() {
         var state = KingdomGameState(cityRemainingPower: 20)
 
@@ -65,7 +78,40 @@ struct KingdomGameStateTests {
         #expect(state.gold == 0)
     }
 
-    @Test func spawnConquersCityAndGrantsGold() {
+    @Test func foregroundConquestMarksCurrentCityConqueredAndPausesCombat() {
+        var state = KingdomGameState(cityRemainingPower: 1)
+
+        let result = state.spawnSoldierAttack()
+
+        #expect(result.attackApplied)
+        #expect(result.damageDealt == 1)
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == 8)
+        #expect(state.gold == 8)
+        #expect(state.cityLevel == 1)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.completedCityCount == 1)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.mapStatus(for: 1) == .completed)
+        #expect(state.mapStatus(for: 2) == .unlocked)
+    }
+
+    @Test func combatActionIsRejectedAfterCityIsConquered() {
+        var state = KingdomGameState(cityRemainingPower: 1)
+
+        _ = state.spawnSoldierAttack()
+        let blockedResult = state.spawnSoldierAttack()
+
+        #expect(!blockedResult.attackApplied)
+        #expect(blockedResult.damageDealt == 0)
+        #expect(blockedResult.conqueredCities == 0)
+        #expect(blockedResult.goldEarned == 0)
+        #expect(state.gold == 8)
+        #expect(state.completedCityCount == 1)
+        #expect(state.cityRemainingPower == 0)
+    }
+
+    @Test func spawnConquersCityAndGrantsGoldWithoutStartingNextCity() {
         var state = KingdomGameState(cityRemainingPower: 1)
 
         let result = state.spawnSoldierAttack()
@@ -74,19 +120,75 @@ struct KingdomGameStateTests {
         #expect(result.conqueredCities == 1)
         #expect(result.goldEarned == 8)
         #expect(state.gold == 8)
-        #expect(state.cityLevel == 2)
-        #expect(state.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
+        #expect(state.cityLevel == 1)
+        #expect(state.completedCityCount == 1)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
     }
 
-    @Test func foregroundSpawnDoesNotCarryOverExcessDamage() {
+    @Test func foregroundSpawnDoesNotCarryOverExcessDamageIntoNextCity() {
         var state = KingdomGameState(cityRemainingPower: 1, normalSoldierUpgradeLevel: 4)
 
         let result = state.spawnSoldierAttack()
 
         #expect(result.damageDealt == 3)
         #expect(result.conqueredCities == 1)
+        #expect(state.cityLevel == 1)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func startingNextUnlockedCityAdvancesAndRestoresFullHP() {
+        var state = KingdomGameState(cityRemainingPower: 1)
+        _ = state.spawnSoldierAttack()
+
+        let result = state.startCityFromMap(2)
+
+        #expect(result == .entered(country: 1, city: 2))
+        #expect(state.cityNumberInCountry == 2)
         #expect(state.cityLevel == 2)
         #expect(state.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func lockedFutureCityEntryIsRejected() {
+        var state = KingdomGameState(cityRemainingPower: 1)
+        _ = state.spawnSoldierAttack()
+
+        let result = state.startCityFromMap(3)
+
+        #expect(result == .locked)
+        #expect(state.cityNumberInCountry == 1)
+        #expect(state.cityLevel == 1)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func completedCityEntryIsRejected() {
+        var state = KingdomGameState(cityRemainingPower: 1)
+        _ = state.spawnSoldierAttack()
+
+        let result = state.startCityFromMap(1)
+
+        #expect(result == .alreadyCompleted)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func cityFifteenConquestCompletesCountry() {
+        var state = KingdomGameState(
+            cityLevel: 15,
+            cityRemainingPower: 1,
+            countryNumber: 1,
+            cityNumberInCountry: 15,
+            completedCityCount: 14
+        )
+
+        let result = state.spawnSoldierAttack()
+
+        #expect(result.conqueredCities == 1)
+        #expect(state.completedCityCount == 15)
+        #expect(state.stageStatus == .countryComplete)
+        #expect(state.mapStatus(for: 15) == .completed)
+        #expect(state.startCityFromMap(15) == .countryComplete)
     }
 
     @Test func successfulUpgradeSpendsGoldAndRaisesAttackPower() {
