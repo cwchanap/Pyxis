@@ -111,6 +111,28 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackTextForTesting == "Cannot enter city yet.")
     }
 
+    @Test func compactLandscapeLayoutKeepsCityNodesInsideMapArea() throws {
+        let size = CGSize(width: 667, height: 375)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let topMapLimit = size.height - 64
+
+        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
+            let cityNode = try #require(scene.childNode(withName: "//countryMapCity-\(cityNumber)"))
+            let frame = cityNode.calculateAccumulatedFrame()
+
+            #expect(frame.minX >= 0)
+            #expect(frame.maxX <= size.width)
+            #expect(frame.minY >= 0)
+            #expect(frame.maxY <= topMapLimit)
+        }
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         private(set) var didRequestBattle = false
 
@@ -120,7 +142,14 @@ struct CountryMapSceneTests {
     }
 
     private func makeScene(store: KingdomGameStore, router: CountryMapSceneRouting?) -> CountryMapScene {
-        let size = CGSize(width: 390, height: 844)
+        makeScene(size: CGSize(width: 390, height: 844), store: store, router: router)
+    }
+
+    private func makeScene(
+        size: CGSize,
+        store: KingdomGameStore,
+        router: CountryMapSceneRouting?
+    ) -> CountryMapScene {
         let scene = CountryMapScene(size: size, store: store, router: router)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)

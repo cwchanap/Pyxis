@@ -112,17 +112,24 @@ final class CountryMapScene: SKScene {
             return
         }
 
-        let topMargin: CGFloat = size.height < 500 ? 38 : 72
-        let bottomMargin: CGFloat = size.height < 500 ? 34 : 50
+        let isCompactHeight = size.height < 500
+        let topMargin: CGFloat = isCompactHeight ? 38 : 72
+        let bottomMargin: CGFloat = isCompactHeight ? 30 : 50
+        let nodeRadius: CGFloat = isCompactHeight ? 9 : 18
+        let labelFontSize: CGFloat = isCompactHeight ? 10 : 13
         let contentWidth = max(220, min(size.width - 48, 520))
-        let mapTop = size.height - topMargin - 70
-        let mapBottom = bottomMargin + 70
-        let mapHeight = max(220, mapTop - mapBottom)
 
         titleLabel.position = CGPoint(x: size.width / 2, y: size.height - topMargin)
         feedbackLabel.position = CGPoint(x: size.width / 2, y: bottomMargin)
+        titleLabel.fontSize = isCompactHeight ? 24 : 30
+        feedbackLabel.fontSize = isCompactHeight ? 13 : 16
 
-        let positions = cityPositions(contentWidth: contentWidth, mapHeight: mapHeight)
+        let titleClearance: CGFloat = isCompactHeight ? 34 : 44
+        let mapTop = min(size.height - nodeRadius - 4, titleLabel.position.y - titleClearance - nodeRadius)
+        let mapBottom = max(nodeRadius + 4, feedbackLabel.position.y + 32)
+        let mapHeight = max(0, mapTop - mapBottom)
+
+        let positions = cityPositions(contentWidth: contentWidth, mapBottom: mapBottom, mapHeight: mapHeight)
         drawRoutes(positions: positions)
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
@@ -130,18 +137,20 @@ final class CountryMapScene: SKScene {
                 continue
             }
 
+            cityNodes[cityNumber]?.setScale(nodeRadius / 18)
+            cityNodes[cityNumber]?.lineWidth = isCompactHeight ? 2 : 3
             cityNodes[cityNumber]?.position = position
+            cityLabels[cityNumber]?.fontSize = labelFontSize
             cityLabels[cityNumber]?.position = position
         }
     }
 
-    private func cityPositions(contentWidth: CGFloat, mapHeight: CGFloat) -> [Int: CGPoint] {
+    private func cityPositions(contentWidth: CGFloat, mapBottom: CGFloat, mapHeight: CGFloat) -> [Int: CGPoint] {
         let centerX = size.width / 2
         let leftX = centerX - contentWidth * 0.36
         let midLeftX = centerX - contentWidth * 0.18
         let midRightX = centerX + contentWidth * 0.14
         let rightX = centerX + contentWidth * 0.36
-        let bottomY = max(100, feedbackLabel.position.y + 58)
         let stepY = mapHeight / CGFloat(KingdomGameState.firstCountryCityCount - 1)
         let columns = [
             leftX, midLeftX, midRightX, rightX, midRightX,
@@ -153,7 +162,7 @@ final class CountryMapScene: SKScene {
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             positions[cityNumber] = CGPoint(
                 x: columns[cityNumber - 1],
-                y: bottomY + CGFloat(cityNumber - 1) * stepY
+                y: mapBottom + CGFloat(cityNumber - 1) * stepY
             )
         }
 
