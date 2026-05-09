@@ -734,6 +734,7 @@ final class BattleScene: SKScene {
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
+                clearPendingSoldierAttacks()
                 feedbackText = "Idle attacks conquered \(state.displayCityTitle)."
             } else {
                 feedbackText = "Idle attacks dealt \(result.damageDealt) damage."
