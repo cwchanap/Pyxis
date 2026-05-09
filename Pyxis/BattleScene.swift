@@ -496,7 +496,7 @@ final class BattleScene: SKScene {
 
     private func redraw() {
         goldLabel.text = "Gold: \(state.gold)"
-        cityLevelLabel.text = "City Level: \(state.cityLevel)"
+        cityLevelLabel.text = state.displayCityTitle
         soldierAttackLabel.text = "Soldier Attack: \(state.normalSoldierAttackPower)"
         cityHPLabel.text = "City HP: \(state.cityRemainingPower) / \(state.cityMaxPower)"
         feedbackLabel.text = feedbackText
@@ -838,6 +838,10 @@ extension BattleScene {
 
     var goldForTesting: Int {
         state.gold
+    }
+
+    var cityTitleTextForTesting: String? {
+        cityLevelLabel.text
     }
 
     var isConquestPopupVisibleForTesting: Bool {

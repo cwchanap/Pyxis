@@ -10,6 +10,19 @@ import Testing
 
 @MainActor
 struct BattleSceneTests {
+    @Test func battleSceneDisplaysCampaignCityTitle() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityLevel: 3,
+                cityNumberInCountry: 3,
+                completedCityCount: 2
+            )
+        )
+        let scene = makeScene(store: store)
+
+        #expect(scene.cityTitleTextForTesting == "Country 1 - City 3")
+    }
+
     @Test func spawnWaitsForSoldierImpactBeforeDamagingCity() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
