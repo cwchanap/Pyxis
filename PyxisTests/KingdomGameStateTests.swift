@@ -52,6 +52,41 @@ struct KingdomGameStateTests {
         #expect(state.lastBackgroundedAt == nil)
     }
 
+    @Test func decodingOldPrototypeSaveInfersCampaignProgressFromCityLevel() throws {
+        let data = """
+        {
+          "gold": 40,
+          "cityLevel": 4,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 2
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.gold == 40)
+        #expect(state.cityLevel == 4)
+        #expect(state.cityNumberInCountry == 4)
+        #expect(state.completedCityCount == 3)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.cityRemainingPower == 12)
+    }
+
+    @Test func countryCompleteInitializationNormalizesCompletedCityCount() {
+        let state = KingdomGameState(
+            cityLevel: 15,
+            countryNumber: 1,
+            cityNumberInCountry: 15,
+            completedCityCount: 3,
+            stageStatus: .countryComplete
+        )
+
+        #expect(state.completedCityCount == KingdomGameState.firstCountryCityCount)
+        #expect(state.stageStatus == .countryComplete)
+        #expect(state.mapStatus(for: 15) == .completed)
+        #expect(state.hasNextCityInCountry == false)
+    }
+
     @Test func firstLaunchStartsBattleReadyAtCountryOneCityOne() {
         let state = KingdomGameState()
 
@@ -151,6 +186,18 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .battleActive)
     }
 
+    @Test func startingCurrentActiveCityDoesNotResetHP() {
+        var state = KingdomGameState(cityLevel: 2, cityRemainingPower: 17, cityNumberInCountry: 2, completedCityCount: 1)
+
+        let result = state.startCityFromMap(2)
+
+        #expect(result == .entered(country: 1, city: 2))
+        #expect(state.cityNumberInCountry == 2)
+        #expect(state.cityLevel == 2)
+        #expect(state.cityRemainingPower == 17)
+        #expect(state.stageStatus == .battleActive)
+    }
+
     @Test func lockedFutureCityEntryIsRejected() {
         var state = KingdomGameState(cityRemainingPower: 1)
         _ = state.spawnSoldierAttack()
@@ -228,7 +275,7 @@ struct KingdomGameStateTests {
         #expect(state.lastBackgroundedAt == nil)
     }
 
-    @Test func idleCatchUpCanConquerMultipleCitiesWithCarryOverDamage() {
+    @Test func idleCatchUpConquersOnlyCurrentCityAndStops() {
         let start = Date(timeIntervalSinceReferenceDate: 2_000)
         let end = start.addingTimeInterval(80)
         var state = KingdomGameState(cityRemainingPower: 10)
@@ -237,11 +284,76 @@ struct KingdomGameStateTests {
         let result = state.returnFromBackground(at: end)
 
         #expect(result.elapsedSeconds == 80)
-        #expect(result.damageDealt == 80)
-        #expect(result.conqueredCities == 2)
-        #expect(result.goldEarned == 20)
-        #expect(state.cityLevel == 3)
-        #expect(state.cityRemainingPower == 65)
+        #expect(result.damageDealt == 10)
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == 8)
+        #expect(state.gold == 8)
+        #expect(state.cityLevel == 1)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.completedCityCount == 1)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func idleCatchUpDoesNothingWhenBattleIsPausedForMap() {
+        let start = Date(timeIntervalSinceReferenceDate: 2_500)
+        let end = start.addingTimeInterval(80)
+        var state = KingdomGameState(cityRemainingPower: 1)
+
+        _ = state.spawnSoldierAttack()
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        #expect(result == .none)
+        #expect(state.lastBackgroundedAt == nil)
+        #expect(state.gold == 8)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.completedCityCount == 1)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func idleCatchUpDoesNothingWhenCountryIsComplete() {
+        let start = Date(timeIntervalSinceReferenceDate: 2_600)
+        let end = start.addingTimeInterval(80)
+        var state = KingdomGameState(
+            gold: 100,
+            cityLevel: 15,
+            cityRemainingPower: 0,
+            countryNumber: 1,
+            cityNumberInCountry: 15,
+            completedCityCount: 15,
+            stageStatus: .countryComplete
+        )
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        #expect(result == .none)
+        #expect(state.lastBackgroundedAt == nil)
+        #expect(state.gold == 100)
+        #expect(state.completedCityCount == 15)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.stageStatus == .countryComplete)
+    }
+
+    @Test func idleConquestRewardIsGrantedOnResume() {
+        let start = Date(timeIntervalSinceReferenceDate: 2_700)
+        let end = start.addingTimeInterval(20)
+        var state = KingdomGameState(cityRemainingPower: 5)
+
+        state.enterBackground(at: start)
+        #expect(state.gold == 0)
+        #expect(state.cityRemainingPower == 5)
+
+        let result = state.returnFromBackground(at: end)
+
+        #expect(result.elapsedSeconds == 20)
+        #expect(result.damageDealt == 5)
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == 8)
+        #expect(state.gold == 8)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.completedCityCount == 1)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
     }
 
     @Test func idleCatchUpCannotBeAppliedTwice() {

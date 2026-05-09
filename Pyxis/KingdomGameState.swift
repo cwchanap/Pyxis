@@ -114,7 +114,9 @@ struct KingdomGameState: Codable, Equatable {
         self.lastBackgroundedAt = lastBackgroundedAt
         self.countryNumber = clampedCountryNumber
         self.cityNumberInCountry = clampedCityNumber
-        self.completedCityCount = clampedCompletedCityCount
+        self.completedCityCount = resolvedStatus == .countryComplete
+            ? Self.firstCountryCityCount
+            : clampedCompletedCityCount
         self.stageStatus = resolvedStatus
 
         if resolvedStatus == .battleActive {
@@ -192,6 +194,10 @@ struct KingdomGameState: Codable, Equatable {
             return .locked
         }
 
+        if stageStatus == .battleActive && cityNumber == cityNumberInCountry {
+            return .entered(country: countryNumber, city: cityNumberInCountry)
+        }
+
         if cityNumber <= completedCityCount {
             return .alreadyCompleted
         }
@@ -248,6 +254,10 @@ struct KingdomGameState: Codable, Equatable {
 
         self.lastBackgroundedAt = nil
 
+        guard stageStatus == .battleActive else {
+            return .none
+        }
+
         let rawElapsed = Int(date.timeIntervalSince(lastBackgroundedAt))
         let elapsedSeconds = min(max(0, rawElapsed), Self.maxIdleCatchUpSeconds)
 
@@ -255,31 +265,35 @@ struct KingdomGameState: Codable, Equatable {
             return .none
         }
 
-        let totalDamage = elapsedSeconds * normalSoldierAttackPower
-        var remainingDamage = totalDamage
-        var conqueredCities = 0
-        var goldEarned = 0
+        let totalPotentialDamage = elapsedSeconds * normalSoldierAttackPower
+        let appliedDamage = min(totalPotentialDamage, cityRemainingPower)
 
-        while remainingDamage > 0 {
-            if remainingDamage < cityRemainingPower {
-                cityRemainingPower -= remainingDamage
-                remainingDamage = 0
-            } else {
-                remainingDamage -= cityRemainingPower
-                let reward = currentGoldReward
-                gold += reward
-                goldEarned += reward
-                conqueredCities += 1
-                cityLevel += 1
-                cityRemainingPower = cityMaxPower
-            }
+        guard totalPotentialDamage >= cityRemainingPower else {
+            cityRemainingPower -= totalPotentialDamage
+            return IdleProgressResult(
+                elapsedSeconds: elapsedSeconds,
+                damageDealt: totalPotentialDamage,
+                conqueredCities: 0,
+                goldEarned: 0
+            )
+        }
+
+        let reward = currentGoldReward
+        gold += reward
+        cityRemainingPower = 0
+        completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
+
+        if completedCityCount >= Self.firstCountryCityCount {
+            stageStatus = .countryComplete
+        } else {
+            stageStatus = .cityConqueredPendingMap
         }
 
         return IdleProgressResult(
             elapsedSeconds: elapsedSeconds,
-            damageDealt: totalDamage,
-            conqueredCities: conqueredCities,
-            goldEarned: goldEarned
+            damageDealt: appliedDamage,
+            conqueredCities: 1,
+            goldEarned: reward
         )
     }
 
