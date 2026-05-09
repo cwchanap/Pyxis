@@ -561,6 +561,7 @@ final class BattleScene: SKScene {
         let conqueredCity = result.conqueredCities > 0
 
         if conqueredCity {
+            clearPendingSoldierAttacks()
             feedbackText = "\(state.displayCityTitle) conquered! +\(result.goldEarned) gold."
         } else {
             feedbackText = "Soldier dealt \(result.damageDealt) damage."
@@ -575,6 +576,15 @@ final class BattleScene: SKScene {
         } else {
             playCityHitFeedback()
         }
+    }
+
+    private func clearPendingSoldierAttacks() {
+        for pendingSoldier in pendingSoldiers {
+            pendingSoldier.removeAllActions()
+            pendingSoldier.removeFromParent()
+        }
+
+        pendingSoldiers.removeAll()
     }
 
     private func makeSoldierNode() -> SKNode {
@@ -801,10 +811,13 @@ final class BattleScene: SKScene {
         guard isConquestPopupVisible else {
             return
         }
+        guard let router else {
+            return
+        }
 
         isConquestPopupVisible = false
         setConquestPopupHidden(true)
-        router?.battleSceneDidRequestCountryMap(self)
+        router.battleSceneDidRequestCountryMap(self)
     }
 }
 

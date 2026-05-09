@@ -85,6 +85,49 @@ struct BattleSceneTests {
         #expect(router.didRequestCountryMap)
     }
 
+    @Test func closingConquestPopupWithoutRouterKeepsPopupVisible() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.completeFirstPendingSoldierAttackForTesting()
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+
+        scene.closeConquestPopupForTesting()
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+    }
+
+    @Test func conquestClearsPendingSoldiersBeforeLaterImpactsCanMutateState() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.pendingSoldierAttackCountForTesting == 3)
+
+        scene.completeFirstPendingSoldierAttackForTesting()
+
+        var savedState = store.load()
+        #expect(scene.pendingSoldierAttackCountForTesting == 0)
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(savedState.gold == 8)
+        #expect(savedState.completedCityCount == 1)
+        #expect(savedState.stageStatus == .cityConqueredPendingMap)
+
+        scene.completeFirstPendingSoldierAttackForTesting()
+        scene.closeConquestPopupForTesting()
+
+        savedState = store.load()
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(savedState.gold == 8)
+        #expect(savedState.completedCityCount == 1)
+        #expect(savedState.stageStatus == .cityConqueredPendingMap)
+    }
+
     private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil) -> BattleScene {
         let size = CGSize(width: 390, height: 844)
         let scene = BattleScene(size: size, store: store, router: router)
