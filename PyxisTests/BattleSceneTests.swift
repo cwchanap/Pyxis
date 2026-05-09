@@ -1,5 +1,5 @@
 //
-//  GameSceneAnimationTests.swift
+//  BattleSceneTests.swift
 //  PyxisTests
 //
 
@@ -9,7 +9,7 @@ import Testing
 @testable import Pyxis
 
 @MainActor
-struct GameSceneAnimationTests {
+struct BattleSceneTests {
     @Test func spawnWaitsForSoldierImpactBeforeDamagingCity() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -62,13 +62,32 @@ struct GameSceneAnimationTests {
 
         let savedState = store.load()
         #expect(savedState.gold == 8)
-        #expect(savedState.cityLevel == 2)
-        #expect(savedState.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
+        #expect(savedState.cityLevel == 1)
+        #expect(savedState.completedCityCount == 1)
+        #expect(savedState.cityRemainingPower == 0)
+        #expect(savedState.stageStatus == .cityConqueredPendingMap)
     }
 
-    private func makeScene(store: KingdomGameStore) -> GameScene {
+    @Test func closingConquestPopupRequestsCountryMapRoute() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.spawnSoldierForTesting()
+        scene.completeFirstPendingSoldierAttackForTesting()
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(!router.didRequestCountryMap)
+
+        scene.closeConquestPopupForTesting()
+
+        #expect(!scene.isConquestPopupVisibleForTesting)
+        #expect(router.didRequestCountryMap)
+    }
+
+    private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil) -> BattleScene {
         let size = CGSize(width: 390, height: 844)
-        let scene = GameScene(size: size, store: store)
+        let scene = BattleScene(size: size, store: store, router: router)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene
@@ -81,5 +100,13 @@ struct GameSceneAnimationTests {
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(initialState)
         return store
+    }
+
+    private final class RouteSpy: BattleSceneRouting {
+        private(set) var didRequestCountryMap = false
+
+        func battleSceneDidRequestCountryMap(_ scene: BattleScene) {
+            didRequestCountryMap = true
+        }
     }
 }

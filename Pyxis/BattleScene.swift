@@ -1,5 +1,5 @@
 //
-//  GameScene.swift
+//  BattleScene.swift
 //  Pyxis
 //
 //  Created by Chan Wai Chan on 5/5/2026.
@@ -9,7 +9,11 @@ import Foundation
 import SpriteKit
 import UIKit
 
-final class GameScene: SKScene {
+protocol BattleSceneRouting: AnyObject {
+    func battleSceneDidRequestCountryMap(_ scene: BattleScene)
+}
+
+final class BattleScene: SKScene {
     private enum BattleAssetName {
         static let playerCastle = "player-castle"
         static let enemyCity = "enemy-city"
@@ -26,9 +30,11 @@ final class GameScene: SKScene {
     private enum ButtonName {
         static let spawn = "spawnSoldierButton"
         static let upgrade = "upgradeSoldierButton"
+        static let popupContinue = "conquestPopupContinueButton"
     }
 
     private let store: KingdomGameStore
+    private weak var router: BattleSceneRouting?
     private var state: KingdomGameState
     private var didBuildInterface = false
     private var isObservingLifecycle = false
@@ -58,18 +64,27 @@ final class GameScene: SKScene {
     private let upgradeButton = SKNode()
     private let upgradeButtonBackground = SKShapeNode()
     private let upgradeButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let popupOverlay = SKShapeNode()
+    private let popupTitleLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let popupRewardLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private let popupContinueButton = SKNode()
+    private let popupContinueBackground = SKShapeNode()
+    private let popupContinueLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private var isConquestPopupVisible = false
 
     private var feedbackText = "Tap Spawn Soldier to attack the city."
 
-    init(size: CGSize, store: KingdomGameStore = .shared) {
+    init(size: CGSize, store: KingdomGameStore = .shared, router: BattleSceneRouting? = nil) {
         self.store = store
         self.state = store.load()
+        self.router = router
         super.init(size: size)
     }
 
     required init?(coder aDecoder: NSCoder) {
         self.store = .shared
         self.state = KingdomGameStore.shared.load()
+        self.router = nil
         super.init(coder: aDecoder)
     }
 
@@ -105,6 +120,8 @@ final class GameScene: SKScene {
             spawnSoldier()
         case ButtonName.upgrade:
             upgradeSoldier()
+        case ButtonName.popupContinue:
+            closeConquestPopup()
         default:
             break
         }
@@ -150,6 +167,26 @@ final class GameScene: SKScene {
             color: SKColor(red: 0.56, green: 0.30, blue: 0.78, alpha: 1.0)
         )
 
+        popupOverlay.fillColor = SKColor(white: 0.02, alpha: 0.86)
+        popupOverlay.strokeColor = SKColor(white: 1.0, alpha: 0.24)
+        popupOverlay.lineWidth = 2
+        popupOverlay.zPosition = 200
+        popupOverlay.isHidden = true
+
+        configureLabel(popupTitleLabel, fontSize: 22, color: .white)
+        configureLabel(popupRewardLabel, fontSize: 18, color: SKColor(red: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
+        configureButton(
+            popupContinueButton,
+            background: popupContinueBackground,
+            label: popupContinueLabel,
+            name: ButtonName.popupContinue,
+            color: SKColor(red: 0.18, green: 0.58, blue: 0.42, alpha: 1.0)
+        )
+
+        popupTitleLabel.zPosition = 201
+        popupRewardLabel.zPosition = 201
+        popupContinueButton.zPosition = 201
+
         [
             goldLabel,
             cityLevelLabel,
@@ -171,6 +208,12 @@ final class GameScene: SKScene {
         addChild(feedbackLabel)
         addChild(spawnButton)
         addChild(upgradeButton)
+        addChild(popupOverlay)
+        addChild(popupTitleLabel)
+        addChild(popupRewardLabel)
+        addChild(popupContinueButton)
+
+        setConquestPopupHidden(true)
     }
 
     private func configureLabel(_ label: SKLabelNode, fontSize: CGFloat, color: SKColor) {
@@ -265,6 +308,7 @@ final class GameScene: SKScene {
         let buttonSize = CGSize(width: contentWidth, height: buttonHeight)
         layoutButton(spawnButton, background: spawnButtonBackground, size: buttonSize, position: CGPoint(x: centerX, y: spawnButtonY))
         layoutButton(upgradeButton, background: upgradeButtonBackground, size: buttonSize, position: CGPoint(x: centerX, y: upgradeButtonY))
+        layoutConquestPopup(contentWidth: contentWidth)
 
         layoutBattlefield(
             contentWidth: contentWidth,
@@ -280,6 +324,9 @@ final class GameScene: SKScene {
         fitLabel(feedbackLabel, maxWidth: contentWidth)
         fitLabel(spawnButtonLabel, maxWidth: contentWidth - 28)
         fitLabel(upgradeButtonLabel, maxWidth: contentWidth - 28)
+        fitLabel(popupTitleLabel, maxWidth: contentWidth - 48)
+        fitLabel(popupRewardLabel, maxWidth: contentWidth - 48)
+        fitLabel(popupContinueLabel, maxWidth: contentWidth - 76)
     }
 
     private func resetFontSizes() {
@@ -290,6 +337,9 @@ final class GameScene: SKScene {
         feedbackLabel.fontSize = 16
         spawnButtonLabel.fontSize = 16
         upgradeButtonLabel.fontSize = 16
+        popupTitleLabel.fontSize = 22
+        popupRewardLabel.fontSize = 18
+        popupContinueLabel.fontSize = 16
     }
 
     private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
@@ -456,6 +506,10 @@ final class GameScene: SKScene {
     }
 
     private func spawnSoldier() {
+        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
+        }
+
         let soldier = makeSoldierNode()
         fitBattleNode(soldier, targetHeight: max(28, min(42, size.height * 0.05)))
         soldier.position = castleGatePoint
@@ -507,7 +561,7 @@ final class GameScene: SKScene {
         let conqueredCity = result.conqueredCities > 0
 
         if conqueredCity {
-            feedbackText = "City conquered! +\(result.goldEarned) gold."
+            feedbackText = "\(state.displayCityTitle) conquered! +\(result.goldEarned) gold."
         } else {
             feedbackText = "Soldier dealt \(result.damageDealt) damage."
         }
@@ -517,6 +571,7 @@ final class GameScene: SKScene {
 
         if conqueredCity {
             playCityConquestFeedback()
+            showConquestPopup(goldEarned: result.goldEarned)
         } else {
             playCityHitFeedback()
         }
@@ -620,6 +675,10 @@ final class GameScene: SKScene {
     }
 
     private func upgradeSoldier() {
+        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
+        }
+
         let result = state.upgradeNormalSoldier()
 
         switch result {
@@ -664,15 +723,23 @@ final class GameScene: SKScene {
         store.save(state)
 
         if result.elapsedSeconds > 0 {
-            feedbackText = "Idle attacks dealt \(result.damageDealt) damage and conquered \(result.conqueredCities) cities."
+            if result.conqueredCities > 0 {
+                feedbackText = "Idle attacks conquered \(state.displayCityTitle)."
+            } else {
+                feedbackText = "Idle attacks dealt \(result.damageDealt) damage."
+            }
         }
 
         redraw()
+
+        if result.conqueredCities > 0 {
+            showConquestPopup(goldEarned: result.goldEarned)
+        }
     }
 
     private func buttonName(at point: CGPoint) -> String? {
         for node in nodes(at: point) {
-            if node.name == ButtonName.spawn || node.name == ButtonName.upgrade {
+            if node.name == ButtonName.spawn || node.name == ButtonName.upgrade || node.name == ButtonName.popupContinue {
                 return node.name
             }
         }
@@ -689,10 +756,60 @@ final class GameScene: SKScene {
             label.fontSize -= 1
         }
     }
+
+    private func layoutConquestPopup(contentWidth: CGFloat) {
+        let popupWidth = min(contentWidth, size.width - 56)
+        let popupHeight: CGFloat = 188
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+
+        popupOverlay.path = CGPath(
+            roundedRect: CGRect(x: -popupWidth / 2, y: -popupHeight / 2, width: popupWidth, height: popupHeight),
+            cornerWidth: 14,
+            cornerHeight: 14,
+            transform: nil
+        )
+        popupOverlay.position = center
+        popupTitleLabel.position = CGPoint(x: center.x, y: center.y + 52)
+        popupRewardLabel.position = CGPoint(x: center.x, y: center.y + 12)
+        layoutButton(
+            popupContinueButton,
+            background: popupContinueBackground,
+            size: CGSize(width: popupWidth - 48, height: 48),
+            position: CGPoint(x: center.x, y: center.y - 54)
+        )
+    }
+
+    private func showConquestPopup(goldEarned: Int) {
+        isConquestPopupVisible = true
+        popupTitleLabel.text = state.stageStatus == .countryComplete
+            ? "Country \(state.countryNumber) Conquered"
+            : "\(state.displayCityTitle) Conquered"
+        popupRewardLabel.text = "+\(goldEarned) gold"
+        popupContinueLabel.text = "Continue"
+        setConquestPopupHidden(false)
+        layoutInterface()
+    }
+
+    private func setConquestPopupHidden(_ isHidden: Bool) {
+        popupOverlay.isHidden = isHidden
+        popupTitleLabel.isHidden = isHidden
+        popupRewardLabel.isHidden = isHidden
+        popupContinueButton.isHidden = isHidden
+    }
+
+    private func closeConquestPopup() {
+        guard isConquestPopupVisible else {
+            return
+        }
+
+        isConquestPopupVisible = false
+        setConquestPopupHidden(true)
+        router?.battleSceneDidRequestCountryMap(self)
+    }
 }
 
 #if DEBUG
-extension GameScene {
+extension BattleScene {
     var pendingSoldierAttackCountForTesting: Int {
         pendingSoldiers.count
     }
@@ -709,6 +826,10 @@ extension GameScene {
         state.gold
     }
 
+    var isConquestPopupVisibleForTesting: Bool {
+        isConquestPopupVisible
+    }
+
     func spawnSoldierForTesting() {
         spawnSoldier()
     }
@@ -719,6 +840,10 @@ extension GameScene {
         }
 
         completeSoldierAttack(soldier)
+    }
+
+    func closeConquestPopupForTesting() {
+        closeConquestPopup()
     }
 }
 #endif
