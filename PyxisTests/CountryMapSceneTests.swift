@@ -67,6 +67,50 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackTextForTesting == "Country 1 conquered.")
     }
 
+    @Test func enteringCityUsesLatestStoredState() throws {
+        let initialState = KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        store.save(KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 2,
+            completedCityCount: 2,
+            stageStatus: .cityConqueredPendingMap
+        ))
+
+        scene.enterCityForTesting(3)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.cityNumberInCountry == 3)
+        #expect(saved.cityLevel == 3)
+        #expect(saved.cityRemainingPower == KingdomGameState.cityMaxPower(for: 3))
+        #expect(router.didRequestBattle)
+    }
+
+    @Test func enteringUnlockedCityWithoutRouterDoesNotMutateStore() throws {
+        let initialState = KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: nil)
+
+        scene.enterCityForTesting(2)
+
+        #expect(store.load() == initialState)
+        #expect(scene.feedbackTextForTesting == "Cannot enter city yet.")
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         private(set) var didRequestBattle = false
 
@@ -75,7 +119,7 @@ struct CountryMapSceneTests {
         }
     }
 
-    private func makeScene(store: KingdomGameStore, router: CountryMapSceneRouting) -> CountryMapScene {
+    private func makeScene(store: KingdomGameStore, router: CountryMapSceneRouting?) -> CountryMapScene {
         let size = CGSize(width: 390, height: 844)
         let scene = CountryMapScene(size: size, store: store, router: router)
         let view = SKView(frame: CGRect(origin: .zero, size: size))

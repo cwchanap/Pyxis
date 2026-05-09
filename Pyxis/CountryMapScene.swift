@@ -45,6 +45,7 @@ final class CountryMapScene: SKScene {
 
     override func didMove(to view: SKView) {
         backgroundColor = SKColor(red: 0.07, green: 0.12, blue: 0.14, alpha: 1.0)
+        state = store.load()
 
         if !didBuildInterface {
             buildInterface()
@@ -230,17 +231,30 @@ final class CountryMapScene: SKScene {
     }
 
     private func enterCity(_ cityNumber: Int) {
-        switch state.startCityFromMap(cityNumber) {
+        var latestState = store.load()
+
+        switch latestState.startCityFromMap(cityNumber) {
         case .entered:
+            guard let router else {
+                state = store.load()
+                feedbackText = "Cannot enter city yet."
+                redraw()
+                return
+            }
+
+            state = latestState
             store.save(state)
-            router?.countryMapSceneDidRequestBattle(self)
+            router.countryMapSceneDidRequestBattle(self)
         case .locked:
+            state = latestState
             feedbackText = "City \(cityNumber) is locked."
             redraw()
         case .alreadyCompleted:
+            state = latestState
             feedbackText = "City \(cityNumber) is complete."
             redraw()
         case .countryComplete:
+            state = latestState
             feedbackText = "Country \(state.countryNumber) conquered."
             redraw()
         }
