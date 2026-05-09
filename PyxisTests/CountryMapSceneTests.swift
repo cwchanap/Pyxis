@@ -133,6 +133,32 @@ struct CountryMapSceneTests {
         }
     }
 
+    @Test func cityNodeCenterResolvesToCityNumber() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let cityPoint = try #require(scene.cityNodePositionForTesting(2))
+
+        #expect(scene.cityNumberAtPointForTesting(cityPoint) == 2)
+    }
+
+    @Test func cityLabelCenterResolvesToCityNumber() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let cityPoint = try #require(scene.cityLabelPositionForTesting(2))
+
+        #expect(scene.cityNumberAtPointForTesting(cityPoint) == 2)
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         private(set) var didRequestBattle = false
 

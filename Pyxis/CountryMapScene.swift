@@ -279,5 +279,17 @@ extension CountryMapScene {
     func enterCityForTesting(_ cityNumber: Int) {
         enterCity(cityNumber)
     }
+
+    func cityNumberAtPointForTesting(_ point: CGPoint) -> Int? {
+        cityNumber(at: point)
+    }
+
+    func cityNodePositionForTesting(_ cityNumber: Int) -> CGPoint? {
+        cityNodes[cityNumber]?.position
+    }
+
+    func cityLabelPositionForTesting(_ cityNumber: Int) -> CGPoint? {
+        cityLabels[cityNumber]?.position
+    }
 }
 #endif
