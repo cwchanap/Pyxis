@@ -259,18 +259,32 @@ struct KingdomGameState: Codable, Equatable {
             return AttackResult(attackApplied: true, damageDealt: damage, conqueredCities: 0, goldEarned: 0)
         }
 
-        let reward = currentGoldReward
-        gold += reward
-        cityRemainingPower = 0
-        completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
-
-        if completedCityCount >= Self.firstCountryCityCount {
-            stageStatus = .countryComplete
-        } else {
-            stageStatus = .cityConqueredPendingMap
-        }
+        let reward = completeCurrentCity()
 
         return AttackResult(attackApplied: true, damageDealt: damage, conqueredCities: 1, goldEarned: reward)
+    }
+
+    @discardableResult
+    mutating func applyLiveCombatDamage(_ rawDamage: Int) -> AttackResult {
+        guard stageStatus == .battleActive else {
+            return .blocked
+        }
+
+        let damage = max(0, rawDamage)
+        guard damage > 0 else {
+            return AttackResult(attackApplied: true, damageDealt: 0, conqueredCities: 0, goldEarned: 0)
+        }
+
+        let appliedDamage = min(damage, cityRemainingPower)
+        cityRemainingPower -= appliedDamage
+
+        guard cityRemainingPower <= 0 else {
+            return AttackResult(attackApplied: true, damageDealt: appliedDamage, conqueredCities: 0, goldEarned: 0)
+        }
+
+        let reward = completeCurrentCity()
+
+        return AttackResult(attackApplied: true, damageDealt: appliedDamage, conqueredCities: 1, goldEarned: reward)
     }
 
     mutating func enterBackground(at date: Date) {
@@ -309,16 +323,7 @@ struct KingdomGameState: Codable, Equatable {
             )
         }
 
-        let reward = currentGoldReward
-        gold += reward
-        cityRemainingPower = 0
-        completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
-
-        if completedCityCount >= Self.firstCountryCityCount {
-            stageStatus = .countryComplete
-        } else {
-            stageStatus = .cityConqueredPendingMap
-        }
+        let reward = completeCurrentCity()
 
         return IdleProgressResult(
             elapsedSeconds: elapsedSeconds,
@@ -368,5 +373,20 @@ struct KingdomGameState: Codable, Equatable {
 
     private static func roundedAtLeastOne(_ value: Double) -> Int {
         max(1, Int(value.rounded()))
+    }
+
+    private mutating func completeCurrentCity() -> Int {
+        let reward = currentGoldReward
+        gold += reward
+        cityRemainingPower = 0
+        completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
+
+        if completedCityCount >= Self.firstCountryCityCount {
+            stageStatus = .countryComplete
+        } else {
+            stageStatus = .cityConqueredPendingMap
+        }
+
+        return reward
     }
 }

@@ -246,6 +246,47 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .cityConqueredPendingMap)
     }
 
+    @Test func liveCombatDamageReducesCurrentCityHP() {
+        var state = KingdomGameState(cityRemainingPower: 20)
+
+        let result = state.applyLiveCombatDamage(6)
+
+        #expect(result.attackApplied)
+        #expect(result.damageDealt == 6)
+        #expect(result.conqueredCities == 0)
+        #expect(result.goldEarned == 0)
+        #expect(state.cityRemainingPower == 14)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func liveCombatDamageIsCappedAndConquersCurrentCity() {
+        var state = KingdomGameState(cityRemainingPower: 3)
+
+        let result = state.applyLiveCombatDamage(9)
+
+        #expect(result.attackApplied)
+        #expect(result.damageDealt == 3)
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == 8)
+        #expect(state.gold == 8)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.completedCityCount == 1)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func liveCombatDamageIsRejectedWhenBattleIsPaused() {
+        var state = KingdomGameState(cityRemainingPower: 1)
+        _ = state.spawnSoldierAttack()
+
+        let result = state.applyLiveCombatDamage(5)
+
+        #expect(!result.attackApplied)
+        #expect(result.damageDealt == 0)
+        #expect(state.gold == 8)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
     @Test func startingNextUnlockedCityAdvancesAndRestoresFullHP() {
         var state = KingdomGameState(cityRemainingPower: 1)
         _ = state.spawnSoldierAttack()
