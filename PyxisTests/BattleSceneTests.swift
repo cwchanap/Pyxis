@@ -83,6 +83,28 @@ struct BattleSceneTests {
         #expect(savedState.cityRemainingPower < 20)
     }
 
+    @Test func liveCombatStatusUpdatesWhenTowerKillsLastSoldierWithoutCityDamage() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 20,
+                cityNumberInCountry: 8,
+                completedCityCount: 7
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 1")
+
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(scene.cityRemainingPowerForTesting == 20)
+        #expect(store.load().cityRemainingPower == 20)
+        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 0")
+    }
+
     @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
         let store = try makeStore(
             initialState: KingdomGameState(

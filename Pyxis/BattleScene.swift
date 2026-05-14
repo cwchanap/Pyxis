@@ -529,11 +529,17 @@ final class BattleScene: SKScene {
         cityLevelLabel.text = state.displayCityTitle
         soldierAttackLabel.text = "Soldier Attack: \(state.normalSoldierAttackPower)"
         cityHPLabel.text = "City HP: \(state.cityRemainingPower) / \(state.cityMaxPower)"
-        liveCombatStatusLabel.text = "Soldiers: \(combat.livingSoldierCount)"
+        updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         spawnButtonLabel.text = "Spawn Soldier"
         upgradeButtonLabel.text = "Upgrade Soldier (\(state.normalSoldierUpgradeCost) gold)"
         layoutInterface()
+    }
+
+    private func updateLiveCombatStatusLabel() {
+        liveCombatStatusLabel.fontSize = 15
+        liveCombatStatusLabel.text = "Soldiers: \(combat.livingSoldierCount)"
+        fitLabel(liveCombatStatusLabel, maxWidth: max(160, min(size.width - 48, 430)))
     }
 
     private func advanceCombat(deltaTime: TimeInterval) {
@@ -557,6 +563,10 @@ final class BattleScene: SKScene {
 
         for soldierID in result.killedSoldierIDs {
             removeSoldierNode(id: soldierID, animated: true)
+        }
+
+        if !result.killedSoldierIDs.isEmpty {
+            updateLiveCombatStatusLabel()
         }
 
         guard result.cityDamage > 0 else {
@@ -596,7 +606,7 @@ final class BattleScene: SKScene {
         let soldierID = combat.spawnSoldier(attackPower: state.normalSoldierAttackPower)
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
-        redraw()
+        updateLiveCombatStatusLabel()
     }
 
     private func createSoldierNode(id: BattleCombatState.SoldierID) {
@@ -688,6 +698,8 @@ final class BattleScene: SKScene {
         for id in Array(soldierNodes.keys) {
             removeSoldierNode(id: id, animated: false)
         }
+
+        updateLiveCombatStatusLabel()
     }
 
     private func removeSoldierNode(id: BattleCombatState.SoldierID, animated: Bool) {
