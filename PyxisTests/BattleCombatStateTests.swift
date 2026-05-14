@@ -214,13 +214,36 @@ struct BattleCombatStateTests {
         #expect(killTick.killedSoldierIDs == [id])
         #expect(killTick.cityDamage == 0)
         #expect(killTick.soldierAttackIDs.isEmpty)
-        #expect(try #require(combat.soldier(id: id)).currentHP == 0)
-        #expect(!((try #require(combat.soldier(id: id))).isAlive))
+        #expect(combat.soldier(id: id) == nil)
 
         let laterTick = combat.tick(deltaTime: 0.2, cityRemainingHP: 17)
         #expect(laterTick.cityDamage == 0)
         #expect(laterTick.towerShots.isEmpty)
         #expect(laterTick.soldierAttackIDs.isEmpty)
+    }
+
+    @Test func deadSoldiersArePrunedFromActiveCombatants() {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 1,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0.5,
+                towerDamage: 1,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0
+            )
+        )
+        let id = combat.spawnSoldier(attackPower: 1)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+
+        #expect(result.killedSoldierIDs == [id])
+        #expect(combat.livingSoldierCount == 0)
+        #expect(combat.soldiers.isEmpty)
+        #expect(combat.soldier(id: id) == nil)
     }
 
     @Test func towerWaitsAtReadyWithoutTargetInsteadOfBuildingCooldownDebt() throws {

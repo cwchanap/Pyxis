@@ -247,24 +247,6 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     @discardableResult
-    mutating func spawnSoldierAttack() -> AttackResult {
-        guard stageStatus == .battleActive else {
-            return .blocked
-        }
-
-        let damage = normalSoldierAttackPower
-        cityRemainingPower -= damage
-
-        guard cityRemainingPower <= 0 else {
-            return AttackResult(attackApplied: true, damageDealt: damage, conqueredCities: 0, goldEarned: 0)
-        }
-
-        let reward = completeCurrentCity()
-
-        return AttackResult(attackApplied: true, damageDealt: damage, conqueredCities: 1, goldEarned: reward)
-    }
-
-    @discardableResult
     mutating func applyLiveCombatDamage(_ rawDamage: Int) -> AttackResult {
         guard stageStatus == .battleActive else {
             return .blocked

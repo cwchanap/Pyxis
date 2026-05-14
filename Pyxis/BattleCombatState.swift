@@ -162,6 +162,8 @@ struct BattleCombatState: Equatable {
             }
         }
 
+        soldiers.removeAll { !$0.isAlive }
+
         return result
     }
 
