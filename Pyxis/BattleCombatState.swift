@@ -53,6 +53,20 @@ struct BattleCombatState: Equatable {
         }
     }
 
+    struct TowerShot: Equatable {
+        let soldierID: SoldierID
+        let damage: Int
+    }
+
+    struct TickResult: Equatable {
+        var cityDamage: Int = 0
+        var didReachConquest = false
+        var soldierAttackIDs: [SoldierID] = []
+        var towerShots: [TowerShot] = []
+        var damagedSoldierIDs: [SoldierID] = []
+        var killedSoldierIDs: [SoldierID] = []
+    }
+
     let configuration: Configuration
     private(set) var soldiers: [Soldier]
     private var nextSoldierID: SoldierID
@@ -96,5 +110,65 @@ struct BattleCombatState: Equatable {
 
     func soldier(id: SoldierID) -> Soldier? {
         soldiers.first { $0.id == id }
+    }
+
+    @discardableResult
+    mutating func tick(deltaTime rawDeltaTime: Double, cityRemainingHP: Int) -> TickResult {
+        let deltaTime = clampedDeltaTime(rawDeltaTime)
+        guard deltaTime > 0, cityRemainingHP > 0 else {
+            return TickResult()
+        }
+
+        var result = TickResult()
+        var remainingCityHP = max(0, cityRemainingHP)
+
+        for index in soldiers.indices where soldiers[index].isAlive {
+            advanceMovement(forSoldierAt: index, deltaTime: deltaTime)
+
+            guard isInAttackRange(soldiers[index]) else {
+                continue
+            }
+
+            soldiers[index].attackCooldownRemaining -= deltaTime
+
+            if soldiers[index].attackCooldownRemaining <= 0 {
+                let appliedDamage = min(soldiers[index].attackPower, remainingCityHP)
+                result.cityDamage += appliedDamage
+                result.soldierAttackIDs.append(soldiers[index].id)
+                remainingCityHP -= appliedDamage
+                soldiers[index].attackCooldownRemaining += attackInterval(for: soldiers[index])
+            }
+
+            if remainingCityHP <= 0 {
+                result.didReachConquest = true
+                break
+            }
+        }
+
+        return result
+    }
+
+    private func clampedDeltaTime(_ rawDeltaTime: Double) -> Double {
+        min(max(0, rawDeltaTime), max(0.01, configuration.maxDeltaTime))
+    }
+
+    private mutating func advanceMovement(forSoldierAt index: Int, deltaTime: Double) {
+        guard !isInAttackRange(soldiers[index]) else {
+            return
+        }
+
+        let attackPosition = max(0, 1.0 - soldiers[index].attackRange)
+        soldiers[index].position = min(
+            attackPosition,
+            soldiers[index].position + soldiers[index].movementSpeed * deltaTime
+        )
+    }
+
+    private func isInAttackRange(_ soldier: Soldier) -> Bool {
+        soldier.position >= 1.0 - soldier.attackRange
+    }
+
+    private func attackInterval(for soldier: Soldier) -> Double {
+        1.0 / max(0.1, soldier.attackSpeed)
     }
 }

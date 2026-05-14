@@ -54,4 +54,82 @@ struct BattleCombatStateTests {
         #expect(cityFive.towerAttackSpeed == cityOne.towerAttackSpeed)
         #expect(cityFive.towerAttackRange == cityOne.towerAttackRange)
     }
+
+    @Test func soldierMovesTowardCityUntilInAttackRange() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 1,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0.20,
+                soldierMovementSpeed: 0.50,
+                towerDamage: 0,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0,
+                maxDeltaTime: 1.0
+            )
+        )
+        let id = combat.spawnSoldier(attackPower: 3)
+
+        let firstTick = combat.tick(deltaTime: 1.0, cityRemainingHP: 20)
+        #expect(firstTick.cityDamage == 0)
+        #expect(try #require(combat.soldier(id: id)).position == 0.50)
+
+        let secondTick = combat.tick(deltaTime: 1.0, cityRemainingHP: 20)
+        let soldier = try #require(combat.soldier(id: id))
+        #expect(soldier.position == 0.80)
+        #expect(secondTick.cityDamage == 3)
+        #expect(secondTick.soldierAttackIDs == [id])
+    }
+
+    @Test func soldierAttacksRepeatedlyOnCooldownWhileInRange() {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 1,
+                soldierAttackSpeed: 2.0,
+                soldierAttackRange: 1.0,
+                soldierMovementSpeed: 0,
+                towerDamage: 0,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0,
+                maxDeltaTime: 1.0
+            )
+        )
+        let id = combat.spawnSoldier(attackPower: 4)
+
+        let firstTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+        #expect(firstTick.cityDamage == 4)
+        #expect(firstTick.soldierAttackIDs == [id])
+
+        let cooldownTick = combat.tick(deltaTime: 0.2, cityRemainingHP: 16)
+        #expect(cooldownTick.cityDamage == 0)
+        #expect(cooldownTick.soldierAttackIDs.isEmpty)
+
+        let secondAttackTick = combat.tick(deltaTime: 0.3, cityRemainingHP: 16)
+        #expect(secondAttackTick.cityDamage == 4)
+        #expect(secondAttackTick.soldierAttackIDs == [id])
+    }
+
+    @Test func emittedCityDamageIsCappedToRemainingHP() {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 1,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 1.0,
+                soldierMovementSpeed: 0,
+                towerDamage: 0,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0,
+                maxDeltaTime: 1.0
+            )
+        )
+        _ = combat.spawnSoldier(attackPower: 8)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 3)
+
+        #expect(result.cityDamage == 3)
+        #expect(result.didReachConquest)
+    }
 }
