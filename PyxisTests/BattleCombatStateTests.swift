@@ -132,4 +132,115 @@ struct BattleCombatStateTests {
         #expect(result.cityDamage == 3)
         #expect(result.didReachConquest)
     }
+
+    @Test func towerDamagesLivingSoldierInRangeWithDefenseMinimumOne() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 4,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 1.0,
+                towerDamage: 4,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0
+            )
+        )
+        let id = combat.spawnSoldier(attackPower: 1)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+
+        #expect(result.towerShots.count == 1)
+        let shot = try #require(result.towerShots.first)
+        #expect(shot.soldierID == id)
+        #expect(shot.damage == 1)
+        #expect(result.damagedSoldierIDs == [id])
+        #expect(try #require(combat.soldier(id: id)).currentHP == 9)
+    }
+
+    @Test func towerTargetsLivingSoldierClosestToCity() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0.5,
+                towerDamage: 2,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0.70,
+                maxDeltaTime: 1.0
+            )
+        )
+        let first = combat.spawnSoldier(attackPower: 1)
+        _ = combat.tick(deltaTime: 0.7, cityRemainingHP: 20)
+        let second = combat.spawnSoldier(attackPower: 1)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+
+        #expect(result.towerShots.count == 1)
+        let shot = try #require(result.towerShots.first)
+        #expect(shot.soldierID == first)
+        #expect(shot.damage == 2)
+        #expect(try #require(combat.soldier(id: first)).currentHP == 8)
+        #expect(try #require(combat.soldier(id: second)).currentHP == 10)
+    }
+
+    @Test func soldierDiesOnlyWhenHPReachesZeroAndStopsActing() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 3,
+                soldierDefense: 0,
+                soldierAttackSpeed: 10.0,
+                soldierAttackRange: 1.0,
+                soldierMovementSpeed: 0,
+                towerDamage: 2,
+                towerAttackSpeed: 10.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0
+            )
+        )
+        let id = combat.spawnSoldier(attackPower: 3)
+
+        let damageTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+        #expect(damageTick.damagedSoldierIDs == [id])
+        #expect(damageTick.killedSoldierIDs.isEmpty)
+        #expect(damageTick.cityDamage == 3)
+        #expect(damageTick.soldierAttackIDs == [id])
+        #expect(try #require(combat.soldier(id: id)).currentHP == 1)
+
+        let killTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 17)
+        #expect(killTick.killedSoldierIDs == [id])
+        #expect(killTick.cityDamage == 0)
+        #expect(killTick.soldierAttackIDs.isEmpty)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 0)
+        #expect(!((try #require(combat.soldier(id: id))).isAlive))
+
+        let laterTick = combat.tick(deltaTime: 0.2, cityRemainingHP: 17)
+        #expect(laterTick.cityDamage == 0)
+        #expect(laterTick.towerShots.isEmpty)
+        #expect(laterTick.soldierAttackIDs.isEmpty)
+    }
+
+    @Test func largeTickDeltasAreClamped() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0.20,
+                soldierMovementSpeed: 1.0,
+                towerDamage: 0,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0,
+                maxDeltaTime: 0.25
+            )
+        )
+        let id = combat.spawnSoldier(attackPower: 1)
+
+        _ = combat.tick(deltaTime: 10.0, cityRemainingHP: 20)
+
+        #expect(try #require(combat.soldier(id: id)).position == 0.25)
+    }
 }

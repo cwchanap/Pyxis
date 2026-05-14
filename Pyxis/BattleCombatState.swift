@@ -70,11 +70,13 @@ struct BattleCombatState: Equatable {
     let configuration: Configuration
     private(set) var soldiers: [Soldier]
     private var nextSoldierID: SoldierID
+    private var towerCooldownRemaining: Double
 
     init(configuration: Configuration) {
         self.configuration = configuration
         self.soldiers = []
         self.nextSoldierID = 1
+        self.towerCooldownRemaining = 0
     }
 
     init(cityLevel: Int) {
@@ -121,6 +123,21 @@ struct BattleCombatState: Equatable {
 
         var result = TickResult()
         var remainingCityHP = max(0, cityRemainingHP)
+
+        towerCooldownRemaining -= deltaTime
+        if towerCooldownRemaining <= 0, let targetIndex = towerTargetIndex() {
+            let damage = damageAgainstSoldier(soldiers[targetIndex])
+            soldiers[targetIndex].currentHP = max(0, soldiers[targetIndex].currentHP - damage)
+            let soldierID = soldiers[targetIndex].id
+            result.towerShots.append(TowerShot(soldierID: soldierID, damage: damage))
+            result.damagedSoldierIDs.append(soldierID)
+
+            if !soldiers[targetIndex].isAlive {
+                result.killedSoldierIDs.append(soldierID)
+            }
+
+            towerCooldownRemaining += towerAttackInterval()
+        }
 
         for index in soldiers.indices where soldiers[index].isAlive {
             advanceMovement(forSoldierAt: index, deltaTime: deltaTime)
@@ -170,5 +187,23 @@ struct BattleCombatState: Equatable {
 
     private func attackInterval(for soldier: Soldier) -> Double {
         1.0 / max(0.1, soldier.attackSpeed)
+    }
+
+    private func towerTargetIndex() -> Int? {
+        soldiers.indices
+            .filter { soldiers[$0].isAlive && isInTowerRange(soldiers[$0]) }
+            .max { soldiers[$0].position < soldiers[$1].position }
+    }
+
+    private func isInTowerRange(_ soldier: Soldier) -> Bool {
+        soldier.position >= 1.0 - configuration.towerAttackRange
+    }
+
+    private func damageAgainstSoldier(_ soldier: Soldier) -> Int {
+        max(1, max(0, configuration.towerDamage) - soldier.defense)
+    }
+
+    private func towerAttackInterval() -> Double {
+        1.0 / max(0.1, configuration.towerAttackSpeed)
     }
 }
