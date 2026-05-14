@@ -23,61 +23,55 @@ struct BattleSceneTests {
         #expect(scene.cityTitleTextForTesting == "Country 1 - City 3")
     }
 
-    @Test func spawnWaitsForSoldierImpactBeforeDamagingCity() throws {
+    @Test func tappingSpawnCreatesLiveCombatSoldierWithoutImmediateCityDamage() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
 
-        #expect(scene.pendingSoldierAttackCountForTesting == 1)
+        #expect(scene.liveSoldierCountForTesting == 1)
         #expect(scene.cityRemainingPowerForTesting == 20)
         #expect(store.load().cityRemainingPower == 20)
-
-        scene.completeFirstPendingSoldierAttackForTesting()
-
-        #expect(scene.pendingSoldierAttackCountForTesting == 0)
-        #expect(store.load().cityRemainingPower == 19)
     }
 
-    @Test func repeatedSpawnsCreateMultiplePendingSoldiers() throws {
+    @Test func combatTickCanDamageDurableCityHPAndSaveIt() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
-        scene.spawnSoldierForTesting()
-        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
 
-        #expect(scene.pendingSoldierAttackCountForTesting == 3)
-        #expect(store.load().cityRemainingPower == 20)
-
-        scene.completeFirstPendingSoldierAttackForTesting()
-        scene.completeFirstPendingSoldierAttackForTesting()
-
-        #expect(scene.pendingSoldierAttackCountForTesting == 1)
-        #expect(store.load().cityRemainingPower == 18)
+        #expect(scene.liveSoldierCountForTesting == 1)
+        #expect(store.load().cityRemainingPower < 20)
     }
 
-    @Test func soldierImpactCanConquerCityAndSaveReward() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
+    @Test func towerDamageCanKillAndRemoveVisibleSoldier() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 18.0)
 
-        #expect(scene.cityRemainingPowerForTesting == 1)
-        #expect(scene.cityLevelForTesting == 1)
-        #expect(scene.goldForTesting == 0)
-        let preImpactState = store.load()
-        #expect(preImpactState.cityRemainingPower == 1)
-        #expect(preImpactState.cityLevel == 1)
-        #expect(preImpactState.gold == 0)
+        #expect(scene.liveSoldierCountForTesting == 0)
+    }
 
-        scene.completeFirstPendingSoldierAttackForTesting()
+    @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 1,
+                normalSoldierUpgradeLevel: 4
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
 
         let savedState = store.load()
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(scene.isConquestPopupVisibleForTesting)
         #expect(savedState.gold == 8)
-        #expect(savedState.cityLevel == 1)
         #expect(savedState.completedCityCount == 1)
-        #expect(savedState.cityRemainingPower == 0)
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
     }
 
@@ -87,7 +81,7 @@ struct BattleSceneTests {
         let scene = makeScene(store: store, router: router)
 
         scene.spawnSoldierForTesting()
-        scene.completeFirstPendingSoldierAttackForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
 
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(!router.didRequestCountryMap)
@@ -103,7 +97,7 @@ struct BattleSceneTests {
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
-        scene.completeFirstPendingSoldierAttackForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
 
         #expect(scene.isConquestPopupVisibleForTesting)
 
@@ -112,36 +106,7 @@ struct BattleSceneTests {
         #expect(scene.isConquestPopupVisibleForTesting)
     }
 
-    @Test func conquestClearsPendingSoldiersBeforeLaterImpactsCanMutateState() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
-        let scene = makeScene(store: store)
-
-        scene.spawnSoldierForTesting()
-        scene.spawnSoldierForTesting()
-        scene.spawnSoldierForTesting()
-
-        #expect(scene.pendingSoldierAttackCountForTesting == 3)
-
-        scene.completeFirstPendingSoldierAttackForTesting()
-
-        var savedState = store.load()
-        #expect(scene.pendingSoldierAttackCountForTesting == 0)
-        #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(savedState.gold == 8)
-        #expect(savedState.completedCityCount == 1)
-        #expect(savedState.stageStatus == .cityConqueredPendingMap)
-
-        scene.completeFirstPendingSoldierAttackForTesting()
-        scene.closeConquestPopupForTesting()
-
-        savedState = store.load()
-        #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(savedState.gold == 8)
-        #expect(savedState.completedCityCount == 1)
-        #expect(savedState.stageStatus == .cityConqueredPendingMap)
-    }
-
-    @Test func idleConquestClearsPendingSoldiersBeforeLaterImpactsCanMutateState() throws {
+    @Test func idleConquestClearsLiveSoldiersBeforeShowingPopup() throws {
         let store = try makeStore(
             initialState: KingdomGameState(
                 cityRemainingPower: 1,
@@ -152,21 +117,12 @@ struct BattleSceneTests {
 
         scene.spawnSoldierForTesting()
 
-        #expect(scene.pendingSoldierAttackCountForTesting == 1)
+        #expect(scene.liveSoldierCountForTesting == 1)
 
         NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
 
-        var savedState = store.load()
-        #expect(scene.pendingSoldierAttackCountForTesting == 0)
-        #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(savedState.gold == 8)
-        #expect(savedState.completedCityCount == 1)
-        #expect(savedState.stageStatus == .cityConqueredPendingMap)
-
-        scene.completeFirstPendingSoldierAttackForTesting()
-        scene.closeConquestPopupForTesting()
-
-        savedState = store.load()
+        let savedState = store.load()
+        #expect(scene.liveSoldierCountForTesting == 0)
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(savedState.gold == 8)
         #expect(savedState.completedCityCount == 1)
