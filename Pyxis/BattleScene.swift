@@ -20,22 +20,24 @@ final class BattleScene: SKScene {
         static let normalSoldier = "normal-soldier"
     }
 
-    private struct SoldierAnimationConfiguration {
-        let walkDuration: TimeInterval
-        let attackDuration: TimeInterval
-
-        static let live = SoldierAnimationConfiguration(walkDuration: 1.2, attackDuration: 0.18)
-    }
-
     private enum ButtonName {
         static let spawn = "spawnSoldierButton"
         static let upgrade = "upgradeSoldierButton"
         static let popupContinue = "conquestPopupContinueButton"
     }
 
+    private struct SoldierNodeBundle {
+        let root: SKNode
+        let hpBarBackground: SKShapeNode
+        let hpBarFill: SKShapeNode
+    }
+
     private let store: KingdomGameStore
     private weak var router: BattleSceneRouting?
     private var state: KingdomGameState
+    private var combat: BattleCombatState
+    private var lastUpdateTime: TimeInterval?
+    private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
     private var didBuildInterface = false
     private var isObservingLifecycle = false
 
@@ -47,9 +49,7 @@ final class BattleScene: SKScene {
     private var enemyCityNode: SKNode?
     private var castleGatePoint = CGPoint.zero
     private var enemyGatePoint = CGPoint.zero
-    private var pendingSoldiers: [SKNode] = []
     private var battleGroundLane: SKShapeNode?
-    private let animationConfiguration = SoldierAnimationConfiguration.live
 
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -75,15 +75,19 @@ final class BattleScene: SKScene {
     private var feedbackText = "Tap Spawn Soldier to attack the city."
 
     init(size: CGSize, store: KingdomGameStore = .shared, router: BattleSceneRouting? = nil) {
+        let loadedState = store.load()
         self.store = store
-        self.state = store.load()
+        self.state = loadedState
+        self.combat = BattleCombatState(cityLevel: loadedState.cityLevel)
         self.router = router
         super.init(size: size)
     }
 
     required init?(coder aDecoder: NSCoder) {
+        let loadedState = KingdomGameStore.shared.load()
         self.store = .shared
-        self.state = KingdomGameStore.shared.load()
+        self.state = loadedState
+        self.combat = BattleCombatState(cityLevel: loadedState.cityLevel)
         self.router = nil
         super.init(coder: aDecoder)
     }
@@ -108,6 +112,24 @@ final class BattleScene: SKScene {
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         layoutInterface()
+    }
+
+    override func update(_ currentTime: TimeInterval) {
+        super.update(currentTime)
+
+        defer {
+            lastUpdateTime = currentTime
+        }
+
+        guard let lastUpdateTime else {
+            return
+        }
+
+        guard state.stageStatus == .battleActive, !isConquestPopupVisible else {
+            return
+        }
+
+        advanceCombat(deltaTime: currentTime - lastUpdateTime)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -436,11 +458,8 @@ final class BattleScene: SKScene {
         castleGatePoint = CGPoint(x: castleX + castleWidth * 0.32, y: gateY)
         enemyGatePoint = CGPoint(x: enemyX - cityWidth * 0.34, y: gateY)
 
-        for soldier in pendingSoldiers {
-            fitBattleNode(soldier, targetHeight: max(28, min(42, size.height * 0.05)))
-        }
-
         drawGroundLane(from: CGPoint(x: castleX, y: laneY), to: CGPoint(x: enemyX, y: laneY))
+        syncSoldierNodes()
     }
 
     private func fitBattleNode(_ node: SKNode, targetHeight: CGFloat) {
@@ -505,66 +524,45 @@ final class BattleScene: SKScene {
         layoutInterface()
     }
 
-    private func spawnSoldier() {
-        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+    private func advanceCombat(deltaTime: TimeInterval) {
+        guard state.stageStatus == .battleActive, !isConquestPopupVisible else {
             return
         }
 
-        let soldier = makeSoldierNode()
-        fitBattleNode(soldier, targetHeight: max(28, min(42, size.height * 0.05)))
-        soldier.position = castleGatePoint
-        soldierLayer.addChild(soldier)
-        pendingSoldiers.append(soldier)
-        runSoldierAttackAnimation(for: soldier)
+        let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
+        applyCombatResult(result)
+        syncSoldierNodes()
     }
 
-    private func runSoldierAttackAnimation(for soldier: SKNode) {
-        let bob = SKAction.repeatForever(
-            SKAction.sequence([
-                SKAction.moveBy(x: 0, y: 4, duration: 0.18),
-                SKAction.moveBy(x: 0, y: -4, duration: 0.18)
-            ])
-        )
-        soldier.run(bob, withKey: "soldierBob")
-
-        let walk = SKAction.move(to: enemyGatePoint, duration: animationConfiguration.walkDuration)
-        walk.timingMode = .easeInEaseOut
-
-        let stopBob = SKAction.run { [weak soldier] in
-            soldier?.removeAction(forKey: "soldierBob")
-        }
-        let lungeForward = SKAction.moveBy(x: 12, y: 0, duration: animationConfiguration.attackDuration / 2)
-        lungeForward.timingMode = .easeOut
-        let lungeBack = SKAction.moveBy(x: -12, y: 0, duration: animationConfiguration.attackDuration / 2)
-        lungeBack.timingMode = .easeIn
-        let impact = SKAction.run { [weak self, weak soldier] in
-            guard let soldier else {
-                return
-            }
-
-            self?.completeSoldierAttack(soldier)
+    private func applyCombatResult(_ result: BattleCombatState.TickResult) {
+        for towerShot in result.towerShots {
+            playTowerShot(at: towerShot.soldierID)
         }
 
-        soldier.run(SKAction.sequence([walk, stopBob, lungeForward, lungeBack, impact]))
-    }
+        for soldierID in result.soldierAttackIDs {
+            playSoldierAttackFeedback(for: soldierID)
+        }
 
-    private func completeSoldierAttack(_ soldier: SKNode) {
-        guard let index = pendingSoldiers.firstIndex(where: { $0 === soldier }) else {
+        for soldierID in result.killedSoldierIDs {
+            removeSoldierNode(id: soldierID, animated: true)
+        }
+
+        guard result.cityDamage > 0 else {
             return
         }
 
-        pendingSoldiers.remove(at: index)
-        soldier.removeAllActions()
-        soldier.removeFromParent()
+        let damageResult = state.applyLiveCombatDamage(result.cityDamage)
+        guard damageResult.attackApplied else {
+            return
+        }
 
-        let result = state.spawnSoldierAttack()
-        let conqueredCity = result.conqueredCities > 0
+        let conqueredCity = damageResult.conqueredCities > 0
 
         if conqueredCity {
-            clearPendingSoldierAttacks()
-            feedbackText = "\(state.displayCityTitle) conquered! +\(result.goldEarned) gold."
+            clearLiveCombat()
+            feedbackText = "\(state.displayCityTitle) conquered! +\(damageResult.goldEarned) gold."
         } else {
-            feedbackText = "Soldier dealt \(result.damageDealt) damage."
+            feedbackText = "Soldiers dealt \(damageResult.damageDealt) damage."
         }
 
         store.save(state)
@@ -572,19 +570,124 @@ final class BattleScene: SKScene {
 
         if conqueredCity {
             playCityConquestFeedback()
-            showConquestPopup(goldEarned: result.goldEarned)
+            showConquestPopup(goldEarned: damageResult.goldEarned)
         } else {
             playCityHitFeedback()
         }
     }
 
-    private func clearPendingSoldierAttacks() {
-        for pendingSoldier in pendingSoldiers {
-            pendingSoldier.removeAllActions()
-            pendingSoldier.removeFromParent()
+    private func spawnSoldier() {
+        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
         }
 
-        pendingSoldiers.removeAll()
+        let soldierID = combat.spawnSoldier(attackPower: state.normalSoldierAttackPower)
+        createSoldierNode(id: soldierID)
+        syncSoldierNodes()
+    }
+
+    private func createSoldierNode(id: BattleCombatState.SoldierID) {
+        guard soldierNodes[id] == nil else {
+            return
+        }
+
+        let root = SKNode()
+        root.name = BattleAssetName.normalSoldier
+
+        let body = makeSoldierNode()
+        root.addChild(body)
+
+        let hpBackground = SKShapeNode()
+        hpBackground.fillColor = SKColor(white: 0.05, alpha: 0.9)
+        hpBackground.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        hpBackground.lineWidth = 1
+        hpBackground.zPosition = 2
+
+        let hpFill = SKShapeNode()
+        hpFill.fillColor = SKColor(red: 0.25, green: 0.9, blue: 0.38, alpha: 1.0)
+        hpFill.strokeColor = .clear
+        hpFill.zPosition = 3
+
+        root.addChild(hpBackground)
+        root.addChild(hpFill)
+        soldierLayer.addChild(root)
+        soldierNodes[id] = SoldierNodeBundle(root: root, hpBarBackground: hpBackground, hpBarFill: hpFill)
+    }
+
+    private func syncSoldierNodes() {
+        let liveSoldiers = combat.soldiers.filter(\.isAlive)
+        let liveIDs = Set(liveSoldiers.map(\.id))
+
+        for id in Array(soldierNodes.keys) where !liveIDs.contains(id) {
+            removeSoldierNode(id: id, animated: false)
+        }
+
+        for soldier in liveSoldiers {
+            if soldierNodes[soldier.id] == nil {
+                createSoldierNode(id: soldier.id)
+            }
+
+            guard let bundle = soldierNodes[soldier.id] else {
+                continue
+            }
+
+            bundle.root.position = pointForSoldierPosition(soldier.position)
+            fitBattleNode(bundle.root, targetHeight: max(28, min(42, size.height * 0.05)))
+            layoutSoldierHPBar(bundle, soldier: soldier)
+        }
+    }
+
+    private func pointForSoldierPosition(_ position: Double) -> CGPoint {
+        let clamped = CGFloat(min(max(0, position), 1))
+        return CGPoint(
+            x: castleGatePoint.x + (enemyGatePoint.x - castleGatePoint.x) * clamped,
+            y: castleGatePoint.y + (enemyGatePoint.y - castleGatePoint.y) * clamped
+        )
+    }
+
+    private func layoutSoldierHPBar(_ bundle: SoldierNodeBundle, soldier: BattleCombatState.Soldier) {
+        let width: CGFloat = 28
+        let height: CGFloat = 5
+        let y: CGFloat = 36
+        let percent = min(max(CGFloat(soldier.currentHP) / CGFloat(max(1, soldier.maxHP)), 0), 1)
+
+        bundle.hpBarBackground.path = CGPath(
+            roundedRect: CGRect(x: -width / 2, y: y, width: width, height: height),
+            cornerWidth: height / 2,
+            cornerHeight: height / 2,
+            transform: nil
+        )
+        bundle.hpBarFill.path = CGPath(
+            roundedRect: CGRect(x: -width / 2, y: y, width: max(1, width * percent), height: height),
+            cornerWidth: height / 2,
+            cornerHeight: height / 2,
+            transform: nil
+        )
+    }
+
+    private func clearLiveCombat() {
+        combat = BattleCombatState(cityLevel: state.cityLevel)
+        lastUpdateTime = nil
+
+        for id in Array(soldierNodes.keys) {
+            removeSoldierNode(id: id, animated: false)
+        }
+    }
+
+    private func removeSoldierNode(id: BattleCombatState.SoldierID, animated: Bool) {
+        guard let bundle = soldierNodes.removeValue(forKey: id) else {
+            return
+        }
+
+        bundle.root.removeAllActions()
+
+        if animated {
+            let fade = SKAction.fadeOut(withDuration: 0.18)
+            let remove = SKAction.removeFromParent()
+            bundle.root.run(SKAction.sequence([fade, remove]))
+        } else {
+            bundle.root.removeFromParent()
+        }
     }
 
     private func makeSoldierNode() -> SKNode {
@@ -661,6 +764,33 @@ final class BattleScene: SKScene {
         flash.run(SKAction.sequence([SKAction.group([expand, fade]), remove]))
     }
 
+    private func playTowerShot(at soldierID: BattleCombatState.SoldierID) {
+        guard let bundle = soldierNodes[soldierID] else {
+            return
+        }
+
+        let shot = SKShapeNode(circleOfRadius: 4)
+        shot.fillColor = SKColor(red: 1.0, green: 0.28, blue: 0.18, alpha: 1.0)
+        shot.strokeColor = .clear
+        shot.position = enemyGatePoint
+        shot.zPosition = 45
+        effectsLayer.addChild(shot)
+
+        let move = SKAction.move(to: bundle.root.position, duration: 0.12)
+        let remove = SKAction.removeFromParent()
+        shot.run(SKAction.sequence([move, remove]))
+    }
+
+    private func playSoldierAttackFeedback(for soldierID: BattleCombatState.SoldierID) {
+        guard let bundle = soldierNodes[soldierID] else {
+            return
+        }
+
+        let lunge = SKAction.moveBy(x: 8, y: 0, duration: 0.06)
+        let back = SKAction.moveBy(x: -8, y: 0, duration: 0.08)
+        bundle.root.run(SKAction.sequence([lunge, back]), withKey: "soldierAttackFeedback")
+    }
+
     private func cancelCityFeedbackActions() {
         guard let enemyCityNode else {
             return
@@ -727,6 +857,7 @@ final class BattleScene: SKScene {
     @objc private func sceneDidEnterBackground(_ notification: Notification) {
         state.enterBackground(at: Date())
         store.save(state)
+        clearLiveCombat()
     }
 
     @objc private func sceneWillEnterForeground(_ notification: Notification) {
@@ -736,7 +867,7 @@ final class BattleScene: SKScene {
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
-                clearPendingSoldierAttacks()
+                clearLiveCombat()
                 feedbackText = "Idle attacks conquered \(state.displayCityTitle)."
             } else {
                 feedbackText = "Idle attacks dealt \(result.damageDealt) damage."
@@ -826,8 +957,8 @@ final class BattleScene: SKScene {
 
 #if DEBUG
 extension BattleScene {
-    var pendingSoldierAttackCountForTesting: Int {
-        pendingSoldiers.count
+    var liveSoldierCountForTesting: Int {
+        combat.livingSoldierCount
     }
 
     var cityRemainingPowerForTesting: Int {
@@ -854,12 +985,14 @@ extension BattleScene {
         spawnSoldier()
     }
 
-    func completeFirstPendingSoldierAttackForTesting() {
-        guard let soldier = pendingSoldiers.first else {
-            return
-        }
+    func advanceCombatForTesting(deltaTime: TimeInterval) {
+        var remaining = max(0, deltaTime)
 
-        completeSoldierAttack(soldier)
+        while remaining > 0 {
+            let step = min(remaining, 0.1)
+            advanceCombat(deltaTime: step)
+            remaining -= step
+        }
     }
 
     func closeConquestPopupForTesting() {
