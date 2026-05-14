@@ -223,6 +223,40 @@ struct BattleCombatStateTests {
         #expect(laterTick.soldierAttackIDs.isEmpty)
     }
 
+    @Test func towerWaitsAtReadyWithoutTargetInsteadOfBuildingCooldownDebt() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0.2,
+                towerDamage: 1,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0.40,
+                maxDeltaTime: 1.0
+            )
+        )
+        let id = combat.spawnSoldier(attackPower: 1)
+
+        let firstNoTargetTick = combat.tick(deltaTime: 1.0, cityRemainingHP: 20)
+        let secondNoTargetTick = combat.tick(deltaTime: 1.0, cityRemainingHP: 20)
+        let entryTick = combat.tick(deltaTime: 1.0, cityRemainingHP: 20)
+        #expect(firstNoTargetTick.towerShots.isEmpty)
+        #expect(secondNoTargetTick.towerShots.isEmpty)
+        #expect(entryTick.towerShots.isEmpty)
+
+        let readyTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+        #expect(readyTick.towerShots.count == 1)
+        let shot = try #require(readyTick.towerShots.first)
+        #expect(shot.soldierID == id)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 9)
+
+        let tooSoonTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+        #expect(tooSoonTick.towerShots.isEmpty)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 9)
+    }
+
     @Test func largeTickDeltasAreClamped() throws {
         var combat = BattleCombatState(
             configuration: BattleCombatState.Configuration(

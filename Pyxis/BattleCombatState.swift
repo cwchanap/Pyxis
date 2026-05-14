@@ -124,7 +124,7 @@ struct BattleCombatState: Equatable {
         var result = TickResult()
         var remainingCityHP = max(0, cityRemainingHP)
 
-        towerCooldownRemaining -= deltaTime
+        towerCooldownRemaining = max(0, towerCooldownRemaining - deltaTime)
         if towerCooldownRemaining <= 0, let targetIndex = towerTargetIndex() {
             let damage = damageAgainstSoldier(soldiers[targetIndex])
             soldiers[targetIndex].currentHP = max(0, soldiers[targetIndex].currentHP - damage)
@@ -136,7 +136,7 @@ struct BattleCombatState: Equatable {
                 result.killedSoldierIDs.append(soldierID)
             }
 
-            towerCooldownRemaining += towerAttackInterval()
+            towerCooldownRemaining = towerAttackInterval()
         }
 
         for index in soldiers.indices where soldiers[index].isAlive {
