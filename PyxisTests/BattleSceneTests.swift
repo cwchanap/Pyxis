@@ -52,7 +52,12 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 18.0)
 
+        let savedState = store.load()
         #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(!scene.isConquestPopupVisibleForTesting)
+        #expect(savedState.stageStatus == .battleActive)
+        #expect(savedState.cityRemainingPower > 0)
+        #expect(savedState.cityRemainingPower < 20)
     }
 
     @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
@@ -65,6 +70,11 @@ struct BattleSceneTests {
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.liveSoldierCountForTesting == 3)
+
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
         let savedState = store.load()
@@ -73,6 +83,15 @@ struct BattleSceneTests {
         #expect(savedState.gold == 8)
         #expect(savedState.completedCityCount == 1)
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        let laterState = store.load()
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(laterState.gold == savedState.gold)
+        #expect(laterState.completedCityCount == savedState.completedCityCount)
+        #expect(laterState.stageStatus == savedState.stageStatus)
     }
 
     @Test func closingConquestPopupRequestsCountryMapRoute() throws {
