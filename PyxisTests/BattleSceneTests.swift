@@ -34,6 +34,18 @@ struct BattleSceneTests {
         #expect(store.load().cityRemainingPower == 20)
     }
 
+    @Test func liveSoldierHPBarStaysReadableAboveScaledBody() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        let hpBarFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
+        let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
+        #expect(hpBarFrame.height >= 4.5)
+        #expect(hpBarFrame.minY > bodyFrame.maxY)
+    }
+
     @Test func combatTickCanDamageDurableCityHPAndSaveIt() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -92,6 +104,24 @@ struct BattleSceneTests {
         #expect(laterState.gold == savedState.gold)
         #expect(laterState.completedCityCount == savedState.completedCityCount)
         #expect(laterState.stageStatus == savedState.stageStatus)
+    }
+
+    @Test func conquestPopupLayoutKeepsCityConquestFeedbackRunning() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 1,
+                normalSoldierUpgradeLevel: 4
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(scene.isCityConquestFeedbackRunningForTesting)
     }
 
     @Test func closingConquestPopupRequestsCountryMapRoute() throws {

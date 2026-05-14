@@ -28,6 +28,7 @@ final class BattleScene: SKScene {
 
     private struct SoldierNodeBundle {
         let root: SKNode
+        let body: SKNode
         let hpBarBackground: SKShapeNode
         let hpBarFill: SKShapeNode
     }
@@ -424,7 +425,9 @@ final class BattleScene: SKScene {
         let laneY = safeBottomY + laneHeight / 2
         let maxStructureHeight = (safeTopY - laneY) / tallestStructureHeightMultiplier
 
-        cancelCityFeedbackActions()
+        if !isConquestPopupVisible {
+            cancelCityFeedbackActions()
+        }
 
         guard availableHeight >= 44, maxStructureHeight >= minimumStructureHeight else {
             setBattlefieldHidden(true)
@@ -595,6 +598,7 @@ final class BattleScene: SKScene {
         root.name = BattleAssetName.normalSoldier
 
         let body = makeSoldierNode()
+        body.zPosition = 1
         root.addChild(body)
 
         let hpBackground = SKShapeNode()
@@ -611,7 +615,7 @@ final class BattleScene: SKScene {
         root.addChild(hpBackground)
         root.addChild(hpFill)
         soldierLayer.addChild(root)
-        soldierNodes[id] = SoldierNodeBundle(root: root, hpBarBackground: hpBackground, hpBarFill: hpFill)
+        soldierNodes[id] = SoldierNodeBundle(root: root, body: body, hpBarBackground: hpBackground, hpBarFill: hpFill)
     }
 
     private func syncSoldierNodes() {
@@ -632,7 +636,8 @@ final class BattleScene: SKScene {
             }
 
             bundle.root.position = pointForSoldierPosition(soldier.position)
-            fitBattleNode(bundle.root, targetHeight: max(28, min(42, size.height * 0.05)))
+            bundle.root.setScale(1)
+            fitBattleNode(bundle.body, targetHeight: max(28, min(42, size.height * 0.05)))
             layoutSoldierHPBar(bundle, soldier: soldier)
         }
     }
@@ -648,7 +653,8 @@ final class BattleScene: SKScene {
     private func layoutSoldierHPBar(_ bundle: SoldierNodeBundle, soldier: BattleCombatState.Soldier) {
         let width: CGFloat = 28
         let height: CGFloat = 5
-        let y: CGFloat = 36
+        let bodyFrame = bundle.body.calculateAccumulatedFrame()
+        let y = bodyFrame.maxY + 6
         let percent = min(max(CGFloat(soldier.currentHP) / CGFloat(max(1, soldier.maxHP)), 0), 1)
 
         bundle.hpBarBackground.path = CGPath(
@@ -961,6 +967,26 @@ extension BattleScene {
         combat.livingSoldierCount
     }
 
+    var firstLiveSoldierHPBarFrameForTesting: CGRect? {
+        guard let bundle = soldierNodes.values.first else {
+            return nil
+        }
+
+        return sceneFrame(for: bundle.hpBarBackground)
+    }
+
+    var firstLiveSoldierBodyFrameForTesting: CGRect? {
+        guard let bundle = soldierNodes.values.first else {
+            return nil
+        }
+
+        return sceneFrame(for: bundle.body)
+    }
+
+    var isCityConquestFeedbackRunningForTesting: Bool {
+        enemyCityNode?.action(forKey: "cityConquestFeedback") != nil
+    }
+
     var cityRemainingPowerForTesting: Int {
         state.cityRemainingPower
     }
@@ -997,6 +1023,31 @@ extension BattleScene {
 
     func closeConquestPopupForTesting() {
         closeConquestPopup()
+    }
+
+    private func sceneFrame(for node: SKNode) -> CGRect? {
+        guard let parent = node.parent else {
+            return nil
+        }
+
+        let frame = node.calculateAccumulatedFrame()
+        let points = [
+            CGPoint(x: frame.minX, y: frame.minY),
+            CGPoint(x: frame.maxX, y: frame.minY),
+            CGPoint(x: frame.minX, y: frame.maxY),
+            CGPoint(x: frame.maxX, y: frame.maxY)
+        ].map { parent.convert($0, to: self) }
+
+        guard
+            let minX = points.map(\.x).min(),
+            let maxX = points.map(\.x).max(),
+            let minY = points.map(\.y).min(),
+            let maxY = points.map(\.y).max()
+        else {
+            return nil
+        }
+
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
 #endif
