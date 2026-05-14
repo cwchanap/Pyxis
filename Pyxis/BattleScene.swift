@@ -56,6 +56,7 @@ final class BattleScene: SKScene {
     private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let soldierAttackLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let cityHPLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private let liveCombatStatusLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let feedbackLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let hpBarBackground = SKShapeNode()
     private let hpBarFill = SKShapeNode()
@@ -167,6 +168,7 @@ final class BattleScene: SKScene {
         configureLabel(cityLevelLabel, fontSize: 22, color: .white)
         configureLabel(soldierAttackLabel, fontSize: 18, color: SKColor(red: 0.74, green: 0.86, blue: 1.0, alpha: 1.0))
         configureLabel(cityHPLabel, fontSize: 18, color: SKColor(red: 0.88, green: 0.95, blue: 0.90, alpha: 1.0))
+        configureLabel(liveCombatStatusLabel, fontSize: 15, color: SKColor(red: 0.77, green: 0.86, blue: 0.92, alpha: 1.0))
         configureLabel(feedbackLabel, fontSize: 16, color: SKColor(red: 0.95, green: 0.91, blue: 0.78, alpha: 1.0))
 
         hpBarBackground.fillColor = SKColor(red: 0.17, green: 0.19, blue: 0.22, alpha: 1.0)
@@ -215,6 +217,7 @@ final class BattleScene: SKScene {
             cityLevelLabel,
             soldierAttackLabel,
             cityHPLabel,
+            liveCombatStatusLabel,
             hpBarBackground,
             hpBarFill,
             feedbackLabel,
@@ -226,6 +229,7 @@ final class BattleScene: SKScene {
         addChild(cityLevelLabel)
         addChild(soldierAttackLabel)
         addChild(cityHPLabel)
+        addChild(liveCombatStatusLabel)
         addChild(hpBarBackground)
         addChild(hpBarFill)
         addChild(feedbackLabel)
@@ -280,7 +284,8 @@ final class BattleScene: SKScene {
         let topMargin: CGFloat = compactHeight ? 36 : 72
         let primaryStatusGap: CGFloat = compactHeight ? 32 : 42
         let secondaryStatusGap: CGFloat = compactHeight ? 28 : 34
-        let hpLabelToBarGap: CGFloat = compactHeight ? 24 : 30
+        let hpLabelToStatusGap: CGFloat = compactHeight ? 17 : 19
+        let statusToBarGap: CGFloat = compactHeight ? 18 : 20
         let buttonHeight: CGFloat = compactHeight ? 44 : 52
         let buttonGap: CGFloat = compactHeight ? 10 : 12
         let bottomMargin: CGFloat = compactHeight ? 32 : 38
@@ -296,6 +301,7 @@ final class BattleScene: SKScene {
         cityLevelLabel.position = CGPoint(x: centerX, y: topY - primaryStatusGap)
         soldierAttackLabel.position = CGPoint(x: centerX, y: cityLevelLabel.position.y - secondaryStatusGap)
         cityHPLabel.position = CGPoint(x: centerX, y: soldierAttackLabel.position.y - secondaryStatusGap)
+        liveCombatStatusLabel.position = CGPoint(x: centerX, y: cityHPLabel.position.y - hpLabelToStatusGap)
 
         let hpBarSize = CGSize(width: contentWidth, height: 18)
         hpBarBackground.path = CGPath(
@@ -304,7 +310,7 @@ final class BattleScene: SKScene {
             cornerHeight: 9,
             transform: nil
         )
-        hpBarBackground.position = CGPoint(x: centerX, y: cityHPLabel.position.y - hpLabelToBarGap)
+        hpBarBackground.position = CGPoint(x: centerX, y: liveCombatStatusLabel.position.y - statusToBarGap)
 
         let hpPercent = CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower))
         let fillWidth = max(4, hpBarSize.width * min(max(hpPercent, 0), 1))
@@ -344,6 +350,7 @@ final class BattleScene: SKScene {
         fitLabel(cityLevelLabel, maxWidth: contentWidth)
         fitLabel(soldierAttackLabel, maxWidth: contentWidth)
         fitLabel(cityHPLabel, maxWidth: contentWidth)
+        fitLabel(liveCombatStatusLabel, maxWidth: contentWidth)
         fitLabel(feedbackLabel, maxWidth: contentWidth)
         fitLabel(spawnButtonLabel, maxWidth: contentWidth - 28)
         fitLabel(upgradeButtonLabel, maxWidth: contentWidth - 28)
@@ -357,6 +364,7 @@ final class BattleScene: SKScene {
         cityLevelLabel.fontSize = 22
         soldierAttackLabel.fontSize = 18
         cityHPLabel.fontSize = 18
+        liveCombatStatusLabel.fontSize = 15
         feedbackLabel.fontSize = 16
         spawnButtonLabel.fontSize = 16
         upgradeButtonLabel.fontSize = 16
@@ -521,6 +529,7 @@ final class BattleScene: SKScene {
         cityLevelLabel.text = state.displayCityTitle
         soldierAttackLabel.text = "Soldier Attack: \(state.normalSoldierAttackPower)"
         cityHPLabel.text = "City HP: \(state.cityRemainingPower) / \(state.cityMaxPower)"
+        liveCombatStatusLabel.text = "Soldiers: \(combat.livingSoldierCount)"
         feedbackLabel.text = feedbackText
         spawnButtonLabel.text = "Spawn Soldier"
         upgradeButtonLabel.text = "Upgrade Soldier (\(state.normalSoldierUpgradeCost) gold)"
@@ -587,6 +596,7 @@ final class BattleScene: SKScene {
         let soldierID = combat.spawnSoldier(attackPower: state.normalSoldierAttackPower)
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
+        redraw()
     }
 
     private func createSoldierNode(id: BattleCombatState.SoldierID) {
@@ -1001,6 +1011,10 @@ extension BattleScene {
 
     var cityTitleTextForTesting: String? {
         cityLevelLabel.text
+    }
+
+    var liveCombatStatusTextForTesting: String? {
+        liveCombatStatusLabel.text
     }
 
     var isConquestPopupVisibleForTesting: Bool {

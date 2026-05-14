@@ -23,6 +23,17 @@ struct BattleSceneTests {
         #expect(scene.cityTitleTextForTesting == "Country 1 - City 3")
     }
 
+    @Test func battleSceneDisplaysLiveSoldierCount() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 0")
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 1")
+    }
+
     @Test func tappingSpawnCreatesLiveCombatSoldierWithoutImmediateCityDamage() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
