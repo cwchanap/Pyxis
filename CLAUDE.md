@@ -35,25 +35,32 @@ xcodebuild ... test -only-testing:PyxisTests/KingdomGameStateTests/idleCatchUpIs
 
 ## Architecture
 
-Three layers, intentionally kept decoupled so game rules can be unit-tested without SpriteKit:
+Game logic is split into pure value-type models (no SpriteKit/UIKit) and SpriteKit scenes that render and drive them. Decoupling exists so rules can be unit-tested with Swift Testing.
 
-1. **`KingdomGameState`** (`Pyxis/KingdomGameState.swift`) — pure value type. Owns all balance formulas (`cityMaxPower`, `goldReward`, `normalSoldierAttackPower`, `normalSoldierUpgradeCost` — exponential curves) and the three mutating operations: `spawnSoldierAttack()`, `upgradeNormalSoldier()`, and the `enterBackground(at:)` / `returnFromBackground(at:)` pair. Excess damage carries between cities during idle catch-up but **not** during a foreground spawn. The decoder clamps invalid persisted values (negative gold, zero levels) back to safe defaults rather than failing.
+1. **`KingdomGameState`** (`Pyxis/KingdomGameState.swift`) — campaign/economy model. Owns balance formulas (`cityMaxPower`, `goldReward`, `normalSoldierAttackPower`, `normalSoldierUpgradeCost` — exponential curves) and mutating ops: `applyLiveCombatDamage(_:)`, `upgradeNormalSoldier()`, `startCityFromMap(_:)`, and the `enterBackground(at:)` / `returnFromBackground(at:)` pair. A `stageStatus` enum (`battleActive` / `cityConqueredPendingMap` / `countryComplete`) gates which mutations are allowed and which scene the app presents. The init/decoder clamps invalid persisted values (negative gold, out-of-range city/country, mismatched status) back to a consistent state instead of failing.
 
-2. **`KingdomGameStore`** (`Pyxis/KingdomGameStore.swift`) — JSON-codes the state into `UserDefaults` under key `pyxis.kingdomGameState`. Decode failure silently returns a fresh state. Tests inject a custom `UserDefaults` suite + key for isolation.
+2. **`BattleCombatState`** (`Pyxis/BattleCombatState.swift`) — pure live-combat simulator. Owns soldier roster + tower cooldown. Each `tick(deltaTime:cityRemainingHP:)` advances soldier positions, resolves tower shots, applies soldier attacks against the city, prunes dead soldiers, and returns a `TickResult` (city damage, conquest flag, attack IDs, tower shots, damaged/killed soldier IDs). `BattleScene` drives this; `KingdomGameState` consumes only its `cityDamage` via `applyLiveCombatDamage(_:)`.
 
-3. **`GameScene`** (`Pyxis/GameScene.swift`) — code-owned SpriteKit scene (the bundled `GameScene.sks` is unused; `GameViewController` constructs `GameScene(size:)` directly). Builds labels/buttons/HP bar in code and re-runs `layoutInterface()` on every `didChangeSize` for orientation changes. Holds its own copy of `KingdomGameState` and persists after every mutation via the injected store.
+3. **`KingdomGameStore`** (`Pyxis/KingdomGameStore.swift`) — JSON-codes the state into `UserDefaults` under key `pyxis.kingdomGameState`. Decode failure silently returns a fresh state. Tests inject a custom `UserDefaults` suite + key for isolation.
+
+4. **Scenes** — code-owned SpriteKit scenes (the bundled `GameScene.sks` / `Actions.sks` are unused). Each holds its own copy of `KingdomGameState`, persists after every mutation, and rebuilds layout on `didChangeSize`:
+   - `BattleScene` (`Pyxis/BattleScene.swift`) — owns a `BattleCombatState`, spawns/upgrades soldiers, runs the per-frame tick, mirrors `TickResult` into UI (HP bar, soldier nodes, conquest popup), and routes to the map via `BattleSceneRouting`.
+   - `CountryMapScene` (`Pyxis/CountryMapScene.swift`) — renders the 15-city route, lets the player enter the unlocked city via `startCityFromMap(_:)`, and routes back to battle via `CountryMapSceneRouting`.
+
+5. **`GameViewController`** (`Pyxis/GameViewController.swift`) — presents the initial scene based on persisted `stageStatus` (`battleActive` → `BattleScene`, otherwise `CountryMapScene`) and acts as the router for both scenes' protocols.
 
 ### App lifecycle → idle catch-up
 
 `SceneDelegate` translates UIScene lifecycle into two custom notifications declared in `GameLifecycleNotifications.swift`:
 
-- `.pyxisSceneDidEnterBackground` → `GameScene` calls `state.enterBackground(at: Date())` and saves.
-- `.pyxisSceneWillEnterForeground` → `GameScene` calls `state.returnFromBackground(at: Date())`, which applies up to 8 hours of accumulated damage, conquers cities, awards gold, and clears the timestamp so it can't be applied twice.
+- `.pyxisSceneDidEnterBackground` → `BattleScene` calls `state.enterBackground(at: Date())` and saves.
+- `.pyxisSceneWillEnterForeground` → `BattleScene` calls `state.returnFromBackground(at: Date())`, which (only when `stageStatus == .battleActive`) applies up to 8 hours of accumulated damage at `normalSoldierAttackPower` per second, conquers at most one city, awards gold, and clears the timestamp so it can't be applied twice.
 
-`GameScene` guards observer registration with `isObservingLifecycle` because `didMove(to:)` can run more than once.
+Scenes guard observer registration with `isObservingLifecycle` because `didMove(to:)` can run more than once.
 
 ## Conventions
 
-- Game rules belong in `KingdomGameState` (no `SpriteKit` / `UIKit` imports there). Keep the model SpriteKit-free so it stays unit-testable.
-- New gameplay features should follow the same TDD flow used in `docs/plans/2026-05-05-idle-kingdom-mvp.md`: add a Swift Testing test, watch it fail, implement, watch it pass.
+- Game rules belong in `KingdomGameState` or `BattleCombatState` — neither imports SpriteKit/UIKit. Keep these models framework-free so they stay unit-testable.
+- New gameplay features follow the TDD flow used in `docs/plans/` (e.g. `2026-05-05-idle-kingdom-mvp.md`, `2026-05-08-basic-battle-animation.md`, `2026-05-14-live-tower-combat.md`): add a Swift Testing test, watch it fail, implement, watch it pass.
 - Implementation plans live in `docs/plans/`; design specs in `docs/superpowers/specs/`.
+- `AGENTS.md` is a symlink to `CLAUDE.md` — edit `CLAUDE.md` only.
