@@ -60,6 +60,7 @@ final class ProgressBarNode: SKNode {
     }
 
     func update(size: CGSize) {
+        let progress = self.size.width == 0 ? 0 : fillWidth / self.size.width
         self.size = size
         background.path = CGPath(
             roundedRect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height),
@@ -67,7 +68,7 @@ final class ProgressBarNode: SKNode {
             cornerHeight: size.height / 2,
             transform: nil
         )
-        update(progress: size.width == 0 ? 0 : fillWidth / size.width)
+        update(progress: progress)
     }
 
     func update(progress: CGFloat) {
