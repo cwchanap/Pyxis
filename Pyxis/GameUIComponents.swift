@@ -39,6 +39,7 @@ final class ProgressBarNode: SKNode {
     private let background = SKShapeNode()
     private let fill = SKShapeNode()
     private var size: CGSize
+    private var progress: CGFloat = 0
     private var fillWidth: CGFloat = 0
 
     init(size: CGSize) {
@@ -60,7 +61,6 @@ final class ProgressBarNode: SKNode {
     }
 
     func update(size: CGSize) {
-        let progress = self.size.width == 0 ? 0 : fillWidth / self.size.width
         self.size = size
         background.path = CGPath(
             roundedRect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height),
@@ -72,7 +72,8 @@ final class ProgressBarNode: SKNode {
     }
 
     func update(progress: CGFloat) {
-        fillWidth = size.width * GameUITheme.clampedProgress(progress)
+        self.progress = GameUITheme.clampedProgress(progress)
+        fillWidth = size.width * self.progress
         let fillRect = CGRect(x: -size.width / 2, y: -size.height / 2, width: fillWidth, height: size.height)
         fill.path = fillWidth <= 0
             ? CGPath(rect: CGRect(x: -size.width / 2, y: -size.height / 2, width: 0, height: size.height), transform: nil)

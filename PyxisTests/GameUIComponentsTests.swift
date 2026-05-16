@@ -34,6 +34,17 @@ struct GameUIComponentsTests {
         #expect(bar.fillWidthForTesting == 100)
     }
 
+    @Test func progressBarPreservesRatioAfterZeroWidthResize() {
+        let bar = ProgressBarNode(size: CGSize(width: 0, height: 14))
+
+        bar.update(progress: 0.5)
+        #expect(bar.fillWidthForTesting == 0)
+
+        bar.update(size: CGSize(width: 200, height: 20))
+
+        #expect(bar.fillWidthForTesting == 100)
+    }
+
     @Test func panelNodeStoresStableContentSize() {
         let panel = PanelNode(size: CGSize(width: 180, height: 72))
 
