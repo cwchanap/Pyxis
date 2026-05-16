@@ -263,7 +263,7 @@ final class BattleScene: SKScene {
 
         label.name = name
         label.fontSize = 16
-        label.fontColor = .white
+        label.fontColor = GameUITheme.Color.textPrimary
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
 
