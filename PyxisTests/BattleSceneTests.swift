@@ -219,8 +219,15 @@ struct BattleSceneTests {
         #expect(frames.leftHUD.minX >= 12)
         #expect(frames.rightHUD.maxX <= scene.size.width - 12)
         #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
+        #expect(frames.leftHUD.height >= 70)
+        #expect(frames.rightHUD.height >= 70)
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
+        #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
+        #expect(frames.battlefield.maxY < frames.rightHUD.minY)
+        #expect(frames.spawnButton.minX >= 12)
+        #expect(frames.upgradeButton.maxX <= scene.size.width - 12)
+        #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
         #expect(frames.upgradeButton.minY >= 12)
     }
 
@@ -235,12 +242,24 @@ struct BattleSceneTests {
 
         #expect(frames.leftHUD.minX >= 8)
         #expect(frames.rightHUD.maxX <= size.width - 8)
+        #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
+        #expect(frames.leftHUD.height >= 56)
+        #expect(frames.rightHUD.height >= 56)
+        #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
+        #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
+        #expect(frames.battlefield.maxY < frames.leftHUD.minY)
+        #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minY >= 8)
         #expect(frames.upgradeButton.minY >= 8)
+        #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
         #expect(frames.feedback.maxY < frames.battlefield.maxY)
     }
 
     @Test func upgradeButtonCommunicatesAffordabilityWithoutBlockingTapFeedback() throws {
+        let affordableStore = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let affordableScene = makeScene(store: affordableStore)
+        #expect(affordableScene.isUpgradeVisuallyAffordableForTesting)
+
         let store = try makeStore(initialState: KingdomGameState(gold: 0, cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
