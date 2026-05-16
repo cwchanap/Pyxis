@@ -51,6 +51,7 @@ final class BattleScene: SKScene {
     private var castleGatePoint = CGPoint.zero
     private var enemyGatePoint = CGPoint.zero
     private var battleGroundLane: SKShapeNode?
+    private var battlefieldLayoutFrame = CGRect.zero
 
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -428,6 +429,12 @@ final class BattleScene: SKScene {
         let feedbackClearance = max(24, feedbackLabel.fontSize + 10)
         let safeTopY = min(hpBarBottomY - verticalPadding, feedbackY - feedbackClearance)
         let safeBottomY = spawnButtonTopY + verticalPadding
+        battlefieldLayoutFrame = CGRect(
+            x: (size.width - contentWidth) / 2,
+            y: safeBottomY,
+            width: contentWidth,
+            height: max(0, hpBarBottomY - verticalPadding - safeBottomY)
+        )
         let availableHeight = safeTopY - safeBottomY
         let tallestStructureHeightMultiplier: CGFloat = 1.04
         let laneHeight = groundLaneHeight()
@@ -1001,8 +1008,8 @@ extension BattleScene {
 
     var battleLayoutFramesForTesting: BattleLayoutFrames? {
         guard
-            let leftHUD = sceneFrame(for: goldLabel),
-            let rightHUD = sceneFrame(for: cityLevelLabel),
+            let leftHUD = sceneFrame(for: leftHUDPanel),
+            let rightHUD = sceneFrame(for: rightHUDPanel),
             let feedback = sceneFrame(for: feedbackLabel),
             let spawnFrame = sceneFrame(for: spawnButton),
             let upgradeFrame = sceneFrame(for: upgradeButton)
@@ -1010,7 +1017,7 @@ extension BattleScene {
             return nil
         }
 
-        let battlefieldFrame = battlefieldLayer.calculateAccumulatedFrame()
+        let battlefieldFrame = battlefieldLayoutFrame
         return BattleLayoutFrames(
             leftHUD: leftHUD,
             rightHUD: rightHUD,
@@ -1022,7 +1029,7 @@ extension BattleScene {
     }
 
     var isUpgradeVisuallyAffordableForTesting: Bool {
-        state.gold >= state.normalSoldierUpgradeCost
+        colorsMatch(upgradeButtonBackground.fillColor, GameUITheme.Color.upgradeAvailable)
     }
 
     var feedbackTextForTesting: String {
@@ -1122,6 +1129,30 @@ extension BattleScene {
         }
 
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    private func colorsMatch(_ lhs: SKColor, _ rhs: SKColor) -> Bool {
+        var lhsRed: CGFloat = 0
+        var lhsGreen: CGFloat = 0
+        var lhsBlue: CGFloat = 0
+        var lhsAlpha: CGFloat = 0
+        var rhsRed: CGFloat = 0
+        var rhsGreen: CGFloat = 0
+        var rhsBlue: CGFloat = 0
+        var rhsAlpha: CGFloat = 0
+
+        guard
+            lhs.getRed(&lhsRed, green: &lhsGreen, blue: &lhsBlue, alpha: &lhsAlpha),
+            rhs.getRed(&rhsRed, green: &rhsGreen, blue: &rhsBlue, alpha: &rhsAlpha)
+        else {
+            return lhs.isEqual(rhs)
+        }
+
+        let tolerance: CGFloat = 0.001
+        return abs(lhsRed - rhsRed) <= tolerance
+            && abs(lhsGreen - rhsGreen) <= tolerance
+            && abs(lhsBlue - rhsBlue) <= tolerance
+            && abs(lhsAlpha - rhsAlpha) <= tolerance
     }
 }
 #endif
