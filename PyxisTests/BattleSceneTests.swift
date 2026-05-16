@@ -223,6 +223,7 @@ struct BattleSceneTests {
         #expect(frames.rightHUD.height >= 70)
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
         #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
+        #expect(frames.feedback.maxY <= frames.battlefield.minY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minX >= 12)
@@ -247,12 +248,12 @@ struct BattleSceneTests {
         #expect(frames.rightHUD.height >= 56)
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
         #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
+        #expect(frames.feedback.maxY <= frames.battlefield.minY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minY >= 8)
         #expect(frames.upgradeButton.minY >= 8)
         #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
-        #expect(frames.feedback.maxY < frames.battlefield.maxY)
     }
 
     @Test func upgradeButtonCommunicatesAffordabilityWithoutBlockingTapFeedback() throws {
