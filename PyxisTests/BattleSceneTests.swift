@@ -230,6 +230,10 @@ struct BattleSceneTests {
         #expect(frames.upgradeButton.maxX <= scene.size.width - 12)
         #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
         #expect(frames.upgradeButton.minY >= 12)
+        #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
+        #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
+        #expect(frames.upgradeButtonLabel.minX >= frames.upgradeButton.minX + 14)
+        #expect(frames.upgradeButtonLabel.maxX <= frames.upgradeButton.maxX - 14)
     }
 
     @Test func commanderHUDSurvivesCompactLandscapeWithoutOverlap() throws {
@@ -254,6 +258,32 @@ struct BattleSceneTests {
         #expect(frames.spawnButton.minY >= 8)
         #expect(frames.upgradeButton.minY >= 8)
         #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
+    }
+
+    @Test func commanderHUDFitsNarrowViewportWithoutOverflow() throws {
+        let size = CGSize(width: 320, height: 568)
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = BattleScene(size: size, store: store, router: nil)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.leftHUD.minX >= 8)
+        #expect(frames.rightHUD.maxX <= size.width - 8)
+        #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
+        #expect(frames.spawnButton.minX >= 8)
+        #expect(frames.upgradeButton.maxX <= size.width - 8)
+        #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
+        #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
+        #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
+        #expect(frames.upgradeButtonLabel.minX >= frames.upgradeButton.minX + 14)
+        #expect(frames.upgradeButtonLabel.maxX <= frames.upgradeButton.maxX - 14)
+
+        scene.spawnSoldierForTesting()
+        let updatedFrames = try #require(scene.battleLayoutFramesForTesting)
+        #expect(updatedFrames.liveCombatStatus.minX >= updatedFrames.leftHUD.minX + 10)
+        #expect(updatedFrames.liveCombatStatus.maxX <= updatedFrames.leftHUD.maxX - 10)
     }
 
     @Test func upgradeButtonCommunicatesAffordabilityWithoutBlockingTapFeedback() throws {

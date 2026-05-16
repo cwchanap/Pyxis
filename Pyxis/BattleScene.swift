@@ -62,8 +62,6 @@ final class BattleScene: SKScene {
     private let leftHUDPanel = PanelNode(size: CGSize(width: 160, height: 78))
     private let rightHUDPanel = PanelNode(size: CGSize(width: 190, height: 86))
     private let cityHPBarNode = ProgressBarNode(size: CGSize(width: 160, height: 12))
-    private let hpBarBackground = SKShapeNode()
-    private let hpBarFill = SKShapeNode()
     private let spawnButton = SKNode()
     private let spawnButtonBackground = SKShapeNode()
     private let spawnButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -79,6 +77,7 @@ final class BattleScene: SKScene {
     private var isConquestPopupVisible = false
 
     private var feedbackText = "Tap Spawn Soldier to attack the city."
+    private var currentLeftHUDLabelWidth: CGFloat = 140
 
     init(size: CGSize, store: KingdomGameStore = .shared, router: BattleSceneRouting? = nil) {
         let loadedState = store.load()
@@ -180,12 +179,6 @@ final class BattleScene: SKScene {
         configureLabel(liveCombatStatusLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
         configureLabel(feedbackLabel, fontSize: 15, color: GameUITheme.Color.gold)
 
-        hpBarBackground.fillColor = SKColor(red: 0.17, green: 0.19, blue: 0.22, alpha: 1.0)
-        hpBarBackground.strokeColor = SKColor(red: 0.31, green: 0.35, blue: 0.39, alpha: 1.0)
-        hpBarBackground.lineWidth = 2
-        hpBarFill.fillColor = SKColor(red: 0.16, green: 0.76, blue: 0.43, alpha: 1.0)
-        hpBarFill.strokeColor = .clear
-
         configureButton(
             spawnButton,
             background: spawnButtonBackground,
@@ -284,82 +277,70 @@ final class BattleScene: SKScene {
         }
 
         resetFontSizes()
+        let metrics = layoutMetrics()
 
-        let compactHeight = size.height < 500
-        let horizontalMargin: CGFloat = compactHeight ? 16 : 18
-        let topMargin: CGFloat = compactHeight ? 26 : 46
-        let buttonHeight: CGFloat = compactHeight ? 42 : 52
-        let buttonGap: CGFloat = compactHeight ? 10 : 12
-        let bottomMargin: CGFloat = compactHeight ? 20 : 30
         let centerX = size.width / 2
 
-        let hudGap: CGFloat = compactHeight ? 10 : 12
-        let availableHUDWidth = size.width - horizontalMargin * 2 - hudGap
-        let leftHUDWidth = max(138, min(180, availableHUDWidth * 0.44))
-        let rightHUDWidth = max(158, min(230, availableHUDWidth - leftHUDWidth))
-        let hudHeight: CGFloat = compactHeight ? 66 : 82
-        let hudCenterY = size.height - topMargin
-        let leftHUDCenterX = horizontalMargin + leftHUDWidth / 2
-        let rightHUDCenterX = size.width - horizontalMargin - rightHUDWidth / 2
+        let hudCenterY = size.height - metrics.topMargin
+        let leftHUDCenterX = metrics.horizontalMargin + metrics.leftHUDWidth / 2
+        let rightHUDCenterX = size.width - metrics.horizontalMargin - metrics.rightHUDWidth / 2
 
-        leftHUDPanel.update(size: CGSize(width: leftHUDWidth, height: hudHeight))
-        rightHUDPanel.update(size: CGSize(width: rightHUDWidth, height: hudHeight))
+        leftHUDPanel.update(size: CGSize(width: metrics.leftHUDWidth, height: metrics.hudHeight))
+        rightHUDPanel.update(size: CGSize(width: metrics.rightHUDWidth, height: metrics.hudHeight))
         leftHUDPanel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY)
         rightHUDPanel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY)
 
-        goldLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY + hudHeight * 0.24)
+        goldLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY + metrics.hudHeight * 0.24)
         soldierAttackLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY - 1)
-        liveCombatStatusLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY - hudHeight * 0.25)
+        liveCombatStatusLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.25)
 
-        cityLevelLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY + hudHeight * 0.25)
+        cityLevelLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY + metrics.hudHeight * 0.25)
         cityHPLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - 2)
-        cityHPBarNode.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - hudHeight * 0.28)
-        cityHPBarNode.update(size: CGSize(width: rightHUDWidth - 26, height: compactHeight ? 10 : 12))
+        cityHPBarNode.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.28)
+        cityHPBarNode.update(size: CGSize(width: metrics.rightHUDWidth - 26, height: metrics.compactHeight ? 10 : 12))
         let hpPercent = CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower))
         cityHPBarNode.update(progress: hpPercent)
 
-        let buttonWidth = min(210, (size.width - horizontalMargin * 2 - buttonGap) * 0.58)
-        let upgradeWidth = max(128, size.width - horizontalMargin * 2 - buttonGap - buttonWidth)
-        let buttonY = bottomMargin + buttonHeight / 2
+        let buttonY = metrics.bottomMargin + metrics.buttonHeight / 2
         layoutButton(
             spawnButton,
             background: spawnButtonBackground,
-            size: CGSize(width: buttonWidth, height: buttonHeight),
-            position: CGPoint(x: horizontalMargin + buttonWidth / 2, y: buttonY)
+            size: CGSize(width: metrics.spawnButtonWidth, height: metrics.buttonHeight),
+            position: CGPoint(x: metrics.horizontalMargin + metrics.spawnButtonWidth / 2, y: buttonY)
         )
         layoutButton(
             upgradeButton,
             background: upgradeButtonBackground,
-            size: CGSize(width: upgradeWidth, height: buttonHeight),
-            position: CGPoint(x: size.width - horizontalMargin - upgradeWidth / 2, y: buttonY)
+            size: CGSize(width: metrics.upgradeButtonWidth, height: metrics.buttonHeight),
+            position: CGPoint(x: size.width - metrics.horizontalMargin - metrics.upgradeButtonWidth / 2, y: buttonY)
         )
 
-        let hudBottomY = hudCenterY - hudHeight / 2
-        let buttonTopY = buttonY + buttonHeight / 2
+        let hudBottomY = hudCenterY - metrics.hudHeight / 2
+        let buttonTopY = buttonY + metrics.buttonHeight / 2
         let feedbackY = buttonTopY + max(30, (hudBottomY - buttonTopY) * 0.22)
         feedbackLabel.position = CGPoint(x: centerX, y: feedbackY)
 
-        let contentWidth = min(size.width - horizontalMargin * 2, 560)
-        layoutConquestPopup(contentWidth: contentWidth)
+        layoutConquestPopup(contentWidth: metrics.contentWidth)
 
         layoutBattlefield(
-            contentWidth: contentWidth,
+            contentWidth: metrics.contentWidth,
             hpBarBottomY: hudBottomY,
             spawnButtonTopY: buttonTopY,
             feedbackY: feedbackY
         )
 
-        fitLabel(goldLabel, maxWidth: leftHUDWidth - 20)
-        fitLabel(cityLevelLabel, maxWidth: rightHUDWidth - 20)
-        fitLabel(soldierAttackLabel, maxWidth: leftHUDWidth - 20)
-        fitLabel(cityHPLabel, maxWidth: rightHUDWidth - 20)
-        fitLabel(liveCombatStatusLabel, maxWidth: leftHUDWidth - 20)
-        fitLabel(feedbackLabel, maxWidth: contentWidth)
-        fitLabel(spawnButtonLabel, maxWidth: buttonWidth - 28)
-        fitLabel(upgradeButtonLabel, maxWidth: upgradeWidth - 28)
-        fitLabel(popupTitleLabel, maxWidth: contentWidth - 48)
-        fitLabel(popupRewardLabel, maxWidth: contentWidth - 48)
-        fitLabel(popupContinueLabel, maxWidth: contentWidth - 76)
+        currentLeftHUDLabelWidth = metrics.leftHUDLabelWidth
+        fitLabel(goldLabel, maxWidth: metrics.leftHUDLabelWidth)
+        fitLabel(cityLevelLabel, maxWidth: metrics.rightHUDLabelWidth)
+        fitLabel(soldierAttackLabel, maxWidth: metrics.leftHUDLabelWidth)
+        fitLabel(cityHPLabel, maxWidth: metrics.rightHUDLabelWidth)
+        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDLabelWidth)
+        fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
+        fitLabel(spawnButtonLabel, maxWidth: metrics.spawnButtonWidth - 28)
+        fitLabel(upgradeButtonLabel, maxWidth: metrics.upgradeButtonWidth - 28)
+        fitLabel(popupTitleLabel, maxWidth: metrics.contentWidth - 48)
+        fitLabel(popupRewardLabel, maxWidth: metrics.contentWidth - 48)
+        fitLabel(popupContinueLabel, maxWidth: metrics.contentWidth - 76)
     }
 
     private func resetFontSizes() {
@@ -374,6 +355,63 @@ final class BattleScene: SKScene {
         popupTitleLabel.fontSize = 22
         popupRewardLabel.fontSize = 18
         popupContinueLabel.fontSize = 16
+    }
+
+    private struct LayoutMetrics {
+        let compactHeight: Bool
+        let horizontalMargin: CGFloat
+        let topMargin: CGFloat
+        let buttonHeight: CGFloat
+        let bottomMargin: CGFloat
+        let leftHUDWidth: CGFloat
+        let rightHUDWidth: CGFloat
+        let hudHeight: CGFloat
+        let spawnButtonWidth: CGFloat
+        let upgradeButtonWidth: CGFloat
+        let contentWidth: CGFloat
+
+        var leftHUDLabelWidth: CGFloat {
+            leftHUDWidth - 20
+        }
+
+        var rightHUDLabelWidth: CGFloat {
+            rightHUDWidth - 20
+        }
+    }
+
+    private func layoutMetrics() -> LayoutMetrics {
+        let compactHeight = size.height < 500
+        let horizontalMargin = max(8, min(compactHeight ? 16 : 18, size.width * 0.045))
+        let topMargin: CGFloat = compactHeight ? 26 : 46
+        let buttonHeight: CGFloat = compactHeight ? 42 : 52
+        let buttonGap: CGFloat = compactHeight ? 10 : 12
+        let bottomMargin: CGFloat = compactHeight ? 20 : 30
+
+        let hudGap: CGFloat = compactHeight ? 10 : 12
+        let availableHUDWidth = max(0, size.width - horizontalMargin * 2 - hudGap)
+        let preferredLeftHUDWidth = min(180, availableHUDWidth * 0.44)
+        let leftHUDWidth = max(0, preferredLeftHUDWidth)
+        let rightHUDWidth = max(0, availableHUDWidth - leftHUDWidth)
+        let hudHeight: CGFloat = compactHeight ? 66 : 82
+
+        let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap)
+        let spawnButtonWidth = min(210, availableButtonWidth * 0.58)
+        let upgradeButtonWidth = max(0, availableButtonWidth - spawnButtonWidth)
+        let contentWidth = min(max(0, size.width - horizontalMargin * 2), 560)
+
+        return LayoutMetrics(
+            compactHeight: compactHeight,
+            horizontalMargin: horizontalMargin,
+            topMargin: topMargin,
+            buttonHeight: buttonHeight,
+            bottomMargin: bottomMargin,
+            leftHUDWidth: leftHUDWidth,
+            rightHUDWidth: rightHUDWidth,
+            hudHeight: hudHeight,
+            spawnButtonWidth: spawnButtonWidth,
+            upgradeButtonWidth: upgradeButtonWidth,
+            contentWidth: contentWidth
+        )
     }
 
     private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
@@ -541,7 +579,7 @@ final class BattleScene: SKScene {
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         spawnButtonLabel.text = "Spawn Soldier"
-        upgradeButtonLabel.text = "Upgrade Soldier (\(state.normalSoldierUpgradeCost) gold)"
+        upgradeButtonLabel.text = "Upgrade \(state.normalSoldierUpgradeCost)g"
         upgradeButtonBackground.fillColor = state.gold >= state.normalSoldierUpgradeCost
             ? GameUITheme.Color.upgradeAvailable
             : GameUITheme.Color.upgradeUnavailable
@@ -551,7 +589,7 @@ final class BattleScene: SKScene {
     private func updateLiveCombatStatusLabel() {
         liveCombatStatusLabel.fontSize = 13
         liveCombatStatusLabel.text = "Soldiers: \(combat.livingSoldierCount)"
-        fitLabel(liveCombatStatusLabel, maxWidth: max(118, min(size.width * 0.38, 160)))
+        fitLabel(liveCombatStatusLabel, maxWidth: currentLeftHUDLabelWidth)
     }
 
     private func advanceCombat(deltaTime: TimeInterval) {
@@ -1004,6 +1042,9 @@ extension BattleScene {
         let feedback: CGRect
         let spawnButton: CGRect
         let upgradeButton: CGRect
+        let spawnButtonLabel: CGRect
+        let upgradeButtonLabel: CGRect
+        let liveCombatStatus: CGRect
     }
 
     var battleLayoutFramesForTesting: BattleLayoutFrames? {
@@ -1012,7 +1053,10 @@ extension BattleScene {
             let rightHUD = sceneFrame(for: rightHUDPanel),
             let feedback = sceneFrame(for: feedbackLabel),
             let spawnFrame = sceneFrame(for: spawnButton),
-            let upgradeFrame = sceneFrame(for: upgradeButton)
+            let upgradeFrame = sceneFrame(for: upgradeButton),
+            let spawnLabelFrame = sceneFrame(for: spawnButtonLabel),
+            let upgradeLabelFrame = sceneFrame(for: upgradeButtonLabel),
+            let liveCombatStatusFrame = sceneFrame(for: liveCombatStatusLabel)
         else {
             return nil
         }
@@ -1024,7 +1068,10 @@ extension BattleScene {
             battlefield: battlefieldFrame,
             feedback: feedback,
             spawnButton: spawnFrame,
-            upgradeButton: upgradeFrame
+            upgradeButton: upgradeFrame,
+            spawnButtonLabel: spawnLabelFrame,
+            upgradeButtonLabel: upgradeLabelFrame,
+            liveCombatStatus: liveCombatStatusFrame
         )
     }
 
