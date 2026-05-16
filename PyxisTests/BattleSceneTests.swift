@@ -211,6 +211,46 @@ struct BattleSceneTests {
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
     }
 
+    @Test func commanderHUDKeepsTopClustersAndActionsInsideScene() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.leftHUD.minX >= 12)
+        #expect(frames.rightHUD.maxX <= scene.size.width - 12)
+        #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
+        #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
+        #expect(frames.battlefield.maxY < frames.leftHUD.minY)
+        #expect(frames.upgradeButton.minY >= 12)
+    }
+
+    @Test func commanderHUDSurvivesCompactLandscapeWithoutOverlap() throws {
+        let size = CGSize(width: 667, height: 375)
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = BattleScene(size: size, store: store, router: nil)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.leftHUD.minX >= 8)
+        #expect(frames.rightHUD.maxX <= size.width - 8)
+        #expect(frames.spawnButton.minY >= 8)
+        #expect(frames.upgradeButton.minY >= 8)
+        #expect(frames.feedback.maxY < frames.battlefield.maxY)
+    }
+
+    @Test func upgradeButtonCommunicatesAffordabilityWithoutBlockingTapFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 0, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.isUpgradeVisuallyAffordableForTesting == false)
+
+        scene.upgradeSoldierForTesting()
+
+        #expect(scene.feedbackTextForTesting == "Need 10 gold. You have 0.")
+    }
+
     private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil) -> BattleScene {
         let size = CGSize(width: 390, height: 844)
         let scene = BattleScene(size: size, store: store, router: router)
