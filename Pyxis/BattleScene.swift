@@ -427,13 +427,13 @@ final class BattleScene: SKScene {
         let actualGap = hpBarBottomY - spawnButtonTopY
         let verticalPadding: CGFloat = 8
         let feedbackClearance = max(24, feedbackLabel.fontSize + 10)
-        let safeTopY = min(hpBarBottomY - verticalPadding, feedbackY - feedbackClearance)
-        let safeBottomY = spawnButtonTopY + verticalPadding
+        let safeTopY = hpBarBottomY - verticalPadding
+        let safeBottomY = max(spawnButtonTopY + verticalPadding, feedbackY + feedbackClearance)
         battlefieldLayoutFrame = CGRect(
             x: (size.width - contentWidth) / 2,
             y: safeBottomY,
             width: contentWidth,
-            height: max(0, hpBarBottomY - verticalPadding - safeBottomY)
+            height: max(0, safeTopY - safeBottomY)
         )
         let availableHeight = safeTopY - safeBottomY
         let tallestStructureHeightMultiplier: CGFloat = 1.04
