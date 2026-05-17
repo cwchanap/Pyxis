@@ -190,6 +190,24 @@ struct BattleSceneTests {
         #expect(scene.isGoldBurstVisibleForTesting)
     }
 
+    @Test func conquestPopupSchedulesGoldBurstRemoval() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 1,
+                normalSoldierUpgradeLevel: 4
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.isGoldBurstVisibleForTesting)
+        #expect(scene.isGoldBurstRemovalScheduledForTesting)
+    }
+
     @Test func closingConquestPopupRequestsCountryMapRoute() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
         let router = RouteSpy()
@@ -370,6 +388,24 @@ struct BattleSceneTests {
         scene.upgradeSoldierForTesting()
 
         #expect(scene.isUpgradeDeniedFeedbackRunningForTesting)
+    }
+
+    @Test func unavailableUpgradeRunsDeniedFeedbackWhenNoBattleIsActive() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                gold: 30,
+                cityNumberInCountry: 1,
+                completedCityCount: 1,
+                stageStatus: .cityConqueredPendingMap
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.upgradeSoldierForTesting()
+
+        #expect(scene.feedbackTextForTesting == "Enter a city to upgrade soldiers.")
+        #expect(scene.isUpgradeDeniedFeedbackRunningForTesting)
+        #expect(store.load().gold == 30)
     }
 
     private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil) -> BattleScene {
