@@ -16,15 +16,21 @@ final class CountryMapScene: SKScene {
         static let cityPrefix = "countryMapCity-"
     }
 
+    private enum MapAssetName {
+        static let countryMapBackdrop = "country-map-backdrop"
+    }
+
     private let store: KingdomGameStore
     private weak var router: CountryMapSceneRouting?
     private var state: KingdomGameState
     private var didBuildInterface = false
 
+    private let backdropLayer = SKNode()
     private let routeLayer = SKNode()
     private let cityLayer = SKNode()
     private let titleLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let feedbackLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private var backdropNode: SKSpriteNode?
     private var cityNodes: [Int: SKShapeNode] = [:]
     private var cityLabels: [Int: SKLabelNode] = [:]
     private var feedbackText = "Select the unlocked city."
@@ -75,10 +81,21 @@ final class CountryMapScene: SKScene {
     }
 
     private func buildInterface() {
+        backdropLayer.zPosition = -20
         routeLayer.zPosition = 0
         cityLayer.zPosition = 10
+        addChild(backdropLayer)
         addChild(routeLayer)
         addChild(cityLayer)
+
+        if UIImage(named: MapAssetName.countryMapBackdrop) != nil {
+            let backdrop = SKSpriteNode(imageNamed: MapAssetName.countryMapBackdrop)
+            backdrop.name = MapAssetName.countryMapBackdrop
+            backdrop.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            backdrop.zPosition = 0
+            backdropLayer.addChild(backdrop)
+            backdropNode = backdrop
+        }
 
         configureLabel(titleLabel, fontSize: 30, color: .white)
         configureLabel(feedbackLabel, fontSize: 16, color: SKColor(red: 0.95, green: 0.91, blue: 0.78, alpha: 1.0))
@@ -119,6 +136,15 @@ final class CountryMapScene: SKScene {
         let nodeRadius: CGFloat = isCompactHeight ? 9 : 18
         let labelFontSize: CGFloat = isCompactHeight ? 10 : 13
         let contentWidth = max(220, min(size.width - 48, 520))
+
+        if let backdropNode {
+            backdropNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+            let scale = max(
+                size.width / max(1, backdropNode.size.width),
+                size.height / max(1, backdropNode.size.height)
+            )
+            backdropNode.setScale(scale)
+        }
 
         titleLabel.position = CGPoint(x: size.width / 2, y: size.height - topMargin)
         feedbackLabel.position = CGPoint(x: size.width / 2, y: bottomMargin)
