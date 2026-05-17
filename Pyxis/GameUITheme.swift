@@ -38,4 +38,21 @@ enum GameUITheme {
     static func clampedProgress(_ value: CGFloat) -> CGFloat {
         min(max(value, 0), 1)
     }
+
+    static func topUnsafeInset(sceneSize: CGSize, view: SKView?) -> CGFloat {
+        let viewInset = view?.safeAreaInsets.top ?? 0
+        let tallPhoneInset: CGFloat = isTallPhone(sceneSize) ? 58 : 0
+        return max(viewInset, tallPhoneInset)
+    }
+
+    static func bottomUnsafeInset(sceneSize: CGSize, view: SKView?) -> CGFloat {
+        let viewInset = view?.safeAreaInsets.bottom ?? 0
+        let tallPhoneInset: CGFloat = isTallPhone(sceneSize) ? 26 : 0
+        return max(viewInset, tallPhoneInset)
+    }
+
+    private static func isTallPhone(_ size: CGSize) -> Bool {
+        let aspectRatio = size.height / max(size.width, 1)
+        return size.width <= 430 && size.height >= 780 && aspectRatio >= 1.9
+    }
 }

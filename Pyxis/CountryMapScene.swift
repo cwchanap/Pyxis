@@ -176,8 +176,14 @@ final class CountryMapScene: SKScene {
 
         let isCompactHeight = size.height < 500
         let horizontalMargin: CGFloat = isCompactHeight ? 14 : 20
-        let topInset: CGFloat = isCompactHeight ? 10 : 42
-        let bottomInset: CGFloat = isCompactHeight ? 10 : 24
+        let topInset = max(
+            isCompactHeight ? 10 : 42,
+            GameUITheme.topUnsafeInset(sceneSize: size, view: view) + (isCompactHeight ? 8 : 10)
+        )
+        let bottomInset = max(
+            isCompactHeight ? 10 : 24,
+            GameUITheme.bottomUnsafeInset(sceneSize: size, view: view) + (isCompactHeight ? 8 : 12)
+        )
         let nodeRadius: CGFloat = isCompactHeight ? 8 : 15
         let labelFontSize: CGFloat = isCompactHeight ? 9 : 12
         let panelWidth = max(220, min(size.width - horizontalMargin * 2, 520))
