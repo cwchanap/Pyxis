@@ -253,6 +253,8 @@ struct BattleSceneTests {
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
         #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.maxY <= frames.battlefield.minY)
+        #expect(frames.feedback.minY >= frames.spawnButton.maxY)
+        #expect(frames.feedback.minY >= frames.upgradeButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minY >= 8)
