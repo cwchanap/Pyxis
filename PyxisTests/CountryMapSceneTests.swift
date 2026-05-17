@@ -146,6 +146,48 @@ struct CountryMapSceneTests {
         }
     }
 
+    @Test func illustratedMapLayoutKeepsTitleFeedbackAndAllCitiesVisible() throws {
+        let size = CGSize(width: 390, height: 844)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = scene.mapLayoutFramesForTesting
+
+        #expect(frames.sceneFrame.contains(frames.titlePanelFrame))
+        #expect(frames.sceneFrame.contains(frames.feedbackPanelFrame))
+        #expect(frames.sceneFrame.contains(frames.illustratedRegionFrame))
+        #expect(frames.titlePanelFrame.minY > frames.illustratedRegionFrame.maxY)
+        #expect(frames.feedbackPanelFrame.maxY < frames.illustratedRegionFrame.minY)
+
+        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
+            let cityNode = try #require(scene.childNode(withName: "//countryMapCity-\(cityNumber)"))
+            let frame = cityNode.calculateAccumulatedFrame()
+
+            #expect(frames.illustratedRegionFrame.contains(frame))
+        }
+    }
+
+    @Test func cityStateStylingDistinguishesCompletedUnlockedAndLocked() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 2,
+            completedCityCount: 2,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.cityVisualStateForTesting(1) == .completed)
+        #expect(scene.cityVisualStateForTesting(3) == .unlocked)
+        #expect(scene.cityVisualStateForTesting(4) == .locked)
+        #expect(!scene.isUnlockedCityPulseRunningForTesting(1))
+        #expect(scene.isUnlockedCityPulseRunningForTesting(3))
+        #expect(!scene.isUnlockedCityPulseRunningForTesting(4))
+    }
+
     @Test func cityNodeCenterResolvesToCityNumber() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
