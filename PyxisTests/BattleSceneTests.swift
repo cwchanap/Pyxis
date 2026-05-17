@@ -68,6 +68,21 @@ struct BattleSceneTests {
         #expect(store.load().cityRemainingPower < 20)
     }
 
+    @Test func cityDamageCreatesFloatingFeedbackNode() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 50,
+                normalSoldierUpgradeLevel: 4
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.floatingFeedbackCountForTesting > 0)
+    }
+
     @Test func towerDamageCanKillAndRemoveVisibleSoldier() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -155,6 +170,24 @@ struct BattleSceneTests {
 
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(scene.isCityConquestFeedbackRunningForTesting)
+    }
+
+    @Test func conquestPopupUsesRewardPresentationNodes() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 1,
+                normalSoldierUpgradeLevel: 4
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(scene.isGoldBurstVisibleForTesting)
     }
 
     @Test func closingConquestPopupRequestsCountryMapRoute() throws {
@@ -328,6 +361,15 @@ struct BattleSceneTests {
         scene.upgradeSoldierForTesting()
 
         #expect(scene.feedbackTextForTesting == "Need 10 gold. You have 0.")
+    }
+
+    @Test func insufficientGoldRunsUpgradeDeniedFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 0, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        scene.upgradeSoldierForTesting()
+
+        #expect(scene.isUpgradeDeniedFeedbackRunningForTesting)
     }
 
     private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil) -> BattleScene {

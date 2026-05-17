@@ -26,6 +26,13 @@ final class BattleScene: SKScene {
         static let popupContinue = "conquestPopupContinueButton"
     }
 
+    private enum EffectName {
+        static let floatingFeedback = "floatingFeedback"
+        static let goldBurst = "goldBurst"
+        static let upgradeDenied = "upgradeDenied"
+        static let upgradeSuccess = "upgradeSuccess"
+    }
+
     private struct SoldierNodeBundle {
         let root: SKNode
         let body: SKNode
@@ -641,9 +648,11 @@ final class BattleScene: SKScene {
         redraw()
 
         if conqueredCity {
+            playFloatingFeedback(text: "-\(compactNumber(damageResult.damageDealt))", at: enemyGatePoint)
             playCityConquestFeedback()
             showConquestPopup(goldEarned: damageResult.goldEarned)
         } else {
+            playFloatingFeedback(text: "-\(compactNumber(damageResult.damageDealt))", at: enemyGatePoint)
             playCityHitFeedback()
         }
     }
@@ -842,6 +851,27 @@ final class BattleScene: SKScene {
         flash.run(SKAction.sequence([SKAction.group([expand, fade]), remove]))
     }
 
+    private func playFloatingFeedback(text: String, at position: CGPoint, color: SKColor = GameUITheme.Color.gold) {
+        let label = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        label.name = EffectName.floatingFeedback
+        label.text = text
+        label.fontSize = 16
+        label.fontColor = color
+        label.horizontalAlignmentMode = .center
+        label.verticalAlignmentMode = .center
+        label.position = CGPoint(x: position.x, y: position.y + 26)
+        label.zPosition = 55
+        label.alpha = 0
+        effectsLayer.addChild(label)
+
+        let appear = SKAction.fadeIn(withDuration: 0.05)
+        let rise = SKAction.moveBy(x: 0, y: 24, duration: 0.5)
+        rise.timingMode = .easeOut
+        let fade = SKAction.fadeOut(withDuration: 0.2)
+        let remove = SKAction.removeFromParent()
+        label.run(SKAction.sequence([appear, SKAction.group([rise, fade]), remove]))
+    }
+
     private func playTowerShot(at soldierID: BattleCombatState.SoldierID) {
         guard let bundle = soldierNodes[soldierID] else {
             return
@@ -910,6 +940,48 @@ final class BattleScene: SKScene {
 
         store.save(state)
         redraw()
+
+        switch result {
+        case let .upgraded(_, newAttackPower):
+            playUpgradeSuccessFeedback(newAttackPower: newAttackPower)
+        case .insufficientGold, .unavailable:
+            playUpgradeDeniedFeedback()
+        }
+    }
+
+    private func playUpgradeSuccessFeedback(newAttackPower: Int) {
+        upgradeButton.removeAction(forKey: EffectName.upgradeSuccess)
+
+        let pulseUp = SKAction.scale(to: 1.06, duration: 0.08)
+        pulseUp.timingMode = .easeOut
+        let pulseDown = SKAction.scale(to: 1.0, duration: 0.12)
+        pulseDown.timingMode = .easeIn
+        upgradeButton.run(SKAction.sequence([pulseUp, pulseDown]), withKey: EffectName.upgradeSuccess)
+
+        playFloatingFeedback(
+            text: "ATK \(compactNumber(newAttackPower))",
+            at: CGPoint(x: upgradeButton.position.x, y: upgradeButton.position.y + 24),
+            color: GameUITheme.Color.textPrimary
+        )
+    }
+
+    private func playUpgradeDeniedFeedback() {
+        upgradeButton.removeAction(forKey: EffectName.upgradeDenied)
+
+        let originalFillColor = upgradeButtonBackground.fillColor
+        let flashRed = SKAction.run { [weak upgradeButtonBackground] in
+            upgradeButtonBackground?.fillColor = SKColor(red: 0.76, green: 0.16, blue: 0.15, alpha: 1.0)
+        }
+        let restoreFill = SKAction.run { [weak upgradeButtonBackground] in
+            upgradeButtonBackground?.fillColor = originalFillColor
+        }
+        let shake = SKAction.sequence([
+            SKAction.moveBy(x: -6, y: 0, duration: 0.035),
+            SKAction.moveBy(x: 12, y: 0, duration: 0.055),
+            SKAction.moveBy(x: -10, y: 0, duration: 0.045),
+            SKAction.moveBy(x: 4, y: 0, duration: 0.035)
+        ])
+        upgradeButton.run(SKAction.sequence([flashRed, shake, restoreFill]), withKey: EffectName.upgradeDenied)
     }
 
     private func observeLifecycleNotificationsIfNeeded() {
@@ -1033,6 +1105,49 @@ final class BattleScene: SKScene {
         popupContinueLabel.text = "Continue"
         setConquestPopupHidden(false)
         layoutInterface()
+        playGoldBurst(goldEarned: goldEarned)
+    }
+
+    private func playGoldBurst(goldEarned: Int) {
+        childNode(withName: EffectName.goldBurst)?.removeFromParent()
+
+        let burst = SKNode()
+        burst.name = EffectName.goldBurst
+        burst.position = CGPoint(x: popupRewardLabel.position.x, y: popupRewardLabel.position.y + 10)
+        burst.zPosition = 202
+        addChild(burst)
+
+        let reward = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        reward.text = "+\(compactNumber(goldEarned))g"
+        reward.fontSize = 24
+        reward.fontColor = GameUITheme.Color.gold
+        reward.horizontalAlignmentMode = .center
+        reward.verticalAlignmentMode = .center
+        reward.zPosition = 1
+        burst.addChild(reward)
+
+        for index in 0..<6 {
+            let sparkle = SKShapeNode(circleOfRadius: 3)
+            sparkle.fillColor = GameUITheme.Color.gold
+            sparkle.strokeColor = .clear
+            sparkle.position = .zero
+            sparkle.zPosition = 0
+            burst.addChild(sparkle)
+
+            let angle = CGFloat(index) * (.pi * 2 / 6)
+            let distance: CGFloat = 30
+            let destination = CGPoint(x: cos(angle) * distance, y: sin(angle) * distance)
+            let move = SKAction.move(to: destination, duration: 0.32)
+            move.timingMode = .easeOut
+            let fade = SKAction.fadeOut(withDuration: 0.32)
+            sparkle.run(SKAction.group([move, fade]))
+        }
+
+        let scale = SKAction.scale(to: 1.12, duration: 0.12)
+        scale.timingMode = .easeOut
+        let settle = SKAction.scale(to: 1.0, duration: 0.12)
+        settle.timingMode = .easeIn
+        burst.run(SKAction.sequence([scale, settle]), withKey: EffectName.goldBurst)
     }
 
     private func setConquestPopupHidden(_ isHidden: Bool) {
@@ -1140,6 +1255,18 @@ extension BattleScene {
 
     var isCityConquestFeedbackRunningForTesting: Bool {
         enemyCityNode?.action(forKey: "cityConquestFeedback") != nil
+    }
+
+    var floatingFeedbackCountForTesting: Int {
+        effectsLayer.children.filter { $0.name == EffectName.floatingFeedback }.count
+    }
+
+    var isUpgradeDeniedFeedbackRunningForTesting: Bool {
+        upgradeButton.action(forKey: EffectName.upgradeDenied) != nil
+    }
+
+    var isGoldBurstVisibleForTesting: Bool {
+        childNode(withName: EffectName.goldBurst) != nil
     }
 
     var cityRemainingPowerForTesting: Int {
