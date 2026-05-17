@@ -82,6 +82,7 @@ final class BattleScene: SKScene {
     private let popupContinueBackground = SKShapeNode()
     private let popupContinueLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private var isConquestPopupVisible = false
+    private var isGoldBurstRemovalScheduled = false
 
     private var feedbackText = "Tap Spawn Soldier to attack the city."
     private var currentLeftHUDLabelWidth: CGFloat = 140
@@ -923,7 +924,7 @@ final class BattleScene: SKScene {
     }
 
     private func upgradeSoldier() {
-        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+        guard !isConquestPopupVisible else {
             return
         }
 
@@ -1110,6 +1111,7 @@ final class BattleScene: SKScene {
 
     private func playGoldBurst(goldEarned: Int) {
         childNode(withName: EffectName.goldBurst)?.removeFromParent()
+        isGoldBurstRemovalScheduled = false
 
         let burst = SKNode()
         burst.name = EffectName.goldBurst
@@ -1147,7 +1149,17 @@ final class BattleScene: SKScene {
         scale.timingMode = .easeOut
         let settle = SKAction.scale(to: 1.0, duration: 0.12)
         settle.timingMode = .easeIn
-        burst.run(SKAction.sequence([scale, settle]), withKey: EffectName.goldBurst)
+        let wait = SKAction.wait(forDuration: 0.18)
+        let fade = SKAction.fadeOut(withDuration: 0.18)
+        let markComplete = SKAction.run { [weak self, weak burst] in
+            guard let self, let burst, self.childNode(withName: EffectName.goldBurst) === burst else {
+                return
+            }
+            self.isGoldBurstRemovalScheduled = false
+        }
+        let remove = SKAction.removeFromParent()
+        isGoldBurstRemovalScheduled = true
+        burst.run(SKAction.sequence([scale, settle, wait, fade, markComplete, remove]), withKey: EffectName.goldBurst)
     }
 
     private func setConquestPopupHidden(_ isHidden: Bool) {
@@ -1267,6 +1279,10 @@ extension BattleScene {
 
     var isGoldBurstVisibleForTesting: Bool {
         childNode(withName: EffectName.goldBurst) != nil
+    }
+
+    var isGoldBurstRemovalScheduledForTesting: Bool {
+        isGoldBurstRemovalScheduled
     }
 
     var cityRemainingPowerForTesting: Int {
