@@ -81,6 +81,7 @@ final class BattleScene: SKScene {
     private let feedbackLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let leftHUDPanel = PanelNode(size: CGSize(width: 160, height: 78))
     private let rightHUDPanel = PanelNode(size: CGSize(width: 190, height: 86))
+    private let feedbackPanel = PanelNode(size: CGSize(width: 260, height: 34))
     private let cityHPBarNode = ProgressBarNode(size: CGSize(width: 160, height: 12))
     private let spawnButton = SKNode()
     private let spawnButtonBackground = SKShapeNode()
@@ -191,8 +192,10 @@ final class BattleScene: SKScene {
         buildBattlefield()
 
         [leftHUDPanel, rightHUDPanel, cityHPBarNode].forEach { $0.zPosition = GameUITheme.Z.hud }
+        feedbackPanel.zPosition = GameUITheme.Z.hud - 1
         addChild(leftHUDPanel)
         addChild(rightHUDPanel)
+        addChild(feedbackPanel)
         addChild(cityHPBarNode)
 
         configureLabel(goldLabel, fontSize: 21, color: GameUITheme.Color.gold)
@@ -364,6 +367,10 @@ final class BattleScene: SKScene {
         fitLabel(popupTitleLabel, maxWidth: metrics.contentWidth - 48)
         fitLabel(popupRewardLabel, maxWidth: metrics.contentWidth - 48)
         fitLabel(popupContinueLabel, maxWidth: metrics.contentWidth - 76)
+
+        let feedbackPanelWidth = min(metrics.contentWidth, max(220, feedbackLabel.frame.width + 32))
+        feedbackPanel.update(size: CGSize(width: feedbackPanelWidth, height: max(32, feedbackLabel.fontSize + 18)))
+        feedbackPanel.position = feedbackLabel.position
     }
 
     private func resetFontSizes() {
@@ -405,10 +412,10 @@ final class BattleScene: SKScene {
     private func layoutMetrics() -> LayoutMetrics {
         let compactHeight = size.height < 500
         let horizontalMargin = max(8, min(compactHeight ? 16 : 18, size.width * 0.045))
-        let topMargin: CGFloat = compactHeight ? 26 : 46
         let buttonHeight: CGFloat = compactHeight ? 42 : 52
         let buttonGap: CGFloat = compactHeight ? 10 : 12
-        let bottomMargin: CGFloat = compactHeight ? 20 : 30
+        let safeBottomInset = GameUITheme.bottomUnsafeInset(sceneSize: size, view: view)
+        let bottomMargin = max(compactHeight ? 20 : 30, safeBottomInset + (compactHeight ? 8 : 12))
 
         let hudGap: CGFloat = compactHeight ? 10 : 12
         let availableHUDWidth = max(0, size.width - horizontalMargin * 2 - hudGap)
@@ -416,6 +423,11 @@ final class BattleScene: SKScene {
         let leftHUDWidth = max(0, preferredLeftHUDWidth)
         let rightHUDWidth = max(0, availableHUDWidth - leftHUDWidth)
         let hudHeight: CGFloat = compactHeight ? 66 : 82
+        let safeTopInset = GameUITheme.topUnsafeInset(sceneSize: size, view: view)
+        let topMargin = max(
+            compactHeight ? 26 : 46,
+            safeTopInset + (compactHeight ? 8 : 10) + hudHeight / 2
+        )
 
         let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap)
         let spawnButtonWidth = min(210, availableButtonWidth * 0.58)
@@ -496,7 +508,7 @@ final class BattleScene: SKScene {
     ) {
         let actualGap = hpBarBottomY - spawnButtonTopY
         let verticalPadding: CGFloat = 8
-        let feedbackClearance = max(24, feedbackLabel.fontSize + 10)
+        let feedbackClearance = max(30, feedbackLabel.fontSize + 18)
         let safeTopY = hpBarBottomY - verticalPadding
         let safeBottomY = max(spawnButtonTopY + verticalPadding, feedbackY + feedbackClearance)
         battlefieldLayoutFrame = CGRect(
@@ -1251,6 +1263,7 @@ extension BattleScene {
         let rightHUD: CGRect
         let battlefield: CGRect
         let feedback: CGRect
+        let feedbackPanel: CGRect
         let spawnButton: CGRect
         let upgradeButton: CGRect
         let goldLabel: CGRect
@@ -1267,6 +1280,7 @@ extension BattleScene {
             let leftHUD = sceneFrame(for: leftHUDPanel),
             let rightHUD = sceneFrame(for: rightHUDPanel),
             let feedback = sceneFrame(for: feedbackLabel),
+            let feedbackPanel = sceneFrame(for: feedbackPanel),
             let spawnFrame = sceneFrame(for: spawnButton),
             let upgradeFrame = sceneFrame(for: upgradeButton),
             let goldFrame = sceneFrame(for: goldLabel),
@@ -1286,6 +1300,7 @@ extension BattleScene {
             rightHUD: rightHUD,
             battlefield: battlefieldFrame,
             feedback: feedback,
+            feedbackPanel: feedbackPanel,
             spawnButton: spawnFrame,
             upgradeButton: upgradeFrame,
             goldLabel: goldFrame,

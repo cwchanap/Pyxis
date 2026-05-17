@@ -171,6 +171,23 @@ struct CountryMapSceneTests {
         }
     }
 
+    @Test func illustratedRegionMapAvoidsTallPhoneSensorArea() throws {
+        let size = CGSize(width: 390, height: 844)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = scene.mapLayoutFramesForTesting
+
+        #expect(frames.titlePanelFrame.maxY <= size.height - 58)
+        #expect(frames.feedbackPanelFrame.minY >= 26)
+        #expect(frames.illustratedRegionFrame.maxY < frames.titlePanelFrame.minY)
+        #expect(frames.illustratedRegionFrame.minY > frames.feedbackPanelFrame.maxY)
+    }
+
     @Test func cityStateStylingDistinguishesCompletedUnlockedAndLocked() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,

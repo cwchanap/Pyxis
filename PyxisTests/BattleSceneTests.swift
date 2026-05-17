@@ -282,6 +282,9 @@ struct BattleSceneTests {
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
         #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.maxY <= frames.battlefield.minY)
+        #expect(frames.feedbackPanel.contains(frames.feedback))
+        #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
+        #expect(frames.feedbackPanel.minY >= frames.spawnButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minX >= 12)
@@ -311,6 +314,8 @@ struct BattleSceneTests {
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
         #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.maxY <= frames.battlefield.minY)
+        #expect(frames.feedbackPanel.contains(frames.feedback))
+        #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.minY >= frames.spawnButton.maxY)
         #expect(frames.feedback.minY >= frames.upgradeButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
@@ -371,6 +376,21 @@ struct BattleSceneTests {
         #expect(frames.cityHPLabel.maxX <= frames.rightHUD.maxX - 10)
         #expect(frames.upgradeButtonLabel.minX >= frames.upgradeButton.minX + 14)
         #expect(frames.upgradeButtonLabel.maxX <= frames.upgradeButton.maxX - 14)
+    }
+
+    @Test func commanderHUDAvoidsTallPhoneSensorArea() throws {
+        let size = CGSize(width: 390, height: 844)
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = BattleScene(size: size, store: store, router: nil)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.leftHUD.maxY <= size.height - 58)
+        #expect(frames.rightHUD.maxY <= size.height - 58)
+        #expect(frames.spawnButton.minY >= 26)
+        #expect(frames.upgradeButton.minY >= 26)
     }
 
     @Test func upgradeButtonCommunicatesAffordabilityWithoutBlockingTapFeedback() throws {
