@@ -188,9 +188,11 @@ struct BattleSceneTests {
 
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(scene.isGoldBurstVisibleForTesting)
+        #expect(scene.goldBurstZPositionForTesting < scene.popupRewardZPositionForTesting)
+        #expect(!scene.goldBurstContainsRewardTextForTesting)
     }
 
-    @Test func conquestPopupSchedulesGoldBurstRemoval() throws {
+    @Test func conquestPopupRemovesGoldBurstAfterTransientActions() async throws {
         let store = try makeStore(
             initialState: KingdomGameState(
                 cityRemainingPower: 1,
@@ -206,6 +208,11 @@ struct BattleSceneTests {
 
         #expect(scene.isGoldBurstVisibleForTesting)
         #expect(scene.isGoldBurstRemovalScheduledForTesting)
+
+        try await Task.sleep(nanoseconds: 900_000_000)
+
+        #expect(!scene.isGoldBurstVisibleForTesting)
+        #expect(!scene.isGoldBurstRemovalScheduledForTesting)
     }
 
     @Test func closingConquestPopupRequestsCountryMapRoute() throws {
