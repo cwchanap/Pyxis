@@ -572,14 +572,14 @@ final class BattleScene: SKScene {
     }
 
     private func redraw() {
-        goldLabel.text = "Gold: \(state.gold)"
+        goldLabel.text = "Gold: \(compactNumber(state.gold))"
         cityLevelLabel.text = state.displayCityTitle
-        soldierAttackLabel.text = "Soldier Attack: \(state.normalSoldierAttackPower)"
-        cityHPLabel.text = "City HP: \(state.cityRemainingPower) / \(state.cityMaxPower)"
+        soldierAttackLabel.text = "Soldier Attack: \(compactNumber(state.normalSoldierAttackPower))"
+        cityHPLabel.text = "City HP: \(compactNumber(state.cityRemainingPower)) / \(compactNumber(state.cityMaxPower))"
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         spawnButtonLabel.text = "Spawn Soldier"
-        upgradeButtonLabel.text = "Upgrade \(state.normalSoldierUpgradeCost)g"
+        upgradeButtonLabel.text = "Upgrade \(compactNumber(state.normalSoldierUpgradeCost))g"
         upgradeButtonBackground.fillColor = state.gold >= state.normalSoldierUpgradeCost
             ? GameUITheme.Color.upgradeAvailable
             : GameUITheme.Color.upgradeUnavailable
@@ -634,7 +634,7 @@ final class BattleScene: SKScene {
             clearLiveCombat()
             feedbackText = "\(state.displayCityTitle) conquered! +\(damageResult.goldEarned) gold."
         } else {
-            feedbackText = "Soldiers dealt \(damageResult.damageDealt) damage."
+            feedbackText = "Soldiers dealt \(compactNumber(damageResult.damageDealt)) damage."
         }
 
         store.save(state)
@@ -901,9 +901,9 @@ final class BattleScene: SKScene {
 
         switch result {
         case let .upgraded(cost, newAttackPower):
-            feedbackText = "Upgraded for \(cost) gold. Attack: \(newAttackPower)."
+            feedbackText = "Upgraded for \(compactNumber(cost)) gold. Attack: \(compactNumber(newAttackPower))."
         case let .insufficientGold(cost, currentGold):
-            feedbackText = "Need \(cost) gold. You have \(currentGold)."
+            feedbackText = "Need \(compactNumber(cost)) gold. You have \(compactNumber(currentGold))."
         case .unavailable:
             feedbackText = "Enter a city to upgrade soldiers."
         }
@@ -948,7 +948,7 @@ final class BattleScene: SKScene {
                 clearLiveCombat()
                 feedbackText = "Idle attacks conquered \(state.displayCityTitle)."
             } else {
-                feedbackText = "Idle attacks dealt \(result.damageDealt) damage."
+                feedbackText = "Idle attacks dealt \(compactNumber(result.damageDealt)) damage."
             }
         }
 
@@ -977,6 +977,29 @@ final class BattleScene: SKScene {
         while label.frame.width > maxWidth && label.fontSize > 12 {
             label.fontSize -= 1
         }
+    }
+
+    private func compactNumber(_ value: Int) -> String {
+        let absValue = abs(value)
+        let sign = value < 0 ? "-" : ""
+
+        let units: [(threshold: Int, suffix: String)] = [
+            (1_000_000_000_000, "T"),
+            (1_000_000_000, "B"),
+            (1_000_000, "M"),
+            (1_000, "K")
+        ]
+
+        guard let unit = units.first(where: { absValue >= $0.threshold }) else {
+            return "\(value)"
+        }
+
+        let scaled = Double(absValue) / Double(unit.threshold)
+        let roundedTenths = (scaled * 10).rounded() / 10
+        let body = roundedTenths >= 10 || roundedTenths.rounded() == roundedTenths
+            ? String(format: "%.0f", roundedTenths)
+            : String(format: "%.1f", roundedTenths)
+        return "\(sign)\(body)\(unit.suffix)"
     }
 
     private func layoutConquestPopup(contentWidth: CGFloat) {
@@ -1042,6 +1065,10 @@ extension BattleScene {
         let feedback: CGRect
         let spawnButton: CGRect
         let upgradeButton: CGRect
+        let goldLabel: CGRect
+        let soldierAttackLabel: CGRect
+        let cityLevelLabel: CGRect
+        let cityHPLabel: CGRect
         let spawnButtonLabel: CGRect
         let upgradeButtonLabel: CGRect
         let liveCombatStatus: CGRect
@@ -1054,6 +1081,10 @@ extension BattleScene {
             let feedback = sceneFrame(for: feedbackLabel),
             let spawnFrame = sceneFrame(for: spawnButton),
             let upgradeFrame = sceneFrame(for: upgradeButton),
+            let goldFrame = sceneFrame(for: goldLabel),
+            let soldierAttackFrame = sceneFrame(for: soldierAttackLabel),
+            let cityLevelFrame = sceneFrame(for: cityLevelLabel),
+            let cityHPFrame = sceneFrame(for: cityHPLabel),
             let spawnLabelFrame = sceneFrame(for: spawnButtonLabel),
             let upgradeLabelFrame = sceneFrame(for: upgradeButtonLabel),
             let liveCombatStatusFrame = sceneFrame(for: liveCombatStatusLabel)
@@ -1069,6 +1100,10 @@ extension BattleScene {
             feedback: feedback,
             spawnButton: spawnFrame,
             upgradeButton: upgradeFrame,
+            goldLabel: goldFrame,
+            soldierAttackLabel: soldierAttackFrame,
+            cityLevelLabel: cityLevelFrame,
+            cityHPLabel: cityHPFrame,
             spawnButtonLabel: spawnLabelFrame,
             upgradeButtonLabel: upgradeLabelFrame,
             liveCombatStatus: liveCombatStatusFrame

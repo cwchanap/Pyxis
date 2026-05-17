@@ -288,6 +288,33 @@ struct BattleSceneTests {
         #expect(updatedFrames.liveCombatStatus.maxX <= updatedFrames.leftHUD.maxX - 10)
     }
 
+    @Test func commanderHUDFitsLateGameNumbersInNarrowViewport() throws {
+        let size = CGSize(width: 320, height: 568)
+        let state = KingdomGameState(
+            gold: 123_456_789,
+            normalSoldierUpgradeLevel: 15,
+            cityNumberInCountry: 15,
+            completedCityCount: 14
+        )
+        let store = try makeStore(initialState: state)
+        let scene = BattleScene(size: size, store: store, router: nil)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.goldLabel.minX >= frames.leftHUD.minX + 10)
+        #expect(frames.goldLabel.maxX <= frames.leftHUD.maxX - 10)
+        #expect(frames.soldierAttackLabel.minX >= frames.leftHUD.minX + 10)
+        #expect(frames.soldierAttackLabel.maxX <= frames.leftHUD.maxX - 10)
+        #expect(frames.cityLevelLabel.minX >= frames.rightHUD.minX + 10)
+        #expect(frames.cityLevelLabel.maxX <= frames.rightHUD.maxX - 10)
+        #expect(frames.cityHPLabel.minX >= frames.rightHUD.minX + 10)
+        #expect(frames.cityHPLabel.maxX <= frames.rightHUD.maxX - 10)
+        #expect(frames.upgradeButtonLabel.minX >= frames.upgradeButton.minX + 14)
+        #expect(frames.upgradeButtonLabel.maxX <= frames.upgradeButton.maxX - 14)
+    }
+
     @Test func upgradeButtonCommunicatesAffordabilityWithoutBlockingTapFeedback() throws {
         let affordableStore = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let affordableScene = makeScene(store: affordableStore)
