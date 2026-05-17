@@ -18,6 +18,10 @@ final class BattleScene: SKScene {
         static let playerCastle = "player-castle"
         static let enemyCity = "enemy-city"
         static let normalSoldier = "normal-soldier"
+        static let battlefieldBackdrop = "battlefield-backdrop"
+        static let hitFlash = "hit-flash"
+        static let towerProjectile = "tower-projectile"
+        static let goldBurst = "gold-burst"
     }
 
     private enum ButtonName {
@@ -63,6 +67,7 @@ final class BattleScene: SKScene {
     private let effectsLayer = SKNode()
     private var playerCastleNode: SKNode?
     private var enemyCityNode: SKNode?
+    private var battlefieldBackdropNode: SKSpriteNode?
     private var castleGatePoint = CGPoint.zero
     private var enemyGatePoint = CGPoint.zero
     private var battleGroundLane: SKShapeNode?
@@ -443,6 +448,15 @@ final class BattleScene: SKScene {
     }
 
     private func buildBattlefield() {
+        if UIImage(named: BattleAssetName.battlefieldBackdrop) != nil {
+            let backdrop = SKSpriteNode(imageNamed: BattleAssetName.battlefieldBackdrop)
+            backdrop.name = BattleAssetName.battlefieldBackdrop
+            backdrop.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            backdrop.zPosition = GameUITheme.Z.background
+            environmentLayer.addChild(backdrop)
+            battlefieldBackdropNode = backdrop
+        }
+
         let castleNode = makeBattleSprite(
             named: BattleAssetName.playerCastle,
             fallbackColor: SKColor(red: 0.22, green: 0.40, blue: 0.64, alpha: 1.0)
@@ -512,6 +526,16 @@ final class BattleScene: SKScene {
         }
 
         setBattlefieldHidden(false)
+
+        if let battlefieldBackdropNode {
+            battlefieldBackdropNode.position = CGPoint(x: size.width / 2, y: (safeBottomY + safeTopY) / 2)
+            let targetSize = CGSize(width: size.width, height: max(1, safeTopY - safeBottomY + 44))
+            let scale = max(
+                targetSize.width / max(1, battlefieldBackdropNode.size.width),
+                targetSize.height / max(1, battlefieldBackdropNode.size.height)
+            )
+            battlefieldBackdropNode.setScale(scale)
+        }
 
         let targetHeight = min(96, maxStructureHeight, size.height * 0.16, contentWidth * 0.30)
 
@@ -846,12 +870,20 @@ final class BattleScene: SKScene {
     }
 
     private func playImpactFlash() {
-        let flash = SKShapeNode(circleOfRadius: 9)
-        flash.fillColor = SKColor(red: 1.0, green: 0.78, blue: 0.16, alpha: 0.9)
-        flash.strokeColor = SKColor(red: 1.0, green: 0.38, blue: 0.08, alpha: 0.95)
-        flash.lineWidth = 2
+        let flash: SKNode
+        if UIImage(named: BattleAssetName.hitFlash) != nil {
+            let sprite = SKSpriteNode(imageNamed: BattleAssetName.hitFlash)
+            sprite.size = CGSize(width: 34, height: 34)
+            flash = sprite
+        } else {
+            let shape = SKShapeNode(circleOfRadius: 9)
+            shape.fillColor = SKColor(red: 1.0, green: 0.78, blue: 0.16, alpha: 0.9)
+            shape.strokeColor = SKColor(red: 1.0, green: 0.38, blue: 0.08, alpha: 0.95)
+            shape.lineWidth = 2
+            flash = shape
+        }
         flash.position = enemyGatePoint
-        flash.zPosition = 40
+        flash.zPosition = GameUITheme.Z.effects
         flash.setScale(0.4)
         effectsLayer.addChild(flash)
 
@@ -888,11 +920,19 @@ final class BattleScene: SKScene {
             return
         }
 
-        let shot = SKShapeNode(circleOfRadius: 4)
-        shot.fillColor = SKColor(red: 1.0, green: 0.28, blue: 0.18, alpha: 1.0)
-        shot.strokeColor = .clear
+        let shot: SKNode
+        if UIImage(named: BattleAssetName.towerProjectile) != nil {
+            let sprite = SKSpriteNode(imageNamed: BattleAssetName.towerProjectile)
+            sprite.size = CGSize(width: 26, height: 16)
+            shot = sprite
+        } else {
+            let shape = SKShapeNode(circleOfRadius: 4)
+            shape.fillColor = SKColor(red: 1.0, green: 0.28, blue: 0.18, alpha: 1.0)
+            shape.strokeColor = .clear
+            shot = shape
+        }
         shot.position = enemyGatePoint
-        shot.zPosition = 45
+        shot.zPosition = GameUITheme.Z.effects
         effectsLayer.addChild(shot)
 
         let move = SKAction.move(to: bundle.root.position, duration: 0.12)
@@ -1129,6 +1169,14 @@ final class BattleScene: SKScene {
         burst.position = CGPoint(x: popupRewardLabel.position.x, y: popupRewardLabel.position.y + 10)
         burst.zPosition = EffectStyle.goldBurstZ
         addChild(burst)
+
+        if UIImage(named: BattleAssetName.goldBurst) != nil {
+            let sprite = SKSpriteNode(imageNamed: BattleAssetName.goldBurst)
+            sprite.size = CGSize(width: 120, height: 120)
+            sprite.zPosition = EffectStyle.goldBurstSparkleZ
+            sprite.alpha = 0.72
+            burst.addChild(sprite)
+        }
 
         for index in 0..<6 {
             let sparkle = SKShapeNode(circleOfRadius: 3)
