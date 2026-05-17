@@ -33,6 +33,14 @@ final class BattleScene: SKScene {
         static let upgradeSuccess = "upgradeSuccess"
     }
 
+    private enum EffectStyle {
+        static let floatingFeedbackFontSize: CGFloat = 16
+        static let floatingFeedbackZ: CGFloat = 55
+        static let goldBurstZ = GameUITheme.Z.modal + 0.5
+        static let goldBurstSparkleZ: CGFloat = 0
+        static let goldBurstRemovalDelayNanoseconds: UInt64 = 650_000_000
+    }
+
     private struct SoldierNodeBundle {
         let root: SKNode
         let body: SKNode
@@ -83,6 +91,7 @@ final class BattleScene: SKScene {
     private let popupContinueLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private var isConquestPopupVisible = false
     private var isGoldBurstRemovalScheduled = false
+    private var goldBurstRemovalTask: Task<Void, Never>?
 
     private var feedbackText = "Tap Spawn Soldier to attack the city."
     private var currentLeftHUDLabelWidth: CGFloat = 140
@@ -106,6 +115,7 @@ final class BattleScene: SKScene {
     }
 
     deinit {
+        goldBurstRemovalTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -853,15 +863,15 @@ final class BattleScene: SKScene {
     }
 
     private func playFloatingFeedback(text: String, at position: CGPoint, color: SKColor = GameUITheme.Color.gold) {
-        let label = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         label.name = EffectName.floatingFeedback
         label.text = text
-        label.fontSize = 16
+        label.fontSize = EffectStyle.floatingFeedbackFontSize
         label.fontColor = color
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
         label.position = CGPoint(x: position.x, y: position.y + 26)
-        label.zPosition = 55
+        label.zPosition = EffectStyle.floatingFeedbackZ
         label.alpha = 0
         effectsLayer.addChild(label)
 
@@ -1110,30 +1120,22 @@ final class BattleScene: SKScene {
     }
 
     private func playGoldBurst(goldEarned: Int) {
+        goldBurstRemovalTask?.cancel()
         childNode(withName: EffectName.goldBurst)?.removeFromParent()
         isGoldBurstRemovalScheduled = false
 
         let burst = SKNode()
         burst.name = EffectName.goldBurst
         burst.position = CGPoint(x: popupRewardLabel.position.x, y: popupRewardLabel.position.y + 10)
-        burst.zPosition = 202
+        burst.zPosition = EffectStyle.goldBurstZ
         addChild(burst)
-
-        let reward = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-        reward.text = "+\(compactNumber(goldEarned))g"
-        reward.fontSize = 24
-        reward.fontColor = GameUITheme.Color.gold
-        reward.horizontalAlignmentMode = .center
-        reward.verticalAlignmentMode = .center
-        reward.zPosition = 1
-        burst.addChild(reward)
 
         for index in 0..<6 {
             let sparkle = SKShapeNode(circleOfRadius: 3)
             sparkle.fillColor = GameUITheme.Color.gold
             sparkle.strokeColor = .clear
             sparkle.position = .zero
-            sparkle.zPosition = 0
+            sparkle.zPosition = EffectStyle.goldBurstSparkleZ
             burst.addChild(sparkle)
 
             let angle = CGFloat(index) * (.pi * 2 / 6)
@@ -1160,6 +1162,17 @@ final class BattleScene: SKScene {
         let remove = SKAction.removeFromParent()
         isGoldBurstRemovalScheduled = true
         burst.run(SKAction.sequence([scale, settle, wait, fade, markComplete, remove]), withKey: EffectName.goldBurst)
+
+        goldBurstRemovalTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: EffectStyle.goldBurstRemovalDelayNanoseconds)
+            guard !Task.isCancelled, let self else {
+                return
+            }
+
+            self.childNode(withName: EffectName.goldBurst)?.removeFromParent()
+            self.isGoldBurstRemovalScheduled = false
+            self.goldBurstRemovalTask = nil
+        }
     }
 
     private func setConquestPopupHidden(_ isHidden: Bool) {
@@ -1285,6 +1298,22 @@ extension BattleScene {
         isGoldBurstRemovalScheduled
     }
 
+    var goldBurstZPositionForTesting: CGFloat {
+        childNode(withName: EffectName.goldBurst)?.zPosition ?? -.greatestFiniteMagnitude
+    }
+
+    var popupRewardZPositionForTesting: CGFloat {
+        popupRewardLabel.zPosition
+    }
+
+    var goldBurstContainsRewardTextForTesting: Bool {
+        guard let goldBurst = childNode(withName: EffectName.goldBurst) else {
+            return false
+        }
+
+        return containsLabelWithText(in: goldBurst, text: popupRewardLabel.text)
+    }
+
     var cityRemainingPowerForTesting: Int {
         state.cityRemainingPower
     }
@@ -1378,6 +1407,14 @@ extension BattleScene {
             && abs(lhsGreen - rhsGreen) <= tolerance
             && abs(lhsBlue - rhsBlue) <= tolerance
             && abs(lhsAlpha - rhsAlpha) <= tolerance
+    }
+
+    private func containsLabelWithText(in node: SKNode, text: String?) -> Bool {
+        if let label = node as? SKLabelNode, label.text == text {
+            return true
+        }
+
+        return node.children.contains { containsLabelWithText(in: $0, text: text) }
     }
 }
 #endif
