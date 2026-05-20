@@ -8,6 +8,7 @@ import Foundation
 struct KingdomGameState: Codable, Equatable {
     static let maxIdleCatchUpSeconds = 8 * 60 * 60
     static let firstCountryCityCount = 15
+    static let manualSoldierCap = 10
 
     enum StageStatus: String, Codable, Equatable {
         case battleActive
@@ -62,6 +63,23 @@ struct KingdomGameState: Codable, Equatable {
         case unavailable
     }
 
+    enum BuildBuildingResult: Equatable {
+        case built(cost: Int, remainingGold: Int)
+        case insufficientGold(cost: Int, currentGold: Int)
+        case invalidSlot
+        case slotOccupied
+        case typeCapReached(maximum: Int)
+        case unavailable
+    }
+
+    enum UpgradeBuildingResult: Equatable {
+        case upgraded(cost: Int, newLevel: Int, remainingGold: Int)
+        case insufficientGold(cost: Int, currentGold: Int)
+        case invalidSlot
+        case missingBuilding
+        case unavailable
+    }
+
     var gold: Int
     var cityLevel: Int
     var cityRemainingPower: Int
@@ -71,6 +89,7 @@ struct KingdomGameState: Codable, Equatable {
     var cityNumberInCountry: Int
     var completedCityCount: Int
     var stageStatus: StageStatus
+    var cityBattleStates: [String: CityBattleState]
 
     private enum CodingKeys: String, CodingKey {
         case gold
@@ -82,6 +101,22 @@ struct KingdomGameState: Codable, Equatable {
         case cityNumberInCountry
         case completedCityCount
         case stageStatus
+        case cityBattleStates
+    }
+
+    private struct CityBattleStateCodingKey: CodingKey {
+        var stringValue: String
+        var intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            intValue = nil
+        }
+
+        init?(intValue: Int) {
+            stringValue = String(intValue)
+            self.intValue = intValue
+        }
     }
 
     init(
@@ -93,7 +128,8 @@ struct KingdomGameState: Codable, Equatable {
         countryNumber: Int = 1,
         cityNumberInCountry: Int = 1,
         completedCityCount: Int = 0,
-        stageStatus: StageStatus = .battleActive
+        stageStatus: StageStatus = .battleActive,
+        cityBattleStates: [String: CityBattleState] = [:]
     ) {
         let clampedCountryNumber = max(1, countryNumber)
         let clampedCompletedCityCount = min(max(0, completedCityCount), Self.firstCountryCityCount)
@@ -143,6 +179,18 @@ struct KingdomGameState: Codable, Equatable {
         self.completedCityCount = normalizedCompletedCityCount
         self.stageStatus = resolvedStatus
 
+        var normalizedCityBattleStates: [String: CityBattleState] = [:]
+        for (key, value) in cityBattleStates {
+            guard let cityKey = CityKey(storageKey: key), cityKey.cityNumber > normalizedCompletedCityCount else {
+                continue
+            }
+
+            var normalizedValue = value
+            normalizedValue.normalize()
+            normalizedCityBattleStates[cityKey.storageKey] = normalizedValue
+        }
+        self.cityBattleStates = normalizedCityBattleStates
+
         if resolvedStatus == .battleActive {
             self.cityRemainingPower = max(1, cityRemainingPower ?? Self.cityMaxPower(for: normalizedCityLevel))
         } else {
@@ -171,8 +219,32 @@ struct KingdomGameState: Codable, Equatable {
                 ?? min(max(1, try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1), Self.firstCountryCityCount),
             completedCityCount: try container.decodeIfPresent(Int.self, forKey: .completedCityCount)
                 ?? min(max(0, (try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1) - 1), Self.firstCountryCityCount),
-            stageStatus: decodedStageStatus
+            stageStatus: decodedStageStatus,
+            cityBattleStates: Self.decodeCityBattleStates(from: container)
         )
+    }
+
+    private static func decodeCityBattleStates(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> [String: CityBattleState] {
+        guard let cityStatesContainer = try? container.nestedContainer(
+            keyedBy: CityBattleStateCodingKey.self,
+            forKey: .cityBattleStates
+        ) else {
+            return [:]
+        }
+
+        var decodedStates: [String: CityBattleState] = [:]
+        for key in cityStatesContainer.allKeys {
+            guard CityKey(storageKey: key.stringValue) != nil,
+                  let cityState = try? cityStatesContainer.decode(CityBattleState.self, forKey: key) else {
+                continue
+            }
+
+            decodedStates[key.stringValue] = cityState
+        }
+
+        return decodedStates
     }
 
     var cityMaxPower: Int {
@@ -189,6 +261,18 @@ struct KingdomGameState: Codable, Equatable {
 
     var normalSoldierUpgradeCost: Int {
         Self.normalSoldierUpgradeCost(for: normalSoldierUpgradeLevel)
+    }
+
+    var currentCityKey: CityKey {
+        CityKey(countryNumber: countryNumber, cityNumber: cityNumberInCountry)
+    }
+
+    var cityBattleStateForCurrentCity: CityBattleState {
+        cityBattleState(for: currentCityKey)
+    }
+
+    func cityBattleState(for key: CityKey) -> CityBattleState {
+        cityBattleStates[key.storageKey] ?? CityBattleState()
     }
 
     var displayCityTitle: String {
@@ -267,6 +351,76 @@ struct KingdomGameState: Codable, Equatable {
         let reward = completeCurrentCity()
 
         return AttackResult(attackApplied: true, damageDealt: appliedDamage, conqueredCities: 1, goldEarned: reward)
+    }
+
+    @discardableResult
+    mutating func buildBuilding(
+        _ type: BuildingType,
+        inSlot slot: Int,
+        at date: Date? = nil
+    ) -> BuildBuildingResult {
+        guard stageStatus == .battleActive else {
+            return .unavailable
+        }
+
+        guard CityBattleState.slotRange.contains(slot) else {
+            return .invalidSlot
+        }
+
+        let key = currentCityKey
+        var cityState = cityBattleState(for: key)
+
+        guard cityState.building(inSlot: slot) == nil else {
+            return .slotOccupied
+        }
+
+        guard cityState.buildingCount(for: type) < CityBattleState.maxBuildingsPerType else {
+            return .typeCapReached(maximum: CityBattleState.maxBuildingsPerType)
+        }
+
+        let cost = Self.buildingBuildCost(for: type)
+        guard gold >= cost else {
+            return .insufficientGold(cost: cost, currentGold: gold)
+        }
+
+        gold -= cost
+        cityState.setBuilding(CityBuilding(type: type), inSlot: slot)
+        if cityState.lastBuildingProgressResolvedAt == nil {
+            cityState.lastBuildingProgressResolvedAt = date
+        }
+        cityBattleStates[key.storageKey] = cityState
+
+        return .built(cost: cost, remainingGold: gold)
+    }
+
+    @discardableResult
+    mutating func upgradeBuilding(inSlot slot: Int) -> UpgradeBuildingResult {
+        guard stageStatus == .battleActive else {
+            return .unavailable
+        }
+
+        guard CityBattleState.slotRange.contains(slot) else {
+            return .invalidSlot
+        }
+
+        let key = currentCityKey
+        var cityState = cityBattleState(for: key)
+
+        guard var building = cityState.building(inSlot: slot) else {
+            return .missingBuilding
+        }
+
+        let cost = Self.buildingUpgradeCost(for: building.type, currentLevel: building.level)
+        guard gold >= cost else {
+            return .insufficientGold(cost: cost, currentGold: gold)
+        }
+
+        gold -= cost
+        building.level += 1
+        cityState.setBuilding(building, inSlot: slot)
+        cityBattleStates[key.storageKey] = cityState
+
+        return .upgraded(cost: cost, newLevel: building.level, remainingGold: gold)
     }
 
     mutating func enterBackground(at date: Date) {
@@ -349,6 +503,27 @@ struct KingdomGameState: Codable, Equatable {
         roundedAtLeastOne(10 * pow(1.7, Double(clampedLevel(upgradeLevel) - 1)))
     }
 
+    static func buildingBuildCost(for type: BuildingType) -> Int {
+        switch type {
+        case .barracks:
+            return 15
+        case .archeryRange:
+            return 18
+        }
+    }
+
+    static func buildingUpgradeCost(for type: BuildingType, currentLevel: Int) -> Int {
+        let base: Double
+        switch type {
+        case .barracks:
+            base = 12
+        case .archeryRange:
+            base = 14
+        }
+
+        return roundedAtLeastOne(base * pow(1.65, Double(clampedLevel(currentLevel) - 1)))
+    }
+
     private static func clampedLevel(_ level: Int) -> Int {
         max(1, level)
     }
@@ -361,6 +536,7 @@ struct KingdomGameState: Codable, Equatable {
         let reward = currentGoldReward
         gold += reward
         cityRemainingPower = 0
+        cityBattleStates.removeValue(forKey: currentCityKey.storageKey)
         completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
 
         if completedCityCount >= Self.firstCountryCityCount {

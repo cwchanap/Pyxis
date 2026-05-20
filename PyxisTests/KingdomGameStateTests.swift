@@ -106,6 +106,282 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .battleActive)
     }
 
+    @Test func decodingDropsMalformedCityBattleStateStorageKeys() throws {
+        let data = """
+        {
+          "gold": 100,
+          "cityLevel": 1,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 1,
+          "countryNumber": 1,
+          "cityNumberInCountry": 1,
+          "completedCityCount": 0,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {
+            "1-4": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "junk-1-2": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-junk-2": {
+              "slots": {
+                "1": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-2-extra": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-2-3": {
+              "slots": {
+                "1": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(Set(state.cityBattleStates.keys) == Set(["1-4"]))
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 4)).building(inSlot: 1)?.type == .barracks)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 2)).occupiedSlotCount == 0)
+    }
+
+    @Test func decodingDropsNonCanonicalNumericCityBattleStateStorageKeys() throws {
+        let data = """
+        {
+          "gold": 100,
+          "cityLevel": 1,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 1,
+          "countryNumber": 1,
+          "cityNumberInCountry": 1,
+          "completedCityCount": 0,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {
+            "1-4": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "0-4": {
+              "slots": {
+                "2": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-0": {
+              "slots": {
+                "3": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-99": {
+              "slots": {
+                "4": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(Set(state.cityBattleStates.keys) == Set(["1-4"]))
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 1)).occupiedSlotCount == 0)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 4)).building(inSlot: 1)?.type == .barracks)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 15)).occupiedSlotCount == 0)
+    }
+
+    @Test func decodingDropsParseableNonCanonicalCityBattleStateStorageKeys() throws {
+        let data = """
+        {
+          "gold": 100,
+          "cityLevel": 1,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 1,
+          "countryNumber": 1,
+          "cityNumberInCountry": 1,
+          "completedCityCount": 0,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {
+            "1-5": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "01-4": {
+              "slots": {
+                "2": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "+1-6": {
+              "slots": {
+                "3": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-04": {
+              "slots": {
+                "4": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            " 1-7": {
+              "slots": {
+                "5": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-7 ": {
+              "slots": {
+                "6": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(Set(state.cityBattleStates.keys) == Set(["1-5"]))
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 4)).occupiedSlotCount == 0)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 5)).building(inSlot: 1)?.type == .barracks)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 6)).occupiedSlotCount == 0)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 7)).occupiedSlotCount == 0)
+    }
+
+    @Test func decodingDropsCompletedCityBuildingStates() throws {
+        let data = """
+        {
+          "gold": 100,
+          "cityLevel": 3,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 1,
+          "countryNumber": 1,
+          "cityNumberInCountry": 3,
+          "completedCityCount": 2,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {
+            "1-2": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            },
+            "1-3": {
+              "slots": {
+                "1": {
+                  "type": "archeryRange",
+                  "level": 2,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.completedCityCount == 2)
+        #expect(Set(state.cityBattleStates.keys) == Set(["1-3"]))
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 2)).occupiedSlotCount == 0)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 3)).building(inSlot: 1)?.type == .archeryRange)
+    }
+
     @Test func countryCompleteInitializationNormalizesCompletedCityCount() {
         let state = KingdomGameState(
             cityLevel: 4,
@@ -171,6 +447,289 @@ struct KingdomGameStateTests {
         #expect(state.displayCityTitle == "Country 1 - City 1")
         #expect(state.mapStatus(for: 1) == .unlocked)
         #expect(state.mapStatus(for: 2) == .locked)
+    }
+
+    @Test func currentCityStartsWithEmptyBuildingGrid() {
+        let state = KingdomGameState()
+        let cityState = state.cityBattleStateForCurrentCity
+
+        #expect(cityState.slotCount == 25)
+        #expect(cityState.occupiedSlotCount == 0)
+        #expect(cityState.buildingCount(for: .barracks) == 0)
+        #expect(cityState.buildingCount(for: .archeryRange) == 0)
+    }
+
+    @Test func cityBuildingDecodingClampsLevelAndSpawnTimer() throws {
+        let data = """
+        {
+          "type": "barracks",
+          "level": -4,
+          "spawnTimerElapsed": -2.5
+        }
+        """.data(using: .utf8)!
+
+        let building = try JSONDecoder().decode(CityBuilding.self, from: data)
+
+        #expect(building.type == .barracks)
+        #expect(building.level == 1)
+        #expect(building.spawnTimerElapsed == 0)
+    }
+
+    @Test func cityBattleStateNormalizeDropsInvalidSlotsAndCapsBuildingsByTypeInSlotOrder() {
+        var state = CityBattleState(slots: [
+            0: CityBuilding(type: .barracks),
+            1: CityBuilding(type: .barracks),
+            2: CityBuilding(type: .barracks),
+            3: CityBuilding(type: .barracks),
+            4: CityBuilding(type: .barracks),
+            5: CityBuilding(type: .barracks),
+            6: CityBuilding(type: .barracks),
+            10: CityBuilding(type: .archeryRange),
+            11: CityBuilding(type: .archeryRange),
+            12: CityBuilding(type: .archeryRange),
+            13: CityBuilding(type: .archeryRange),
+            14: CityBuilding(type: .archeryRange),
+            15: CityBuilding(type: .archeryRange),
+            26: CityBuilding(type: .archeryRange)
+        ])
+
+        state.normalize()
+
+        #expect(state.building(inSlot: 0) == nil)
+        #expect(state.building(inSlot: 26) == nil)
+        #expect(state.buildingCount(for: .barracks) == 5)
+        #expect(state.buildingCount(for: .archeryRange) == 5)
+
+        for slot in 1...5 {
+            #expect(state.building(inSlot: slot)?.type == .barracks)
+        }
+        #expect(state.building(inSlot: 6) == nil)
+
+        for slot in 10...14 {
+            #expect(state.building(inSlot: slot)?.type == .archeryRange)
+        }
+        #expect(state.building(inSlot: 15) == nil)
+    }
+
+    @Test func cityBattleStateDecodingLossilyNormalizesSlotsAndBuildings() throws {
+        let data = """
+        {
+          "slots": {
+            "0": {
+              "type": "barracks",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "1": {
+              "type": "barracks",
+              "level": -2,
+              "spawnTimerElapsed": -4.5
+            },
+            "2": {
+              "type": "barracks",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "3": {
+              "type": "barracks",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "4": {
+              "type": "barracks",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "5": {
+              "type": "barracks",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "6": {
+              "type": "barracks",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "10": {
+              "type": "archeryRange",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "11": {
+              "type": "archeryRange",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "12": {
+              "type": "archeryRange",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "13": {
+              "type": "archeryRange",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "14": {
+              "type": "archeryRange",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "15": {
+              "type": "archeryRange",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "26": {
+              "type": "archeryRange",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "junk": {
+              "type": "barracks",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            },
+            "20": {
+              "type": "unknown",
+              "level": 1,
+              "spawnTimerElapsed": 0
+            }
+          },
+          "lastBuildingProgressResolvedAt": null
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(CityBattleState.self, from: data)
+
+        #expect(state.building(inSlot: 0) == nil)
+        #expect(state.building(inSlot: 26) == nil)
+        #expect(state.building(inSlot: 20) == nil)
+        #expect(state.building(inSlot: 1)?.level == 1)
+        #expect(state.building(inSlot: 1)?.spawnTimerElapsed == 0)
+        #expect(state.buildingCount(for: .barracks) == 5)
+        #expect(state.buildingCount(for: .archeryRange) == 5)
+
+        for slot in 1...5 {
+            #expect(state.building(inSlot: slot)?.type == .barracks)
+        }
+        #expect(state.building(inSlot: 6) == nil)
+
+        for slot in 10...14 {
+            #expect(state.building(inSlot: slot)?.type == .archeryRange)
+        }
+        #expect(state.building(inSlot: 15) == nil)
+    }
+
+    @Test func buildingConsumesGoldAndOccupiesSelectedSlot() {
+        var state = KingdomGameState(gold: 100)
+
+        let result = state.buildBuilding(.barracks, inSlot: 7, at: Date(timeIntervalSinceReferenceDate: 100))
+
+        #expect(result == .built(cost: 15, remainingGold: 85))
+        #expect(state.gold == 85)
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 7)?.type == .barracks)
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 7)?.level == 1)
+    }
+
+    @Test func buildingRejectsInvalidOccupiedUnaffordableAndTypeCapCases() {
+        var state = KingdomGameState(gold: 200)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 0) == .invalidSlot)
+        #expect(state.buildBuilding(.barracks, inSlot: 26) == .invalidSlot)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 185))
+        #expect(state.buildBuilding(.archeryRange, inSlot: 1) == .slotOccupied)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 2) == .built(cost: 15, remainingGold: 170))
+        #expect(state.buildBuilding(.barracks, inSlot: 3) == .built(cost: 15, remainingGold: 155))
+        #expect(state.buildBuilding(.barracks, inSlot: 4) == .built(cost: 15, remainingGold: 140))
+        #expect(state.buildBuilding(.barracks, inSlot: 5) == .built(cost: 15, remainingGold: 125))
+        #expect(state.buildBuilding(.barracks, inSlot: 6) == .typeCapReached(maximum: 5))
+
+        var poorState = KingdomGameState(gold: 14)
+        #expect(poorState.buildBuilding(.barracks, inSlot: 1) == .insufficientGold(cost: 15, currentGold: 14))
+        #expect(poorState.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+    }
+
+    @Test func buildingIsUnavailableOutsideActiveBattle() {
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .unavailable)
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+    }
+
+    @Test func firstBuildingInitializesProgressTimestampAndLaterBuildsDoNotOverwriteIt() {
+        let firstDate = Date(timeIntervalSinceReferenceDate: 100)
+        let secondDate = Date(timeIntervalSinceReferenceDate: 200)
+        var state = KingdomGameState(gold: 100)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: firstDate) == .built(cost: 15, remainingGold: 85))
+        #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == firstDate)
+
+        #expect(state.buildBuilding(.archeryRange, inSlot: 2, at: secondDate) == .built(cost: 18, remainingGold: 67))
+        #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == firstDate)
+    }
+
+    @Test func upgradingBuildingConsumesGoldAndIncreasesLevel() {
+        var state = KingdomGameState(gold: 100)
+        #expect(state.buildBuilding(.archeryRange, inSlot: 4) == .built(cost: 18, remainingGold: 82))
+
+        let result = state.upgradeBuilding(inSlot: 4)
+
+        #expect(result == .upgraded(cost: 14, newLevel: 2, remainingGold: 68))
+        #expect(state.gold == 68)
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 4)?.level == 2)
+    }
+
+    @Test func upgradingRejectsMissingBuildingAndInsufficientGold() {
+        var state = KingdomGameState(gold: 100)
+
+        #expect(state.upgradeBuilding(inSlot: 3) == .missingBuilding)
+
+        #expect(state.buildBuilding(.archeryRange, inSlot: 3) == .built(cost: 18, remainingGold: 82))
+        state.gold = 0
+
+        #expect(state.upgradeBuilding(inSlot: 3) == .insufficientGold(cost: 14, currentGold: 0))
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 3)?.level == 1)
+    }
+
+    @Test func upgradingBuildingRejectsInvalidSlotAndUnavailableState() {
+        var state = KingdomGameState(gold: 100)
+
+        #expect(state.upgradeBuilding(inSlot: 0) == .invalidSlot)
+        #expect(state.upgradeBuilding(inSlot: 26) == .invalidSlot)
+
+        var pausedState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        #expect(pausedState.upgradeBuilding(inSlot: 1) == .unavailable)
+    }
+
+    @Test func buildingStateIsIsolatedByCityAndClearedAfterConquest() {
+        var state = KingdomGameState(gold: 200, cityRemainingPower: 1)
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 185))
+
+        _ = state.applyLiveCombatDamage(1)
+
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 1)).occupiedSlotCount == 0)
+
+        _ = state.startCityFromMap(2)
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+        #expect(state.buildBuilding(.archeryRange, inSlot: 1) == .built(cost: 18, remainingGold: 175))
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 2)).building(inSlot: 1)?.type == .archeryRange)
     }
 
     @Test func liveCombatDamageReducesCurrentCityHP() {
