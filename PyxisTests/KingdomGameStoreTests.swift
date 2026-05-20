@@ -68,6 +68,72 @@ struct KingdomGameStoreTests {
         #expect(loaded.stageStatus == .cityConqueredPendingMap)
     }
 
+    @Test func saveAndLoadRoundTripsCityBuildingState() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        var saved = KingdomGameState(gold: 100)
+        #expect(saved.buildBuilding(.barracks, inSlot: 5) == .built(cost: 15, remainingGold: 85))
+        #expect(saved.upgradeBuilding(inSlot: 5) == .upgraded(cost: 12, newLevel: 2, remainingGold: 73))
+
+        store.save(saved)
+        let loaded = store.load()
+
+        #expect(loaded == saved)
+        #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 5)?.type == .barracks)
+        #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 5)?.level == 2)
+    }
+
+    @Test func loadDropsMalformedCityBuildingEntriesWithoutDiscardingSave() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let data = """
+        {
+          "gold": 64,
+          "cityLevel": 1,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 3,
+          "lastBackgroundedAt": null,
+          "countryNumber": 1,
+          "cityNumberInCountry": 1,
+          "completedCityCount": 0,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {
+            "1-1": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 2,
+                  "spawnTimerElapsed": 1.5
+                },
+                "junk": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                },
+                "2": {
+                  "type": "unknown",
+                  "level": 1,
+                  "spawnTimerElapsed": 0
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            }
+          }
+        }
+        """.data(using: .utf8)!
+        defaults.set(data, forKey: "state")
+
+        let loaded = store.load()
+
+        #expect(loaded.gold == 64)
+        #expect(loaded.normalSoldierUpgradeLevel == 3)
+        #expect(loaded.cityRemainingPower == 12)
+        #expect(loaded.cityBattleStateForCurrentCity.occupiedSlotCount == 1)
+        #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .barracks)
+        #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 1)?.level == 2)
+        #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 2) == nil)
+    }
+
     private func makeDefaults() throws -> UserDefaults {
         let suiteName = "PyxisTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
