@@ -874,39 +874,33 @@ struct KingdomGameStateTests {
         #expect(state == original)
     }
 
-    @Test func idleCatchUpAppliesAutomaticDamageAndClearsTimestamp() {
+    @Test func idleCatchUpDoesNoDamageWithoutBuildingsAndClearsTimestamp() {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
-        let end = start.addingTimeInterval(5)
+        let end = start.addingTimeInterval(5_000)
         var state = KingdomGameState(cityRemainingPower: 20)
 
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: end)
 
-        #expect(result.elapsedSeconds == 5)
-        #expect(result.damageDealt == 5)
-        #expect(result.conqueredCities == 0)
-        #expect(result.goldEarned == 0)
-        #expect(state.cityRemainingPower == 15)
+        #expect(result == .none)
+        #expect(state.cityRemainingPower == 20)
         #expect(state.lastBackgroundedAt == nil)
     }
 
-    @Test func idleCatchUpConquersOnlyCurrentCityAndStops() {
+    @Test func buildingIdleDamageUsesSlowerBuildingProductionAndPreservesPartialProgress() {
         let start = Date(timeIntervalSinceReferenceDate: 2_000)
-        let end = start.addingTimeInterval(80)
-        var state = KingdomGameState(cityRemainingPower: 10)
+        let end = start.addingTimeInterval(100)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 50)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: end)
 
-        #expect(result.elapsedSeconds == 80)
-        #expect(result.damageDealt == 10)
-        #expect(result.conqueredCities == 1)
-        #expect(result.goldEarned == 8)
-        #expect(state.gold == 8)
-        #expect(state.cityLevel == 1)
-        #expect(state.cityRemainingPower == 0)
-        #expect(state.completedCityCount == 1)
-        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(result.elapsedSeconds == 100)
+        #expect(result.damageDealt == 1)
+        #expect(result.conqueredCities == 0)
+        #expect(state.cityRemainingPower == 49)
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.spawnTimerElapsed == 0)
     }
 
     @Test func idleCatchUpDoesNothingWhenBattleIsPausedForMap() {
@@ -950,25 +944,65 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .countryComplete)
     }
 
-    @Test func idleConquestRewardIsGrantedOnResume() {
-        let start = Date(timeIntervalSinceReferenceDate: 2_700)
-        let end = start.addingTimeInterval(20)
-        var state = KingdomGameState(cityRemainingPower: 5)
+    @Test func buildingIdleDamageCanConquerCurrentCity() {
+        let start = Date(timeIntervalSinceReferenceDate: 3_000)
+        let end = start.addingTimeInterval(1_000)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 2)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        #expect(state.buildBuilding(.archeryRange, inSlot: 2, at: start) == .built(cost: 18, remainingGold: 67))
 
         state.enterBackground(at: start)
-        #expect(state.gold == 0)
-        #expect(state.cityRemainingPower == 5)
-
         let result = state.returnFromBackground(at: end)
 
-        #expect(result.elapsedSeconds == 20)
-        #expect(result.damageDealt == 5)
+        #expect(result.elapsedSeconds == 1_000)
+        #expect(result.damageDealt == 2)
         #expect(result.conqueredCities == 1)
         #expect(result.goldEarned == 8)
-        #expect(state.gold == 8)
         #expect(state.cityRemainingPower == 0)
         #expect(state.completedCityCount == 1)
         #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 1)).occupiedSlotCount == 0)
+    }
+
+    @Test func activeBuildingSpawnsAdvanceTimersAndEmitSpawnEvents() {
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 30)
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 85))
+        #expect(state.buildBuilding(.archeryRange, inSlot: 2) == .built(cost: 18, remainingGold: 67))
+
+        let firstTick = state.resolveActiveBuildingSpawns(deltaTime: 9.9)
+        #expect(firstTick.isEmpty)
+
+        let secondTick = state.resolveActiveBuildingSpawns(deltaTime: 0.1)
+        #expect(secondTick == [BuildingSpawn(soldierType: .infantry, level: 1, sourceSlot: 1)])
+
+        let thirdTick = state.resolveActiveBuildingSpawns(deltaTime: 2.0)
+        #expect(thirdTick == [BuildingSpawn(soldierType: .archer, level: 1, sourceSlot: 2)])
+    }
+
+    @Test func activeBuildingSpawnsDoNotPersistEmptyCityStateWithoutBuildings() {
+        var state = KingdomGameState(cityRemainingPower: 30)
+
+        let spawns = state.resolveActiveBuildingSpawns(deltaTime: 10)
+
+        #expect(spawns.isEmpty)
+        #expect(state.cityBattleStates.isEmpty)
+    }
+
+    @Test func activeBuildingSpawnsClampLargeDeltaToBoundSpawnWork() {
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 30)
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 85))
+
+        let spawns = state.resolveActiveBuildingSpawns(deltaTime: 600)
+
+        #expect(spawns == [
+            BuildingSpawn(soldierType: .infantry, level: 1, sourceSlot: 1),
+            BuildingSpawn(soldierType: .infantry, level: 1, sourceSlot: 1),
+            BuildingSpawn(soldierType: .infantry, level: 1, sourceSlot: 1),
+            BuildingSpawn(soldierType: .infantry, level: 1, sourceSlot: 1),
+            BuildingSpawn(soldierType: .infantry, level: 1, sourceSlot: 1),
+            BuildingSpawn(soldierType: .infantry, level: 1, sourceSlot: 1)
+        ])
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.spawnTimerElapsed == 0)
     }
 
     @Test func idleCatchUpCannotBeAppliedTwice() {
@@ -982,18 +1016,36 @@ struct KingdomGameStateTests {
 
         #expect(secondResult.elapsedSeconds == 0)
         #expect(secondResult.damageDealt == 0)
-        #expect(state.cityRemainingPower == 15)
+        #expect(state.cityRemainingPower == 20)
+    }
+
+    @Test func buildingIdleCatchUpCannotBeAppliedTwiceWithoutFreshBackgroundSignal() {
+        let start = Date(timeIntervalSinceReferenceDate: 3_100)
+        let firstEnd = start.addingTimeInterval(100)
+        let secondEnd = firstEnd.addingTimeInterval(50)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 20)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+
+        state.enterBackground(at: start)
+        let firstResult = state.returnFromBackground(at: firstEnd)
+        let secondResult = state.returnFromBackground(at: secondEnd)
+
+        #expect(firstResult.damageDealt == 1)
+        #expect(secondResult == .none)
+        #expect(state.cityRemainingPower == 19)
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.spawnTimerElapsed == 0)
     }
 
     @Test func idleCatchUpIsCappedAtEightHours() {
         let start = Date(timeIntervalSinceReferenceDate: 4_000)
         let end = start.addingTimeInterval(Double(KingdomGameState.maxIdleCatchUpSeconds + 120))
-        var state = KingdomGameState(cityRemainingPower: 30_000)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 30_000)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: end)
 
         #expect(result.elapsedSeconds == KingdomGameState.maxIdleCatchUpSeconds)
-        #expect(result.damageDealt == KingdomGameState.maxIdleCatchUpSeconds)
+        #expect(result.damageDealt == KingdomGameState.maxIdleCatchUpSeconds / 100)
     }
 }
