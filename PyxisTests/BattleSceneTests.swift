@@ -246,6 +246,33 @@ struct BattleSceneTests {
         #expect(scene.isConquestPopupVisibleForTesting)
     }
 
+    @Test func buildButtonRequestsBuildingViewRoute() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestBuildingViewForTesting()
+
+        #expect(router.didRequestBuildingView)
+    }
+
+    @Test func buildButtonWaitsForLiveSoldiersBeforeRouting() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 500)
+        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 20)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.spawnSoldierForTesting()
+        scene.requestBuildingViewForTesting()
+
+        #expect(!router.didRequestBuildingView)
+        #expect(scene.feedbackTextForTesting == "Finish the current squad before building.")
+        #expect(scene.liveSoldierCountForTesting == 1)
+        #expect(store.load() == initialState)
+    }
+
     @Test func idleConquestClearsLiveSoldiersBeforeShowingPopup() throws {
         let start = Date(timeIntervalSinceNow: -1_000)
         var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
@@ -452,9 +479,14 @@ struct BattleSceneTests {
 
     private final class RouteSpy: BattleSceneRouting {
         private(set) var didRequestCountryMap = false
+        private(set) var didRequestBuildingView = false
 
         func battleSceneDidRequestCountryMap(_ scene: BattleScene) {
             didRequestCountryMap = true
+        }
+
+        func battleSceneDidRequestBuildingView(_ scene: BattleScene) {
+            didRequestBuildingView = true
         }
     }
 }
