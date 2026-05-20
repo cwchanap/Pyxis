@@ -38,6 +38,9 @@ struct BattleCombatState: Equatable {
 
     struct Soldier: Equatable, Identifiable {
         let id: SoldierID
+        let type: SoldierType
+        let source: SoldierSpawnSource
+        let level: Int
         let maxHP: Int
         var currentHP: Int
         let defense: Int
@@ -87,20 +90,39 @@ struct BattleCombatState: Equatable {
         soldiers.filter(\.isAlive).count
     }
 
+    func livingSoldierCount(source: SoldierSpawnSource) -> Int {
+        soldiers.filter { $0.isAlive && $0.source == source }.count
+    }
+
     @discardableResult
     mutating func spawnSoldier(attackPower: Int) -> SoldierID {
+        spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: attackPower)
+    }
+
+    @discardableResult
+    mutating func spawnSoldier(
+        type: SoldierType,
+        source: SoldierSpawnSource,
+        level: Int,
+        attackPower: Int
+    ) -> SoldierID {
         let id = nextSoldierID
         nextSoldierID += 1
 
+        let clampedLevel = max(1, level)
+        let maxHP = maxHP(for: type, level: clampedLevel)
         soldiers.append(
             Soldier(
                 id: id,
-                maxHP: max(1, configuration.soldierMaxHP),
-                currentHP: max(1, configuration.soldierMaxHP),
+                type: type,
+                source: source,
+                level: clampedLevel,
+                maxHP: maxHP,
+                currentHP: maxHP,
                 defense: max(0, configuration.soldierDefense),
                 attackPower: max(1, attackPower),
                 attackSpeed: max(0.1, configuration.soldierAttackSpeed),
-                attackRange: min(max(0, configuration.soldierAttackRange), 1),
+                attackRange: attackRange(for: type),
                 movementSpeed: max(0, configuration.soldierMovementSpeed),
                 position: 0,
                 attackCooldownRemaining: 0
@@ -169,6 +191,27 @@ struct BattleCombatState: Equatable {
 
     private func clampedDeltaTime(_ rawDeltaTime: Double) -> Double {
         min(max(0, rawDeltaTime), max(0.01, configuration.maxDeltaTime))
+    }
+
+    private func maxHP(for type: SoldierType, level: Int) -> Int {
+        let baseHP: Double
+        switch type {
+        case .infantry:
+            baseHP = Double(max(1, configuration.soldierMaxHP))
+        case .archer:
+            baseHP = Double(max(1, configuration.soldierMaxHP)) * 0.7
+        }
+
+        return max(1, Int((baseHP * pow(1.25, Double(max(1, level) - 1))).rounded()))
+    }
+
+    private func attackRange(for type: SoldierType) -> Double {
+        switch type {
+        case .infantry:
+            return min(max(0, configuration.soldierAttackRange), 1)
+        case .archer:
+            return min(max(0, configuration.soldierAttackRange * 2.2), 1)
+        }
     }
 
     private mutating func advanceMovement(forSoldierAt index: Int, deltaTime: Double) {

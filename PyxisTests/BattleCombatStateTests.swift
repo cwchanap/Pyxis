@@ -26,6 +26,9 @@ struct BattleCombatStateTests {
 
         #expect(combat.livingSoldierCount == 1)
         let soldier = try #require(combat.soldier(id: id))
+        #expect(soldier.type == .infantry)
+        #expect(soldier.source == .manual)
+        #expect(soldier.level == 1)
         #expect(soldier.maxHP == 12)
         #expect(soldier.currentHP == 12)
         #expect(soldier.defense == 3)
@@ -35,6 +38,49 @@ struct BattleCombatStateTests {
         #expect(soldier.movementSpeed == 0.40)
         #expect(soldier.position == 0)
         #expect(soldier.isAlive)
+    }
+
+    @Test func infantryAndArcherUseDifferentHPAndAttackRanges() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+
+        let infantry = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 2)
+        let archer = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 2)
+
+        let infantrySoldier = try #require(combat.soldier(id: infantry))
+        let archerSoldier = try #require(combat.soldier(id: archer))
+
+        #expect(infantrySoldier.type == .infantry)
+        #expect(archerSoldier.type == .archer)
+        #expect(infantrySoldier.maxHP > archerSoldier.maxHP)
+        #expect(infantrySoldier.attackRange < archerSoldier.attackRange)
+    }
+
+    @Test func soldierLevelIncreasesHPAndCarriesSpawnSource() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+
+        let low = combat.spawnSoldier(type: .infantry, source: .building, level: 1, attackPower: 1)
+        let high = combat.spawnSoldier(type: .infantry, source: .building, level: 3, attackPower: 3)
+
+        let lowSoldier = try #require(combat.soldier(id: low))
+        let highSoldier = try #require(combat.soldier(id: high))
+
+        #expect(lowSoldier.source == .building)
+        #expect(highSoldier.source == .building)
+        #expect(highSoldier.level == 3)
+        #expect(highSoldier.maxHP > lowSoldier.maxHP)
+        #expect(highSoldier.attackPower == 3)
+    }
+
+    @Test func manualLivingSoldierCountExcludesBuildingSpawnedSoldiers() {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1)
+        _ = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1)
+        _ = combat.spawnSoldier(type: .infantry, source: .building, level: 1, attackPower: 1)
+
+        #expect(combat.livingSoldierCount == 3)
+        #expect(combat.livingSoldierCount(source: .manual) == 2)
+        #expect(combat.livingSoldierCount(source: .building) == 1)
     }
 
     @Test func liveConfigurationScalesTowerDamageByCityLevel() {
