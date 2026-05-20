@@ -11,6 +11,7 @@ import UIKit
 
 protocol BattleSceneRouting: AnyObject {
     func battleSceneDidRequestCountryMap(_ scene: BattleScene)
+    func battleSceneDidRequestBuildingView(_ scene: BattleScene)
 }
 
 final class BattleScene: SKScene {
@@ -26,6 +27,7 @@ final class BattleScene: SKScene {
 
     private enum ButtonName {
         static let spawn = "spawnSoldierButton"
+        static let build = "buildButton"
         static let upgrade = "upgradeSoldierButton"
         static let popupContinue = "conquestPopupContinueButton"
     }
@@ -86,6 +88,9 @@ final class BattleScene: SKScene {
     private let spawnButton = SKNode()
     private let spawnButtonBackground = SKShapeNode()
     private let spawnButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let buildButton = SKNode()
+    private let buildButtonBackground = SKShapeNode()
+    private let buildButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let upgradeButton = SKNode()
     private let upgradeButtonBackground = SKShapeNode()
     private let upgradeButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -169,6 +174,8 @@ final class BattleScene: SKScene {
         switch buttonName(at: touch.location(in: self)) {
         case ButtonName.spawn:
             spawnSoldier()
+        case ButtonName.build:
+            requestBuildingView()
         case ButtonName.upgrade:
             upgradeSoldier()
         case ButtonName.popupContinue:
@@ -213,6 +220,13 @@ final class BattleScene: SKScene {
             color: GameUITheme.Color.spawn
         )
         configureButton(
+            buildButton,
+            background: buildButtonBackground,
+            label: buildButtonLabel,
+            name: ButtonName.build,
+            color: SKColor(red: 0.50, green: 0.28, blue: 0.18, alpha: 1.0)
+        )
+        configureButton(
             upgradeButton,
             background: upgradeButtonBackground,
             label: upgradeButtonLabel,
@@ -248,6 +262,7 @@ final class BattleScene: SKScene {
             liveCombatStatusLabel,
             feedbackLabel,
             spawnButton,
+            buildButton,
             upgradeButton
         ].forEach { $0.zPosition = GameUITheme.Z.hud }
 
@@ -258,6 +273,7 @@ final class BattleScene: SKScene {
         addChild(liveCombatStatusLabel)
         addChild(feedbackLabel)
         addChild(spawnButton)
+        addChild(buildButton)
         addChild(upgradeButton)
         addChild(popupOverlay)
         addChild(popupTitleLabel)
@@ -335,6 +351,15 @@ final class BattleScene: SKScene {
             position: CGPoint(x: metrics.horizontalMargin + metrics.spawnButtonWidth / 2, y: buttonY)
         )
         layoutButton(
+            buildButton,
+            background: buildButtonBackground,
+            size: CGSize(width: metrics.buildButtonWidth, height: metrics.buttonHeight),
+            position: CGPoint(
+                x: metrics.horizontalMargin + metrics.spawnButtonWidth + metrics.buttonGap + metrics.buildButtonWidth / 2,
+                y: buttonY
+            )
+        )
+        layoutButton(
             upgradeButton,
             background: upgradeButtonBackground,
             size: CGSize(width: metrics.upgradeButtonWidth, height: metrics.buttonHeight),
@@ -363,6 +388,7 @@ final class BattleScene: SKScene {
         fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDLabelWidth)
         fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
         fitLabel(spawnButtonLabel, maxWidth: metrics.spawnButtonWidth - 28)
+        fitLabel(buildButtonLabel, maxWidth: metrics.buildButtonWidth - 24)
         fitLabel(upgradeButtonLabel, maxWidth: metrics.upgradeButtonWidth - 28)
         fitLabel(popupTitleLabel, maxWidth: metrics.contentWidth - 48)
         fitLabel(popupRewardLabel, maxWidth: metrics.contentWidth - 48)
@@ -381,6 +407,7 @@ final class BattleScene: SKScene {
         liveCombatStatusLabel.fontSize = 13
         feedbackLabel.fontSize = 15
         spawnButtonLabel.fontSize = 16
+        buildButtonLabel.fontSize = 16
         upgradeButtonLabel.fontSize = 16
         popupTitleLabel.fontSize = 22
         popupRewardLabel.fontSize = 18
@@ -397,8 +424,10 @@ final class BattleScene: SKScene {
         let rightHUDWidth: CGFloat
         let hudHeight: CGFloat
         let spawnButtonWidth: CGFloat
+        let buildButtonWidth: CGFloat
         let upgradeButtonWidth: CGFloat
         let contentWidth: CGFloat
+        let buttonGap: CGFloat
 
         var leftHUDLabelWidth: CGFloat {
             leftHUDWidth - 20
@@ -429,9 +458,10 @@ final class BattleScene: SKScene {
             safeTopInset + (compactHeight ? 8 : 10) + hudHeight / 2
         )
 
-        let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap)
-        let spawnButtonWidth = min(210, availableButtonWidth * 0.58)
-        let upgradeButtonWidth = max(0, availableButtonWidth - spawnButtonWidth)
+        let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap * 2)
+        let spawnButtonWidth = min(180, availableButtonWidth * 0.43)
+        let buildButtonWidth = min(92, availableButtonWidth * 0.22)
+        let upgradeButtonWidth = max(0, availableButtonWidth - spawnButtonWidth - buildButtonWidth)
         let contentWidth = min(max(0, size.width - horizontalMargin * 2), 560)
 
         return LayoutMetrics(
@@ -444,8 +474,10 @@ final class BattleScene: SKScene {
             rightHUDWidth: rightHUDWidth,
             hudHeight: hudHeight,
             spawnButtonWidth: spawnButtonWidth,
+            buildButtonWidth: buildButtonWidth,
             upgradeButtonWidth: upgradeButtonWidth,
-            contentWidth: contentWidth
+            contentWidth: contentWidth,
+            buttonGap: buttonGap
         )
     }
 
@@ -633,6 +665,7 @@ final class BattleScene: SKScene {
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         spawnButtonLabel.text = "Spawn Soldier"
+        buildButtonLabel.text = "Build"
         upgradeButtonLabel.text = "Upgrade \(compactNumber(state.normalSoldierUpgradeCost))g"
         upgradeButtonBackground.fillColor = state.gold >= state.normalSoldierUpgradeCost
             ? GameUITheme.Color.upgradeAvailable
@@ -713,6 +746,22 @@ final class BattleScene: SKScene {
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
         updateLiveCombatStatusLabel()
+    }
+
+    private func requestBuildingView() {
+        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
+        }
+
+        guard combat.livingSoldierCount == 0 else {
+            feedbackText = "Finish the current squad before building."
+            redraw()
+            return
+        }
+
+        state.markCurrentCityBuildingProgressInactive(at: Date())
+        store.save(state)
+        router?.battleSceneDidRequestBuildingView(self)
     }
 
     private func createSoldierNode(id: BattleCombatState.SoldierID) {
@@ -1098,7 +1147,10 @@ final class BattleScene: SKScene {
 
     private func buttonName(at point: CGPoint) -> String? {
         for node in nodes(at: point) {
-            if node.name == ButtonName.spawn || node.name == ButtonName.upgrade || node.name == ButtonName.popupContinue {
+            if node.name == ButtonName.spawn
+                || node.name == ButtonName.build
+                || node.name == ButtonName.upgrade
+                || node.name == ButtonName.popupContinue {
                 return node.name
             }
         }
@@ -1111,7 +1163,7 @@ final class BattleScene: SKScene {
             return
         }
 
-        while label.frame.width > maxWidth && label.fontSize > 12 {
+        while label.frame.width > maxWidth && label.fontSize > 8 {
             label.fontSize -= 1
         }
     }
@@ -1409,6 +1461,10 @@ extension BattleScene {
 
     func upgradeSoldierForTesting() {
         upgradeSoldier()
+    }
+
+    func requestBuildingViewForTesting() {
+        requestBuildingView()
     }
 
     func advanceCombatForTesting(deltaTime: TimeInterval) {

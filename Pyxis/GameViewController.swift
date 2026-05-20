@@ -9,7 +9,17 @@ import UIKit
 import SpriteKit
 
 final class GameViewController: UIViewController {
-    private let store = KingdomGameStore.shared
+    private let store: KingdomGameStore
+
+    init(store: KingdomGameStore = .shared) {
+        self.store = store
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        self.store = .shared
+        super.init(coder: coder)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -41,6 +51,10 @@ final class GameViewController: UIViewController {
     }
 
     private func presentInitialScene(in view: SKView) {
+        presentSceneForCurrentStage(in: view)
+    }
+
+    private func presentSceneForCurrentStage(in view: SKView) {
         let state = store.load()
 
         switch state.stageStatus {
@@ -62,6 +76,12 @@ final class GameViewController: UIViewController {
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
     }
+
+    private func presentBuildingViewScene(in view: SKView) {
+        let scene = BuildingViewScene(size: view.bounds.size, store: store, router: self)
+        scene.scaleMode = .resizeFill
+        view.presentScene(scene)
+    }
 }
 
 extension GameViewController: BattleSceneRouting {
@@ -72,6 +92,14 @@ extension GameViewController: BattleSceneRouting {
 
         presentCountryMapScene(in: view)
     }
+
+    func battleSceneDidRequestBuildingView(_ scene: BattleScene) {
+        guard let view = self.view as? SKView else {
+            return
+        }
+
+        presentBuildingViewScene(in: view)
+    }
 }
 
 extension GameViewController: CountryMapSceneRouting {
@@ -81,5 +109,15 @@ extension GameViewController: CountryMapSceneRouting {
         }
 
         presentBattleScene(in: view)
+    }
+}
+
+extension GameViewController: BuildingViewSceneRouting {
+    func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) {
+        guard let view = self.view as? SKView else {
+            return
+        }
+
+        presentSceneForCurrentStage(in: view)
     }
 }
