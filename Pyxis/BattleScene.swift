@@ -1081,9 +1081,11 @@ final class BattleScene: SKScene {
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
                 clearLiveCombat()
-                feedbackText = "Idle attacks conquered \(state.displayCityTitle)."
+                feedbackText = "Buildings conquered \(state.displayCityTitle)."
+            } else if result.damageDealt > 0 {
+                feedbackText = "Buildings dealt \(compactNumber(result.damageDealt)) idle damage."
             } else {
-                feedbackText = "Idle attacks dealt \(compactNumber(result.damageDealt)) damage."
+                feedbackText = "No building damage while away."
             }
         }
 

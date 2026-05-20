@@ -247,12 +247,10 @@ struct BattleSceneTests {
     }
 
     @Test func idleConquestClearsLiveSoldiersBeforeShowingPopup() throws {
-        let store = try makeStore(
-            initialState: KingdomGameState(
-                cityRemainingPower: 1,
-                lastBackgroundedAt: Date(timeIntervalSinceNow: -2)
-            )
-        )
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initialState)
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
@@ -264,7 +262,7 @@ struct BattleSceneTests {
         let savedState = store.load()
         #expect(scene.liveSoldierCountForTesting == 0)
         #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(savedState.gold == 8)
+        #expect(savedState.gold == 93)
         #expect(savedState.completedCityCount == 1)
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
     }

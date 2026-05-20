@@ -7,6 +7,8 @@ import Foundation
 
 struct KingdomGameState: Codable, Equatable {
     static let maxIdleCatchUpSeconds = 8 * 60 * 60
+    static let maxActiveBuildingSpawnDeltaSeconds = 60.0
+    static let idleBuildingProductionScale = 10.0
     static let firstCountryCityCount = 15
     static let manualSoldierCap = 10
 
@@ -423,50 +425,104 @@ struct KingdomGameState: Codable, Equatable {
         return .upgraded(cost: cost, newLevel: building.level, remainingGold: gold)
     }
 
-    mutating func enterBackground(at date: Date) {
+    @discardableResult
+    mutating func resolveActiveBuildingSpawns(deltaTime rawDeltaTime: Double) -> [BuildingSpawn] {
+        guard stageStatus == .battleActive else {
+            return []
+        }
+
+        let deltaTime = min(max(0, rawDeltaTime), Self.maxActiveBuildingSpawnDeltaSeconds)
+        guard deltaTime > 0 else {
+            return []
+        }
+
+        let key = currentCityKey
+        var cityState = cityBattleState(for: key)
+        guard cityState.occupiedSlotCount > 0 else {
+            return []
+        }
+
+        let spawns = Self.resolveBuildingSpawns(in: &cityState, effectiveActiveSeconds: deltaTime)
+        cityBattleStates[key.storageKey] = cityState
+        return spawns
+    }
+
+    mutating func markCurrentCityBuildingProgressInactive(at date: Date) {
+        guard stageStatus == .battleActive else {
+            lastBackgroundedAt = date
+            return
+        }
+
         lastBackgroundedAt = date
+        let key = currentCityKey
+        var cityState = cityBattleState(for: key)
+        if cityState.occupiedSlotCount > 0 {
+            cityState.lastBuildingProgressResolvedAt = date
+            cityBattleStates[key.storageKey] = cityState
+        }
+    }
+
+    @discardableResult
+    mutating func resolveCurrentCityBuildingIdleProgress(at date: Date) -> IdleProgressResult {
+        guard stageStatus == .battleActive else {
+            lastBackgroundedAt = nil
+            return .none
+        }
+
+        let key = currentCityKey
+        var cityState = cityBattleState(for: key)
+        guard let backgroundedAt = lastBackgroundedAt else {
+            return .none
+        }
+
+        guard cityState.occupiedSlotCount > 0 else {
+            lastBackgroundedAt = nil
+            return .none
+        }
+
+        let resolvedStart = cityState.lastBuildingProgressResolvedAt ?? backgroundedAt
+        let rawElapsed = Int(date.timeIntervalSince(resolvedStart))
+        let elapsedSeconds = min(max(0, rawElapsed), Self.maxIdleCatchUpSeconds)
+        guard elapsedSeconds > 0 else {
+            lastBackgroundedAt = nil
+            cityState.lastBuildingProgressResolvedAt = date
+            cityBattleStates[key.storageKey] = cityState
+            return .none
+        }
+
+        let spawns = Self.resolveBuildingSpawns(
+            in: &cityState,
+            effectiveActiveSeconds: Double(elapsedSeconds) / Self.idleBuildingProductionScale
+        )
+        cityState.lastBuildingProgressResolvedAt = date
+        cityBattleStates[key.storageKey] = cityState
+        lastBackgroundedAt = nil
+
+        let totalPotentialDamage = spawns.reduce(0) { total, spawn in
+            total + Self.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+        }
+
+        guard totalPotentialDamage > 0 else {
+            return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: 0, conqueredCities: 0, goldEarned: 0)
+        }
+
+        let appliedDamage = min(totalPotentialDamage, cityRemainingPower)
+        guard totalPotentialDamage >= cityRemainingPower else {
+            cityRemainingPower -= totalPotentialDamage
+            return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: totalPotentialDamage, conqueredCities: 0, goldEarned: 0)
+        }
+
+        let reward = completeCurrentCity()
+        return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: appliedDamage, conqueredCities: 1, goldEarned: reward)
+    }
+
+    mutating func enterBackground(at date: Date) {
+        markCurrentCityBuildingProgressInactive(at: date)
     }
 
     @discardableResult
     mutating func returnFromBackground(at date: Date) -> IdleProgressResult {
-        guard let lastBackgroundedAt else {
-            return .none
-        }
-
-        self.lastBackgroundedAt = nil
-
-        guard stageStatus == .battleActive else {
-            return .none
-        }
-
-        let rawElapsed = Int(date.timeIntervalSince(lastBackgroundedAt))
-        let elapsedSeconds = min(max(0, rawElapsed), Self.maxIdleCatchUpSeconds)
-
-        guard elapsedSeconds > 0 else {
-            return .none
-        }
-
-        let totalPotentialDamage = elapsedSeconds * normalSoldierAttackPower
-        let appliedDamage = min(totalPotentialDamage, cityRemainingPower)
-
-        guard totalPotentialDamage >= cityRemainingPower else {
-            cityRemainingPower -= totalPotentialDamage
-            return IdleProgressResult(
-                elapsedSeconds: elapsedSeconds,
-                damageDealt: totalPotentialDamage,
-                conqueredCities: 0,
-                goldEarned: 0
-            )
-        }
-
-        let reward = completeCurrentCity()
-
-        return IdleProgressResult(
-            elapsedSeconds: elapsedSeconds,
-            damageDealt: appliedDamage,
-            conqueredCities: 1,
-            goldEarned: reward
-        )
+        resolveCurrentCityBuildingIdleProgress(at: date)
     }
 
     @discardableResult
@@ -524,12 +580,54 @@ struct KingdomGameState: Codable, Equatable {
         return roundedAtLeastOne(base * pow(1.65, Double(clampedLevel(currentLevel) - 1)))
     }
 
+    static func activeSpawnInterval(for type: BuildingType) -> Double {
+        switch type {
+        case .barracks:
+            return 10
+        case .archeryRange:
+            return 12
+        }
+    }
+
+    static func soldierAttackPower(for type: SoldierType, level: Int) -> Int {
+        normalSoldierAttackPower(for: level)
+    }
+
     private static func clampedLevel(_ level: Int) -> Int {
         max(1, level)
     }
 
     private static func roundedAtLeastOne(_ value: Double) -> Int {
         max(1, Int(value.rounded()))
+    }
+
+    private static func resolveBuildingSpawns(
+        in cityState: inout CityBattleState,
+        effectiveActiveSeconds: Double
+    ) -> [BuildingSpawn] {
+        guard effectiveActiveSeconds > 0 else {
+            return []
+        }
+
+        var spawns: [BuildingSpawn] = []
+
+        for slot in cityState.slots.keys.sorted() {
+            guard var building = cityState.slots[slot] else {
+                continue
+            }
+
+            building.spawnTimerElapsed += effectiveActiveSeconds
+            let interval = activeSpawnInterval(for: building.type)
+
+            while building.spawnTimerElapsed >= interval {
+                building.spawnTimerElapsed -= interval
+                spawns.append(BuildingSpawn(soldierType: building.type.soldierType, level: building.level, sourceSlot: slot))
+            }
+
+            cityState.slots[slot] = building
+        }
+
+        return spawns
     }
 
     private mutating func completeCurrentCity() -> Int {
