@@ -491,7 +491,10 @@ final class BuildingViewScene: SKScene {
     }
 
     private func requestBattle() {
+        let result = state.returnFromBackground(at: Date())
         store.save(state)
+        applyIdleProgressFeedback(result)
+        redraw()
         router?.buildingViewSceneDidRequestBattle(self)
     }
 
@@ -524,6 +527,11 @@ final class BuildingViewScene: SKScene {
         let result = state.returnFromBackground(at: Date())
         store.save(state)
 
+        applyIdleProgressFeedback(result)
+        redraw()
+    }
+
+    private func applyIdleProgressFeedback(_ result: KingdomGameState.IdleProgressResult) {
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
                 feedbackText = "Buildings conquered \(state.displayCityTitle)."
@@ -533,8 +541,6 @@ final class BuildingViewScene: SKScene {
                 feedbackText = "No building damage while away."
             }
         }
-
-        redraw()
     }
 
     private func slot(at point: CGPoint) -> Int? {
