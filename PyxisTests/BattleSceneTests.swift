@@ -100,6 +100,7 @@ struct BattleSceneTests {
         #expect(scene.liveSoldierCountForTesting == KingdomGameState.manualSoldierCap + 1)
         #expect(scene.liveSoldierTypesForTesting.filter { $0 == .archer }.count == KingdomGameState.manualSoldierCap)
         #expect(scene.liveSoldierTypesForTesting.contains(.infantry))
+        scene.flushBuildingProgressSaveForTesting()
         #expect(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? 10 < 1)
     }
 
@@ -119,9 +120,30 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 5.0)
 
         #expect(scene.buildingLiveSoldierCountForTesting == 0)
+        scene.flushBuildingProgressSaveForTesting()
         let savedElapsed = try #require(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed)
         #expect(savedElapsed > 0)
         #expect(savedElapsed < KingdomGameState.activeSpawnInterval(for: .barracks))
+    }
+
+    @Test func buildingProgressSaveIsThrottled() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: 0)]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 100,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let scene = makeScene(store: store)
+
+        // Advance less than the throttle interval — no save should occur
+        scene.advanceCombatForTesting(deltaTime: 1.0)
+
+        let persisted = store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? 0
+        #expect(persisted == 0)
     }
 
     @Test func liveSoldierHPBarStaysReadableAboveScaledBody() throws {
@@ -288,7 +310,9 @@ struct BattleSceneTests {
         #expect(scene.isGoldBurstVisibleForTesting)
         #expect(scene.isGoldBurstRemovalScheduledForTesting)
 
-        try await Task.sleep(nanoseconds: 900_000_000)
+        try await pollUntil(timeout: .seconds(2), interval: .milliseconds(50)) {
+            !scene.isGoldBurstVisibleForTesting && !scene.isGoldBurstRemovalScheduledForTesting
+        }
 
         #expect(!scene.isGoldBurstVisibleForTesting)
         #expect(!scene.isGoldBurstRemovalScheduledForTesting)
@@ -558,6 +582,19 @@ struct BattleSceneTests {
         #expect(scene.feedbackTextForTesting == "Enter a city to upgrade soldiers.")
         #expect(scene.isUpgradeDeniedFeedbackRunningForTesting)
         #expect(store.load().gold == 30)
+    }
+
+    private func pollUntil(
+        timeout: Duration,
+        interval: Duration = .milliseconds(50),
+        condition: @escaping () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            try await Task.sleep(for: interval)
+        }
+        Issue.record("Poll timed out after \(timeout)")
     }
 
     private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil) -> BattleScene {
