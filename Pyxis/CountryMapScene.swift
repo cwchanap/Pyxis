@@ -136,6 +136,8 @@ final class CountryMapScene: SKScene {
         titlePanel.addChild(titleLabel)
         feedbackPanel.addChild(feedbackLabel)
 
+        let hasConqueredMarkerAsset = UIImage(named: MapAssetName.conqueredMarker) != nil
+
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             let cityNode = SKShapeNode(circleOfRadius: 18)
             cityNode.name = "\(NodeName.cityPrefix)\(cityNumber)"
@@ -150,7 +152,7 @@ final class CountryMapScene: SKScene {
             cityLayer.addChild(cityLabel)
             cityLabels[cityNumber] = cityLabel
 
-            if UIImage(named: MapAssetName.conqueredMarker) != nil {
+            if hasConqueredMarkerAsset {
                 let marker = SKSpriteNode(imageNamed: MapAssetName.conqueredMarker)
                 marker.name = cityNode.name
                 marker.anchorPoint = CGPoint(x: 0.5, y: 0.5)
