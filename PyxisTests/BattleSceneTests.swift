@@ -45,6 +45,85 @@ struct BattleSceneTests {
         #expect(store.load().cityRemainingPower == 20)
     }
 
+    @Test func manualSelectorChangesSpawnedSoldierType() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.selectedManualSoldierTypeForTesting == .infantry)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.selectedManualSoldierTypeForTesting == .archer)
+        #expect(scene.liveSoldierTypesForTesting == [.archer])
+    }
+
+    @Test func manualSpawnCapBlocksEleventhManualSoldier() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 100))
+        let scene = makeScene(store: store)
+
+        for _ in 0..<KingdomGameState.manualSoldierCap {
+            scene.spawnSoldierForTesting()
+        }
+
+        #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+        #expect(scene.liveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+        #expect(scene.feedbackTextForTesting == "Manual squad is full.")
+    }
+
+    @Test func activeBuildingTimerCreatesBuildingSpawnedSoldierWithoutConsumingManualCap() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: 9.95)]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 100,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        for _ in 0..<KingdomGameState.manualSoldierCap {
+            scene.spawnSoldierForTesting()
+        }
+
+        scene.advanceCombatForTesting(deltaTime: 0.1)
+
+        #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+        #expect(scene.buildingLiveSoldierCountForTesting == 1)
+        #expect(scene.liveSoldierCountForTesting == KingdomGameState.manualSoldierCap + 1)
+        #expect(scene.liveSoldierTypesForTesting.filter { $0 == .archer }.count == KingdomGameState.manualSoldierCap)
+        #expect(scene.liveSoldierTypesForTesting.contains(.infantry))
+        #expect(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? 10 < 1)
+    }
+
+    @Test func activeBuildingPartialTimerProgressPersistsWithoutSpawn() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: 0)]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 100,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.advanceCombatForTesting(deltaTime: 5.0)
+
+        #expect(scene.buildingLiveSoldierCountForTesting == 0)
+        let savedElapsed = try #require(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed)
+        #expect(savedElapsed > 0)
+        #expect(savedElapsed < KingdomGameState.activeSpawnInterval(for: .barracks))
+    }
+
     @Test func liveSoldierHPBarStaysReadableAboveScaledBody() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -348,6 +427,27 @@ struct BattleSceneTests {
         #expect(frames.spawnButton.minY >= 8)
         #expect(frames.upgradeButton.minY >= 8)
         #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
+    }
+
+    @Test func manualTypeMenuAvoidsFeedbackAndBattlefieldInCompactAndNarrowLayouts() throws {
+        for size in [CGSize(width: 667, height: 375), CGSize(width: 320, height: 568)] {
+            let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+            let scene = BattleScene(size: size, store: store, router: nil)
+            let view = SKView(frame: CGRect(origin: .zero, size: size))
+            scene.didMove(to: view)
+
+            scene.openManualTypeMenuForTesting()
+
+            let frames = try #require(scene.battleLayoutFramesForTesting)
+
+            #expect(!frames.manualTypeInfantryButton.intersects(frames.feedbackPanel))
+            #expect(!frames.manualTypeArcherButton.intersects(frames.feedbackPanel))
+            #expect(!frames.manualTypeInfantryButton.intersects(frames.battlefield))
+            #expect(!frames.manualTypeArcherButton.intersects(frames.battlefield))
+            #expect(frames.manualTypeInfantryButton.minY >= frames.spawnButton.maxY)
+            #expect(frames.manualTypeArcherButton.minY >= frames.spawnButton.maxY)
+            #expect(frames.manualTypeArcherButton.maxX <= size.width - 8)
+        }
     }
 
     @Test func commanderHUDFitsNarrowViewportWithoutOverflow() throws {
