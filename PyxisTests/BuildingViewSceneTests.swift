@@ -33,6 +33,27 @@ struct BuildingViewSceneTests {
         #expect(!scene.canUpgradeSelectedSlotForTesting)
     }
 
+    @Test func buildAffordanceReturnsFalseWhenGoldIsInsufficient() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 10))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(3)
+
+        #expect(!scene.canBuildBarracksForTesting)
+        #expect(!scene.canBuildArcheryRangeForTesting)
+    }
+
+    @Test func upgradeAffordanceReturnsFalseWhenGoldIsInsufficient() throws {
+        var initial = KingdomGameState(gold: 100)
+        #expect(initial.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 85))
+        initial.gold = 0
+        let store = try makeStore(initialState: initial)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(1)
+        #expect(!scene.canUpgradeSelectedSlotForTesting)
+    }
+
     @Test func buildingUpdatesStoreSlotAndGoldLabel() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())

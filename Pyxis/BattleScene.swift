@@ -120,6 +120,8 @@ final class BattleScene: SKScene {
 
     private var feedbackText = "Tap Spawn Soldier to attack the city."
     private var currentLeftHUDLabelWidth: CGFloat = 140
+    private var buildingProgressSaveAccumulator: TimeInterval = 0
+    private static let buildingProgressSaveInterval: TimeInterval = 2.0
 
     init(size: CGSize, store: KingdomGameStore = .shared, router: BattleSceneRouting? = nil) {
         let loadedState = store.load()
@@ -826,7 +828,11 @@ final class BattleScene: SKScene {
             createSoldierNode(id: soldierID)
         }
         if shouldSaveBuildingProgress {
-            store.save(state)
+            buildingProgressSaveAccumulator += deltaTime
+            if buildingProgressSaveAccumulator >= Self.buildingProgressSaveInterval {
+                buildingProgressSaveAccumulator = 0
+                store.save(state)
+            }
         }
 
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
@@ -1699,6 +1705,11 @@ extension BattleScene {
 
     func closeConquestPopupForTesting() {
         closeConquestPopup()
+    }
+
+    func flushBuildingProgressSaveForTesting() {
+        buildingProgressSaveAccumulator = 0
+        store.save(state)
     }
 
     private func sceneFrame(for node: SKNode) -> CGRect? {

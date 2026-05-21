@@ -370,9 +370,8 @@ final class BuildingViewScene: SKScene {
             upgradeLabel.text = "Upgrade"
         }
 
-        let canBuild = canBuildSelectedSlot
-        buildBarracksBackground.fillColor = canBuild ? GameUITheme.Color.spawn : GameUITheme.Color.upgradeUnavailable
-        buildArcheryBackground.fillColor = canBuild
+        buildBarracksBackground.fillColor = canBuild(.barracks) ? GameUITheme.Color.spawn : GameUITheme.Color.upgradeUnavailable
+        buildArcheryBackground.fillColor = canBuild(.archeryRange)
             ? SKColor(red: 0.12, green: 0.55, blue: 0.48, alpha: 1.0)
             : GameUITheme.Color.upgradeUnavailable
         upgradeBackground.fillColor = canUpgradeSelectedSlot ? GameUITheme.Color.upgradeAvailable : GameUITheme.Color.upgradeUnavailable
@@ -408,24 +407,29 @@ final class BuildingViewScene: SKScene {
         node.lineWidth = selectedSlot == slot ? 4 : 2
     }
 
-    private var canBuildSelectedSlot: Bool {
+    private func canBuild(_ type: BuildingType) -> Bool {
         guard state.stageStatus == .battleActive,
               let selectedSlot,
               state.cityBattleStateForCurrentCity.building(inSlot: selectedSlot) == nil else {
             return false
         }
 
-        return true
+        let cityState = state.cityBattleStateForCurrentCity
+        guard cityState.buildingCount(for: type) < CityBattleState.maxBuildingsPerType else {
+            return false
+        }
+
+        return state.gold >= KingdomGameState.buildingBuildCost(for: type)
     }
 
     private var canUpgradeSelectedSlot: Bool {
         guard state.stageStatus == .battleActive,
               let selectedSlot,
-              state.cityBattleStateForCurrentCity.building(inSlot: selectedSlot) != nil else {
+              let building = state.cityBattleStateForCurrentCity.building(inSlot: selectedSlot) else {
             return false
         }
 
-        return true
+        return state.gold >= KingdomGameState.buildingUpgradeCost(for: building.type, currentLevel: building.level)
     }
 
     private func selectSlot(_ slot: Int) {
@@ -678,11 +682,11 @@ extension BuildingViewScene {
     }
 
     var canBuildBarracksForTesting: Bool {
-        canBuildSelectedSlot
+        canBuild(.barracks)
     }
 
     var canBuildArcheryRangeForTesting: Bool {
-        canBuildSelectedSlot
+        canBuild(.archeryRange)
     }
 
     var canUpgradeSelectedSlotForTesting: Bool {
