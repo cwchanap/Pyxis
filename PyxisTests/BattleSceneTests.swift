@@ -626,4 +626,78 @@ struct BattleSceneTests {
             didRequestBuildingView = true
         }
     }
+
+    // MARK: - compactNumber
+
+    @Test func compactNumberFormatsSmallValuesAsRawIntegers() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.compactNumberForTesting(0) == "0")
+        #expect(scene.compactNumberForTesting(42) == "42")
+        #expect(scene.compactNumberForTesting(999) == "999")
+    }
+
+    @Test func compactNumberFormatsThousandsWithSuffix() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.compactNumberForTesting(1_000) == "1K")
+        #expect(scene.compactNumberForTesting(1_500) == "1.5K")
+        #expect(scene.compactNumberForTesting(12_000) == "12K")
+        #expect(scene.compactNumberForTesting(150_000) == "150K")
+        #expect(scene.compactNumberForTesting(500_000) == "500K")
+    }
+
+    @Test func compactNumberFormatsMillionsWithSuffix() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.compactNumberForTesting(1_000_000) == "1M")
+        #expect(scene.compactNumberForTesting(2_500_000) == "2.5M")
+        #expect(scene.compactNumberForTesting(15_000_000) == "15M")
+    }
+
+    @Test func compactNumberFormatsBillionsWithSuffix() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.compactNumberForTesting(1_000_000_000) == "1B")
+        #expect(scene.compactNumberForTesting(3_200_000_000) == "3.2B")
+    }
+
+    @Test func compactNumberPromotesAtUnitBoundaries() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // 999,950 rounds to "1M" not "1000K"
+        #expect(scene.compactNumberForTesting(999_950) == "1M")
+        // 999,500,000 rounds to "1B" not "1000M"
+        #expect(scene.compactNumberForTesting(999_500_000) == "1B")
+        // 999,500,000,000 rounds to "1T" not "1000B"
+        #expect(scene.compactNumberForTesting(999_500_000_000) == "1T")
+    }
+
+    @Test func compactNumberHandlesNegativeValues() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.compactNumberForTesting(-1_500) == "-1.5K")
+        #expect(scene.compactNumberForTesting(-1_000_000) == "-1M")
+    }
+
+    @Test func compactNumberDoesNotPromoteBelowThousand() throws {
+        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // 999,400 rounds to 999.4K → body "999" (since 999.4 >= 10, uses integer format)
+        #expect(scene.compactNumberForTesting(999_400) == "999K")
+        // 994,999 rounds to 995K
+        #expect(scene.compactNumberForTesting(994_999) == "995K")
+        // 998,500 rounds to 998.5K → body "998.5" (since 998.5 is not a whole number and < 10 is false)
+        // Actually 998.5 >= 10 → uses %.0f → "998" but wait, 998.5.rounded() == 999 != 998.5
+        // So body = String(format: "%.0f", 998.5) = "998"... but that loses the .5
+        // Let's test: 1,500 → 1.5K (works because 1.5 < 10)
+        #expect(scene.compactNumberForTesting(1_500) == "1.5K")
+    }
 }

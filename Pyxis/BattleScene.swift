@@ -1371,12 +1371,26 @@ final class BattleScene: SKScene {
             (1_000, "K")
         ]
 
-        guard let unit = units.first(where: { absValue >= $0.threshold }) else {
+        guard let unitIndex = units.firstIndex(where: { absValue >= $0.threshold }) else {
             return "\(value)"
         }
 
+        let unit = units[unitIndex]
         let scaled = Double(absValue) / Double(unit.threshold)
         let roundedTenths = (scaled * 10).rounded() / 10
+
+        // Promote when integer rounding would produce "1000" in the current unit
+        let integerRounded = roundedTenths.rounded()
+        if integerRounded >= 1000, unitIndex > 0 {
+            let promotedUnit = units[unitIndex - 1]
+            let promotedScaled = Double(absValue) / Double(promotedUnit.threshold)
+            let promotedRounded = (promotedScaled * 10).rounded() / 10
+            let body = promotedRounded >= 10 || promotedRounded.rounded() == promotedRounded
+                ? String(format: "%.0f", promotedRounded)
+                : String(format: "%.1f", promotedRounded)
+            return "\(sign)\(body)\(promotedUnit.suffix)"
+        }
+
         let body = roundedTenths >= 10 || roundedTenths.rounded() == roundedTenths
             ? String(format: "%.0f", roundedTenths)
             : String(format: "%.1f", roundedTenths)
@@ -1417,7 +1431,7 @@ final class BattleScene: SKScene {
         playGoldBurst(goldEarned: goldEarned)
     }
 
-    private func playGoldBurst(goldEarned: Int) {
+    private func playGoldBurst(goldEarned _: Int) {
         goldBurstRemovalTask?.cancel()
         childNode(withName: EffectName.goldBurst)?.removeFromParent()
         isGoldBurstRemovalScheduled = false
@@ -1710,6 +1724,10 @@ extension BattleScene {
     func flushBuildingProgressSaveForTesting() {
         buildingProgressSaveAccumulator = 0
         store.save(state)
+    }
+
+    func compactNumberForTesting(_ value: Int) -> String {
+        compactNumber(value)
     }
 
     private func sceneFrame(for node: SKNode) -> CGRect? {

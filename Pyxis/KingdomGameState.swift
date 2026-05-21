@@ -589,7 +589,7 @@ struct KingdomGameState: Codable, Equatable {
         }
     }
 
-    static func soldierAttackPower(for type: SoldierType, level: Int) -> Int {
+    static func soldierAttackPower(for _: SoldierType, level: Int) -> Int {
         normalSoldierAttackPower(for: level)
     }
 
