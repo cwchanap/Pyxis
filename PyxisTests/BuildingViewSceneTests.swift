@@ -91,6 +91,24 @@ struct BuildingViewSceneTests {
         #expect(router.didRequestBattle)
     }
 
+    @Test func battleRequestResolvesTimeSpentInBuildingViewBeforeRouting() throws {
+        let start = Date(timeIntervalSinceNow: -120)
+        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 20)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        initialState.markCurrentCityBuildingProgressInactive(at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestBattleForTesting()
+
+        let savedState = store.load()
+        #expect(router.didRequestBattle)
+        #expect(savedState.cityRemainingPower < 20)
+        #expect(savedState.stageStatus == .battleActive)
+        #expect(savedState.lastBackgroundedAt == nil)
+    }
+
     @Test func foregroundNotificationResolvesBuildingIdleProgressWithoutRouting() throws {
         let start = Date(timeIntervalSinceNow: -1_000)
         var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
