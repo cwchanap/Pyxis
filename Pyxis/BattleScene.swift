@@ -27,6 +27,9 @@ final class BattleScene: SKScene {
 
     private enum ButtonName {
         static let spawn = "spawnSoldierButton"
+        static let manualType = "manualType"
+        static let manualTypeInfantry = "manualTypeInfantry"
+        static let manualTypeArcher = "manualTypeArcher"
         static let build = "buildButton"
         static let upgrade = "upgradeSoldierButton"
         static let popupContinue = "conquestPopupContinueButton"
@@ -62,6 +65,8 @@ final class BattleScene: SKScene {
     private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
     private var didBuildInterface = false
     private var isObservingLifecycle = false
+    private var selectedManualSoldierType: SoldierType = .infantry
+    private var isManualTypeMenuOpen = false
 
     private let battlefieldLayer = SKNode()
     private let environmentLayer = SKNode()
@@ -85,6 +90,15 @@ final class BattleScene: SKScene {
     private let rightHUDPanel = PanelNode(size: CGSize(width: 190, height: 86))
     private let feedbackPanel = PanelNode(size: CGSize(width: 260, height: 34))
     private let cityHPBarNode = ProgressBarNode(size: CGSize(width: 160, height: 12))
+    private let manualTypeButton = SKNode()
+    private let manualTypeButtonBackground = SKShapeNode()
+    private let manualTypeButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let manualTypeInfantryButton = SKNode()
+    private let manualTypeInfantryButtonBackground = SKShapeNode()
+    private let manualTypeInfantryButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let manualTypeArcherButton = SKNode()
+    private let manualTypeArcherButtonBackground = SKShapeNode()
+    private let manualTypeArcherButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let spawnButton = SKNode()
     private let spawnButtonBackground = SKShapeNode()
     private let spawnButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -172,15 +186,29 @@ final class BattleScene: SKScene {
         }
 
         switch buttonName(at: touch.location(in: self)) {
+        case ButtonName.manualType:
+            toggleManualTypeMenu()
+        case ButtonName.manualTypeInfantry:
+            selectManualSoldierType(.infantry)
+        case ButtonName.manualTypeArcher:
+            selectManualSoldierType(.archer)
         case ButtonName.spawn:
+            isManualTypeMenuOpen = false
             spawnSoldier()
         case ButtonName.build:
+            isManualTypeMenuOpen = false
             requestBuildingView()
         case ButtonName.upgrade:
+            isManualTypeMenuOpen = false
             upgradeSoldier()
         case ButtonName.popupContinue:
+            isManualTypeMenuOpen = false
             closeConquestPopup()
         default:
+            if isManualTypeMenuOpen {
+                isManualTypeMenuOpen = false
+                redraw()
+            }
             break
         }
     }
@@ -212,6 +240,27 @@ final class BattleScene: SKScene {
         configureLabel(liveCombatStatusLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
         configureLabel(feedbackLabel, fontSize: 15, color: GameUITheme.Color.gold)
 
+        configureButton(
+            manualTypeButton,
+            background: manualTypeButtonBackground,
+            label: manualTypeButtonLabel,
+            name: ButtonName.manualType,
+            color: SKColor(red: 0.24, green: 0.33, blue: 0.38, alpha: 1.0)
+        )
+        configureButton(
+            manualTypeInfantryButton,
+            background: manualTypeInfantryButtonBackground,
+            label: manualTypeInfantryButtonLabel,
+            name: ButtonName.manualTypeInfantry,
+            color: SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
+        )
+        configureButton(
+            manualTypeArcherButton,
+            background: manualTypeArcherButtonBackground,
+            label: manualTypeArcherButtonLabel,
+            name: ButtonName.manualTypeArcher,
+            color: SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
+        )
         configureButton(
             spawnButton,
             background: spawnButtonBackground,
@@ -261,10 +310,15 @@ final class BattleScene: SKScene {
             cityHPLabel,
             liveCombatStatusLabel,
             feedbackLabel,
+            manualTypeButton,
+            manualTypeInfantryButton,
+            manualTypeArcherButton,
             spawnButton,
             buildButton,
             upgradeButton
         ].forEach { $0.zPosition = GameUITheme.Z.hud }
+        manualTypeInfantryButton.zPosition = GameUITheme.Z.hud + 1
+        manualTypeArcherButton.zPosition = GameUITheme.Z.hud + 1
 
         addChild(goldLabel)
         addChild(cityLevelLabel)
@@ -272,6 +326,9 @@ final class BattleScene: SKScene {
         addChild(cityHPLabel)
         addChild(liveCombatStatusLabel)
         addChild(feedbackLabel)
+        addChild(manualTypeButton)
+        addChild(manualTypeInfantryButton)
+        addChild(manualTypeArcherButton)
         addChild(spawnButton)
         addChild(buildButton)
         addChild(upgradeButton)
@@ -350,6 +407,30 @@ final class BattleScene: SKScene {
             size: CGSize(width: metrics.spawnButtonWidth, height: metrics.buttonHeight),
             position: CGPoint(x: metrics.horizontalMargin + metrics.spawnButtonWidth / 2, y: buttonY)
         )
+        let manualTypeButtonSize = CGSize(
+            width: min(metrics.spawnButtonWidth, metrics.compactHeight ? 112 : 128),
+            height: metrics.compactHeight ? 28 : 30
+        )
+        let manualTypeButtonPosition = CGPoint(
+            x: spawnButton.position.x,
+            y: buttonY + metrics.buttonHeight / 2 + 4 + manualTypeButtonSize.height / 2
+        )
+        layoutButton(
+            manualTypeButton,
+            background: manualTypeButtonBackground,
+            size: manualTypeButtonSize,
+            position: manualTypeButtonPosition
+        )
+        let manualTypeMenuItemSize = self.manualTypeMenuItemSize(
+            selectorPosition: manualTypeButtonPosition,
+            selectorSize: manualTypeButtonSize,
+            horizontalMargin: metrics.horizontalMargin
+        )
+        layoutManualTypeMenu(
+            selectorPosition: manualTypeButtonPosition,
+            selectorSize: manualTypeButtonSize,
+            itemSize: manualTypeMenuItemSize
+        )
         layoutButton(
             buildButton,
             background: buildButtonBackground,
@@ -387,6 +468,9 @@ final class BattleScene: SKScene {
         fitLabel(cityHPLabel, maxWidth: metrics.rightHUDLabelWidth)
         fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDLabelWidth)
         fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
+        fitLabel(manualTypeButtonLabel, maxWidth: manualTypeButtonSize.width - 18)
+        fitLabel(manualTypeInfantryButtonLabel, maxWidth: manualTypeMenuItemSize.width - 18)
+        fitLabel(manualTypeArcherButtonLabel, maxWidth: manualTypeMenuItemSize.width - 18)
         fitLabel(spawnButtonLabel, maxWidth: metrics.spawnButtonWidth - 28)
         fitLabel(buildButtonLabel, maxWidth: metrics.buildButtonWidth - 24)
         fitLabel(upgradeButtonLabel, maxWidth: metrics.upgradeButtonWidth - 28)
@@ -406,6 +490,9 @@ final class BattleScene: SKScene {
         cityHPLabel.fontSize = 14
         liveCombatStatusLabel.fontSize = 13
         feedbackLabel.fontSize = 15
+        manualTypeButtonLabel.fontSize = 13
+        manualTypeInfantryButtonLabel.fontSize = 13
+        manualTypeArcherButtonLabel.fontSize = 13
         spawnButtonLabel.fontSize = 16
         buildButtonLabel.fontSize = 16
         upgradeButtonLabel.fontSize = 16
@@ -489,6 +576,38 @@ final class BattleScene: SKScene {
             transform: nil
         )
         button.position = position
+    }
+
+    private func manualTypeMenuItemSize(
+        selectorPosition: CGPoint,
+        selectorSize: CGSize,
+        horizontalMargin: CGFloat
+    ) -> CGSize {
+        let itemGap: CGFloat = 4
+        let selectorMaxX = selectorPosition.x + selectorSize.width / 2
+        let rightEdge = size.width - horizontalMargin
+        let fittedWidth = (rightEdge - selectorMaxX - itemGap * 2) / 2
+        let itemWidth = min(selectorSize.width, max(1, fittedWidth))
+
+        return CGSize(width: itemWidth, height: selectorSize.height)
+    }
+
+    private func layoutManualTypeMenu(selectorPosition: CGPoint, selectorSize: CGSize, itemSize: CGSize) {
+        let itemGap: CGFloat = 4
+        let selectorMaxX = selectorPosition.x + selectorSize.width / 2
+        let firstX = selectorMaxX + itemGap + itemSize.width / 2
+        layoutButton(
+            manualTypeInfantryButton,
+            background: manualTypeInfantryButtonBackground,
+            size: itemSize,
+            position: CGPoint(x: firstX, y: selectorPosition.y)
+        )
+        layoutButton(
+            manualTypeArcherButton,
+            background: manualTypeArcherButtonBackground,
+            size: itemSize,
+            position: CGPoint(x: firstX + itemSize.width + itemGap, y: selectorPosition.y)
+        )
     }
 
     private func buildBattlefield() {
@@ -664,7 +783,18 @@ final class BattleScene: SKScene {
         cityHPLabel.text = "City HP: \(compactNumber(state.cityRemainingPower)) / \(compactNumber(state.cityMaxPower))"
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
-        spawnButtonLabel.text = "Spawn Soldier"
+        manualTypeButtonLabel.text = selectedManualSoldierType.displayName
+        manualTypeInfantryButtonLabel.text = SoldierType.infantry.displayName
+        manualTypeArcherButtonLabel.text = SoldierType.archer.displayName
+        manualTypeInfantryButtonBackground.fillColor = selectedManualSoldierType == .infantry
+            ? GameUITheme.Color.spawn
+            : SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
+        manualTypeArcherButtonBackground.fillColor = selectedManualSoldierType == .archer
+            ? GameUITheme.Color.spawn
+            : SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
+        manualTypeInfantryButton.isHidden = !isManualTypeMenuOpen
+        manualTypeArcherButton.isHidden = !isManualTypeMenuOpen
+        spawnButtonLabel.text = "Spawn \(selectedManualSoldierType.displayName)"
         buildButtonLabel.text = "Build"
         upgradeButtonLabel.text = "Upgrade \(compactNumber(state.normalSoldierUpgradeCost))g"
         upgradeButtonBackground.fillColor = state.gold >= state.normalSoldierUpgradeCost
@@ -684,9 +814,27 @@ final class BattleScene: SKScene {
             return
         }
 
+        let shouldSaveBuildingProgress = deltaTime > 0 && state.cityBattleStateForCurrentCity.occupiedSlotCount > 0
+        let buildingSpawns = state.resolveActiveBuildingSpawns(deltaTime: deltaTime)
+        for spawn in buildingSpawns {
+            let soldierID = combat.spawnSoldier(
+                type: spawn.soldierType,
+                source: .building,
+                level: spawn.level,
+                attackPower: KingdomGameState.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+            )
+            createSoldierNode(id: soldierID)
+        }
+        if shouldSaveBuildingProgress {
+            store.save(state)
+        }
+
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
         applyCombatResult(result)
         syncSoldierNodes()
+        if !buildingSpawns.isEmpty {
+            updateLiveCombatStatusLabel()
+        }
     }
 
     private func applyCombatResult(_ result: BattleCombatState.TickResult) {
@@ -742,10 +890,43 @@ final class BattleScene: SKScene {
             return
         }
 
-        let soldierID = combat.spawnSoldier(attackPower: state.normalSoldierAttackPower)
+        guard combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap else {
+            feedbackText = "Manual squad is full."
+            redraw()
+            return
+        }
+
+        let soldierID = combat.spawnSoldier(
+            type: selectedManualSoldierType,
+            source: .manual,
+            level: state.normalSoldierUpgradeLevel,
+            attackPower: KingdomGameState.soldierAttackPower(
+                for: selectedManualSoldierType,
+                level: state.normalSoldierUpgradeLevel
+            )
+        )
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
         updateLiveCombatStatusLabel()
+    }
+
+    private func toggleManualTypeMenu() {
+        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
+        }
+
+        isManualTypeMenuOpen.toggle()
+        redraw()
+    }
+
+    private func selectManualSoldierType(_ type: SoldierType) {
+        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
+        }
+
+        selectedManualSoldierType = type
+        isManualTypeMenuOpen = false
+        redraw()
     }
 
     private func requestBuildingView() {
@@ -1146,13 +1327,18 @@ final class BattleScene: SKScene {
     }
 
     private func buttonName(at point: CGPoint) -> String? {
-        for node in nodes(at: point) {
-            if node.name == ButtonName.spawn
-                || node.name == ButtonName.build
-                || node.name == ButtonName.upgrade
-                || node.name == ButtonName.popupContinue {
-                return node.name
-            }
+        let priority = [
+            ButtonName.manualTypeInfantry,
+            ButtonName.manualTypeArcher,
+            ButtonName.manualType,
+            ButtonName.spawn,
+            ButtonName.build,
+            ButtonName.upgrade,
+            ButtonName.popupContinue
+        ]
+        let touchedNames = Set(nodes(at: point).compactMap(\.name))
+        for name in priority where touchedNames.contains(name) {
+            return name
         }
 
         return nil
@@ -1320,6 +1506,9 @@ extension BattleScene {
         let feedbackPanel: CGRect
         let spawnButton: CGRect
         let upgradeButton: CGRect
+        let manualTypeButton: CGRect
+        let manualTypeInfantryButton: CGRect
+        let manualTypeArcherButton: CGRect
         let goldLabel: CGRect
         let soldierAttackLabel: CGRect
         let cityLevelLabel: CGRect
@@ -1337,6 +1526,9 @@ extension BattleScene {
             let feedbackPanel = sceneFrame(for: feedbackPanel),
             let spawnFrame = sceneFrame(for: spawnButton),
             let upgradeFrame = sceneFrame(for: upgradeButton),
+            let manualTypeFrame = sceneFrame(for: manualTypeButton),
+            let manualTypeInfantryFrame = sceneFrame(for: manualTypeInfantryButton),
+            let manualTypeArcherFrame = sceneFrame(for: manualTypeArcherButton),
             let goldFrame = sceneFrame(for: goldLabel),
             let soldierAttackFrame = sceneFrame(for: soldierAttackLabel),
             let cityLevelFrame = sceneFrame(for: cityLevelLabel),
@@ -1357,6 +1549,9 @@ extension BattleScene {
             feedbackPanel: feedbackPanel,
             spawnButton: spawnFrame,
             upgradeButton: upgradeFrame,
+            manualTypeButton: manualTypeFrame,
+            manualTypeInfantryButton: manualTypeInfantryFrame,
+            manualTypeArcherButton: manualTypeArcherFrame,
             goldLabel: goldFrame,
             soldierAttackLabel: soldierAttackFrame,
             cityLevelLabel: cityLevelFrame,
@@ -1377,6 +1572,22 @@ extension BattleScene {
 
     var liveSoldierCountForTesting: Int {
         combat.livingSoldierCount
+    }
+
+    var selectedManualSoldierTypeForTesting: SoldierType {
+        selectedManualSoldierType
+    }
+
+    var manualLiveSoldierCountForTesting: Int {
+        combat.livingSoldierCount(source: .manual)
+    }
+
+    var buildingLiveSoldierCountForTesting: Int {
+        combat.livingSoldierCount(source: .building)
+    }
+
+    var liveSoldierTypesForTesting: [SoldierType] {
+        combat.soldiers.filter(\.isAlive).map(\.type)
     }
 
     var firstLiveSoldierHPBarFrameForTesting: CGRect? {
@@ -1457,6 +1668,15 @@ extension BattleScene {
 
     func spawnSoldierForTesting() {
         spawnSoldier()
+    }
+
+    func selectManualSoldierTypeForTesting(_ type: SoldierType) {
+        selectManualSoldierType(type)
+    }
+
+    func openManualTypeMenuForTesting() {
+        isManualTypeMenuOpen = true
+        redraw()
     }
 
     func upgradeSoldierForTesting() {
