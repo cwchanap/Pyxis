@@ -914,7 +914,7 @@ struct KingdomGameStateTests {
         #expect(state == original)
     }
 
-    @Test func idleCatchUpDoesNoDamageWithoutBuildingsAndClearsTimestamp() {
+    @Test func idleCatchUpAppliesBaseDamageWithoutBuildings() {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         let end = start.addingTimeInterval(5_000)
         var state = KingdomGameState(cityRemainingPower: 20)
@@ -922,8 +922,32 @@ struct KingdomGameStateTests {
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: end)
 
-        #expect(result == .none)
-        #expect(state.cityRemainingPower == 20)
+        // Base idle damage = elapsedSeconds * normalSoldierAttackPower = 5000 * 1 = 5000
+        // City has 20 HP → conquered (5000 >= 20)
+        #expect(result.elapsedSeconds == 5_000)
+        #expect(result.damageDealt == 20)
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == state.currentGoldReward)
+        #expect(state.cityRemainingPower == 0)
+        #expect(state.completedCityCount == 1)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.lastBackgroundedAt == nil)
+    }
+
+    @Test func idleCatchUpWithoutBuildingsReducesCityHPWithoutConquest() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let end = start.addingTimeInterval(5)
+        var state = KingdomGameState(cityRemainingPower: 20)
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        // 5 seconds * normalSoldierAttackPower(1) = 5 damage
+        #expect(result.elapsedSeconds == 5)
+        #expect(result.damageDealt == 5)
+        #expect(result.conqueredCities == 0)
+        #expect(state.cityRemainingPower == 15)
+        #expect(state.stageStatus == .battleActive)
         #expect(state.lastBackgroundedAt == nil)
     }
 
@@ -1054,9 +1078,10 @@ struct KingdomGameStateTests {
         _ = state.returnFromBackground(at: end)
         let secondResult = state.returnFromBackground(at: end.addingTimeInterval(5))
 
-        #expect(secondResult.elapsedSeconds == 0)
-        #expect(secondResult.damageDealt == 0)
-        #expect(state.cityRemainingPower == 20)
+        // Second call has no backgroundedAt (cleared by first call)
+        #expect(secondResult == .none)
+        // First call applied 5 damage (5s * 1 attackPower)
+        #expect(state.cityRemainingPower == 15)
     }
 
     @Test func buildingIdleCatchUpCannotBeAppliedTwiceWithoutFreshBackgroundSignal() {
@@ -1087,6 +1112,19 @@ struct KingdomGameStateTests {
 
         #expect(result.elapsedSeconds == KingdomGameState.maxIdleCatchUpSeconds)
         #expect(result.damageDealt == KingdomGameState.maxIdleCatchUpSeconds / 100)
+    }
+
+    @Test func baseIdleDamageIsCappedAtEightHours() {
+        let start = Date(timeIntervalSinceReferenceDate: 4_000)
+        let end = start.addingTimeInterval(Double(KingdomGameState.maxIdleCatchUpSeconds + 120))
+        var state = KingdomGameState(cityRemainingPower: 30_000)
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        #expect(result.elapsedSeconds == KingdomGameState.maxIdleCatchUpSeconds)
+        #expect(result.damageDealt == KingdomGameState.maxIdleCatchUpSeconds * state.normalSoldierAttackPower)
+        #expect(state.cityRemainingPower == 30_000 - result.damageDealt)
     }
 
     @Test func idleCatchUpFromBuildingViewPreservesEntireIdlePeriod() {

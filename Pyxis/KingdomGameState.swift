@@ -536,31 +536,30 @@ struct KingdomGameState: Codable, Equatable {
             return .none
         }
 
-        guard cityState.occupiedSlotCount > 0 else {
-            lastBackgroundedAt = nil
-            return .none
-        }
+        lastBackgroundedAt = nil
 
         let resolvedStart = cityState.lastBuildingProgressResolvedAt ?? backgroundedAt
         let rawElapsed = Int(date.timeIntervalSince(resolvedStart))
         let elapsedSeconds = min(max(0, rawElapsed), Self.maxIdleCatchUpSeconds)
         guard elapsedSeconds > 0 else {
-            lastBackgroundedAt = nil
             cityState.lastBuildingProgressResolvedAt = date
             cityBattleStates[key.storageKey] = cityState
             return .none
         }
 
-        let spawns = Self.resolveBuildingSpawns(
-            in: &cityState,
-            effectiveActiveSeconds: Double(elapsedSeconds) / Self.idleBuildingProductionScale
-        )
-        cityState.lastBuildingProgressResolvedAt = date
-        cityBattleStates[key.storageKey] = cityState
-        lastBackgroundedAt = nil
-
-        let totalPotentialDamage = spawns.reduce(0) { total, spawn in
-            total + Self.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+        let totalPotentialDamage: Int
+        if cityState.occupiedSlotCount > 0 {
+            let spawns = Self.resolveBuildingSpawns(
+                in: &cityState,
+                effectiveActiveSeconds: Double(elapsedSeconds) / Self.idleBuildingProductionScale
+            )
+            cityState.lastBuildingProgressResolvedAt = date
+            cityBattleStates[key.storageKey] = cityState
+            totalPotentialDamage = spawns.reduce(0) { total, spawn in
+                total + Self.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+            }
+        } else {
+            totalPotentialDamage = elapsedSeconds * normalSoldierAttackPower
         }
 
         guard totalPotentialDamage > 0 else {

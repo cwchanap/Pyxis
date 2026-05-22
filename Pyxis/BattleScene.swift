@@ -940,7 +940,7 @@ final class BattleScene: SKScene {
             return
         }
 
-        guard combat.livingSoldierCount == 0 else {
+        guard combat.livingSoldierCount(source: .manual) == 0 else {
             feedbackText = "Finish the current squad before building."
             redraw()
             return

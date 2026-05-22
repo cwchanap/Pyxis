@@ -376,6 +376,32 @@ struct BattleSceneTests {
         #expect(store.load() == initialState)
     }
 
+    @Test func buildButtonAllowsRoutingWithOnlyBuildingSpawnedSoldiers() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: 9.95)]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                gold: 100,
+                cityRemainingPower: 100,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        // Advance combat to trigger a building spawn
+        scene.advanceCombatForTesting(deltaTime: 0.1)
+
+        #expect(scene.buildingLiveSoldierCountForTesting == 1)
+        #expect(scene.manualLiveSoldierCountForTesting == 0)
+
+        scene.requestBuildingViewForTesting()
+
+        #expect(router.didRequestBuildingView)
+    }
+
     @Test func idleConquestClearsLiveSoldiersBeforeShowingPopup() throws {
         let start = Date(timeIntervalSinceNow: -1_000)
         var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
