@@ -183,6 +183,67 @@ struct BuildingViewSceneTests {
         #expect(!frames.grid.intersects(frames.battleButton))
     }
 
+    @Test func foregroundReArmsIdleTrackingWhenBattleRemainsActive() throws {
+        let start = Date(timeIntervalSinceNow: -200)
+        var initial = KingdomGameState(gold: 100, cityRemainingPower: 10_000)
+        #expect(initial.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        initial.lastBackgroundedAt = start
+        let store = try makeStore(initialState: initial)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.lastBackgroundedAt != nil)
+    }
+
+    @Test func foregroundDoesNotReArmIdleTrackingAfterConquest() throws {
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initial = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
+        #expect(initial.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initial)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.lastBackgroundedAt == nil)
+    }
+
+    @Test func buildTriggeringConquestViaSettlementPersistsState() throws {
+        let past = Date(timeIntervalSinceNow: -100)
+        var initial = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        #expect(initial.buildBuilding(.barracks, inSlot: 1, at: past) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initial)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.archeryRange)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.gold > 85)
+    }
+
+    @Test func upgradeTriggeringConquestViaSettlementPersistsState() throws {
+        let past = Date(timeIntervalSinceNow: -100)
+        var initial = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        #expect(initial.buildBuilding(.barracks, inSlot: 1, at: past) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initial)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(1)
+        scene.upgradeSelectedSlotForTesting()
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.gold > 85)
+    }
+
     private func makeScene(
         size: CGSize = CGSize(width: 390, height: 844),
         store: KingdomGameStore,

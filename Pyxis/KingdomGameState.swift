@@ -515,6 +515,7 @@ struct KingdomGameState: Codable, Equatable {
 
             if totalDamage >= cityRemainingPower + appliedDamage {
                 _ = completeCurrentCity()
+                return
             }
         }
 

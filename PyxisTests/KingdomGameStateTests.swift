@@ -1140,4 +1140,34 @@ struct KingdomGameStateTests {
         #expect(result.damageDealt == archeryDamage + barracksDamage)
         #expect(state.cityRemainingPower == 10_000 - settleDamage - result.damageDealt)
     }
+
+    @Test func buildingSettlementConquestDoesNotRestoreCompletedCityLots() {
+        let past = Date(timeIntervalSinceReferenceDate: 1_000)
+        let now = past.addingTimeInterval(100)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: past) == .built(cost: 15, remainingGold: 85))
+
+        // Building a second slot settles 100s of progress → 1 damage → conquers city
+        let result = state.buildBuilding(.archeryRange, inSlot: 2, at: now)
+
+        #expect(result == .unavailable)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.cityBattleStates[state.currentCityKey.storageKey] == nil)
+        #expect(state.gold == 85 + 8) // remaining gold + level 1 conquest reward
+    }
+
+    @Test func upgradeSettlementConquestDoesNotRestoreCompletedCityLots() {
+        let past = Date(timeIntervalSinceReferenceDate: 1_000)
+        let now = past.addingTimeInterval(100)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: past) == .built(cost: 15, remainingGold: 85))
+
+        // Upgrading settles 100s of progress → 1 damage → conquers city
+        let result = state.upgradeBuilding(inSlot: 1, at: now)
+
+        #expect(result == .unavailable)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.cityBattleStates[state.currentCityKey.storageKey] == nil)
+        #expect(state.gold == 85 + 8)
+    }
 }

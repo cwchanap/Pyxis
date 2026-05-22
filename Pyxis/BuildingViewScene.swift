@@ -454,10 +454,10 @@ final class BuildingViewScene: SKScene {
         }
 
         let result = state.buildBuilding(type, inSlot: selectedSlot, at: Date())
+        store.save(state)
         switch result {
         case .built:
             feedbackText = "\(type.displayName) built."
-            store.save(state)
         case let .insufficientGold(cost, currentGold):
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
         case .invalidSlot:
@@ -480,10 +480,10 @@ final class BuildingViewScene: SKScene {
         }
 
         let result = state.upgradeBuilding(inSlot: selectedSlot)
+        store.save(state)
         switch result {
         case let .upgraded(_, newLevel, _):
             feedbackText = "Upgraded to level \(newLevel)."
-            store.save(state)
         case let .insufficientGold(cost, currentGold):
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
         case .invalidSlot, .missingBuilding:
@@ -528,6 +528,9 @@ final class BuildingViewScene: SKScene {
 
     @objc private func sceneWillEnterForeground(_ notification: Notification) {
         let result = state.returnFromBackground(at: Date())
+        if state.stageStatus == .battleActive {
+            state.markCurrentCityBuildingProgressInactive(at: Date())
+        }
         store.save(state)
 
         applyIdleProgressFeedback(result)
