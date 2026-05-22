@@ -559,7 +559,7 @@ struct KingdomGameState: Codable, Equatable {
                 total + Self.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
             }
         } else {
-            totalPotentialDamage = elapsedSeconds * normalSoldierAttackPower
+            totalPotentialDamage = 0
         }
 
         guard totalPotentialDamage > 0 else {
