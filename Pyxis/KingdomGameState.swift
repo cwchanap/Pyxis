@@ -71,6 +71,7 @@ struct KingdomGameState: Codable, Equatable {
         case invalidSlot
         case slotOccupied
         case typeCapReached(maximum: Int)
+        case cityConqueredDuringSettlement(goldEarned: Int, remainingGold: Int)
         case unavailable
     }
 
@@ -79,6 +80,7 @@ struct KingdomGameState: Codable, Equatable {
         case insufficientGold(cost: Int, currentGold: Int)
         case invalidSlot
         case missingBuilding
+        case cityConqueredDuringSettlement(goldEarned: Int, remainingGold: Int)
         case unavailable
     }
 
@@ -390,6 +392,9 @@ struct KingdomGameState: Codable, Equatable {
         // Re-fetch city state after settling may have mutated it
         // (settle may conquer the city, changing stageStatus)
         guard stageStatus == .battleActive else {
+            if stageStatus == .cityConqueredPendingMap || stageStatus == .countryComplete {
+                return .cityConqueredDuringSettlement(goldEarned: currentGoldReward, remainingGold: gold)
+            }
             return .unavailable
         }
         cityState = cityBattleState(for: key)
@@ -428,6 +433,9 @@ struct KingdomGameState: Codable, Equatable {
         // Re-fetch city state and building after settling may have mutated them
         // (settle may conquer the city, changing stageStatus)
         guard stageStatus == .battleActive else {
+            if stageStatus == .cityConqueredPendingMap || stageStatus == .countryComplete {
+                return .cityConqueredDuringSettlement(goldEarned: currentGoldReward, remainingGold: gold)
+            }
             return .unavailable
         }
         cityState = cityBattleState(for: key)
@@ -680,9 +688,12 @@ struct KingdomGameState: Codable, Equatable {
             building.spawnTimerElapsed += effectiveActiveSeconds
             let interval = activeSpawnInterval(for: building.type)
 
-            while building.spawnTimerElapsed >= interval {
-                building.spawnTimerElapsed -= interval
-                spawns.append(BuildingSpawn(soldierType: building.type.soldierType, level: building.level, sourceSlot: slot))
+            let spawnCount = Int(building.spawnTimerElapsed / interval)
+            if spawnCount > 0 {
+                building.spawnTimerElapsed -= Double(spawnCount) * interval
+                for _ in 0..<spawnCount {
+                    spawns.append(BuildingSpawn(soldierType: building.type.soldierType, level: building.level, sourceSlot: slot))
+                }
             }
 
             cityState.slots[slot] = building

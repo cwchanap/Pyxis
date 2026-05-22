@@ -1204,7 +1204,7 @@ struct KingdomGameStateTests {
         // Building a second slot settles 100s of progress → 1 damage → conquers city
         let result = state.buildBuilding(.archeryRange, inSlot: 2, at: now)
 
-        #expect(result == .unavailable)
+        #expect(result == .cityConqueredDuringSettlement(goldEarned: 8, remainingGold: 85 + 8))
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.cityBattleStates[state.currentCityKey.storageKey] == nil)
         #expect(state.gold == 85 + 8) // remaining gold + level 1 conquest reward
@@ -1219,7 +1219,7 @@ struct KingdomGameStateTests {
         // Upgrading settles 100s of progress → 1 damage → conquers city
         let result = state.upgradeBuilding(inSlot: 1, at: now)
 
-        #expect(result == .unavailable)
+        #expect(result == .cityConqueredDuringSettlement(goldEarned: 8, remainingGold: 85 + 8))
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.cityBattleStates[state.currentCityKey.storageKey] == nil)
         #expect(state.gold == 85 + 8)

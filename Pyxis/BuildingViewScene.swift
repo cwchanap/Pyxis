@@ -466,6 +466,8 @@ final class BuildingViewScene: SKScene {
             feedbackText = "That lot is occupied."
         case .typeCapReached:
             feedbackText = "\(type.displayName) limit reached."
+        case let .cityConqueredDuringSettlement(goldEarned, _):
+            feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
         case .unavailable:
             feedbackText = "Enter a city before building."
         }
@@ -488,6 +490,8 @@ final class BuildingViewScene: SKScene {
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
         case .invalidSlot, .missingBuilding:
             feedbackText = "Select a building first."
+        case let .cityConqueredDuringSettlement(goldEarned, _):
+            feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
         case .unavailable:
             feedbackText = "Enter a city before upgrading."
         }
