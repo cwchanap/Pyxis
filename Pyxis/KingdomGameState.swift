@@ -385,18 +385,24 @@ struct KingdomGameState: Codable, Equatable {
             return .insufficientGold(cost: cost, currentGold: gold)
         }
 
+        settleCurrentCityBuildingProgress(at: date ?? Date())
+        // Re-fetch city state after settling may have mutated it
+        // (settle may conquer the city, changing stageStatus)
+        guard stageStatus == .battleActive else {
+            return .unavailable
+        }
+        cityState = cityBattleState(for: key)
+
         gold -= cost
         cityState.setBuilding(CityBuilding(type: type), inSlot: slot)
-        if cityState.lastBuildingProgressResolvedAt == nil {
-            cityState.lastBuildingProgressResolvedAt = date
-        }
+        cityState.lastBuildingProgressResolvedAt = date
         cityBattleStates[key.storageKey] = cityState
 
         return .built(cost: cost, remainingGold: gold)
     }
 
     @discardableResult
-    mutating func upgradeBuilding(inSlot slot: Int) -> UpgradeBuildingResult {
+    mutating func upgradeBuilding(inSlot slot: Int, at date: Date = Date()) -> UpgradeBuildingResult {
         guard stageStatus == .battleActive else {
             return .unavailable
         }
@@ -417,12 +423,23 @@ struct KingdomGameState: Codable, Equatable {
             return .insufficientGold(cost: cost, currentGold: gold)
         }
 
+        settleCurrentCityBuildingProgress(at: date)
+        // Re-fetch city state and building after settling may have mutated them
+        // (settle may conquer the city, changing stageStatus)
+        guard stageStatus == .battleActive else {
+            return .unavailable
+        }
+        cityState = cityBattleState(for: key)
+        guard var updatedBuilding = cityState.building(inSlot: slot) else {
+            return .missingBuilding
+        }
+
         gold -= cost
-        building.level += 1
-        cityState.setBuilding(building, inSlot: slot)
+        updatedBuilding.level += 1
+        cityState.setBuilding(updatedBuilding, inSlot: slot)
         cityBattleStates[key.storageKey] = cityState
 
-        return .upgraded(cost: cost, newLevel: building.level, remainingGold: gold)
+        return .upgraded(cost: cost, newLevel: updatedBuilding.level, remainingGold: gold)
     }
 
     @discardableResult
@@ -460,6 +477,49 @@ struct KingdomGameState: Codable, Equatable {
             cityState.lastBuildingProgressResolvedAt = date
             cityBattleStates[key.storageKey] = cityState
         }
+    }
+
+    /// Resolves any pending building spawns and applies the resulting damage
+    /// to the current city, then advances the progress timestamp to `date`.
+    /// Used before mutating buildings (build/upgrade) so that existing buildings
+    /// receive credit for only the time they were actually present/at their old level.
+    private mutating func settleCurrentCityBuildingProgress(at date: Date) {
+        guard stageStatus == .battleActive else { return }
+
+        let key = currentCityKey
+        var cityState = cityBattleState(for: key)
+        guard let lastResolved = cityState.lastBuildingProgressResolvedAt else {
+            cityState.lastBuildingProgressResolvedAt = date
+            cityBattleStates[key.storageKey] = cityState
+            return
+        }
+
+        let rawElapsed = date.timeIntervalSince(lastResolved)
+        guard rawElapsed > 0 else {
+            cityState.lastBuildingProgressResolvedAt = date
+            cityBattleStates[key.storageKey] = cityState
+            return
+        }
+
+        let elapsedSeconds = min(rawElapsed, Double(Self.maxIdleCatchUpSeconds))
+        let effectiveActive = elapsedSeconds / Self.idleBuildingProductionScale
+        let spawns = Self.resolveBuildingSpawns(in: &cityState, effectiveActiveSeconds: effectiveActive)
+
+        let totalDamage = spawns.reduce(0) { total, spawn in
+            total + Self.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+        }
+
+        if totalDamage > 0 {
+            let appliedDamage = min(totalDamage, cityRemainingPower)
+            cityRemainingPower -= appliedDamage
+
+            if totalDamage >= cityRemainingPower + appliedDamage {
+                _ = completeCurrentCity()
+            }
+        }
+
+        cityState.lastBuildingProgressResolvedAt = date
+        cityBattleStates[key.storageKey] = cityState
     }
 
     @discardableResult
