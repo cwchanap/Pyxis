@@ -523,7 +523,6 @@ final class BuildingViewScene: SKScene {
     }
 
     @objc private func sceneDidEnterBackground(_ notification: Notification) {
-        state.enterBackground(at: Date())
         store.save(state)
     }
 

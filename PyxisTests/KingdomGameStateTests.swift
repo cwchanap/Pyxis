@@ -665,16 +665,56 @@ struct KingdomGameStateTests {
         #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
     }
 
-    @Test func firstBuildingInitializesProgressTimestampAndLaterBuildsDoNotOverwriteIt() {
+    @Test func firstBuildingInitializesProgressTimestamp() {
         let firstDate = Date(timeIntervalSinceReferenceDate: 100)
-        let secondDate = Date(timeIntervalSinceReferenceDate: 200)
         var state = KingdomGameState(gold: 100)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: firstDate) == .built(cost: 15, remainingGold: 85))
+        #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == firstDate)
+    }
+
+    @Test func buildingNewSlotAdvancesProgressTimestampSoNewBuildingIsNotBackdated() {
+        let firstDate = Date(timeIntervalSinceReferenceDate: 100)
+        let secondDate = firstDate.addingTimeInterval(100)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 10_000)
 
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: firstDate) == .built(cost: 15, remainingGold: 85))
         #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == firstDate)
 
         #expect(state.buildBuilding(.archeryRange, inSlot: 2, at: secondDate) == .built(cost: 18, remainingGold: 67))
-        #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == firstDate)
+        // settleCurrentCityBuildingProgress advances the timestamp to secondDate
+        #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == secondDate)
+
+        // The first barracks accumulated 100s of idle time (10s effective active),
+        // producing 1 spawn at level 1 (1 damage). The new archery range should NOT
+        // get credited for time before it existed.
+        // cityRemainingPower should have 1 damage from the first building only.
+        #expect(state.cityRemainingPower == 10_000 - 1)
+    }
+
+    @Test func upgradingBuildingSettlesProgressSoOldLevelIsUsedForPendingTime() {
+        let startDate = Date(timeIntervalSinceReferenceDate: 100)
+        let upgradeDate = startDate.addingTimeInterval(200)
+        let resolveDate = upgradeDate.addingTimeInterval(100)
+        var state = KingdomGameState(gold: 200, cityRemainingPower: 10_000)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: startDate) == .built(cost: 15, remainingGold: 185))
+
+        state.enterBackground(at: startDate)
+
+        // Upgrade the building while there is pending idle progress
+        let upgradeResult = state.upgradeBuilding(inSlot: 1, at: upgradeDate)
+        #expect(upgradeResult == .upgraded(cost: 12, newLevel: 2, remainingGold: 173))
+
+        // Settle during upgrade dealt: 200s idle = 20s effective = 2 spawns at level 1 = 2 damage
+        #expect(state.cityRemainingPower == 10_000 - 2)
+
+        // Now resolve the remaining idle progress (100s, building now at level 2)
+        let result = state.returnFromBackground(at: resolveDate)
+
+        // 100s idle / 10 = 10s effective = 1 spawn at level 2 = 2 damage
+        #expect(result.damageDealt == 2)
+        #expect(state.cityRemainingPower == 10_000 - 2 - 2)
     }
 
     @Test func upgradingBuildingConsumesGoldAndIncreasesLevel() {
@@ -1047,5 +1087,57 @@ struct KingdomGameStateTests {
 
         #expect(result.elapsedSeconds == KingdomGameState.maxIdleCatchUpSeconds)
         #expect(result.damageDealt == KingdomGameState.maxIdleCatchUpSeconds / 100)
+    }
+
+    @Test func idleCatchUpFromBuildingViewPreservesEntireIdlePeriod() {
+        // Simulates: enter building view at T0, background at T5, foreground at T6
+        // The idle catch-up should cover T0→T6, not just T5→T6
+        let t0 = Date(timeIntervalSinceReferenceDate: 5_000)
+        let t5 = t0.addingTimeInterval(500)
+        let t6 = t5.addingTimeInterval(60)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 10_000)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: t0) == .built(cost: 15, remainingGold: 85))
+
+        // BattleScene calls markCurrentCityBuildingProgressInactive when entering building view
+        state.enterBackground(at: t0)
+
+        // Building view backgrounds — with the fix, just save (don't call enterBackground again)
+        // so lastBackgroundedAt stays at t0
+
+        // Foreground resolves from t0 to t6 = 560 seconds idle
+        let result = state.returnFromBackground(at: t6)
+
+        #expect(result.elapsedSeconds == 560)
+        // 560s idle / 10 scale = 56s effective active = 5 spawns at level 1 = 5 damage
+        #expect(result.damageDealt == 5)
+        #expect(state.cityRemainingPower == 10_000 - 5)
+    }
+
+    @Test func newBuildingDoesNotGetBackdatedIdleProgress() {
+        // Build first building at T0, then build second building at T5
+        // The second building should only get progress from T5 onward
+        let t0 = Date(timeIntervalSinceReferenceDate: 6_000)
+        let t5 = t0.addingTimeInterval(500)
+        let t10 = t5.addingTimeInterval(500)
+        var state = KingdomGameState(gold: 200, cityRemainingPower: 10_000)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: t0) == .built(cost: 15, remainingGold: 185))
+        state.enterBackground(at: t0)
+
+        // Build a second building at T5 — settle should resolve first building's progress
+        #expect(state.buildBuilding(.archeryRange, inSlot: 2, at: t5) == .built(cost: 18, remainingGold: 167))
+
+        // Now resolve the remaining idle time (T5 → T10 = 500s)
+        let result = state.returnFromBackground(at: t10)
+
+        // From T5→T10: 500s idle / 10 = 50s effective active
+        // barracks (10s interval) = 5 spawns at level 1 = 5 damage
+        // archeryRange (12s interval) = 4 spawns at level 1 = 4 damage
+        // Total from this window = 9 damage
+        let archeryDamage = 4
+        let barracksDamage = 5
+        let settleDamage = 5  // From T0→T5 settle: 500s/10 = 50s effective, barracks = 5 spawns
+        #expect(result.damageDealt == archeryDamage + barracksDamage)
+        #expect(state.cityRemainingPower == 10_000 - settleDamage - result.damageDealt)
     }
 }
