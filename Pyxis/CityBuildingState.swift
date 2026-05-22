@@ -171,7 +171,7 @@ struct CityBattleState: Codable, Equatable {
             return
         }
 
-        slots[slot] = building.normalized()
+        slots[slot] = building
         normalize()
     }
 

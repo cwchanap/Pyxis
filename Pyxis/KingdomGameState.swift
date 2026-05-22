@@ -457,6 +457,9 @@ struct KingdomGameState: Codable, Equatable {
             return []
         }
 
+        // Cap deltaTime to 60s. Beyond that (debugger pause, extreme frame stall) the
+        // excess time is silently dropped rather than queued. This prevents a single huge
+        // burst of spawns after a long stall. The idle catch-up path handles extended absences.
         let deltaTime = min(max(0, rawDeltaTime), Self.maxActiveBuildingSpawnDeltaSeconds)
         guard deltaTime > 0 else {
             return []
@@ -522,7 +525,7 @@ struct KingdomGameState: Codable, Equatable {
             let appliedDamage = min(totalDamage, cityRemainingPower)
             cityRemainingPower -= appliedDamage
 
-            if totalDamage >= cityRemainingPower + appliedDamage {
+            if cityRemainingPower <= 0 {
                 _ = completeCurrentCity()
                 return
             }

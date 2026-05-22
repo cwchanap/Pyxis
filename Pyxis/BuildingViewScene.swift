@@ -527,6 +527,10 @@ final class BuildingViewScene: SKScene {
     }
 
     @objc private func sceneDidEnterBackground(_ notification: Notification) {
+        // Do NOT call state.enterBackground(at:) here. The building view already
+        // counts time as idle progress (via markCurrentCityBuildingProgressInactive).
+        // Calling enterBackground would overwrite lastBackgroundedAt and shorten the
+        // idle window — see idleCatchUpFromBuildingViewPreservesEntireIdlePeriod.
         store.save(state)
     }
 

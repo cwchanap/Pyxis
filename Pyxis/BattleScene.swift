@@ -940,6 +940,8 @@ final class BattleScene: SKScene {
             return
         }
 
+        // BuildingViewScene does not carry over BattleCombatState's live soldier roster.
+        // Transitioning with living manual soldiers would lose them without refund.
         guard combat.livingSoldierCount(source: .manual) == 0 else {
             feedbackText = "Finish the current squad before building."
             redraw()
