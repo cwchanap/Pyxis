@@ -1084,6 +1084,17 @@ struct KingdomGameStateTests {
         #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.spawnTimerElapsed == 0)
     }
 
+    @Test func activeBuildingSpawnsProduceWorkAtExactCapBoundary() {
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 30)
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 85))
+
+        // Exactly 60s (the cap) should still produce spawns, not drop them.
+        let spawns = state.resolveActiveBuildingSpawns(deltaTime: 60)
+
+        #expect(spawns.count == 6)
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.spawnTimerElapsed == 0)
+    }
+
     @Test func idleCatchUpCannotBeAppliedTwice() {
         let start = Date(timeIntervalSinceReferenceDate: 3_000)
         let end = start.addingTimeInterval(5)
