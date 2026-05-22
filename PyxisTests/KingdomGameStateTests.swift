@@ -673,6 +673,22 @@ struct KingdomGameStateTests {
         #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == firstDate)
     }
 
+    @Test func buildBuildingWithDefaultDatePreservesResolvedTimestamp() {
+        // When called without an explicit date, buildBuilding must still set
+        // lastBuildingProgressResolvedAt so that later idle resolution does not
+        // fall back to lastBackgroundedAt and credit time before the building existed.
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 10_000)
+
+        let before = Date()
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 85))
+        let after = Date()
+
+        let resolved = state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt
+        #expect(resolved != nil)
+        #expect(resolved! >= before)
+        #expect(resolved! <= after)
+    }
+
     @Test func buildingNewSlotAdvancesProgressTimestampSoNewBuildingIsNotBackdated() {
         let firstDate = Date(timeIntervalSinceReferenceDate: 100)
         let secondDate = firstDate.addingTimeInterval(100)

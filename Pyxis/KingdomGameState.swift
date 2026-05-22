@@ -385,7 +385,8 @@ struct KingdomGameState: Codable, Equatable {
             return .insufficientGold(cost: cost, currentGold: gold)
         }
 
-        settleCurrentCityBuildingProgress(at: date ?? Date())
+        let resolvedDate = date ?? Date()
+        settleCurrentCityBuildingProgress(at: resolvedDate)
         // Re-fetch city state after settling may have mutated it
         // (settle may conquer the city, changing stageStatus)
         guard stageStatus == .battleActive else {
@@ -395,7 +396,7 @@ struct KingdomGameState: Codable, Equatable {
 
         gold -= cost
         cityState.setBuilding(CityBuilding(type: type), inSlot: slot)
-        cityState.lastBuildingProgressResolvedAt = date
+        cityState.lastBuildingProgressResolvedAt = resolvedDate
         cityBattleStates[key.storageKey] = cityState
 
         return .built(cost: cost, remainingGold: gold)
