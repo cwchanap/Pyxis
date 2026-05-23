@@ -146,6 +146,30 @@ struct BattleSceneTests {
         #expect(persisted == 0)
     }
 
+    @Test func buildingProgressSaveFlushesImmediatelyWhenSpawnFires() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+        let interval = KingdomGameState.activeSpawnInterval(for: .barracks)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: interval - 0.1)]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 100,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let scene = makeScene(store: store)
+
+        // Small advance crosses the spawn threshold
+        scene.advanceCombatForTesting(deltaTime: 0.2)
+
+        // A building soldier should have spawned
+        #expect(scene.buildingLiveSoldierCountForTesting == 1)
+        // The timer reset must be persisted immediately without waiting for the throttle
+        let persisted = store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? interval
+        #expect(persisted < interval * 0.5)
+    }
+
     @Test func liveSoldierHPBarStaysReadableAboveScaledBody() throws {
         let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
         let scene = makeScene(store: store)

@@ -828,10 +828,17 @@ final class BattleScene: SKScene {
             createSoldierNode(id: soldierID)
         }
         if shouldSaveBuildingProgress {
-            buildingProgressSaveAccumulator += deltaTime
-            if buildingProgressSaveAccumulator >= Self.buildingProgressSaveInterval {
+            if !buildingSpawns.isEmpty {
+                // A spawn fired — persist immediately to prevent duplicate-spawn
+                // on crash. Reset the throttle accumulator since we just saved.
                 buildingProgressSaveAccumulator = 0
                 store.save(state)
+            } else {
+                buildingProgressSaveAccumulator += deltaTime
+                if buildingProgressSaveAccumulator >= Self.buildingProgressSaveInterval {
+                    buildingProgressSaveAccumulator = 0
+                    store.save(state)
+                }
             }
         }
 

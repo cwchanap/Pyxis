@@ -387,13 +387,14 @@ struct KingdomGameState: Codable, Equatable {
             return .insufficientGold(cost: cost, currentGold: gold)
         }
 
+        let rewardBeforeSettle = currentGoldReward
         let resolvedDate = date ?? Date()
         settleCurrentCityBuildingProgress(at: resolvedDate)
         // Re-fetch city state after settling may have mutated it
         // (settle may conquer the city, changing stageStatus)
         guard stageStatus == .battleActive else {
             if stageStatus == .cityConqueredPendingMap || stageStatus == .countryComplete {
-                return .cityConqueredDuringSettlement(goldEarned: currentGoldReward, remainingGold: gold)
+                return .cityConqueredDuringSettlement(goldEarned: rewardBeforeSettle, remainingGold: gold)
             }
             return .unavailable
         }
@@ -429,12 +430,13 @@ struct KingdomGameState: Codable, Equatable {
             return .insufficientGold(cost: cost, currentGold: gold)
         }
 
+        let rewardBeforeSettle = currentGoldReward
         settleCurrentCityBuildingProgress(at: date)
         // Re-fetch city state and building after settling may have mutated them
         // (settle may conquer the city, changing stageStatus)
         guard stageStatus == .battleActive else {
             if stageStatus == .cityConqueredPendingMap || stageStatus == .countryComplete {
-                return .cityConqueredDuringSettlement(goldEarned: currentGoldReward, remainingGold: gold)
+                return .cityConqueredDuringSettlement(goldEarned: rewardBeforeSettle, remainingGold: gold)
             }
             return .unavailable
         }
