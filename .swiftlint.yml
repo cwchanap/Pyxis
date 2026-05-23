@@ -1,0 +1,18 @@
+included:
+  - Pyxis
+  - PyxisTests
+  - PyxisUITests
+
+excluded:
+  - .git
+  - .superpowers
+  - .worktrees
+  - build
+  - DerivedData
+  - Pyxis.xcodeproj
+
+disabled_rules:
+  - file_length
+  - function_body_length
+  - identifier_name
+  - type_body_length
