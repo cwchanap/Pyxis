@@ -134,6 +134,19 @@ struct KingdomGameStoreTests {
         #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 2) == nil)
     }
 
+    @Test func loadReturnsFreshStateAndBacksUpCorruptData() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let corruptData = Data("{ not valid json !!!".utf8)
+        defaults.set(corruptData, forKey: "state")
+
+        let loaded = store.load()
+
+        #expect(loaded == KingdomGameState())
+        let backup = defaults.data(forKey: "state.corrupt")
+        #expect(backup == corruptData)
+    }
+
     private func makeDefaults() throws -> UserDefaults {
         let suiteName = "PyxisTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

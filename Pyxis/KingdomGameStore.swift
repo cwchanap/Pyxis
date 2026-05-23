@@ -26,6 +26,9 @@ final class KingdomGameStore {
         do {
             return try decoder.decode(KingdomGameState.self, from: data)
         } catch {
+            NSLog("[Pyxis] Failed to decode KingdomGameState: \(error.localizedDescription)")
+            let backupKey = "\(key).corrupt"
+            defaults.set(data, forKey: backupKey)
             return KingdomGameState()
         }
     }

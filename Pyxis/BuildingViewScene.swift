@@ -454,10 +454,10 @@ final class BuildingViewScene: SKScene {
         }
 
         let result = state.buildBuilding(type, inSlot: selectedSlot, at: Date())
-        store.save(state)
         switch result {
         case .built:
             feedbackText = "\(type.displayName) built."
+            store.save(state)
         case let .insufficientGold(cost, currentGold):
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
         case .invalidSlot:
@@ -468,6 +468,7 @@ final class BuildingViewScene: SKScene {
             feedbackText = "\(type.displayName) limit reached."
         case let .cityConqueredDuringSettlement(goldEarned, _):
             feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
+            store.save(state)
         case .unavailable:
             feedbackText = "Enter a city before building."
         }
@@ -482,16 +483,17 @@ final class BuildingViewScene: SKScene {
         }
 
         let result = state.upgradeBuilding(inSlot: selectedSlot)
-        store.save(state)
         switch result {
         case let .upgraded(_, newLevel, _):
             feedbackText = "Upgraded to level \(newLevel)."
+            store.save(state)
         case let .insufficientGold(cost, currentGold):
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
         case .invalidSlot, .missingBuilding:
             feedbackText = "Select a building first."
         case let .cityConqueredDuringSettlement(goldEarned, _):
             feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
+            store.save(state)
         case .unavailable:
             feedbackText = "Enter a city before upgrading."
         }
