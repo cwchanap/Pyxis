@@ -92,18 +92,21 @@ jobs:
 
       - name: Export coverage report
         run: |
+          set -o pipefail
           mkdir -p build/coverage
           xcrun xccov view --report build/TestResults/Unit.xcresult > build/coverage/xcode-coverage.txt
+          xcrun xccov view --archive build/TestResults/Unit.xcresult \
+            | ruby tools/xccov-to-lcov.rb "$GITHUB_WORKSPACE" \
+            > build/coverage/pyxis.lcov
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
-          files: build/coverage/xcode-coverage.txt
+          files: build/coverage/pyxis.lcov
           disable_search: true
           flags: unit
           name: pyxis-unit
-          swift_project: Pyxis
           fail_ci_if_error: true
 
       - name: Upload unit test artifacts
@@ -114,6 +117,7 @@ jobs:
           path: |
             build/TestResults/Unit.xcresult
             build/coverage/xcode-coverage.txt
+            build/coverage/pyxis.lcov
           if-no-files-found: ignore
 
   ui-test:
