@@ -200,6 +200,9 @@ struct BattleCombatState: Equatable {
             baseHP = Double(max(1, configuration.soldierMaxHP))
         case .archer:
             baseHP = Double(max(1, configuration.soldierMaxHP)) * 0.7
+        case .cavalry, .mage, .siege:
+            // Temporary neutral handling until the roster balance task assigns distinct values.
+            baseHP = Double(max(1, configuration.soldierMaxHP))
         }
 
         return max(1, Int((baseHP * pow(1.25, Double(max(1, level) - 1))).rounded()))
@@ -211,6 +214,9 @@ struct BattleCombatState: Equatable {
             return min(max(0, configuration.soldierAttackRange), 1)
         case .archer:
             return min(max(0, configuration.soldierAttackRange * 2.2), 1)
+        case .cavalry, .mage, .siege:
+            // Temporary neutral handling until the roster balance task assigns distinct values.
+            return min(max(0, configuration.soldierAttackRange), 1)
         }
     }
 

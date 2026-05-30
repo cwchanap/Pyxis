@@ -639,6 +639,9 @@ struct KingdomGameState: Codable, Equatable {
             return 15
         case .archeryRange:
             return 18
+        case .stable, .mageTower, .siegeWorkshop:
+            // Temporary neutral handling until the roster balance task assigns distinct values.
+            return 18
         }
     }
 
@@ -648,6 +651,9 @@ struct KingdomGameState: Codable, Equatable {
         case .barracks:
             base = 12
         case .archeryRange:
+            base = 14
+        case .stable, .mageTower, .siegeWorkshop:
+            // Temporary neutral handling until the roster balance task assigns distinct values.
             base = 14
         }
 
@@ -659,6 +665,9 @@ struct KingdomGameState: Codable, Equatable {
         case .barracks:
             return 10
         case .archeryRange:
+            return 12
+        case .stable, .mageTower, .siegeWorkshop:
+            // Temporary neutral handling until the roster balance task assigns distinct values.
             return 12
         }
     }
