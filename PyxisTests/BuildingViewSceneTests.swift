@@ -72,7 +72,7 @@ struct BuildingViewSceneTests {
         let scene = makeScene(store: store, router: RouteSpy())
 
         scene.selectSlotForTesting(4)
-        scene.buildSelectedSlotForTesting(.archeryRange)
+        scene.buildSelectedSlotForTesting(.barracks)
         scene.selectSlotForTesting(4)
 
         #expect(!scene.canBuildBarracksForTesting)
@@ -85,7 +85,7 @@ struct BuildingViewSceneTests {
     }
 
     @Test func typeCapAndInsufficientGoldShowFeedback() throws {
-        var initial = KingdomGameState(gold: 75)
+        var initial = KingdomGameState(gold: 75, cityNumberInCountry: 2, completedCityCount: 1)
         #expect(initial.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 60))
         #expect(initial.buildBuilding(.barracks, inSlot: 2) == .built(cost: 15, remainingGold: 45))
         #expect(initial.buildBuilding(.barracks, inSlot: 3) == .built(cost: 15, remainingGold: 30))
@@ -222,7 +222,7 @@ struct BuildingViewSceneTests {
         let scene = makeScene(store: store, router: RouteSpy())
 
         scene.selectSlotForTesting(2)
-        scene.buildSelectedSlotForTesting(.archeryRange)
+        scene.buildSelectedSlotForTesting(.barracks)
 
         let saved = store.load()
         #expect(saved.stageStatus == .cityConqueredPendingMap)
