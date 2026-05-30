@@ -157,6 +157,29 @@ struct KingdomGameStateTests {
         #expect(KingdomGameState.activeSpawnInterval(for: .siegeWorkshop) == 20)
     }
 
+    @Test func traitAdjustedSoldierAttackPowerUsesCounterMultiplier() {
+        #expect(KingdomGameState.soldierAttackPower(for: .infantry, level: 1) == 1)
+        #expect(KingdomGameState.soldierAttackPower(for: .siege, level: 4) == 3)
+
+        #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .siege,
+            level: 4,
+            defenseTrait: .reinforcedKeep
+        ) == 4)
+
+        #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .archer,
+            level: 4,
+            defenseTrait: .reinforcedKeep
+        ) == 2)
+
+        #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .infantry,
+            level: 1,
+            defenseTrait: .reinforcedKeep
+        ) == 1)
+    }
+
     @Test func lockedBuildingsCannotBeBuiltBeforeUnlockCity() {
         var state = KingdomGameState(gold: 500, cityNumberInCountry: 4, completedCityCount: 3)
 
@@ -1172,6 +1195,50 @@ struct KingdomGameStateTests {
         #expect(result.conqueredCities == 0)
         #expect(state.cityRemainingPower == 49)
         #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.spawnTimerElapsed == 0)
+    }
+
+    @Test func idleDamageUsesCurrentCityDefenseTraitCounters() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let end = start.addingTimeInterval(1_000)
+        var state = KingdomGameState(
+            gold: 500,
+            cityRemainingPower: 100,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 11,
+            completedCityCount: 10
+        )
+
+        #expect(state.buildBuilding(.siegeWorkshop, inSlot: 1, at: start) == .built(cost: 55, remainingGold: 445))
+        #expect(state.upgradeBuilding(inSlot: 1, at: start) == .upgraded(cost: 42, newLevel: 2, remainingGold: 403))
+        #expect(state.upgradeBuilding(inSlot: 1, at: start) == .upgraded(cost: 69, newLevel: 3, remainingGold: 334))
+        state.enterBackground(at: start)
+
+        let result = state.returnFromBackground(at: end)
+
+        #expect(state.currentCityDefenseTrait == .reinforcedKeep)
+        #expect(result.elapsedSeconds == 1000)
+        #expect(result.damageDealt == 15)
+        #expect(state.cityRemainingPower == 85)
+    }
+
+    @Test func idleDamagePenaltyStillDealsAtLeastOneWhenBaseDamageIsPositive() {
+        let start = Date(timeIntervalSinceReferenceDate: 2_000)
+        let end = start.addingTimeInterval(1_000)
+        var state = KingdomGameState(
+            gold: 500,
+            cityRemainingPower: 100,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 11,
+            completedCityCount: 10
+        )
+
+        #expect(state.buildBuilding(.archeryRange, inSlot: 1, at: start) == .built(cost: 18, remainingGold: 482))
+        state.enterBackground(at: start)
+
+        let result = state.returnFromBackground(at: end)
+
+        #expect(state.currentCityDefenseTrait == .reinforcedKeep)
+        #expect(result.damageDealt > 0)
     }
 
     @Test func idleCatchUpDoesNothingWhenBattleIsPausedForMap() {
