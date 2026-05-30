@@ -525,7 +525,7 @@ struct KingdomGameState: Codable, Equatable {
         let spawns = Self.resolveBuildingSpawns(in: &cityState, effectiveActiveSeconds: effectiveActive)
 
         let totalDamage = spawns.reduce(0) { total, spawn in
-            total + Self.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+            total + traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
         }
 
         if totalDamage > 0 {
@@ -575,7 +575,7 @@ struct KingdomGameState: Codable, Equatable {
             cityState.lastBuildingProgressResolvedAt = date
             cityBattleStates[key.storageKey] = cityState
             totalPotentialDamage = spawns.reduce(0) { total, spawn in
-                total + Self.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+                total + traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
             }
         } else {
             totalPotentialDamage = 0
@@ -748,6 +748,26 @@ struct KingdomGameState: Codable, Equatable {
 
     static func soldierAttackPower(for _: SoldierType, level: Int) -> Int {
         normalSoldierAttackPower(for: level)
+    }
+
+    static func traitAdjustedSoldierAttackPower(
+        for soldierType: SoldierType,
+        level: Int,
+        defenseTrait: CityDefenseTrait
+    ) -> Int {
+        let baseDamage = soldierAttackPower(for: soldierType, level: level)
+        guard baseDamage > 0 else { return 0 }
+
+        let adjustedDamage = Int((Double(baseDamage) * defenseTrait.damageMultiplier(for: soldierType)).rounded())
+        return max(1, adjustedDamage)
+    }
+
+    func traitAdjustedSoldierAttackPower(for soldierType: SoldierType, level: Int) -> Int {
+        Self.traitAdjustedSoldierAttackPower(
+            for: soldierType,
+            level: level,
+            defenseTrait: currentCityDefenseTrait
+        )
     }
 
     private static func clampedLevel(_ level: Int) -> Int {
