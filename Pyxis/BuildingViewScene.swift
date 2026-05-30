@@ -465,6 +465,8 @@ final class BuildingViewScene: SKScene {
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
         case .invalidSlot:
             feedbackText = "Select a city lot first."
+        case let .lockedBuilding(unlocksAtCity):
+            feedbackText = "\(type.displayName) unlocks at City \(unlocksAtCity)."
         case .slotOccupied:
             feedbackText = "That lot is occupied."
         case .typeCapReached:

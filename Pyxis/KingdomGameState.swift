@@ -69,6 +69,7 @@ struct KingdomGameState: Codable, Equatable {
         case built(cost: Int, remainingGold: Int)
         case insufficientGold(cost: Int, currentGold: Int)
         case invalidSlot
+        case lockedBuilding(unlocksAtCity: Int)
         case slotOccupied
         case typeCapReached(maximum: Int)
         case cityConqueredDuringSettlement(goldEarned: Int, remainingGold: Int)
@@ -371,6 +372,10 @@ struct KingdomGameState: Codable, Equatable {
             return .invalidSlot
         }
 
+        guard isBuildingTypeUnlocked(type) else {
+            return .lockedBuilding(unlocksAtCity: Self.unlockCity(for: type))
+        }
+
         let key = currentCityKey
         var cityState = cityBattleState(for: key)
 
@@ -421,7 +426,7 @@ struct KingdomGameState: Codable, Equatable {
         let key = currentCityKey
         var cityState = cityBattleState(for: key)
 
-        guard var building = cityState.building(inSlot: slot) else {
+        guard let building = cityState.building(inSlot: slot) else {
             return .missingBuilding
         }
 
@@ -633,15 +638,78 @@ struct KingdomGameState: Codable, Equatable {
         roundedAtLeastOne(10 * pow(1.7, Double(clampedLevel(upgradeLevel) - 1)))
     }
 
+    static func unlockedBuildingTypes(forCityNumber cityNumber: Int) -> [BuildingType] {
+        let city = min(max(1, cityNumber), firstCountryCityCount)
+        return BuildingType.allCases.filter { city >= unlockCity(for: $0) }
+    }
+
+    static func unlockCity(for buildingType: BuildingType) -> Int {
+        switch buildingType {
+        case .barracks:
+            return 1
+        case .archeryRange:
+            return 2
+        case .stable:
+            return 5
+        case .mageTower:
+            return 8
+        case .siegeWorkshop:
+            return 11
+        }
+    }
+
+    func isBuildingTypeUnlocked(_ buildingType: BuildingType) -> Bool {
+        Self.unlockedBuildingTypes(forCityNumber: cityNumberInCountry).contains(buildingType)
+    }
+
+    static func defenseTrait(forCityNumber cityNumber: Int) -> CityDefenseTrait {
+        switch min(max(1, cityNumber), firstCountryCityCount) {
+        case 1, 2:
+            return .standardWatch
+        case 3, 5:
+            return .arrowTower
+        case 4, 10:
+            return .spikedGate
+        case 6, 8, 14:
+            return .stoneWall
+        case 7, 12:
+            return .burningOil
+        case 9, 13:
+            return .arcaneWard
+        case 11, 15:
+            return .reinforcedKeep
+        default:
+            return .standardWatch
+        }
+    }
+
+    var currentCityDefenseTrait: CityDefenseTrait {
+        Self.defenseTrait(forCityNumber: cityNumberInCountry)
+    }
+
+    func manualSoldierLevel(for soldierType: SoldierType) -> Int? {
+        let matchingLevels = cityBattleStateForCurrentCity.slots.values
+            .filter { $0.type.soldierType == soldierType }
+            .map(\.level)
+        return matchingLevels.max()
+    }
+
+    func manualSpawnableSoldierTypes() -> [SoldierType] {
+        SoldierType.allCases.filter { manualSoldierLevel(for: $0) != nil }
+    }
+
     static func buildingBuildCost(for type: BuildingType) -> Int {
         switch type {
         case .barracks:
             return 15
         case .archeryRange:
             return 18
-        case .stable, .mageTower, .siegeWorkshop:
-            // Temporary neutral handling until the roster balance task assigns distinct values.
-            return 18
+        case .stable:
+            return 28
+        case .mageTower:
+            return 40
+        case .siegeWorkshop:
+            return 55
         }
     }
 
@@ -652,9 +720,12 @@ struct KingdomGameState: Codable, Equatable {
             base = 12
         case .archeryRange:
             base = 14
-        case .stable, .mageTower, .siegeWorkshop:
-            // Temporary neutral handling until the roster balance task assigns distinct values.
-            base = 14
+        case .stable:
+            base = 22
+        case .mageTower:
+            base = 30
+        case .siegeWorkshop:
+            base = 42
         }
 
         return roundedAtLeastOne(base * pow(1.65, Double(clampedLevel(currentLevel) - 1)))
@@ -666,9 +737,12 @@ struct KingdomGameState: Codable, Equatable {
             return 10
         case .archeryRange:
             return 12
-        case .stable, .mageTower, .siegeWorkshop:
-            // Temporary neutral handling until the roster balance task assigns distinct values.
-            return 12
+        case .stable:
+            return 14
+        case .mageTower:
+            return 16
+        case .siegeWorkshop:
+            return 20
         }
     }
 

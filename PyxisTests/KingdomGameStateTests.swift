@@ -118,6 +118,100 @@ struct KingdomGameStateTests {
         }
     }
 
+    @Test func buildingUnlocksProgressAcrossCountryOne() {
+        #expect(KingdomGameState.unlockedBuildingTypes(forCityNumber: 1) == [.barracks])
+        #expect(KingdomGameState.unlockedBuildingTypes(forCityNumber: 2) == [.barracks, .archeryRange])
+        #expect(KingdomGameState.unlockedBuildingTypes(forCityNumber: 4) == [.barracks, .archeryRange])
+        #expect(KingdomGameState.unlockedBuildingTypes(forCityNumber: 5) == [.barracks, .archeryRange, .stable])
+        #expect(
+            KingdomGameState.unlockedBuildingTypes(forCityNumber: 8)
+                == [.barracks, .archeryRange, .stable, .mageTower]
+        )
+        #expect(
+            KingdomGameState.unlockedBuildingTypes(forCityNumber: 11)
+                == [.barracks, .archeryRange, .stable, .mageTower, .siegeWorkshop]
+        )
+        #expect(
+            KingdomGameState.unlockedBuildingTypes(forCityNumber: 99)
+                == [.barracks, .archeryRange, .stable, .mageTower, .siegeWorkshop]
+        )
+    }
+
+    @Test func buildingCostsCoverExpandedCatalog() {
+        #expect(KingdomGameState.buildingBuildCost(for: .barracks) == 15)
+        #expect(KingdomGameState.buildingBuildCost(for: .archeryRange) == 18)
+        #expect(KingdomGameState.buildingBuildCost(for: .stable) == 28)
+        #expect(KingdomGameState.buildingBuildCost(for: .mageTower) == 40)
+        #expect(KingdomGameState.buildingBuildCost(for: .siegeWorkshop) == 55)
+
+        #expect(KingdomGameState.buildingUpgradeCost(for: .stable, currentLevel: 1) == 22)
+        #expect(KingdomGameState.buildingUpgradeCost(for: .mageTower, currentLevel: 1) == 30)
+        #expect(KingdomGameState.buildingUpgradeCost(for: .siegeWorkshop, currentLevel: 1) == 42)
+    }
+
+    @Test func activeSpawnIntervalsCoverExpandedCatalog() {
+        #expect(KingdomGameState.activeSpawnInterval(for: .barracks) == 10)
+        #expect(KingdomGameState.activeSpawnInterval(for: .archeryRange) == 12)
+        #expect(KingdomGameState.activeSpawnInterval(for: .stable) == 14)
+        #expect(KingdomGameState.activeSpawnInterval(for: .mageTower) == 16)
+        #expect(KingdomGameState.activeSpawnInterval(for: .siegeWorkshop) == 20)
+    }
+
+    @Test func lockedBuildingsCannotBeBuiltBeforeUnlockCity() {
+        var state = KingdomGameState(gold: 500, cityNumberInCountry: 4, completedCityCount: 3)
+
+        #expect(state.buildBuilding(.stable, inSlot: 1) == .lockedBuilding(unlocksAtCity: 5))
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+        #expect(state.gold == 500)
+    }
+
+    @Test func unlockedBuildingsCanBeBuiltAtUnlockCity() {
+        var state = KingdomGameState(gold: 500, cityNumberInCountry: 5, completedCityCount: 4)
+
+        #expect(state.buildBuilding(.stable, inSlot: 1) == .built(cost: 28, remainingGold: 472))
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .stable)
+    }
+
+    @Test func manualSoldierLevelRequiresMatchingCurrentCityBuilding() {
+        var state = KingdomGameState(gold: 500, cityNumberInCountry: 8, completedCityCount: 7)
+
+        #expect(state.manualSoldierLevel(for: .mage) == nil)
+
+        #expect(state.buildBuilding(.mageTower, inSlot: 1) == .built(cost: 40, remainingGold: 460))
+        #expect(state.manualSoldierLevel(for: .mage) == 1)
+
+        #expect(state.buildBuilding(.mageTower, inSlot: 2) == .built(cost: 40, remainingGold: 420))
+        #expect(state.upgradeBuilding(inSlot: 2) == .upgraded(cost: 30, newLevel: 2, remainingGold: 390))
+        #expect(state.manualSoldierLevel(for: .mage) == 2)
+    }
+
+    @Test func currentCityDefenseTraitUsesAuthoredProgression() {
+        let expected: [Int: CityDefenseTrait] = [
+            1: .standardWatch,
+            2: .standardWatch,
+            3: .arrowTower,
+            4: .spikedGate,
+            5: .arrowTower,
+            6: .stoneWall,
+            7: .burningOil,
+            8: .stoneWall,
+            9: .arcaneWard,
+            10: .spikedGate,
+            11: .reinforcedKeep,
+            12: .burningOil,
+            13: .arcaneWard,
+            14: .stoneWall,
+            15: .reinforcedKeep
+        ]
+
+        for (cityNumber, trait) in expected {
+            #expect(KingdomGameState.defenseTrait(forCityNumber: cityNumber) == trait)
+        }
+
+        let state = KingdomGameState(cityNumberInCountry: 11, completedCityCount: 10)
+        #expect(state.currentCityDefenseTrait == .reinforcedKeep)
+    }
+
     @Test func formulasClampInvalidLevelsToOne() {
         #expect(KingdomGameState.cityMaxPower(for: 0) == 20)
         #expect(KingdomGameState.goldReward(for: 0) == 8)
@@ -732,7 +826,7 @@ struct KingdomGameStateTests {
         #expect(state.buildBuilding(.barracks, inSlot: 26) == .invalidSlot)
 
         #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 185))
-        #expect(state.buildBuilding(.archeryRange, inSlot: 1) == .slotOccupied)
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .slotOccupied)
 
         #expect(state.buildBuilding(.barracks, inSlot: 2) == .built(cost: 15, remainingGold: 170))
         #expect(state.buildBuilding(.barracks, inSlot: 3) == .built(cost: 15, remainingGold: 155))
@@ -785,7 +879,12 @@ struct KingdomGameStateTests {
     @Test func buildingNewSlotAdvancesProgressTimestampSoNewBuildingIsNotBackdated() {
         let firstDate = Date(timeIntervalSinceReferenceDate: 100)
         let secondDate = firstDate.addingTimeInterval(100)
-        var state = KingdomGameState(gold: 100, cityRemainingPower: 10_000)
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 10_000,
+            cityNumberInCountry: 2,
+            completedCityCount: 1
+        )
 
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: firstDate) == .built(cost: 15, remainingGold: 85))
         #expect(state.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt == firstDate)
@@ -827,7 +926,7 @@ struct KingdomGameStateTests {
     }
 
     @Test func upgradingBuildingConsumesGoldAndIncreasesLevel() {
-        var state = KingdomGameState(gold: 100)
+        var state = KingdomGameState(gold: 100, cityNumberInCountry: 2, completedCityCount: 1)
         #expect(state.buildBuilding(.archeryRange, inSlot: 4) == .built(cost: 18, remainingGold: 82))
 
         let result = state.upgradeBuilding(inSlot: 4)
@@ -838,7 +937,7 @@ struct KingdomGameStateTests {
     }
 
     @Test func upgradingRejectsMissingBuildingAndInsufficientGold() {
-        var state = KingdomGameState(gold: 100)
+        var state = KingdomGameState(gold: 100, cityNumberInCountry: 2, completedCityCount: 1)
 
         #expect(state.upgradeBuilding(inSlot: 3) == .missingBuilding)
 
@@ -1121,7 +1220,7 @@ struct KingdomGameStateTests {
         let end = start.addingTimeInterval(1_000)
         var state = KingdomGameState(gold: 100, cityRemainingPower: 2)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
-        #expect(state.buildBuilding(.archeryRange, inSlot: 2, at: start) == .built(cost: 18, remainingGold: 67))
+        #expect(state.buildBuilding(.barracks, inSlot: 2, at: start) == .built(cost: 15, remainingGold: 70))
 
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: end)
@@ -1137,7 +1236,12 @@ struct KingdomGameStateTests {
     }
 
     @Test func activeBuildingSpawnsAdvanceTimersAndEmitSpawnEvents() {
-        var state = KingdomGameState(gold: 100, cityRemainingPower: 30)
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 30,
+            cityNumberInCountry: 2,
+            completedCityCount: 1
+        )
         #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 85))
         #expect(state.buildBuilding(.archeryRange, inSlot: 2) == .built(cost: 18, remainingGold: 67))
 
@@ -1277,7 +1381,12 @@ struct KingdomGameStateTests {
         let t0 = Date(timeIntervalSinceReferenceDate: 6_000)
         let t5 = t0.addingTimeInterval(500)
         let t10 = t5.addingTimeInterval(500)
-        var state = KingdomGameState(gold: 200, cityRemainingPower: 10_000)
+        var state = KingdomGameState(
+            gold: 200,
+            cityRemainingPower: 10_000,
+            cityNumberInCountry: 2,
+            completedCityCount: 1
+        )
 
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: t0) == .built(cost: 15, remainingGold: 185))
         state.enterBackground(at: t0)
@@ -1306,7 +1415,7 @@ struct KingdomGameStateTests {
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: past) == .built(cost: 15, remainingGold: 85))
 
         // Building a second slot settles 100s of progress → 1 damage → conquers city
-        let result = state.buildBuilding(.archeryRange, inSlot: 2, at: now)
+        let result = state.buildBuilding(.barracks, inSlot: 2, at: now)
 
         #expect(result == .cityConqueredDuringSettlement(goldEarned: 8, remainingGold: 85 + 8))
         #expect(state.stageStatus == .cityConqueredPendingMap)
