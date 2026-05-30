@@ -57,61 +57,52 @@ enum CityDefenseTrait: String, CaseIterable, Equatable {
     }
 
     func damageMultiplier(for soldierType: SoldierType) -> Double {
+        if advantagedSoldierTypes.contains(soldierType) {
+            return 1.25
+        }
+
+        if disadvantagedSoldierTypes.contains(soldierType) {
+            return 0.80
+        }
+
+        return 1.0
+    }
+
+    private var advantagedSoldierTypes: [SoldierType] {
         switch self {
         case .standardWatch:
-            return 1.0
+            return []
         case .arrowTower:
-            switch soldierType {
-            case .infantry, .cavalry:
-                return 1.25
-            case .archer, .mage:
-                return 0.80
-            case .siege:
-                return 1.0
-            }
+            return [.infantry, .cavalry]
         case .spikedGate:
-            switch soldierType {
-            case .archer, .mage:
-                return 1.25
-            case .infantry, .cavalry:
-                return 0.80
-            case .siege:
-                return 1.0
-            }
+            return [.archer, .mage]
         case .stoneWall:
-            switch soldierType {
-            case .mage, .siege:
-                return 1.25
-            case .archer:
-                return 0.80
-            case .infantry, .cavalry:
-                return 1.0
-            }
+            return [.mage, .siege]
         case .arcaneWard:
-            switch soldierType {
-            case .infantry, .cavalry, .siege:
-                return 1.25
-            case .mage:
-                return 0.80
-            case .archer:
-                return 1.0
-            }
+            return [.infantry, .cavalry, .siege]
         case .burningOil:
-            switch soldierType {
-            case .archer, .mage, .cavalry:
-                return 1.25
-            case .infantry, .siege:
-                return 0.80
-            }
+            return [.archer, .mage, .cavalry]
         case .reinforcedKeep:
-            switch soldierType {
-            case .siege:
-                return 1.25
-            case .archer, .infantry:
-                return 0.80
-            case .cavalry, .mage:
-                return 1.0
-            }
+            return [.siege]
+        }
+    }
+
+    private var disadvantagedSoldierTypes: [SoldierType] {
+        switch self {
+        case .standardWatch:
+            return []
+        case .arrowTower:
+            return [.archer, .mage]
+        case .spikedGate:
+            return [.infantry, .cavalry]
+        case .stoneWall:
+            return [.archer]
+        case .arcaneWard:
+            return [.mage]
+        case .burningOil:
+            return [.infantry, .siege]
+        case .reinforcedKeep:
+            return [.archer, .infantry]
         }
     }
 }
