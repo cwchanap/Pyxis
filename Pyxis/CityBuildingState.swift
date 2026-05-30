@@ -41,6 +41,9 @@ struct CityKey: Equatable, Hashable {
 enum BuildingType: String, Codable, CaseIterable, Equatable {
     case barracks
     case archeryRange
+    case stable
+    case mageTower
+    case siegeWorkshop
 
     var displayName: String {
         switch self {
@@ -48,6 +51,27 @@ enum BuildingType: String, Codable, CaseIterable, Equatable {
             return "Barracks"
         case .archeryRange:
             return "Archery Range"
+        case .stable:
+            return "Stable"
+        case .mageTower:
+            return "Mage Tower"
+        case .siegeWorkshop:
+            return "Siege Workshop"
+        }
+    }
+
+    var shortDisplayName: String {
+        switch self {
+        case .barracks:
+            return "Barracks"
+        case .archeryRange:
+            return "Archery"
+        case .stable:
+            return "Stable"
+        case .mageTower:
+            return "Mage"
+        case .siegeWorkshop:
+            return "Siege"
         }
     }
 
@@ -57,6 +81,12 @@ enum BuildingType: String, Codable, CaseIterable, Equatable {
             return .infantry
         case .archeryRange:
             return .archer
+        case .stable:
+            return .cavalry
+        case .mageTower:
+            return .mage
+        case .siegeWorkshop:
+            return .siege
         }
     }
 }

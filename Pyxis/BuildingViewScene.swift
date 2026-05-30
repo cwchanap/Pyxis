@@ -395,6 +395,9 @@ final class BuildingViewScene: SKScene {
                 node.fillColor = SKColor(red: 0.16, green: 0.36, blue: 0.62, alpha: 0.95)
             case .archeryRange:
                 node.fillColor = SKColor(red: 0.16, green: 0.46, blue: 0.36, alpha: 0.95)
+            case .stable, .mageTower, .siegeWorkshop:
+                // Temporary neutral handling until the roster UI task assigns distinct presentation.
+                node.fillColor = SKColor(red: 0.33, green: 0.28, blue: 0.46, alpha: 0.95)
             }
         } else {
             label.text = "Lot \(slot)"

@@ -25,6 +25,99 @@ struct KingdomGameStateTests {
         #expect(KingdomGameState.normalSoldierUpgradeCost(for: 2) == 17)
     }
 
+    @Test func expandedSoldierCatalogHasDisplayNames() {
+        #expect(SoldierType.allCases == [.infantry, .archer, .cavalry, .mage, .siege])
+        #expect(SoldierType.infantry.displayName == "Infantry")
+        #expect(SoldierType.archer.displayName == "Archer")
+        #expect(SoldierType.cavalry.displayName == "Cavalry")
+        #expect(SoldierType.mage.displayName == "Mage")
+        #expect(SoldierType.siege.displayName == "Siege")
+    }
+
+    @Test func expandedBuildingCatalogMapsToSoldierTypes() {
+        #expect(BuildingType.allCases == [.barracks, .archeryRange, .stable, .mageTower, .siegeWorkshop])
+        #expect(BuildingType.barracks.displayName == "Barracks")
+        #expect(BuildingType.archeryRange.displayName == "Archery Range")
+        #expect(BuildingType.stable.displayName == "Stable")
+        #expect(BuildingType.mageTower.displayName == "Mage Tower")
+        #expect(BuildingType.siegeWorkshop.displayName == "Siege Workshop")
+
+        #expect(BuildingType.barracks.shortDisplayName == "Barracks")
+        #expect(BuildingType.archeryRange.shortDisplayName == "Archery")
+        #expect(BuildingType.stable.shortDisplayName == "Stable")
+        #expect(BuildingType.mageTower.shortDisplayName == "Mage")
+        #expect(BuildingType.siegeWorkshop.shortDisplayName == "Siege")
+
+        #expect(BuildingType.barracks.soldierType == .infantry)
+        #expect(BuildingType.archeryRange.soldierType == .archer)
+        #expect(BuildingType.stable.soldierType == .cavalry)
+        #expect(BuildingType.mageTower.soldierType == .mage)
+        #expect(BuildingType.siegeWorkshop.soldierType == .siege)
+    }
+
+    @Test func cityDefenseTraitsExposeDisplayAndCounterMetadata() throws {
+        #expect(CityDefenseTrait.allCases == [
+            .standardWatch,
+            .arrowTower,
+            .spikedGate,
+            .stoneWall,
+            .arcaneWard,
+            .burningOil,
+            .reinforcedKeep
+        ])
+
+        #expect(CityDefenseTrait.standardWatch.displayName == "Standard Watch")
+        #expect(CityDefenseTrait.arrowTower.displayName == "Arrow Tower")
+        #expect(CityDefenseTrait.spikedGate.displayName == "Spiked Gate")
+        #expect(CityDefenseTrait.stoneWall.displayName == "Stone Wall")
+        #expect(CityDefenseTrait.arcaneWard.displayName == "Arcane Ward")
+        #expect(CityDefenseTrait.burningOil.displayName == "Burning Oil")
+        #expect(CityDefenseTrait.reinforcedKeep.displayName == "Reinforced Keep")
+        #expect(
+            CityDefenseTrait.arcaneWard.shortDescription
+                == "Infantry, Cavalry, and Siege avoid the ward's resistance."
+        )
+
+        let expectedMultipliers: [(trait: CityDefenseTrait, multipliers: [SoldierType: Double])] = [
+            (
+                .standardWatch,
+                [.infantry: 1.0, .archer: 1.0, .cavalry: 1.0, .mage: 1.0, .siege: 1.0]
+            ),
+            (
+                .arrowTower,
+                [.infantry: 1.25, .archer: 0.80, .cavalry: 1.25, .mage: 0.80, .siege: 1.0]
+            ),
+            (
+                .spikedGate,
+                [.infantry: 0.80, .archer: 1.25, .cavalry: 0.80, .mage: 1.25, .siege: 1.0]
+            ),
+            (
+                .stoneWall,
+                [.infantry: 1.0, .archer: 0.80, .cavalry: 1.0, .mage: 1.25, .siege: 1.25]
+            ),
+            (
+                .arcaneWard,
+                [.infantry: 1.25, .archer: 1.0, .cavalry: 1.25, .mage: 0.80, .siege: 1.25]
+            ),
+            (
+                .burningOil,
+                [.infantry: 0.80, .archer: 1.25, .cavalry: 1.25, .mage: 1.25, .siege: 0.80]
+            ),
+            (
+                .reinforcedKeep,
+                [.infantry: 0.80, .archer: 0.80, .cavalry: 1.0, .mage: 1.0, .siege: 1.25]
+            )
+        ]
+
+        #expect(expectedMultipliers.map(\.trait) == CityDefenseTrait.allCases)
+        for (trait, multipliers) in expectedMultipliers {
+            for soldierType in SoldierType.allCases {
+                let expectedMultiplier = try #require(multipliers[soldierType])
+                #expect(trait.damageMultiplier(for: soldierType) == expectedMultiplier)
+            }
+        }
+    }
+
     @Test func formulasClampInvalidLevelsToOne() {
         #expect(KingdomGameState.cityMaxPower(for: 0) == 20)
         #expect(KingdomGameState.goldReward(for: 0) == 8)
