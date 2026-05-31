@@ -691,7 +691,19 @@ struct KingdomGameState: Codable, Equatable {
         let matchingLevels = cityBattleStateForCurrentCity.slots.values
             .filter { $0.type.soldierType == soldierType }
             .map(\.level)
-        return matchingLevels.max()
+
+        if let maxLevel = matchingLevels.max() {
+            return maxLevel
+        }
+
+        // Fallback: infantry is always available at level 1 as the starter
+        // unit type, preventing a soft-lock when a new city has no buildings
+        // and the player cannot afford a Barracks.
+        if soldierType == .infantry {
+            return 1
+        }
+
+        return nil
     }
 
     func manualSpawnableSoldierTypes() -> [SoldierType] {

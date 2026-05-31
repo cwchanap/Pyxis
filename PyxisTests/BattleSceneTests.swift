@@ -122,29 +122,29 @@ struct BattleSceneTests {
         #expect(scene.isUpgradeButtonVisibleForTesting == false)
     }
 
-    @Test func manualSpawnRequiresMatchingCurrentCityBuilding() throws {
+    @Test func manualSpawnAlwaysAllowsInfantryWithoutBuilding() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 100))
         let scene = makeScene(store: store)
 
-        #expect(scene.manualSpawnableSoldierTypesForTesting.isEmpty)
+        // Infantry is always available as the starter unit
+        #expect(scene.manualSpawnableSoldierTypesForTesting == [.infantry])
 
         scene.spawnSoldierForTesting()
 
-        #expect(scene.liveSoldierCountForTesting == 0)
-        #expect(scene.feedbackTextForTesting == "Build a unit building first.")
+        #expect(scene.liveSoldierCountForTesting == 1)
     }
 
-    @Test func toggleManualTypeMenuShowsFeedbackWhenNoBuildings() throws {
+    @Test func toggleManualTypeMenuOpenWithInfantryFallback() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 100))
         let scene = makeScene(store: store)
 
-        #expect(scene.manualSpawnableSoldierTypesForTesting.isEmpty)
+        // Infantry is always available, so the menu opens
+        #expect(scene.manualSpawnableSoldierTypesForTesting == [.infantry])
         #expect(scene.isManualTypeMenuOpenForTesting == false)
 
         scene.toggleManualTypeMenuForTesting()
 
-        #expect(scene.isManualTypeMenuOpenForTesting == false)
-        #expect(scene.feedbackTextForTesting == "Build a unit building first.")
+        #expect(scene.isManualTypeMenuOpenForTesting == true)
     }
 
     @Test func manualSelectorUsesBuiltCurrentCityUnitsOnly() throws {
