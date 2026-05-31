@@ -396,7 +396,9 @@ final class CountryMapScene: SKScene {
             return "Country \(state.countryNumber) conquered."
         }
 
-        return "Select the unlocked city."
+        let unlockedCity = min(state.completedCityCount + 1, KingdomGameState.firstCountryCityCount)
+        let trait = KingdomGameState.defenseTrait(forCityNumber: unlockedCity)
+        return "City \(unlockedCity): \(trait.displayName)"
     }
 
     private func cityNumber(at point: CGPoint) -> Int? {
@@ -432,7 +434,8 @@ final class CountryMapScene: SKScene {
             redraw()
         case .alreadyCompleted:
             state = latestState
-            feedbackText = "City \(cityNumber) is complete."
+            let trait = KingdomGameState.defenseTrait(forCityNumber: cityNumber)
+            feedbackText = "City \(cityNumber) complete. \(trait.displayName)."
             redraw()
         case .countryComplete:
             state = latestState
