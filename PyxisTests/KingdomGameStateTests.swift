@@ -698,6 +698,30 @@ struct KingdomGameStateTests {
         #expect(state.mapStatus(for: 2) == .locked)
     }
 
+    @Test func firstLaunchCanAffordStarterBarracks() {
+        let state = KingdomGameState()
+        let barracksCost = KingdomGameState.buildingBuildCost(for: .barracks)
+
+        #expect(state.gold >= barracksCost)
+    }
+
+    @Test func firstLaunchCanBuildBarracksAndSpawnSoldiers() {
+        var state = KingdomGameState()
+        let barracksCost = KingdomGameState.buildingBuildCost(for: .barracks)
+
+        let result = state.buildBuilding(.barracks, inSlot: 1)
+        guard case .built(let cost, let remainingGold) = result else {
+            Issue.record("Expected barracks to build, got \(result)")
+            return
+        }
+        #expect(cost == barracksCost)
+        #expect(remainingGold == state.gold)
+
+        let level = state.manualSoldierLevel(for: .infantry)
+        #expect(level == 1)
+        #expect(state.manualSpawnableSoldierTypes() == [.infantry])
+    }
+
     @Test func currentCityStartsWithEmptyBuildingGrid() {
         let state = KingdomGameState()
         let cityState = state.cityBattleStateForCurrentCity
@@ -1056,7 +1080,7 @@ struct KingdomGameStateTests {
     }
 
     @Test func liveCombatDamageIsCappedAndConquersCurrentCity() {
-        var state = KingdomGameState(cityRemainingPower: 3)
+        var state = KingdomGameState(gold: 0, cityRemainingPower: 3)
 
         let result = state.applyLiveCombatDamage(9)
 
@@ -1071,7 +1095,7 @@ struct KingdomGameStateTests {
     }
 
     @Test func liveCombatDamageIsRejectedWhenBattleIsPaused() {
-        var state = KingdomGameState(cityRemainingPower: 1)
+        var state = KingdomGameState(gold: 0, cityRemainingPower: 1)
         _ = state.applyLiveCombatDamage(1)
 
         let result = state.applyLiveCombatDamage(5)
@@ -1283,7 +1307,7 @@ struct KingdomGameStateTests {
     @Test func idleCatchUpDoesNothingWhenBattleIsPausedForMap() {
         let start = Date(timeIntervalSinceReferenceDate: 2_500)
         let end = start.addingTimeInterval(80)
-        var state = KingdomGameState(cityRemainingPower: 1)
+        var state = KingdomGameState(gold: 0, cityRemainingPower: 1)
 
         _ = state.applyLiveCombatDamage(1)
         state.enterBackground(at: start)
