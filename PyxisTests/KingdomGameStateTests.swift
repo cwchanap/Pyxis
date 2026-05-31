@@ -290,6 +290,45 @@ struct KingdomGameStateTests {
         #expect(state.cityRemainingPower == 12)
     }
 
+    @Test func decodingOldTwoUnitBuildingSaveStillSucceeds() throws {
+        let data = """
+        {
+          "gold": 100,
+          "cityLevel": 2,
+          "cityRemainingPower": 20,
+          "normalSoldierUpgradeLevel": 4,
+          "countryNumber": 1,
+          "cityNumberInCountry": 2,
+          "completedCityCount": 1,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {
+            "1-2": {
+              "slots": {
+                "1": {
+                  "type": "barracks",
+                  "level": 2,
+                  "spawnTimerElapsed": 3
+                },
+                "2": {
+                  "type": "archeryRange",
+                  "level": 1,
+                  "spawnTimerElapsed": 4
+                }
+              },
+              "lastBuildingProgressResolvedAt": null
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .barracks)
+        #expect(state.cityBattleStateForCurrentCity.building(inSlot: 2)?.type == .archeryRange)
+        #expect(state.normalSoldierUpgradeLevel == 4)
+        #expect(state.currentCityDefenseTrait == .standardWatch)
+    }
+
     @Test func decodingInvalidStageStatusFallsBackWithoutDiscardingRecoverableFields() throws {
         let data = """
         {
