@@ -180,6 +180,18 @@ struct KingdomGameStateTests {
         ) == 1)
     }
 
+    @Test func traitAdjustedRoundsHalfAwayFromZero() {
+        // Level 2: ceil(1.38^1) = 2 → 2 × 1.25 = 2.5 → rounded = 3
+        let basePower = KingdomGameState.soldierAttackPower(for: .infantry, level: 2)
+        #expect(basePower == 2)
+
+        #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .infantry,
+            level: 2,
+            defenseTrait: .arrowTower
+        ) == 3)
+    }
+
     @Test func lockedBuildingsCannotBeBuiltBeforeUnlockCity() {
         var state = KingdomGameState(gold: 500, cityNumberInCountry: 4, completedCityCount: 3)
 
@@ -206,6 +218,26 @@ struct KingdomGameStateTests {
         #expect(state.buildBuilding(.mageTower, inSlot: 2) == .built(cost: 40, remainingGold: 420))
         #expect(state.upgradeBuilding(inSlot: 2) == .upgraded(cost: 30, newLevel: 2, remainingGold: 390))
         #expect(state.manualSoldierLevel(for: .mage) == 2)
+    }
+
+    @Test func manualSoldierLevelIsIsolatedAcrossTypes() {
+        var state = KingdomGameState(gold: 500, cityNumberInCountry: 8, completedCityCount: 7)
+
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 485))
+        #expect(state.upgradeBuilding(inSlot: 1) == .upgraded(cost: 12, newLevel: 2, remainingGold: 473))
+        #expect(state.upgradeBuilding(inSlot: 1) == .upgraded(cost: 20, newLevel: 3, remainingGold: 453))
+
+        // Barracks is level 3, but cavalry/archer/mage/siege have no buildings
+        #expect(state.manualSoldierLevel(for: .infantry) == 3)
+        #expect(state.manualSoldierLevel(for: .cavalry) == nil)
+        #expect(state.manualSoldierLevel(for: .archer) == nil)
+        #expect(state.manualSoldierLevel(for: .mage) == nil)
+        #expect(state.manualSoldierLevel(for: .siege) == nil)
+
+        // Adding a cavalry building doesn't affect infantry level
+        #expect(state.buildBuilding(.stable, inSlot: 2) == .built(cost: 28, remainingGold: 425))
+        #expect(state.manualSoldierLevel(for: .infantry) == 3)
+        #expect(state.manualSoldierLevel(for: .cavalry) == 1)
     }
 
     @Test func currentCityDefenseTraitUsesAuthoredProgression() {

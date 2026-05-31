@@ -134,6 +134,19 @@ struct BattleSceneTests {
         #expect(scene.feedbackTextForTesting == "Build a unit building first.")
     }
 
+    @Test func toggleManualTypeMenuShowsFeedbackWhenNoBuildings() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 100))
+        let scene = makeScene(store: store)
+
+        #expect(scene.manualSpawnableSoldierTypesForTesting.isEmpty)
+        #expect(scene.isManualTypeMenuOpenForTesting == false)
+
+        scene.toggleManualTypeMenuForTesting()
+
+        #expect(scene.isManualTypeMenuOpenForTesting == false)
+        #expect(scene.feedbackTextForTesting == "Build a unit building first.")
+    }
+
     @Test func manualSelectorUsesBuiltCurrentCityUnitsOnly() throws {
         let state = stateWithBuildings(
             [.barracks, .mageTower],

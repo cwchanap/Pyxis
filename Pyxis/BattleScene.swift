@@ -982,6 +982,13 @@ final class BattleScene: SKScene {
             return
         }
 
+        if manualSpawnableSoldierTypes.isEmpty {
+            feedbackText = "Build a unit building first."
+            isManualTypeMenuOpen = false
+            redraw()
+            return
+        }
+
         isManualTypeMenuOpen.toggle()
         redraw()
     }
@@ -1718,6 +1725,14 @@ extension BattleScene {
     func openManualTypeMenuForTesting() {
         isManualTypeMenuOpen = true
         redraw()
+    }
+
+    func toggleManualTypeMenuForTesting() {
+        toggleManualTypeMenu()
+    }
+
+    var isManualTypeMenuOpenForTesting: Bool {
+        isManualTypeMenuOpen
     }
 
     func requestBuildingViewForTesting() {
