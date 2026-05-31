@@ -210,6 +210,7 @@ struct KingdomGameStateTests {
     @Test func manualSoldierLevelRequiresMatchingCurrentCityBuilding() {
         var state = KingdomGameState(gold: 500, cityNumberInCountry: 8, completedCityCount: 7)
 
+        // Non-infantry types still require a building
         #expect(state.manualSoldierLevel(for: .mage) == nil)
 
         #expect(state.buildBuilding(.mageTower, inSlot: 1) == .built(cost: 40, remainingGold: 460))
@@ -227,7 +228,7 @@ struct KingdomGameStateTests {
         #expect(state.upgradeBuilding(inSlot: 1) == .upgraded(cost: 12, newLevel: 2, remainingGold: 473))
         #expect(state.upgradeBuilding(inSlot: 1) == .upgraded(cost: 20, newLevel: 3, remainingGold: 453))
 
-        // Barracks is level 3, but cavalry/archer/mage/siege have no buildings
+        // Barracks is level 3; cavalry/archer/mage/siege have no buildings
         #expect(state.manualSoldierLevel(for: .infantry) == 3)
         #expect(state.manualSoldierLevel(for: .cavalry) == nil)
         #expect(state.manualSoldierLevel(for: .archer) == nil)
@@ -238,6 +239,39 @@ struct KingdomGameStateTests {
         #expect(state.buildBuilding(.stable, inSlot: 2) == .built(cost: 28, remainingGold: 425))
         #expect(state.manualSoldierLevel(for: .infantry) == 3)
         #expect(state.manualSoldierLevel(for: .cavalry) == 1)
+    }
+
+    @Test func infantryAlwaysAvailableAtLevel1WithoutBuilding() {
+        // Infantry is the starter unit — always spawnable at level 1 even
+        // when the current city has no buildings, preventing a soft-lock
+        // after city conquest clears buildings and the player can't afford
+        // a new Barracks.
+        let state = KingdomGameState(gold: 0, cityNumberInCountry: 2, completedCityCount: 1)
+
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+        #expect(state.manualSoldierLevel(for: .infantry) == 1)
+        #expect(state.manualSpawnableSoldierTypes() == [.infantry])
+
+        // Non-infantry types still require buildings
+        #expect(state.manualSoldierLevel(for: .archer) == nil)
+        #expect(state.manualSoldierLevel(for: .cavalry) == nil)
+        #expect(state.manualSoldierLevel(for: .mage) == nil)
+        #expect(state.manualSoldierLevel(for: .siege) == nil)
+    }
+
+    @Test func buildingBarracksUpgradesInfantryBeyondFallbackLevel() {
+        var state = KingdomGameState(gold: 500, cityNumberInCountry: 2, completedCityCount: 1)
+
+        // Base fallback level
+        #expect(state.manualSoldierLevel(for: .infantry) == 1)
+
+        // Building a Barracks still gives level 1 (matches fallback)
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 485))
+        #expect(state.manualSoldierLevel(for: .infantry) == 1)
+
+        // Upgrading the Barracks pushes infantry above the fallback
+        #expect(state.upgradeBuilding(inSlot: 1) == .upgraded(cost: 12, newLevel: 2, remainingGold: 473))
+        #expect(state.manualSoldierLevel(for: .infantry) == 2)
     }
 
     @Test func currentCityDefenseTraitUsesAuthoredProgression() {
@@ -1150,6 +1184,28 @@ struct KingdomGameStateTests {
         #expect(state.cityLevel == 2)
         #expect(state.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
         #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func noSoftLockAfterConquestWithInsufficientGoldForBarracks() {
+        // Regression: after spending all starting gold on a Barracks, conquering
+        // city 1 awards only 8g — not enough for another Barracks (15g). The
+        // player must still be able to spawn infantry on city 2.
+        var state = KingdomGameState(gold: 15, cityRemainingPower: 1)
+        #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 0))
+
+        _ = state.applyLiveCombatDamage(1)
+        #expect(state.gold == 8)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+
+        _ = state.startCityFromMap(2)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+
+        // Can't afford Barracks, but infantry is still spawnable
+        #expect(state.gold < KingdomGameState.buildingBuildCost(for: .barracks))
+        #expect(state.manualSoldierLevel(for: .infantry) == 1)
+        #expect(state.manualSpawnableSoldierTypes() == [.infantry])
     }
 
     @Test func startingCurrentActiveCityDoesNotResetHP() {
