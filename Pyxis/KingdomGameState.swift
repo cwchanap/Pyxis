@@ -125,7 +125,7 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     init(
-        gold: Int = 0,
+        gold: Int = 15,
         cityLevel: Int = 1,
         cityRemainingPower: Int? = nil,
         normalSoldierUpgradeLevel: Int = 1,
