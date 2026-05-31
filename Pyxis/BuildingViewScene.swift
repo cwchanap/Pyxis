@@ -12,14 +12,18 @@ protocol BuildingViewSceneRouting: AnyObject {
 
 final class BuildingViewScene: SKScene {
     private enum ButtonName {
-        static let buildBarracks = "buildBarracksButton"
-        static let buildArchery = "buildArcheryButton"
         static let upgrade = "upgradeBuildingButton"
         static let battle = "buildingViewBattleButton"
     }
 
     private enum SlotName {
         static let prefix = "buildingSlot-"
+    }
+
+    private struct BuildButtonBundle {
+        let button: SKNode
+        let background: SKShapeNode
+        let label: SKLabelNode
     }
 
     private let store: KingdomGameStore
@@ -36,12 +40,6 @@ final class BuildingViewScene: SKScene {
     private let goldLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let feedbackLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let gridLayer = SKNode()
-    private let buildBarracksButton = SKNode()
-    private let buildBarracksBackground = SKShapeNode()
-    private let buildBarracksLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
-    private let buildArcheryButton = SKNode()
-    private let buildArcheryBackground = SKShapeNode()
-    private let buildArcheryLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let upgradeButton = SKNode()
     private let upgradeBackground = SKShapeNode()
     private let upgradeLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
@@ -49,6 +47,7 @@ final class BuildingViewScene: SKScene {
     private let battleBackground = SKShapeNode()
     private let battleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
 
+    private var buildButtonBundles: [BuildingType: BuildButtonBundle] = [:]
     private var slotNodes: [Int: SKShapeNode] = [:]
     private var slotLabels: [Int: SKLabelNode] = [:]
     private var layoutFrames = LayoutFrames()
@@ -101,11 +100,14 @@ final class BuildingViewScene: SKScene {
             return
         }
 
-        switch buttonName(at: point) {
-        case ButtonName.buildBarracks:
-            buildSelectedSlot(.barracks)
-        case ButtonName.buildArchery:
-            buildSelectedSlot(.archeryRange)
+        let tappedButtonName = buttonName(at: point)
+        if let tappedButtonName,
+           let type = buildingType(forButtonName: tappedButtonName) {
+            buildSelectedSlot(type)
+            return
+        }
+
+        switch tappedButtonName {
         case ButtonName.upgrade:
             upgradeSelectedSlot()
         case ButtonName.battle:
@@ -128,20 +130,21 @@ final class BuildingViewScene: SKScene {
         configureLabel(goldLabel, fontSize: 18, color: GameUITheme.Color.gold)
         configureLabel(feedbackLabel, fontSize: 15, color: GameUITheme.Color.textSecondary)
 
-        configureButton(
-            buildBarracksButton,
-            background: buildBarracksBackground,
-            label: buildBarracksLabel,
-            name: ButtonName.buildBarracks,
-            color: GameUITheme.Color.spawn
-        )
-        configureButton(
-            buildArcheryButton,
-            background: buildArcheryBackground,
-            label: buildArcheryLabel,
-            name: ButtonName.buildArchery,
-            color: SKColor(red: 0.12, green: 0.55, blue: 0.48, alpha: 1.0)
-        )
+        for type in BuildingType.allCases {
+            let bundle = BuildButtonBundle(
+                button: SKNode(),
+                background: SKShapeNode(),
+                label: SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            )
+            configureButton(
+                bundle.button,
+                background: bundle.background,
+                label: bundle.label,
+                name: buttonName(for: type),
+                color: buildColor(for: type)
+            )
+            buildButtonBundles[type] = bundle
+        }
         configureButton(
             upgradeButton,
             background: upgradeBackground,
@@ -161,17 +164,15 @@ final class BuildingViewScene: SKScene {
             titleLabel,
             goldLabel,
             feedbackLabel,
-            buildBarracksButton,
-            buildArcheryButton,
             upgradeButton,
             battleButton
         ].forEach { $0.zPosition = GameUITheme.Z.hud + 1 }
+        buildButtonBundles.values.forEach { $0.button.zPosition = GameUITheme.Z.hud + 1 }
 
         addChild(titleLabel)
         addChild(goldLabel)
         addChild(feedbackLabel)
-        addChild(buildBarracksButton)
-        addChild(buildArcheryButton)
+        BuildingType.allCases.compactMap { buildButtonBundles[$0]?.button }.forEach(addChild)
         addChild(upgradeButton)
         addChild(battleButton)
 
@@ -224,6 +225,29 @@ final class BuildingViewScene: SKScene {
         button.addChild(label)
     }
 
+    private func buttonName(for type: BuildingType) -> String {
+        "build-\(type.rawValue)-button"
+    }
+
+    private func buildingType(forButtonName name: String) -> BuildingType? {
+        BuildingType.allCases.first { buttonName(for: $0) == name }
+    }
+
+    private func buildColor(for type: BuildingType) -> SKColor {
+        switch type {
+        case .barracks:
+            return GameUITheme.Color.spawn
+        case .archeryRange:
+            return SKColor(red: 0.12, green: 0.55, blue: 0.48, alpha: 1.0)
+        case .stable:
+            return SKColor(red: 0.44, green: 0.32, blue: 0.18, alpha: 1.0)
+        case .mageTower:
+            return SKColor(red: 0.34, green: 0.24, blue: 0.62, alpha: 1.0)
+        case .siegeWorkshop:
+            return SKColor(red: 0.50, green: 0.28, blue: 0.18, alpha: 1.0)
+        }
+    }
+
     private func layoutInterface() {
         guard didBuildInterface else {
             return
@@ -236,11 +260,15 @@ final class BuildingViewScene: SKScene {
         let horizontalMargin = max(14, min(22, size.width * 0.05))
         let contentWidth = min(size.width - horizontalMargin * 2, 560)
         let compactHeight = size.height < 620
+        let veryShortLandscape = size.width > size.height && size.height <= 340
 
-        let titleHeight: CGFloat = compactHeight ? 56 : 68
-        let actionHeight: CGFloat = compactHeight ? 128 : 148
-        let titleCenterY = size.height - max(safeTop + 8, compactHeight ? 12 : 14) - titleHeight / 2
-        let actionCenterY = max(safeBottom + 8, compactHeight ? 10 : 14) + actionHeight / 2
+        let titleHeight: CGFloat = veryShortLandscape ? 48 : (compactHeight ? 56 : 68)
+        let actionHeight: CGFloat = veryShortLandscape ? 132 : (compactHeight ? 158 : 176)
+        let topMargin = veryShortLandscape ? max(safeTop + 4, 8) : max(safeTop + 8, compactHeight ? 12 : 14)
+        let bottomMargin = veryShortLandscape ? max(safeBottom + 4, 8) : max(safeBottom + 8, compactHeight ? 10 : 14)
+        let panelGridGap: CGFloat = veryShortLandscape ? 8 : 18
+        let titleCenterY = size.height - topMargin - titleHeight / 2
+        let actionCenterY = bottomMargin + actionHeight / 2
 
         titlePanel.update(size: CGSize(width: contentWidth, height: titleHeight))
         titlePanel.position = CGPoint(x: size.width / 2, y: titleCenterY)
@@ -251,10 +279,10 @@ final class BuildingViewScene: SKScene {
         goldLabel.position = CGPoint(x: size.width / 2, y: titleCenterY - titleHeight * 0.22)
         feedbackLabel.position = CGPoint(x: size.width / 2, y: actionCenterY + actionHeight * 0.33)
 
-        let gridTop = titleCenterY - titleHeight / 2 - 18
-        let gridBottom = actionCenterY + actionHeight / 2 + 18
+        let gridTop = titleCenterY - titleHeight / 2 - panelGridGap
+        let gridBottom = actionCenterY + actionHeight / 2 + panelGridGap
         let gridHeight = max(0, gridTop - gridBottom)
-        let slotGap: CGFloat = compactHeight ? 6 : 8
+        let slotGap: CGFloat = veryShortLandscape ? 4 : (compactHeight ? 6 : 8)
         let slotSize = max(12, min((contentWidth - slotGap * 4) / 5, (gridHeight - slotGap * 4) / 5))
         let gridWidth = slotSize * 5 + slotGap * 4
         let startX = (size.width - gridWidth) / 2
@@ -282,67 +310,74 @@ final class BuildingViewScene: SKScene {
             fitLabel(slotLabels[slot], maxWidth: slotSize - 8)
         }
 
-        let buttonHeight: CGFloat = compactHeight ? 38 : 42
-        let buttonGap: CGFloat = 8
-        let buttonWidth = (contentWidth - buttonGap) / 2
-        let leftX = size.width / 2 - buttonWidth / 2 - buttonGap / 2
-        let rightX = size.width / 2 + buttonWidth / 2 + buttonGap / 2
-        let topButtonY = actionCenterY + actionHeight * 0.04
-        let bottomButtonY = actionCenterY - actionHeight * 0.28
+        let buttonHeight: CGFloat = veryShortLandscape ? 24 : (compactHeight ? 30 : 34)
+        let buttonGap: CGFloat = veryShortLandscape ? 7 : (compactHeight ? 7 : 8)
+        let buttonAreaWidth = contentWidth - 28
+        let buildButtonWidth = (buttonAreaWidth - buttonGap * 2) / 3
+        let buildStartX = size.width / 2 - buttonAreaWidth / 2 + buildButtonWidth / 2
+        let buildTopY = actionCenterY + actionHeight * 0.13
 
-        layoutButton(
-            buildBarracksButton,
-            background: buildBarracksBackground,
-            size: CGSize(width: buttonWidth, height: buttonHeight),
-            position: CGPoint(x: leftX, y: topButtonY)
-        )
-        layoutButton(
-            buildArcheryButton,
-            background: buildArcheryBackground,
-            size: CGSize(width: buttonWidth, height: buttonHeight),
-            position: CGPoint(x: rightX, y: topButtonY)
-        )
+        for (index, type) in BuildingType.allCases.enumerated() {
+            guard let bundle = buildButtonBundles[type] else {
+                continue
+            }
+
+            let row = index / 3
+            let column = index % 3
+            let x = buildStartX + CGFloat(column) * (buildButtonWidth + buttonGap)
+            let y = buildTopY - CGFloat(row) * (buttonHeight + buttonGap)
+            layoutButton(
+                bundle.button,
+                background: bundle.background,
+                size: CGSize(width: buildButtonWidth, height: buttonHeight),
+                position: CGPoint(x: x, y: y)
+            )
+        }
+
+        let bottomButtonWidth = (buttonAreaWidth - buttonGap) / 2
+        let leftX = size.width / 2 - bottomButtonWidth / 2 - buttonGap / 2
+        let rightX = size.width / 2 + bottomButtonWidth / 2 + buttonGap / 2
+        let bottomButtonY = actionCenterY - actionHeight * 0.34
         layoutButton(
             upgradeButton,
             background: upgradeBackground,
-            size: CGSize(width: buttonWidth, height: buttonHeight),
+            size: CGSize(width: bottomButtonWidth, height: buttonHeight),
             position: CGPoint(x: leftX, y: bottomButtonY)
         )
         layoutButton(
             battleButton,
             background: battleBackground,
-            size: CGSize(width: buttonWidth, height: buttonHeight),
+            size: CGSize(width: bottomButtonWidth, height: buttonHeight),
             position: CGPoint(x: rightX, y: bottomButtonY)
         )
 
         fitLabel(titleLabel, maxWidth: contentWidth - 28)
         fitLabel(goldLabel, maxWidth: contentWidth - 28)
         fitLabel(feedbackLabel, maxWidth: contentWidth - 28)
-        fitLabel(buildBarracksLabel, maxWidth: buttonWidth - 18)
-        fitLabel(buildArcheryLabel, maxWidth: buttonWidth - 18)
-        fitLabel(upgradeLabel, maxWidth: buttonWidth - 18)
-        fitLabel(battleLabel, maxWidth: buttonWidth - 18)
+        buildButtonBundles.values.forEach { fitLabel($0.label, maxWidth: buildButtonWidth - 12) }
+        fitLabel(upgradeLabel, maxWidth: bottomButtonWidth - 18)
+        fitLabel(battleLabel, maxWidth: bottomButtonWidth - 18)
 
         layoutFrames = LayoutFrames(
             scene: CGRect(origin: .zero, size: size),
             titlePanel: sceneFrame(for: titlePanel) ?? .zero,
             actionPanel: sceneFrame(for: actionPanel) ?? .zero,
             grid: gridFrameForSlots(),
-            buildBarracksButton: sceneFrame(for: buildBarracksButton) ?? .zero,
-            buildArcheryButton: sceneFrame(for: buildArcheryButton) ?? .zero,
+            buildButtonFrames: buildButtonFrameMap(),
             upgradeButton: sceneFrame(for: upgradeButton) ?? .zero,
             battleButton: sceneFrame(for: battleButton) ?? .zero
         )
     }
 
     private func resetFontSizes() {
-        titleLabel.fontSize = 26
-        goldLabel.fontSize = 18
-        feedbackLabel.fontSize = 15
-        buildBarracksLabel.fontSize = 15
-        buildArcheryLabel.fontSize = 15
-        upgradeLabel.fontSize = 15
-        battleLabel.fontSize = 15
+        let veryShortLandscape = size.width > size.height && size.height <= 340
+
+        titleLabel.fontSize = veryShortLandscape ? 22 : 26
+        goldLabel.fontSize = veryShortLandscape ? 15 : 18
+        feedbackLabel.fontSize = veryShortLandscape ? 13 : 15
+        buildButtonBundles.values.forEach { $0.label.fontSize = veryShortLandscape ? 13 : 15 }
+        upgradeLabel.fontSize = veryShortLandscape ? 13 : 15
+        battleLabel.fontSize = veryShortLandscape ? 13 : 15
     }
 
     private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
@@ -359,9 +394,22 @@ final class BuildingViewScene: SKScene {
         titleLabel.text = "City Lots"
         goldLabel.text = "Gold: \(state.gold)"
         feedbackLabel.text = feedbackText
-        buildBarracksLabel.text = "Build Barracks"
-        buildArcheryLabel.text = "Build Archery"
         battleLabel.text = "Battle"
+
+        for type in BuildingType.allCases {
+            guard let bundle = buildButtonBundles[type] else {
+                continue
+            }
+
+            if state.isBuildingTypeUnlocked(type) {
+                bundle.label.text = "Build \(type.shortDisplayName)"
+            } else {
+                bundle.label.text = "\(type.shortDisplayName) City \(KingdomGameState.unlockCity(for: type))"
+            }
+            bundle.background.fillColor = canBuild(type)
+                ? buildColor(for: type)
+                : GameUITheme.Color.upgradeUnavailable
+        }
 
         let selectedBuilding = selectedSlot.flatMap { state.cityBattleStateForCurrentCity.building(inSlot: $0) }
         if let selectedBuilding {
@@ -370,10 +418,6 @@ final class BuildingViewScene: SKScene {
             upgradeLabel.text = "Upgrade"
         }
 
-        buildBarracksBackground.fillColor = canBuild(.barracks) ? GameUITheme.Color.spawn : GameUITheme.Color.upgradeUnavailable
-        buildArcheryBackground.fillColor = canBuild(.archeryRange)
-            ? SKColor(red: 0.12, green: 0.55, blue: 0.48, alpha: 1.0)
-            : GameUITheme.Color.upgradeUnavailable
         upgradeBackground.fillColor = canUpgradeSelectedSlot ? GameUITheme.Color.upgradeAvailable : GameUITheme.Color.upgradeUnavailable
 
         for slot in CityBattleState.slotRange {
@@ -390,15 +434,7 @@ final class BuildingViewScene: SKScene {
 
         if let building = state.cityBattleStateForCurrentCity.building(inSlot: slot) {
             label.text = "\(building.type.displayName) Lv \(building.level)"
-            switch building.type {
-            case .barracks:
-                node.fillColor = SKColor(red: 0.16, green: 0.36, blue: 0.62, alpha: 0.95)
-            case .archeryRange:
-                node.fillColor = SKColor(red: 0.16, green: 0.46, blue: 0.36, alpha: 0.95)
-            case .stable, .mageTower, .siegeWorkshop:
-                // Temporary neutral handling until the roster UI task assigns distinct presentation.
-                node.fillColor = SKColor(red: 0.33, green: 0.28, blue: 0.46, alpha: 0.95)
-            }
+            node.fillColor = buildColor(for: building.type)
         } else {
             label.text = "Lot \(slot)"
             node.fillColor = SKColor(red: 0.15, green: 0.20, blue: 0.21, alpha: 0.94)
@@ -414,6 +450,10 @@ final class BuildingViewScene: SKScene {
         guard state.stageStatus == .battleActive,
               let selectedSlot,
               state.cityBattleStateForCurrentCity.building(inSlot: selectedSlot) == nil else {
+            return false
+        }
+
+        guard state.isBuildingTypeUnlocked(type) else {
             return false
         }
 
@@ -581,11 +621,12 @@ final class BuildingViewScene: SKScene {
 
     private func buttonName(at point: CGPoint) -> String? {
         for node in nodes(at: point) {
-            switch node.name {
-            case ButtonName.buildBarracks, ButtonName.buildArchery, ButtonName.upgrade, ButtonName.battle:
-                return node.name
-            default:
+            guard let name = node.name else {
                 continue
+            }
+
+            if buildingType(forButtonName: name) != nil || name == ButtonName.upgrade || name == ButtonName.battle {
+                return name
             }
         }
 
@@ -607,10 +648,17 @@ final class BuildingViewScene: SKScene {
         var titlePanel = CGRect.zero
         var actionPanel = CGRect.zero
         var grid = CGRect.zero
-        var buildBarracksButton = CGRect.zero
-        var buildArcheryButton = CGRect.zero
+        var buildButtonFrames: [BuildingType: CGRect] = [:]
         var upgradeButton = CGRect.zero
         var battleButton = CGRect.zero
+    }
+
+    private func buildButtonFrameMap() -> [BuildingType: CGRect] {
+        var frames: [BuildingType: CGRect] = [:]
+        for (type, bundle) in buildButtonBundles {
+            frames[type] = sceneFrame(for: bundle.button) ?? .zero
+        }
+        return frames
     }
 
     private func gridFrameForSlots() -> CGRect {
@@ -651,8 +699,7 @@ extension BuildingViewScene {
         let titlePanel: CGRect
         let actionPanel: CGRect
         let grid: CGRect
-        let buildBarracksButton: CGRect
-        let buildArcheryButton: CGRect
+        let buildButtonFrames: [BuildingType: CGRect]
         let upgradeButton: CGRect
         let battleButton: CGRect
     }
@@ -663,8 +710,7 @@ extension BuildingViewScene {
             titlePanel: layoutFrames.titlePanel,
             actionPanel: layoutFrames.actionPanel,
             grid: layoutFrames.grid,
-            buildBarracksButton: layoutFrames.buildBarracksButton,
-            buildArcheryButton: layoutFrames.buildArcheryButton,
+            buildButtonFrames: layoutFrames.buildButtonFrames,
             upgradeButton: layoutFrames.upgradeButton,
             battleButton: layoutFrames.battleButton
         )
@@ -690,20 +736,12 @@ extension BuildingViewScene {
         feedbackText
     }
 
-    var buildBarracksTextForTesting: String? {
-        buildBarracksLabel.text
+    var buildButtonTextsForTesting: [String] {
+        BuildingType.allCases.compactMap { buildButtonBundles[$0]?.label.text }
     }
 
-    var buildArcheryTextForTesting: String? {
-        buildArcheryLabel.text
-    }
-
-    var canBuildBarracksForTesting: Bool {
-        canBuild(.barracks)
-    }
-
-    var canBuildArcheryRangeForTesting: Bool {
-        canBuild(.archeryRange)
+    func canBuildForTesting(_ type: BuildingType) -> Bool {
+        canBuild(type)
     }
 
     var canUpgradeSelectedSlotForTesting: Bool {
@@ -728,6 +766,10 @@ extension BuildingViewScene {
 
     func slotTextForTesting(_ slot: Int) -> String? {
         slotLabels[slot]?.text
+    }
+
+    func slotFillColorForTesting(_ slot: Int) -> SKColor? {
+        slotNodes[slot]?.fillColor
     }
 }
 #endif

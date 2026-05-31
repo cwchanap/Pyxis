@@ -19,17 +19,27 @@ struct BuildingViewSceneTests {
         #expect(scene.selectedSlotForTesting == nil)
     }
 
-    @Test func selectingEmptySlotExposesBuildActions() throws {
-        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+    @Test func selectingEmptySlotExposesUnlockedAndLockedBuildActions() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 500, cityNumberInCountry: 5, completedCityCount: 4)
+        )
         let scene = makeScene(store: store, router: RouteSpy())
 
         scene.selectSlotForTesting(3)
 
         #expect(scene.selectedSlotForTesting == 3)
-        #expect(scene.buildBarracksTextForTesting == "Build Barracks")
-        #expect(scene.buildArcheryTextForTesting == "Build Archery")
-        #expect(scene.canBuildBarracksForTesting)
-        #expect(scene.canBuildArcheryRangeForTesting)
+        #expect(scene.buildButtonTextsForTesting == [
+            "Build Barracks",
+            "Build Archery",
+            "Build Stable",
+            "Mage City 8",
+            "Siege City 11"
+        ])
+        #expect(scene.canBuildForTesting(.barracks))
+        #expect(scene.canBuildForTesting(.archeryRange))
+        #expect(scene.canBuildForTesting(.stable))
+        #expect(!scene.canBuildForTesting(.mageTower))
+        #expect(!scene.canBuildForTesting(.siegeWorkshop))
         #expect(!scene.canUpgradeSelectedSlotForTesting)
     }
 
@@ -39,8 +49,8 @@ struct BuildingViewSceneTests {
 
         scene.selectSlotForTesting(3)
 
-        #expect(!scene.canBuildBarracksForTesting)
-        #expect(!scene.canBuildArcheryRangeForTesting)
+        #expect(!scene.canBuildForTesting(.barracks))
+        #expect(!scene.canBuildForTesting(.archeryRange))
     }
 
     @Test func upgradeAffordanceReturnsFalseWhenGoldIsInsufficient() throws {
@@ -75,13 +85,76 @@ struct BuildingViewSceneTests {
         scene.buildSelectedSlotForTesting(.barracks)
         scene.selectSlotForTesting(4)
 
-        #expect(!scene.canBuildBarracksForTesting)
-        #expect(!scene.canBuildArcheryRangeForTesting)
+        #expect(!scene.canBuildForTesting(.barracks))
+        #expect(!scene.canBuildForTesting(.archeryRange))
         #expect(scene.canUpgradeSelectedSlotForTesting)
 
         scene.upgradeSelectedSlotForTesting()
 
         #expect(store.load().cityBattleStateForCurrentCity.building(inSlot: 4)?.level == 2)
+    }
+
+    @Test func lockedBuildActionShowsUnlockFeedback() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 500, cityNumberInCountry: 4, completedCityCount: 3)
+        )
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(3)
+        scene.buildSelectedSlotForTesting(.stable)
+
+        #expect(scene.feedbackTextForTesting == "Stable unlocks at City 5.")
+        #expect(store.load().cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+    }
+
+    @Test func newBuildingTypesUseReadableSlotLabelsAndColors() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 500, cityNumberInCountry: 11, completedCityCount: 10)
+        )
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(1)
+        scene.buildSelectedSlotForTesting(.stable)
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.mageTower)
+        scene.selectSlotForTesting(3)
+        scene.buildSelectedSlotForTesting(.siegeWorkshop)
+
+        #expect(scene.slotTextForTesting(1)?.contains("Stable") == true)
+        #expect(scene.slotTextForTesting(2)?.contains("Mage Tower") == true)
+        #expect(scene.slotTextForTesting(3)?.contains("Siege Workshop") == true)
+
+        let stableColor = try #require(scene.slotFillColorForTesting(1))
+        let mageColor = try #require(scene.slotFillColorForTesting(2))
+        let siegeColor = try #require(scene.slotFillColorForTesting(3))
+        let stableComponents = try #require(rgbaComponents(of: stableColor))
+        let mageComponents = try #require(rgbaComponents(of: mageColor))
+        let siegeComponents = try #require(rgbaComponents(of: siegeColor))
+        let expectedStableComponents = try #require(rgbaComponents(of: expectedBuildColor(for: .stable)))
+        let expectedMageComponents = try #require(rgbaComponents(of: expectedBuildColor(for: .mageTower)))
+        let expectedSiegeComponents = try #require(rgbaComponents(of: expectedBuildColor(for: .siegeWorkshop)))
+
+        #expect(colorComponents(stableComponents, match: expectedStableComponents))
+        #expect(colorComponents(mageComponents, match: expectedMageComponents))
+        #expect(colorComponents(siegeComponents, match: expectedSiegeComponents))
+        #expect(stableComponents != mageComponents)
+        #expect(stableComponents != siegeComponents)
+        #expect(mageComponents != siegeComponents)
+    }
+
+    @Test func successfulBuildActionsPersistEveryBuildingType() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 500, cityNumberInCountry: 11, completedCityCount: 10)
+        )
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        for (index, type) in BuildingType.allCases.enumerated() {
+            let slot = index + 1
+            scene.selectSlotForTesting(slot)
+            scene.buildSelectedSlotForTesting(type)
+
+            #expect(store.load().cityBattleStateForCurrentCity.building(inSlot: slot)?.type == type)
+        }
     }
 
     @Test func typeCapAndInsufficientGoldShowFeedback() throws {
@@ -177,10 +250,54 @@ struct BuildingViewSceneTests {
         #expect(frames.scene.contains(frames.grid))
         #expect(frames.grid.maxY < frames.titlePanel.minY)
         #expect(frames.grid.minY > frames.actionPanel.maxY)
-        #expect(!frames.grid.intersects(frames.buildBarracksButton))
-        #expect(!frames.grid.intersects(frames.buildArcheryButton))
+        let buildFrames = try BuildingType.allCases.map { type in
+            try #require(frames.buildButtonFrames[type])
+        }
+        for frame in buildFrames {
+            #expect(!frames.grid.intersects(frame))
+            #expect(!frame.intersects(frames.upgradeButton))
+            #expect(!frame.intersects(frames.battleButton))
+        }
+        for firstIndex in buildFrames.indices {
+            for secondIndex in buildFrames.indices where secondIndex > firstIndex {
+                #expect(!buildFrames[firstIndex].intersects(buildFrames[secondIndex]))
+            }
+        }
         #expect(!frames.grid.intersects(frames.upgradeButton))
         #expect(!frames.grid.intersects(frames.battleButton))
+        #expect(!frames.upgradeButton.intersects(frames.battleButton))
+    }
+
+    @Test func shortLandscapeLayoutKeepsGridBetweenPanelsAndAwayFromButtons() throws {
+        let size = CGSize(width: 568, height: 320)
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = try #require(scene.buildingLayoutFramesForTesting)
+
+        #expect(frames.scene.contains(frames.titlePanel))
+        #expect(frames.scene.contains(frames.actionPanel))
+        #expect(frames.scene.contains(frames.grid))
+        #expect(frames.grid.maxY < frames.titlePanel.minY)
+        #expect(frames.grid.minY > frames.actionPanel.maxY)
+        let minimumControlGap: CGFloat = 2
+        let buildFrames = try BuildingType.allCases.map { type in
+            try #require(frames.buildButtonFrames[type])
+        }
+        for frame in buildFrames {
+            #expect(!frames.grid.intersects(frame))
+            #expect(!frame.intersects(frames.upgradeButton))
+            #expect(!frame.intersects(frames.battleButton))
+            #expect(frame.minY - frames.upgradeButton.maxY > minimumControlGap)
+            #expect(frame.minY - frames.battleButton.maxY > minimumControlGap)
+        }
+        for firstIndex in buildFrames.indices {
+            for secondIndex in buildFrames.indices where secondIndex > firstIndex {
+                #expect(!buildFrames[firstIndex].intersects(buildFrames[secondIndex]))
+            }
+        }
+        #expect(!frames.grid.intersects(frames.upgradeButton))
+        #expect(!frames.grid.intersects(frames.battleButton))
+        #expect(!frames.upgradeButton.intersects(frames.battleButton))
     }
 
     @Test func foregroundReArmsIdleTrackingWhenBattleRemainsActive() throws {
@@ -262,6 +379,42 @@ struct BuildingViewSceneTests {
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(initialState)
         return store
+    }
+
+    private func expectedBuildColor(for type: BuildingType) -> SKColor {
+        switch type {
+        case .barracks:
+            return GameUITheme.Color.spawn
+        case .archeryRange:
+            return SKColor(red: 0.12, green: 0.55, blue: 0.48, alpha: 1.0)
+        case .stable:
+            return SKColor(red: 0.44, green: 0.32, blue: 0.18, alpha: 1.0)
+        case .mageTower:
+            return SKColor(red: 0.34, green: 0.24, blue: 0.62, alpha: 1.0)
+        case .siegeWorkshop:
+            return SKColor(red: 0.50, green: 0.28, blue: 0.18, alpha: 1.0)
+        }
+    }
+
+    private func rgbaComponents(of color: SKColor) -> [CGFloat]? {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+
+        return [red, green, blue, alpha]
+    }
+
+    private func colorComponents(_ lhs: [CGFloat], match rhs: [CGFloat]) -> Bool {
+        guard lhs.count == rhs.count else {
+            return false
+        }
+
+        return zip(lhs, rhs).allSatisfy { abs($0 - $1) < 0.0001 }
     }
 
     private final class RouteSpy: BuildingViewSceneRouting {
