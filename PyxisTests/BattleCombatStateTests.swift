@@ -55,6 +55,95 @@ struct BattleCombatStateTests {
         #expect(infantrySoldier.attackRange < archerSoldier.attackRange)
     }
 
+    @Test func expandedSoldierTypesUseDistinctCombatStats() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+
+        let infantry = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 2)
+        let archer = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 2)
+        let cavalry = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 2)
+        let mage = combat.spawnSoldier(type: .mage, source: .manual, level: 1, attackPower: 2)
+        let siege = combat.spawnSoldier(type: .siege, source: .manual, level: 1, attackPower: 2)
+
+        let infantrySoldier = try #require(combat.soldier(id: infantry))
+        let archerSoldier = try #require(combat.soldier(id: archer))
+        let cavalrySoldier = try #require(combat.soldier(id: cavalry))
+        let mageSoldier = try #require(combat.soldier(id: mage))
+        let siegeSoldier = try #require(combat.soldier(id: siege))
+
+        #expect(infantrySoldier.maxHP > archerSoldier.maxHP)
+        #expect(cavalrySoldier.movementSpeed > infantrySoldier.movementSpeed)
+        #expect(mageSoldier.attackRange > infantrySoldier.attackRange)
+        #expect(siegeSoldier.attackPower == 2)
+        #expect(siegeSoldier.attackSpeed < infantrySoldier.attackSpeed)
+        #expect(siegeSoldier.movementSpeed < infantrySoldier.movementSpeed)
+    }
+
+    @Test func expandedSoldierTypesMatchLiveCombatStats() throws {
+        let expectedStats: [
+            (
+                type: SoldierType,
+                maxHP: Int,
+                attackRange: Double,
+                attackSpeed: Double,
+                movementSpeed: Double
+            )
+        ] = [
+            (.infantry, 10, 0.12, 1.0, 0.45),
+            (.archer, 7, 0.264, 1.0, 0.45),
+            (.cavalry, 9, 0.12, 1.15, 0.6525),
+            (.mage, 7, 0.24, 0.85, 0.405),
+            (.siege, 14, 0.18, 0.55, 0.2475)
+        ]
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+
+        for expected in expectedStats {
+            let id = combat.spawnSoldier(type: expected.type, source: .manual, level: 1, attackPower: 2)
+            let soldier = try #require(combat.soldier(id: id))
+
+            #expect(soldier.maxHP == expected.maxHP)
+            #expect(isApproximatelyEqual(soldier.attackRange, expected.attackRange))
+            #expect(isApproximatelyEqual(soldier.attackSpeed, expected.attackSpeed))
+            #expect(isApproximatelyEqual(soldier.movementSpeed, expected.movementSpeed))
+        }
+    }
+
+    @Test func attackSpeedClampsAfterApplyingSoldierTypeMultiplier() throws {
+        let lowAttackSpeedConfiguration = BattleCombatState.Configuration(
+            soldierMaxHP: 10,
+            soldierDefense: 1,
+            soldierAttackSpeed: 0.05,
+            soldierAttackRange: 0.12,
+            soldierMovementSpeed: 0.45,
+            towerDamage: 2,
+            towerAttackSpeed: 0.8,
+            towerAttackRange: 0.55,
+            maxDeltaTime: 0.25
+        )
+        let soldierTypes: [SoldierType] = [.infantry, .archer, .cavalry, .mage, .siege]
+        var combat = BattleCombatState(configuration: lowAttackSpeedConfiguration)
+
+        for type in soldierTypes {
+            let id = combat.spawnSoldier(type: type, source: .manual, level: 1, attackPower: 2)
+            let soldier = try #require(combat.soldier(id: id))
+
+            #expect(soldier.attackSpeed == 0.1)
+        }
+    }
+
+    @Test func newSoldierTypeLevelsIncreaseHP() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+
+        let low = combat.spawnSoldier(type: .siege, source: .building, level: 1, attackPower: 1)
+        let high = combat.spawnSoldier(type: .siege, source: .building, level: 4, attackPower: 4)
+
+        let lowSoldier = try #require(combat.soldier(id: low))
+        let highSoldier = try #require(combat.soldier(id: high))
+
+        #expect(highSoldier.maxHP > lowSoldier.maxHP)
+        #expect(highSoldier.level == 4)
+        #expect(highSoldier.attackPower == 4)
+    }
+
     @Test func soldierLevelIncreasesHPAndCarriesSpawnSource() throws {
         var combat = BattleCombatState(configuration: .live(cityLevel: 1))
 
@@ -345,5 +434,13 @@ struct BattleCombatStateTests {
         _ = combat.tick(deltaTime: 10.0, cityRemainingHP: 20)
 
         #expect(try #require(combat.soldier(id: id)).position == 0.25)
+    }
+
+    private func isApproximatelyEqual(
+        _ lhs: Double,
+        _ rhs: Double,
+        tolerance: Double = 0.000_001
+    ) -> Bool {
+        abs(lhs - rhs) <= tolerance
     }
 }

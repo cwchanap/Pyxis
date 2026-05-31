@@ -121,9 +121,9 @@ struct BattleCombatState: Equatable {
                 currentHP: maxHP,
                 defense: max(0, configuration.soldierDefense),
                 attackPower: max(1, attackPower),
-                attackSpeed: max(0.1, configuration.soldierAttackSpeed),
+                attackSpeed: attackSpeed(for: type),
                 attackRange: attackRange(for: type),
-                movementSpeed: max(0, configuration.soldierMovementSpeed),
+                movementSpeed: movementSpeed(for: type),
                 position: 0,
                 attackCooldownRemaining: 0
             )
@@ -194,29 +194,68 @@ struct BattleCombatState: Equatable {
     }
 
     private func maxHP(for type: SoldierType, level: Int) -> Int {
-        let baseHP: Double
+        let baseConfigurationHP = Double(max(1, configuration.soldierMaxHP))
+        let multiplier: Double
         switch type {
         case .infantry:
-            baseHP = Double(max(1, configuration.soldierMaxHP))
+            multiplier = 1.0
         case .archer:
-            baseHP = Double(max(1, configuration.soldierMaxHP)) * 0.7
-        case .cavalry, .mage, .siege:
-            // Temporary neutral handling until the roster balance task assigns distinct values.
-            baseHP = Double(max(1, configuration.soldierMaxHP))
+            multiplier = 0.7
+        case .cavalry:
+            multiplier = 0.9
+        case .mage:
+            multiplier = 0.65
+        case .siege:
+            multiplier = 1.35
         }
 
+        let baseHP = baseConfigurationHP * multiplier
         return max(1, Int((baseHP * pow(1.25, Double(max(1, level) - 1))).rounded()))
     }
 
     private func attackRange(for type: SoldierType) -> Double {
+        let baseRange = min(max(0, configuration.soldierAttackRange), 1)
         switch type {
         case .infantry:
-            return min(max(0, configuration.soldierAttackRange), 1)
+            return baseRange
         case .archer:
-            return min(max(0, configuration.soldierAttackRange * 2.2), 1)
-        case .cavalry, .mage, .siege:
-            // Temporary neutral handling until the roster balance task assigns distinct values.
-            return min(max(0, configuration.soldierAttackRange), 1)
+            return min(baseRange * 2.2, 1)
+        case .cavalry:
+            return baseRange
+        case .mage:
+            return min(baseRange * 2.0, 1)
+        case .siege:
+            return min(baseRange * 1.5, 1)
+        }
+    }
+
+    private func attackSpeed(for type: SoldierType) -> Double {
+        let multiplier: Double
+        switch type {
+        case .infantry, .archer:
+            multiplier = 1.0
+        case .cavalry:
+            multiplier = 1.15
+        case .mage:
+            multiplier = 0.85
+        case .siege:
+            multiplier = 0.55
+        }
+
+        return max(0.1, configuration.soldierAttackSpeed * multiplier)
+    }
+
+    private func movementSpeed(for type: SoldierType) -> Double {
+        let baseSpeed = max(0, configuration.soldierMovementSpeed)
+        switch type {
+        case .infantry, .archer:
+            return baseSpeed
+        case .cavalry:
+            return baseSpeed * 1.45
+        case .mage:
+            return baseSpeed * 0.9
+        case .siege:
+            return baseSpeed * 0.55
         }
     }
 
