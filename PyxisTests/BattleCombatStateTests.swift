@@ -182,6 +182,28 @@ struct BattleCombatStateTests {
         #expect(highSoldier.attackPower == 3)
     }
 
+    @Test func cavalryAndMageHPScaleWithLevel() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+
+        let cavalryL1 = combat.spawnSoldier(type: .cavalry, source: .building, level: 1, attackPower: 1)
+        let cavalryL3 = combat.spawnSoldier(type: .cavalry, source: .building, level: 3, attackPower: 1)
+        let mageL1 = combat.spawnSoldier(type: .mage, source: .building, level: 1, attackPower: 1)
+        let mageL3 = combat.spawnSoldier(type: .mage, source: .building, level: 3, attackPower: 1)
+
+        let c1 = try #require(combat.soldier(id: cavalryL1))
+        let c3 = try #require(combat.soldier(id: cavalryL3))
+        let m1 = try #require(combat.soldier(id: mageL1))
+        let m3 = try #require(combat.soldier(id: mageL3))
+
+        // Cavalry: 10 * 0.9 = 9 base → level 3: round(9 * 1.5625) = 14
+        #expect(c1.maxHP == 9)
+        #expect(c3.maxHP == 14)
+
+        // Mage: 10 * 0.65 = 6.5 base → level 3: round(6.5 * 1.5625) = 10
+        #expect(m1.maxHP == 7)
+        #expect(m3.maxHP == 10)
+    }
+
     @Test func manualLivingSoldierCountExcludesBuildingSpawnedSoldiers() {
         var combat = BattleCombatState(configuration: .live(cityLevel: 1))
 
