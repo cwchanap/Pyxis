@@ -92,7 +92,7 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackTextForTesting.contains("Spiked Gate"))
     }
 
-    @Test func selectingVisibleCityReportsDefenseTrait() throws {
+    @Test func selectingCompletedCityReportsDefenseTrait() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
             cityNumberInCountry: 3,
@@ -101,9 +101,9 @@ struct CountryMapSceneTests {
         ))
         let scene = makeScene(store: store, router: RouteSpy())
 
-        scene.enterCityForTesting(5)
+        scene.enterCityForTesting(3)
 
-        #expect(scene.feedbackTextForTesting == "City 5 is locked.")
+        #expect(scene.feedbackTextForTesting == "City 3 complete. Arrow Tower.")
     }
 
     @Test func enteringCityUsesLatestStoredState() throws {
