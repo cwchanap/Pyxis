@@ -24,7 +24,7 @@ struct BattleSceneTests {
     }
 
     @Test func battleSceneDisplaysLiveSoldierCount() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 0")
@@ -35,7 +35,7 @@ struct BattleSceneTests {
     }
 
     @Test func tappingSpawnCreatesLiveCombatSoldierWithoutImmediateCityDamage() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
@@ -46,7 +46,13 @@ struct BattleSceneTests {
     }
 
     @Test func manualSelectorChangesSpawnedSoldierType() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let state = stateWithBuildings(
+            [.barracks, .archeryRange],
+            cityRemainingPower: 20,
+            cityNumberInCountry: 2,
+            completedCityCount: 1
+        )
+        let store = try makeStore(initialState: state)
         let scene = makeScene(store: store)
 
         #expect(scene.selectedManualSoldierTypeForTesting == .infantry)
@@ -59,7 +65,7 @@ struct BattleSceneTests {
     }
 
     @Test func manualSpawnCapBlocksEleventhManualSoldier() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 100))
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
         let scene = makeScene(store: store)
 
         for _ in 0..<KingdomGameState.manualSoldierCap {
@@ -88,7 +94,6 @@ struct BattleSceneTests {
         )
         let scene = makeScene(store: store)
 
-        scene.selectManualSoldierTypeForTesting(.archer)
         for _ in 0..<KingdomGameState.manualSoldierCap {
             scene.spawnSoldierForTesting()
         }
@@ -98,10 +103,125 @@ struct BattleSceneTests {
         #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
         #expect(scene.buildingLiveSoldierCountForTesting == 1)
         #expect(scene.liveSoldierCountForTesting == KingdomGameState.manualSoldierCap + 1)
-        #expect(scene.liveSoldierTypesForTesting.filter { $0 == .archer }.count == KingdomGameState.manualSoldierCap)
-        #expect(scene.liveSoldierTypesForTesting.contains(.infantry))
+        #expect(scene.liveSoldierTypesForTesting.filter { $0 == .infantry }.count == KingdomGameState.manualSoldierCap + 1)
         scene.flushBuildingProgressSaveForTesting()
         #expect(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? 10 < 1)
+    }
+
+    @Test func battleSceneShowsDefenseTraitAndRemovesUpgradeAction() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 11,
+                completedCityCount: 10
+            )
+        )
+        let scene = makeScene(store: store)
+
+        #expect(scene.defenseTraitTextForTesting?.contains("Reinforced Keep") == true)
+        #expect(scene.isUpgradeButtonVisibleForTesting == false)
+    }
+
+    @Test func manualSpawnRequiresMatchingCurrentCityBuilding() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 100))
+        let scene = makeScene(store: store)
+
+        #expect(scene.manualSpawnableSoldierTypesForTesting.isEmpty)
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(scene.feedbackTextForTesting == "Build a unit building first.")
+    }
+
+    @Test func manualSelectorUsesBuiltCurrentCityUnitsOnly() throws {
+        let state = stateWithBuildings(
+            [.barracks, .mageTower],
+            gold: 200,
+            cityRemainingPower: 100,
+            cityNumberInCountry: 8,
+            completedCityCount: 7
+        )
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        #expect(scene.manualSpawnableSoldierTypesForTesting == [.infantry, .mage])
+
+        scene.selectManualSoldierTypeForTesting(.mage)
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.selectedManualSoldierTypeForTesting == .mage)
+        #expect(scene.liveSoldierTypesForTesting == [.mage])
+    }
+
+    @Test func manualSpawnUsesHighestMatchingBuildingLevelAndTraitAdjustedDamage() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 11)
+        let cityState = CityBattleState(
+            slots: [
+                1: CityBuilding(type: .siegeWorkshop, level: 1),
+                2: CityBuilding(type: .siegeWorkshop, level: 3)
+            ]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                gold: 200,
+                cityRemainingPower: 100,
+                cityNumberInCountry: 11,
+                completedCityCount: 10,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let scene = makeScene(store: store)
+
+        let initialCityHP = 100
+        let expectedAttackPower = KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .siege,
+            level: 3,
+            defenseTrait: .reinforcedKeep
+        )
+
+        scene.selectManualSoldierTypeForTesting(.siege)
+        for _ in 0..<4 {
+            scene.spawnSoldierForTesting()
+        }
+
+        #expect(scene.liveSoldierLevelsForTesting == Array(repeating: 3, count: 4))
+        #expect(scene.liveSoldierAttackPowersForTesting == Array(repeating: expectedAttackPower, count: 4))
+
+        scene.advanceCombatForTesting(deltaTime: 4.0)
+
+        #expect(store.load().cityRemainingPower < initialCityHP)
+    }
+
+    @Test func buildingSpawnUsesTraitAdjustedAttackPower() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 11)
+        let interval = KingdomGameState.activeSpawnInterval(for: .siegeWorkshop)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .siegeWorkshop, level: 3, spawnTimerElapsed: interval - 0.1)]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                gold: 200,
+                cityRemainingPower: 100,
+                cityNumberInCountry: 11,
+                completedCityCount: 10,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.advanceCombatForTesting(deltaTime: 0.2)
+
+        #expect(scene.buildingLiveSoldierCountForTesting == 1)
+        #expect(scene.liveSoldierTypesForTesting == [.siege])
+        #expect(scene.liveSoldierLevelsForTesting == [3])
+        #expect(scene.liveSoldierAttackPowersForTesting == [
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .siege,
+                level: 3,
+                defenseTrait: .reinforcedKeep
+            )
+        ])
     }
 
     @Test func activeBuildingPartialTimerProgressPersistsWithoutSpawn() throws {
@@ -171,7 +291,7 @@ struct BattleSceneTests {
     }
 
     @Test func liveSoldierHPBarStaysReadableAboveScaledBody() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
@@ -183,7 +303,7 @@ struct BattleSceneTests {
     }
 
     @Test func combatTickCanDamageDurableCityHPAndSaveIt() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
@@ -195,9 +315,9 @@ struct BattleSceneTests {
 
     @Test func cityDamageCreatesFloatingFeedbackNode() throws {
         let store = try makeStore(
-            initialState: KingdomGameState(
+            initialState: stateWithBarracks(
                 cityRemainingPower: 50,
-                normalSoldierUpgradeLevel: 4
+                completedCityCount: 0
             )
         )
         let scene = makeScene(store: store)
@@ -209,7 +329,13 @@ struct BattleSceneTests {
     }
 
     @Test func towerDamageCanKillAndRemoveVisibleSoldier() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 20))
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 8,
+                completedCityCount: 7
+            )
+        )
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
@@ -219,13 +345,12 @@ struct BattleSceneTests {
         #expect(scene.liveSoldierCountForTesting == 0)
         #expect(!scene.isConquestPopupVisibleForTesting)
         #expect(savedState.stageStatus == .battleActive)
-        #expect(savedState.cityRemainingPower > 0)
-        #expect(savedState.cityRemainingPower < 20)
+        #expect(savedState.cityRemainingPower == 100)
     }
 
     @Test func liveCombatStatusUpdatesWhenTowerKillsLastSoldierWithoutCityDamage() throws {
         let store = try makeStore(
-            initialState: KingdomGameState(
+            initialState: stateWithBarracks(
                 cityRemainingPower: 20,
                 cityNumberInCountry: 8,
                 completedCityCount: 7
@@ -247,9 +372,9 @@ struct BattleSceneTests {
 
     @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
         let store = try makeStore(
-            initialState: KingdomGameState(
+            initialState: stateWithBarracks(
                 cityRemainingPower: 1,
-                normalSoldierUpgradeLevel: 4
+                completedCityCount: 0
             )
         )
         let scene = makeScene(store: store)
@@ -265,7 +390,7 @@ struct BattleSceneTests {
         let savedState = store.load()
         #expect(scene.liveSoldierCountForTesting == 0)
         #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(savedState.gold == 8)
+        #expect(savedState.gold == 108)
         #expect(savedState.completedCityCount == 1)
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
 
@@ -281,9 +406,9 @@ struct BattleSceneTests {
 
     @Test func conquestPopupLayoutKeepsCityConquestFeedbackRunning() throws {
         let store = try makeStore(
-            initialState: KingdomGameState(
+            initialState: stateWithBarracks(
                 cityRemainingPower: 1,
-                normalSoldierUpgradeLevel: 4
+                completedCityCount: 0
             )
         )
         let scene = makeScene(store: store)
@@ -299,9 +424,9 @@ struct BattleSceneTests {
 
     @Test func conquestPopupUsesRewardPresentationNodes() throws {
         let store = try makeStore(
-            initialState: KingdomGameState(
+            initialState: stateWithBarracks(
                 cityRemainingPower: 1,
-                normalSoldierUpgradeLevel: 4
+                completedCityCount: 0
             )
         )
         let scene = makeScene(store: store)
@@ -319,9 +444,9 @@ struct BattleSceneTests {
 
     @Test func conquestPopupRemovesGoldBurstAfterTransientActions() async throws {
         let store = try makeStore(
-            initialState: KingdomGameState(
+            initialState: stateWithBarracks(
                 cityRemainingPower: 1,
-                normalSoldierUpgradeLevel: 4
+                completedCityCount: 0
             )
         )
         let scene = makeScene(store: store)
@@ -343,7 +468,7 @@ struct BattleSceneTests {
     }
 
     @Test func closingConquestPopupRequestsCountryMapRoute() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
 
@@ -360,7 +485,7 @@ struct BattleSceneTests {
     }
 
     @Test func closingConquestPopupWithoutRouterKeepsPopupVisible() throws {
-        let store = try makeStore(initialState: KingdomGameState(cityRemainingPower: 1))
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
@@ -458,7 +583,7 @@ struct BattleSceneTests {
         #expect(frames.leftHUD.height >= 70)
         #expect(frames.rightHUD.height >= 70)
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
-        #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
+        #expect(frames.buildButton.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.maxY <= frames.battlefield.minY)
         #expect(frames.feedbackPanel.contains(frames.feedback))
         #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
@@ -466,13 +591,13 @@ struct BattleSceneTests {
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minX >= 12)
-        #expect(frames.upgradeButton.maxX <= scene.size.width - 12)
-        #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
-        #expect(frames.upgradeButton.minY >= 12)
+        #expect(frames.buildButton.maxX <= scene.size.width - 12)
+        #expect(frames.spawnButton.maxX < frames.buildButton.minX)
+        #expect(frames.buildButton.minY >= 12)
         #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
         #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
-        #expect(frames.upgradeButtonLabel.minX >= frames.upgradeButton.minX + 14)
-        #expect(frames.upgradeButtonLabel.maxX <= frames.upgradeButton.maxX - 14)
+        #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
+        #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
     }
 
     @Test func commanderHUDSurvivesCompactLandscapeWithoutOverlap() throws {
@@ -490,22 +615,22 @@ struct BattleSceneTests {
         #expect(frames.leftHUD.height >= 56)
         #expect(frames.rightHUD.height >= 56)
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
-        #expect(frames.upgradeButton.maxY <= frames.battlefield.minY)
+        #expect(frames.buildButton.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.maxY <= frames.battlefield.minY)
         #expect(frames.feedbackPanel.contains(frames.feedback))
         #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.minY >= frames.spawnButton.maxY)
-        #expect(frames.feedback.minY >= frames.upgradeButton.maxY)
+        #expect(frames.feedback.minY >= frames.buildButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minY >= 8)
-        #expect(frames.upgradeButton.minY >= 8)
-        #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
+        #expect(frames.buildButton.minY >= 8)
+        #expect(frames.spawnButton.maxX < frames.buildButton.minX)
     }
 
     @Test func manualTypeMenuAvoidsFeedbackAndBattlefieldInCompactAndNarrowLayouts() throws {
         for size in [CGSize(width: 667, height: 375), CGSize(width: 320, height: 568)] {
-            let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+            let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
             let scene = BattleScene(size: size, store: store, router: nil)
             let view = SKView(frame: CGRect(origin: .zero, size: size))
             scene.didMove(to: view)
@@ -513,20 +638,53 @@ struct BattleSceneTests {
             scene.openManualTypeMenuForTesting()
 
             let frames = try #require(scene.battleLayoutFramesForTesting)
+            let infantryButton = try #require(frames.manualTypeMenuButtons[.infantry])
+            let archerButton = frames.manualTypeMenuButtons[.archer]
 
-            #expect(!frames.manualTypeInfantryButton.intersects(frames.feedbackPanel))
-            #expect(!frames.manualTypeArcherButton.intersects(frames.feedbackPanel))
-            #expect(!frames.manualTypeInfantryButton.intersects(frames.battlefield))
-            #expect(!frames.manualTypeArcherButton.intersects(frames.battlefield))
-            #expect(frames.manualTypeInfantryButton.minY >= frames.spawnButton.maxY)
-            #expect(frames.manualTypeArcherButton.minY >= frames.spawnButton.maxY)
-            #expect(frames.manualTypeArcherButton.maxX <= size.width - 8)
+            #expect(!infantryButton.intersects(frames.feedbackPanel))
+            #expect(!infantryButton.intersects(frames.battlefield))
+            #expect(infantryButton.minY >= frames.spawnButton.maxY)
+            #expect(infantryButton.maxX <= size.width - 8)
+            #expect(archerButton == nil)
+        }
+    }
+
+    @Test func manualTypeMenuKeepsFiveSpawnableUnitsTappableInNarrowLayout() throws {
+        let size = CGSize(width: 320, height: 568)
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                BuildingType.allCases,
+                gold: 200,
+                cityRemainingPower: 100,
+                cityNumberInCountry: 11,
+                completedCityCount: 10
+            )
+        )
+        let scene = BattleScene(size: size, store: store, router: nil)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        scene.openManualTypeMenuForTesting()
+
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+        #expect(frames.manualTypeMenuButtons.count == SoldierType.allCases.count)
+
+        for soldierType in SoldierType.allCases {
+            let button = try #require(frames.manualTypeMenuButtons[soldierType])
+            #expect(button.width >= 52)
+            #expect(button.minX >= 8)
+            #expect(button.maxX <= size.width - 8)
+            #expect(button.minY >= frames.spawnButton.maxY)
+            #expect(!button.intersects(frames.spawnButton))
+            #expect(!button.intersects(frames.buildButton))
+            #expect(!button.intersects(frames.feedbackPanel))
+            #expect(!button.intersects(frames.battlefield))
         }
     }
 
     @Test func commanderHUDFitsNarrowViewportWithoutOverflow() throws {
         let size = CGSize(width: 320, height: 568)
-        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = BattleScene(size: size, store: store, router: nil)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
@@ -537,12 +695,12 @@ struct BattleSceneTests {
         #expect(frames.rightHUD.maxX <= size.width - 8)
         #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
         #expect(frames.spawnButton.minX >= 8)
-        #expect(frames.upgradeButton.maxX <= size.width - 8)
-        #expect(frames.spawnButton.maxX < frames.upgradeButton.minX)
+        #expect(frames.buildButton.maxX <= size.width - 8)
+        #expect(frames.spawnButton.maxX < frames.buildButton.minX)
         #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
         #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
-        #expect(frames.upgradeButtonLabel.minX >= frames.upgradeButton.minX + 14)
-        #expect(frames.upgradeButtonLabel.maxX <= frames.upgradeButton.maxX - 14)
+        #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
+        #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
 
         scene.spawnSoldierForTesting()
         let updatedFrames = try #require(scene.battleLayoutFramesForTesting)
@@ -567,14 +725,14 @@ struct BattleSceneTests {
 
         #expect(frames.goldLabel.minX >= frames.leftHUD.minX + 10)
         #expect(frames.goldLabel.maxX <= frames.leftHUD.maxX - 10)
-        #expect(frames.soldierAttackLabel.minX >= frames.leftHUD.minX + 10)
-        #expect(frames.soldierAttackLabel.maxX <= frames.leftHUD.maxX - 10)
+        #expect(frames.defenseTraitLabel.minX >= frames.rightHUD.minX + 10)
+        #expect(frames.defenseTraitLabel.maxX <= frames.rightHUD.maxX - 10)
         #expect(frames.cityLevelLabel.minX >= frames.rightHUD.minX + 10)
         #expect(frames.cityLevelLabel.maxX <= frames.rightHUD.maxX - 10)
         #expect(frames.cityHPLabel.minX >= frames.rightHUD.minX + 10)
         #expect(frames.cityHPLabel.maxX <= frames.rightHUD.maxX - 10)
-        #expect(frames.upgradeButtonLabel.minX >= frames.upgradeButton.minX + 14)
-        #expect(frames.upgradeButtonLabel.maxX <= frames.upgradeButton.maxX - 14)
+        #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
+        #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
     }
 
     @Test func commanderHUDAvoidsTallPhoneSensorArea() throws {
@@ -589,49 +747,7 @@ struct BattleSceneTests {
         #expect(frames.leftHUD.maxY <= size.height - 58)
         #expect(frames.rightHUD.maxY <= size.height - 58)
         #expect(frames.spawnButton.minY >= 26)
-        #expect(frames.upgradeButton.minY >= 26)
-    }
-
-    @Test func upgradeButtonCommunicatesAffordabilityWithoutBlockingTapFeedback() throws {
-        let affordableStore = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
-        let affordableScene = makeScene(store: affordableStore)
-        #expect(affordableScene.isUpgradeVisuallyAffordableForTesting)
-
-        let store = try makeStore(initialState: KingdomGameState(gold: 0, cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-
-        #expect(scene.isUpgradeVisuallyAffordableForTesting == false)
-
-        scene.upgradeSoldierForTesting()
-
-        #expect(scene.feedbackTextForTesting == "Need 10 gold. You have 0.")
-    }
-
-    @Test func insufficientGoldRunsUpgradeDeniedFeedback() throws {
-        let store = try makeStore(initialState: KingdomGameState(gold: 0, cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-
-        scene.upgradeSoldierForTesting()
-
-        #expect(scene.isUpgradeDeniedFeedbackRunningForTesting)
-    }
-
-    @Test func unavailableUpgradeRunsDeniedFeedbackWhenNoBattleIsActive() throws {
-        let store = try makeStore(
-            initialState: KingdomGameState(
-                gold: 30,
-                cityNumberInCountry: 1,
-                completedCityCount: 1,
-                stageStatus: .cityConqueredPendingMap
-            )
-        )
-        let scene = makeScene(store: store)
-
-        scene.upgradeSoldierForTesting()
-
-        #expect(scene.feedbackTextForTesting == "Enter a city to upgrade soldiers.")
-        #expect(scene.isUpgradeDeniedFeedbackRunningForTesting)
-        #expect(store.load().gold == 30)
+        #expect(frames.buildButton.minY >= 26)
     }
 
     private func pollUntil(
@@ -662,6 +778,43 @@ struct BattleSceneTests {
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(initialState)
         return store
+    }
+
+    private func stateWithBarracks(
+        gold: Int = 100,
+        cityRemainingPower: Int = 20,
+        cityNumberInCountry: Int = 1,
+        completedCityCount: Int = 0
+    ) -> KingdomGameState {
+        stateWithBuildings(
+            [.barracks],
+            gold: gold,
+            cityRemainingPower: cityRemainingPower,
+            cityNumberInCountry: cityNumberInCountry,
+            completedCityCount: completedCityCount
+        )
+    }
+
+    private func stateWithBuildings(
+        _ buildingTypes: [BuildingType],
+        gold: Int = 100,
+        cityRemainingPower: Int = 20,
+        cityNumberInCountry: Int = 1,
+        completedCityCount: Int = 0
+    ) -> KingdomGameState {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: cityNumberInCountry)
+        let slots = Dictionary(
+            uniqueKeysWithValues: buildingTypes.enumerated().map { index, buildingType in
+                (index + 1, CityBuilding(type: buildingType))
+            }
+        )
+        return KingdomGameState(
+            gold: gold,
+            cityRemainingPower: cityRemainingPower,
+            cityNumberInCountry: cityNumberInCountry,
+            completedCityCount: completedCityCount,
+            cityBattleStates: [cityKey.storageKey: CityBattleState(slots: slots)]
+        )
     }
 
     private final class RouteSpy: BattleSceneRouting {

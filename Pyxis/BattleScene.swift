@@ -28,18 +28,13 @@ final class BattleScene: SKScene {
     private enum ButtonName {
         static let spawn = "spawnSoldierButton"
         static let manualType = "manualType"
-        static let manualTypeInfantry = "manualTypeInfantry"
-        static let manualTypeArcher = "manualTypeArcher"
         static let build = "buildButton"
-        static let upgrade = "upgradeSoldierButton"
         static let popupContinue = "conquestPopupContinueButton"
     }
 
     private enum EffectName {
         static let floatingFeedback = "floatingFeedback"
         static let goldBurst = "goldBurst"
-        static let upgradeDenied = "upgradeDenied"
-        static let upgradeSuccess = "upgradeSuccess"
     }
 
     private enum EffectStyle {
@@ -55,6 +50,12 @@ final class BattleScene: SKScene {
         let body: SKNode
         let hpBarBackground: SKShapeNode
         let hpBarFill: SKShapeNode
+    }
+
+    private struct ManualTypeButtonBundle {
+        let button: SKNode
+        let background: SKShapeNode
+        let label: SKLabelNode
     }
 
     private let store: KingdomGameStore
@@ -82,7 +83,7 @@ final class BattleScene: SKScene {
 
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let soldierAttackLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private let defenseTraitLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let cityHPLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let liveCombatStatusLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let feedbackLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
@@ -93,21 +94,13 @@ final class BattleScene: SKScene {
     private let manualTypeButton = SKNode()
     private let manualTypeButtonBackground = SKShapeNode()
     private let manualTypeButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let manualTypeInfantryButton = SKNode()
-    private let manualTypeInfantryButtonBackground = SKShapeNode()
-    private let manualTypeInfantryButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let manualTypeArcherButton = SKNode()
-    private let manualTypeArcherButtonBackground = SKShapeNode()
-    private let manualTypeArcherButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private var manualTypeButtonBundles: [SoldierType: ManualTypeButtonBundle] = [:]
     private let spawnButton = SKNode()
     private let spawnButtonBackground = SKShapeNode()
     private let spawnButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let buildButton = SKNode()
     private let buildButtonBackground = SKShapeNode()
     private let buildButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let upgradeButton = SKNode()
-    private let upgradeButtonBackground = SKShapeNode()
-    private let upgradeButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let popupOverlay = SKShapeNode()
     private let popupTitleLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let popupRewardLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
@@ -187,22 +180,22 @@ final class BattleScene: SKScene {
             return
         }
 
-        switch buttonName(at: touch.location(in: self)) {
+        let touchedButtonName = buttonName(at: touch.location(in: self))
+        if let touchedButtonName,
+           let soldierType = soldierType(forManualTypeButtonName: touchedButtonName) {
+            selectManualSoldierType(soldierType)
+            return
+        }
+
+        switch touchedButtonName {
         case ButtonName.manualType:
             toggleManualTypeMenu()
-        case ButtonName.manualTypeInfantry:
-            selectManualSoldierType(.infantry)
-        case ButtonName.manualTypeArcher:
-            selectManualSoldierType(.archer)
         case ButtonName.spawn:
             isManualTypeMenuOpen = false
             spawnSoldier()
         case ButtonName.build:
             isManualTypeMenuOpen = false
             requestBuildingView()
-        case ButtonName.upgrade:
-            isManualTypeMenuOpen = false
-            upgradeSoldier()
         case ButtonName.popupContinue:
             isManualTypeMenuOpen = false
             closeConquestPopup()
@@ -237,7 +230,7 @@ final class BattleScene: SKScene {
 
         configureLabel(goldLabel, fontSize: 21, color: GameUITheme.Color.gold)
         configureLabel(cityLevelLabel, fontSize: 18, color: GameUITheme.Color.textPrimary)
-        configureLabel(soldierAttackLabel, fontSize: 14, color: GameUITheme.Color.textSecondary)
+        configureLabel(defenseTraitLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
         configureLabel(cityHPLabel, fontSize: 14, color: GameUITheme.Color.textPrimary)
         configureLabel(liveCombatStatusLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
         configureLabel(feedbackLabel, fontSize: 15, color: GameUITheme.Color.gold)
@@ -249,20 +242,23 @@ final class BattleScene: SKScene {
             name: ButtonName.manualType,
             color: SKColor(red: 0.24, green: 0.33, blue: 0.38, alpha: 1.0)
         )
-        configureButton(
-            manualTypeInfantryButton,
-            background: manualTypeInfantryButtonBackground,
-            label: manualTypeInfantryButtonLabel,
-            name: ButtonName.manualTypeInfantry,
-            color: SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
-        )
-        configureButton(
-            manualTypeArcherButton,
-            background: manualTypeArcherButtonBackground,
-            label: manualTypeArcherButtonLabel,
-            name: ButtonName.manualTypeArcher,
-            color: SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
-        )
+        for soldierType in SoldierType.allCases {
+            let bundle = ManualTypeButtonBundle(
+                button: SKNode(),
+                background: SKShapeNode(),
+                label: SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+            )
+            configureButton(
+                bundle.button,
+                background: bundle.background,
+                label: bundle.label,
+                name: manualTypeButtonName(for: soldierType),
+                color: SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
+            )
+            bundle.button.zPosition = GameUITheme.Z.hud + 1
+            bundle.button.isHidden = true
+            manualTypeButtonBundles[soldierType] = bundle
+        }
         configureButton(
             spawnButton,
             background: spawnButtonBackground,
@@ -277,14 +273,6 @@ final class BattleScene: SKScene {
             name: ButtonName.build,
             color: SKColor(red: 0.50, green: 0.28, blue: 0.18, alpha: 1.0)
         )
-        configureButton(
-            upgradeButton,
-            background: upgradeButtonBackground,
-            label: upgradeButtonLabel,
-            name: ButtonName.upgrade,
-            color: GameUITheme.Color.upgradeAvailable
-        )
-
         popupOverlay.fillColor = SKColor(white: 0.02, alpha: 0.86)
         popupOverlay.strokeColor = SKColor(white: 1.0, alpha: 0.24)
         popupOverlay.lineWidth = 2
@@ -308,32 +296,27 @@ final class BattleScene: SKScene {
         [
             goldLabel,
             cityLevelLabel,
-            soldierAttackLabel,
+            defenseTraitLabel,
             cityHPLabel,
             liveCombatStatusLabel,
             feedbackLabel,
             manualTypeButton,
-            manualTypeInfantryButton,
-            manualTypeArcherButton,
             spawnButton,
-            buildButton,
-            upgradeButton
+            buildButton
         ].forEach { $0.zPosition = GameUITheme.Z.hud }
-        manualTypeInfantryButton.zPosition = GameUITheme.Z.hud + 1
-        manualTypeArcherButton.zPosition = GameUITheme.Z.hud + 1
 
         addChild(goldLabel)
         addChild(cityLevelLabel)
-        addChild(soldierAttackLabel)
+        addChild(defenseTraitLabel)
         addChild(cityHPLabel)
         addChild(liveCombatStatusLabel)
         addChild(feedbackLabel)
         addChild(manualTypeButton)
-        addChild(manualTypeInfantryButton)
-        addChild(manualTypeArcherButton)
+        for bundle in manualTypeButtonBundles.values {
+            addChild(bundle.button)
+        }
         addChild(spawnButton)
         addChild(buildButton)
-        addChild(upgradeButton)
         addChild(popupOverlay)
         addChild(popupTitleLabel)
         addChild(popupRewardLabel)
@@ -392,12 +375,12 @@ final class BattleScene: SKScene {
         rightHUDPanel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY)
 
         goldLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY + metrics.hudHeight * 0.24)
-        soldierAttackLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY - 1)
-        liveCombatStatusLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.25)
+        liveCombatStatusLabel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.24)
 
-        cityLevelLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY + metrics.hudHeight * 0.25)
-        cityHPLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - 2)
-        cityHPBarNode.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.28)
+        cityLevelLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY + metrics.hudHeight * 0.28)
+        defenseTraitLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY + metrics.hudHeight * 0.06)
+        cityHPLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.16)
+        cityHPBarNode.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.34)
         cityHPBarNode.update(size: CGSize(width: metrics.rightHUDWidth - 26, height: metrics.compactHeight ? 10 : 12))
         let hpPercent = CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower))
         cityHPBarNode.update(progress: hpPercent)
@@ -423,35 +406,26 @@ final class BattleScene: SKScene {
             size: manualTypeButtonSize,
             position: manualTypeButtonPosition
         )
-        let manualTypeMenuItemSize = self.manualTypeMenuItemSize(
-            selectorPosition: manualTypeButtonPosition,
-            selectorSize: manualTypeButtonSize,
-            horizontalMargin: metrics.horizontalMargin
-        )
+        let manualTypeMenuItemSize = self.manualTypeMenuItemSize(horizontalMargin: metrics.horizontalMargin)
         layoutManualTypeMenu(
             selectorPosition: manualTypeButtonPosition,
             selectorSize: manualTypeButtonSize,
-            itemSize: manualTypeMenuItemSize
+            itemSize: manualTypeMenuItemSize,
+            horizontalMargin: metrics.horizontalMargin
         )
         layoutButton(
             buildButton,
             background: buildButtonBackground,
             size: CGSize(width: metrics.buildButtonWidth, height: metrics.buttonHeight),
             position: CGPoint(
-                x: metrics.horizontalMargin + metrics.spawnButtonWidth + metrics.buttonGap + metrics.buildButtonWidth / 2,
+                x: size.width - metrics.horizontalMargin - metrics.buildButtonWidth / 2,
                 y: buttonY
             )
-        )
-        layoutButton(
-            upgradeButton,
-            background: upgradeButtonBackground,
-            size: CGSize(width: metrics.upgradeButtonWidth, height: metrics.buttonHeight),
-            position: CGPoint(x: size.width - metrics.horizontalMargin - metrics.upgradeButtonWidth / 2, y: buttonY)
         )
 
         let hudBottomY = hudCenterY - metrics.hudHeight / 2
         let buttonTopY = buttonY + metrics.buttonHeight / 2
-        let feedbackY = buttonTopY + max(30, (hudBottomY - buttonTopY) * 0.22)
+        let feedbackY = buttonTopY + max(32, (hudBottomY - buttonTopY) * 0.25)
         feedbackLabel.position = CGPoint(x: centerX, y: feedbackY)
 
         layoutConquestPopup(contentWidth: metrics.contentWidth)
@@ -466,16 +440,16 @@ final class BattleScene: SKScene {
         currentLeftHUDLabelWidth = metrics.leftHUDLabelWidth
         fitLabel(goldLabel, maxWidth: metrics.leftHUDLabelWidth)
         fitLabel(cityLevelLabel, maxWidth: metrics.rightHUDLabelWidth)
-        fitLabel(soldierAttackLabel, maxWidth: metrics.leftHUDLabelWidth)
+        fitLabel(defenseTraitLabel, maxWidth: metrics.rightHUDLabelWidth)
         fitLabel(cityHPLabel, maxWidth: metrics.rightHUDLabelWidth)
         fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDLabelWidth)
         fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
         fitLabel(manualTypeButtonLabel, maxWidth: manualTypeButtonSize.width - 18)
-        fitLabel(manualTypeInfantryButtonLabel, maxWidth: manualTypeMenuItemSize.width - 18)
-        fitLabel(manualTypeArcherButtonLabel, maxWidth: manualTypeMenuItemSize.width - 18)
+        for bundle in manualTypeButtonBundles.values {
+            fitLabel(bundle.label, maxWidth: manualTypeMenuItemSize.width - 18)
+        }
         fitLabel(spawnButtonLabel, maxWidth: metrics.spawnButtonWidth - 28)
         fitLabel(buildButtonLabel, maxWidth: metrics.buildButtonWidth - 24)
-        fitLabel(upgradeButtonLabel, maxWidth: metrics.upgradeButtonWidth - 28)
         fitLabel(popupTitleLabel, maxWidth: metrics.contentWidth - 48)
         fitLabel(popupRewardLabel, maxWidth: metrics.contentWidth - 48)
         fitLabel(popupContinueLabel, maxWidth: metrics.contentWidth - 76)
@@ -488,16 +462,16 @@ final class BattleScene: SKScene {
     private func resetFontSizes() {
         goldLabel.fontSize = 21
         cityLevelLabel.fontSize = 18
-        soldierAttackLabel.fontSize = 14
+        defenseTraitLabel.fontSize = 13
         cityHPLabel.fontSize = 14
         liveCombatStatusLabel.fontSize = 13
         feedbackLabel.fontSize = 15
         manualTypeButtonLabel.fontSize = 13
-        manualTypeInfantryButtonLabel.fontSize = 13
-        manualTypeArcherButtonLabel.fontSize = 13
+        for bundle in manualTypeButtonBundles.values {
+            bundle.label.fontSize = 13
+        }
         spawnButtonLabel.fontSize = 16
         buildButtonLabel.fontSize = 16
-        upgradeButtonLabel.fontSize = 16
         popupTitleLabel.fontSize = 22
         popupRewardLabel.fontSize = 18
         popupContinueLabel.fontSize = 16
@@ -514,7 +488,6 @@ final class BattleScene: SKScene {
         let hudHeight: CGFloat
         let spawnButtonWidth: CGFloat
         let buildButtonWidth: CGFloat
-        let upgradeButtonWidth: CGFloat
         let contentWidth: CGFloat
         let buttonGap: CGFloat
 
@@ -540,17 +513,16 @@ final class BattleScene: SKScene {
         let preferredLeftHUDWidth = min(180, availableHUDWidth * 0.44)
         let leftHUDWidth = max(0, preferredLeftHUDWidth)
         let rightHUDWidth = max(0, availableHUDWidth - leftHUDWidth)
-        let hudHeight: CGFloat = compactHeight ? 66 : 82
+        let hudHeight: CGFloat = compactHeight ? 74 : 92
         let safeTopInset = GameUITheme.topUnsafeInset(sceneSize: size, view: view)
         let topMargin = max(
             compactHeight ? 26 : 46,
             safeTopInset + (compactHeight ? 8 : 10) + hudHeight / 2
         )
 
-        let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap * 2)
-        let spawnButtonWidth = min(180, availableButtonWidth * 0.43)
-        let buildButtonWidth = min(92, availableButtonWidth * 0.22)
-        let upgradeButtonWidth = max(0, availableButtonWidth - spawnButtonWidth - buildButtonWidth)
+        let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap)
+        let buildButtonWidth = min(compactHeight ? 92 : 104, availableButtonWidth * 0.30)
+        let spawnButtonWidth = max(0, min(220, availableButtonWidth - buildButtonWidth))
         let contentWidth = min(max(0, size.width - horizontalMargin * 2), 560)
 
         return LayoutMetrics(
@@ -564,7 +536,6 @@ final class BattleScene: SKScene {
             hudHeight: hudHeight,
             spawnButtonWidth: spawnButtonWidth,
             buildButtonWidth: buildButtonWidth,
-            upgradeButtonWidth: upgradeButtonWidth,
             contentWidth: contentWidth,
             buttonGap: buttonGap
         )
@@ -580,36 +551,91 @@ final class BattleScene: SKScene {
         button.position = position
     }
 
-    private func manualTypeMenuItemSize(
-        selectorPosition: CGPoint,
-        selectorSize: CGSize,
-        horizontalMargin: CGFloat
-    ) -> CGSize {
+    private func manualTypeMenuItemSize(horizontalMargin: CGFloat) -> CGSize {
         let itemGap: CGFloat = 4
-        let selectorMaxX = selectorPosition.x + selectorSize.width / 2
-        let rightEdge = size.width - horizontalMargin
-        let fittedWidth = (rightEdge - selectorMaxX - itemGap * 2) / 2
-        let itemWidth = min(selectorSize.width, max(1, fittedWidth))
+        let minimumItemWidth: CGFloat = 52
+        let maximumItemWidth: CGFloat = 88
+        let itemCount = max(1, manualSpawnableSoldierTypes.count)
+        let availableWidth = max(1, size.width - horizontalMargin * 2)
+        let columnCount = max(
+            1,
+            min(itemCount, Int((availableWidth + itemGap) / (minimumItemWidth + itemGap)))
+        )
+        let fittedWidth = (availableWidth - itemGap * CGFloat(columnCount - 1)) / CGFloat(columnCount)
+        let itemWidth = max(minimumItemWidth, min(maximumItemWidth, fittedWidth))
 
-        return CGSize(width: itemWidth, height: selectorSize.height)
+        return CGSize(width: itemWidth, height: manualSpawnableSoldierTypes.count > 0 ? 30 : 1)
     }
 
-    private func layoutManualTypeMenu(selectorPosition: CGPoint, selectorSize: CGSize, itemSize: CGSize) {
+    private func layoutManualTypeMenu(
+        selectorPosition: CGPoint,
+        selectorSize: CGSize,
+        itemSize: CGSize,
+        horizontalMargin: CGFloat
+    ) {
         let itemGap: CGFloat = 4
-        let selectorMaxX = selectorPosition.x + selectorSize.width / 2
-        let firstX = selectorMaxX + itemGap + itemSize.width / 2
-        layoutButton(
-            manualTypeInfantryButton,
-            background: manualTypeInfantryButtonBackground,
-            size: itemSize,
-            position: CGPoint(x: firstX, y: selectorPosition.y)
+        let visibleTypes = manualSpawnableSoldierTypes
+        guard !visibleTypes.isEmpty else {
+            return
+        }
+
+        if visibleTypes.count <= 2 {
+            let selectorMaxX = selectorPosition.x + selectorSize.width / 2
+            let availableRowWidth = max(0, size.width - horizontalMargin - selectorMaxX - itemGap)
+            let fittedWidth = (
+                availableRowWidth - itemGap * CGFloat(max(0, visibleTypes.count - 1))
+            ) / CGFloat(visibleTypes.count)
+
+            if fittedWidth >= 52 {
+                let rowItemSize = CGSize(width: min(itemSize.width, fittedWidth), height: itemSize.height)
+                let firstX = selectorMaxX + itemGap + rowItemSize.width / 2
+                let rowY = selectorPosition.y + max(0, (rowItemSize.height - selectorSize.height) / 2) + 2
+
+                for (index, soldierType) in visibleTypes.enumerated() {
+                    guard let bundle = manualTypeButtonBundles[soldierType] else {
+                        continue
+                    }
+
+                    layoutButton(
+                        bundle.button,
+                        background: bundle.background,
+                        size: rowItemSize,
+                        position: CGPoint(
+                            x: firstX + CGFloat(index) * (rowItemSize.width + itemGap),
+                            y: rowY
+                        )
+                    )
+                }
+                return
+            }
+        }
+
+        let availableWidth = max(1, size.width - horizontalMargin * 2)
+        let columnCount = max(
+            1,
+            min(visibleTypes.count, Int((availableWidth + itemGap) / (itemSize.width + itemGap)))
         )
-        layoutButton(
-            manualTypeArcherButton,
-            background: manualTypeArcherButtonBackground,
-            size: itemSize,
-            position: CGPoint(x: firstX + itemSize.width + itemGap, y: selectorPosition.y)
-        )
+        let rowStartY = selectorPosition.y + selectorSize.height / 2 + itemGap + itemSize.height / 2
+        let rowWidth = itemSize.width * CGFloat(columnCount) + itemGap * CGFloat(max(0, columnCount - 1))
+        let firstX = size.width / 2 - rowWidth / 2 + itemSize.width / 2
+
+        for (index, soldierType) in visibleTypes.enumerated() {
+            guard let bundle = manualTypeButtonBundles[soldierType] else {
+                continue
+            }
+
+            let column = index % columnCount
+            let row = index / columnCount
+            layoutButton(
+                bundle.button,
+                background: bundle.background,
+                size: itemSize,
+                position: CGPoint(
+                    x: firstX + CGFloat(column) * (itemSize.width + itemGap),
+                    y: rowStartY + CGFloat(row) * (itemSize.height + itemGap)
+                )
+            )
+        }
     }
 
     private func buildBattlefield() {
@@ -778,30 +804,50 @@ final class BattleScene: SKScene {
         effectsLayer.isHidden = isHidden
     }
 
+    private var manualSpawnableSoldierTypes: [SoldierType] {
+        state.manualSpawnableSoldierTypes()
+    }
+
+    private func reconcileSelectedManualSoldierType() {
+        let spawnableTypes = manualSpawnableSoldierTypes
+        if !spawnableTypes.contains(selectedManualSoldierType), let firstSpawnableType = spawnableTypes.first {
+            selectedManualSoldierType = firstSpawnableType
+        }
+    }
+
+    private func manualTypeButtonName(for soldierType: SoldierType) -> String {
+        "\(ButtonName.manualType)-\(soldierType.rawValue)"
+    }
+
+    private func soldierType(forManualTypeButtonName buttonName: String) -> SoldierType? {
+        guard buttonName.hasPrefix("\(ButtonName.manualType)-") else {
+            return nil
+        }
+
+        let rawValue = String(buttonName.dropFirst(ButtonName.manualType.count + 1))
+        return SoldierType(rawValue: rawValue)
+    }
+
     private func redraw() {
+        reconcileSelectedManualSoldierType()
+
         goldLabel.text = "Gold: \(compactNumber(state.gold))"
         cityLevelLabel.text = state.displayCityTitle
-        soldierAttackLabel.text = "Soldier Attack: \(compactNumber(state.normalSoldierAttackPower))"
+        defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
         cityHPLabel.text = "City HP: \(compactNumber(state.cityRemainingPower)) / \(compactNumber(state.cityMaxPower))"
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
-        manualTypeButtonLabel.text = selectedManualSoldierType.displayName
-        manualTypeInfantryButtonLabel.text = SoldierType.infantry.displayName
-        manualTypeArcherButtonLabel.text = SoldierType.archer.displayName
-        manualTypeInfantryButtonBackground.fillColor = selectedManualSoldierType == .infantry
-            ? GameUITheme.Color.spawn
-            : SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
-        manualTypeArcherButtonBackground.fillColor = selectedManualSoldierType == .archer
-            ? GameUITheme.Color.spawn
-            : SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
-        manualTypeInfantryButton.isHidden = !isManualTypeMenuOpen
-        manualTypeArcherButton.isHidden = !isManualTypeMenuOpen
-        spawnButtonLabel.text = "Spawn \(selectedManualSoldierType.displayName)"
+        let spawnableTypes = manualSpawnableSoldierTypes
+        manualTypeButtonLabel.text = spawnableTypes.isEmpty ? "No Units" : selectedManualSoldierType.displayName
+        for (soldierType, bundle) in manualTypeButtonBundles {
+            bundle.label.text = soldierType.displayName
+            bundle.background.fillColor = selectedManualSoldierType == soldierType
+                ? GameUITheme.Color.spawn
+                : SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
+            bundle.button.isHidden = !isManualTypeMenuOpen || !spawnableTypes.contains(soldierType)
+        }
+        spawnButtonLabel.text = spawnableTypes.isEmpty ? "Build Unit" : "Spawn \(selectedManualSoldierType.displayName)"
         buildButtonLabel.text = "Build"
-        upgradeButtonLabel.text = "Upgrade \(compactNumber(state.normalSoldierUpgradeCost))g"
-        upgradeButtonBackground.fillColor = state.gold >= state.normalSoldierUpgradeCost
-            ? GameUITheme.Color.upgradeAvailable
-            : GameUITheme.Color.upgradeUnavailable
         layoutInterface()
     }
 
@@ -823,7 +869,7 @@ final class BattleScene: SKScene {
                 type: spawn.soldierType,
                 source: .building,
                 level: spawn.level,
-                attackPower: KingdomGameState.soldierAttackPower(for: spawn.soldierType, level: spawn.level)
+                attackPower: state.traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
             )
             createSoldierNode(id: soldierID)
         }
@@ -903,6 +949,14 @@ final class BattleScene: SKScene {
             return
         }
 
+        guard let manualSoldierLevel = state.manualSoldierLevel(for: selectedManualSoldierType) else {
+            feedbackText = manualSpawnableSoldierTypes.isEmpty
+                ? "Build a unit building first."
+                : "Build \(selectedManualSoldierType.displayName) first."
+            redraw()
+            return
+        }
+
         guard combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap else {
             feedbackText = "Manual squad is full."
             redraw()
@@ -912,10 +966,10 @@ final class BattleScene: SKScene {
         let soldierID = combat.spawnSoldier(
             type: selectedManualSoldierType,
             source: .manual,
-            level: state.normalSoldierUpgradeLevel,
-            attackPower: KingdomGameState.soldierAttackPower(
+            level: manualSoldierLevel,
+            attackPower: state.traitAdjustedSoldierAttackPower(
                 for: selectedManualSoldierType,
-                level: state.normalSoldierUpgradeLevel
+                level: manualSoldierLevel
             )
         )
         createSoldierNode(id: soldierID)
@@ -934,6 +988,13 @@ final class BattleScene: SKScene {
 
     private func selectManualSoldierType(_ type: SoldierType) {
         guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
+        }
+
+        guard manualSpawnableSoldierTypes.contains(type) else {
+            feedbackText = "Build \(type.displayName) first."
+            isManualTypeMenuOpen = false
+            redraw()
             return
         }
 
@@ -1230,68 +1291,6 @@ final class BattleScene: SKScene {
         ])
     }
 
-    private func upgradeSoldier() {
-        guard !isConquestPopupVisible else {
-            return
-        }
-
-        let result = state.upgradeNormalSoldier()
-
-        switch result {
-        case let .upgraded(cost, newAttackPower):
-            feedbackText = "Upgraded for \(compactNumber(cost)) gold. Attack: \(compactNumber(newAttackPower))."
-        case let .insufficientGold(cost, currentGold):
-            feedbackText = "Need \(compactNumber(cost)) gold. You have \(compactNumber(currentGold))."
-        case .unavailable:
-            feedbackText = "Enter a city to upgrade soldiers."
-        }
-
-        store.save(state)
-        redraw()
-
-        switch result {
-        case let .upgraded(_, newAttackPower):
-            playUpgradeSuccessFeedback(newAttackPower: newAttackPower)
-        case .insufficientGold, .unavailable:
-            playUpgradeDeniedFeedback()
-        }
-    }
-
-    private func playUpgradeSuccessFeedback(newAttackPower: Int) {
-        upgradeButton.removeAction(forKey: EffectName.upgradeSuccess)
-
-        let pulseUp = SKAction.scale(to: 1.06, duration: 0.08)
-        pulseUp.timingMode = .easeOut
-        let pulseDown = SKAction.scale(to: 1.0, duration: 0.12)
-        pulseDown.timingMode = .easeIn
-        upgradeButton.run(SKAction.sequence([pulseUp, pulseDown]), withKey: EffectName.upgradeSuccess)
-
-        playFloatingFeedback(
-            text: "ATK \(compactNumber(newAttackPower))",
-            at: CGPoint(x: upgradeButton.position.x, y: upgradeButton.position.y + 24),
-            color: GameUITheme.Color.textPrimary
-        )
-    }
-
-    private func playUpgradeDeniedFeedback() {
-        upgradeButton.removeAction(forKey: EffectName.upgradeDenied)
-
-        let originalFillColor = upgradeButtonBackground.fillColor
-        let flashRed = SKAction.run { [weak upgradeButtonBackground] in
-            upgradeButtonBackground?.fillColor = SKColor(red: 0.76, green: 0.16, blue: 0.15, alpha: 1.0)
-        }
-        let restoreFill = SKAction.run { [weak upgradeButtonBackground] in
-            upgradeButtonBackground?.fillColor = originalFillColor
-        }
-        let shake = SKAction.sequence([
-            SKAction.moveBy(x: -6, y: 0, duration: 0.035),
-            SKAction.moveBy(x: 12, y: 0, duration: 0.055),
-            SKAction.moveBy(x: -10, y: 0, duration: 0.045),
-            SKAction.moveBy(x: 4, y: 0, duration: 0.035)
-        ])
-        upgradeButton.run(SKAction.sequence([flashRed, shake, restoreFill]), withKey: EffectName.upgradeDenied)
-    }
-
     private func observeLifecycleNotificationsIfNeeded() {
         guard !isObservingLifecycle else {
             return
@@ -1322,6 +1321,7 @@ final class BattleScene: SKScene {
         let result = state.returnFromBackground(at: Date())
 
         store.save(state)
+        reconcileSelectedManualSoldierType()
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
@@ -1342,13 +1342,10 @@ final class BattleScene: SKScene {
     }
 
     private func buttonName(at point: CGPoint) -> String? {
-        let priority = [
-            ButtonName.manualTypeInfantry,
-            ButtonName.manualTypeArcher,
+        let priority = manualSpawnableSoldierTypes.map { manualTypeButtonName(for: $0) } + [
             ButtonName.manualType,
             ButtonName.spawn,
             ButtonName.build,
-            ButtonName.upgrade,
             ButtonName.popupContinue
         ]
         let touchedNames = Set(nodes(at: point).compactMap(\.name))
@@ -1534,16 +1531,15 @@ extension BattleScene {
         let feedback: CGRect
         let feedbackPanel: CGRect
         let spawnButton: CGRect
-        let upgradeButton: CGRect
+        let buildButton: CGRect
         let manualTypeButton: CGRect
-        let manualTypeInfantryButton: CGRect
-        let manualTypeArcherButton: CGRect
+        let manualTypeMenuButtons: [SoldierType: CGRect]
         let goldLabel: CGRect
-        let soldierAttackLabel: CGRect
+        let defenseTraitLabel: CGRect
         let cityLevelLabel: CGRect
         let cityHPLabel: CGRect
         let spawnButtonLabel: CGRect
-        let upgradeButtonLabel: CGRect
+        let buildButtonLabel: CGRect
         let liveCombatStatus: CGRect
     }
 
@@ -1554,19 +1550,24 @@ extension BattleScene {
             let feedback = sceneFrame(for: feedbackLabel),
             let feedbackPanel = sceneFrame(for: feedbackPanel),
             let spawnFrame = sceneFrame(for: spawnButton),
-            let upgradeFrame = sceneFrame(for: upgradeButton),
+            let buildFrame = sceneFrame(for: buildButton),
             let manualTypeFrame = sceneFrame(for: manualTypeButton),
-            let manualTypeInfantryFrame = sceneFrame(for: manualTypeInfantryButton),
-            let manualTypeArcherFrame = sceneFrame(for: manualTypeArcherButton),
             let goldFrame = sceneFrame(for: goldLabel),
-            let soldierAttackFrame = sceneFrame(for: soldierAttackLabel),
+            let defenseTraitFrame = sceneFrame(for: defenseTraitLabel),
             let cityLevelFrame = sceneFrame(for: cityLevelLabel),
             let cityHPFrame = sceneFrame(for: cityHPLabel),
             let spawnLabelFrame = sceneFrame(for: spawnButtonLabel),
-            let upgradeLabelFrame = sceneFrame(for: upgradeButtonLabel),
+            let buildLabelFrame = sceneFrame(for: buildButtonLabel),
             let liveCombatStatusFrame = sceneFrame(for: liveCombatStatusLabel)
         else {
             return nil
+        }
+
+        let menuButtonFrames = manualTypeButtonBundles.reduce(into: [SoldierType: CGRect]()) { frames, element in
+            guard !element.value.button.isHidden, let frame = sceneFrame(for: element.value.button) else {
+                return
+            }
+            frames[element.key] = frame
         }
 
         let battlefieldFrame = battlefieldLayoutFrame
@@ -1577,26 +1578,33 @@ extension BattleScene {
             feedback: feedback,
             feedbackPanel: feedbackPanel,
             spawnButton: spawnFrame,
-            upgradeButton: upgradeFrame,
+            buildButton: buildFrame,
             manualTypeButton: manualTypeFrame,
-            manualTypeInfantryButton: manualTypeInfantryFrame,
-            manualTypeArcherButton: manualTypeArcherFrame,
+            manualTypeMenuButtons: menuButtonFrames,
             goldLabel: goldFrame,
-            soldierAttackLabel: soldierAttackFrame,
+            defenseTraitLabel: defenseTraitFrame,
             cityLevelLabel: cityLevelFrame,
             cityHPLabel: cityHPFrame,
             spawnButtonLabel: spawnLabelFrame,
-            upgradeButtonLabel: upgradeLabelFrame,
+            buildButtonLabel: buildLabelFrame,
             liveCombatStatus: liveCombatStatusFrame
         )
     }
 
-    var isUpgradeVisuallyAffordableForTesting: Bool {
-        colorsMatch(upgradeButtonBackground.fillColor, GameUITheme.Color.upgradeAvailable)
-    }
-
     var feedbackTextForTesting: String {
         feedbackText
+    }
+
+    var defenseTraitTextForTesting: String? {
+        defenseTraitLabel.text
+    }
+
+    var isUpgradeButtonVisibleForTesting: Bool {
+        false
+    }
+
+    var manualSpawnableSoldierTypesForTesting: [SoldierType] {
+        manualSpawnableSoldierTypes
     }
 
     var liveSoldierCountForTesting: Int {
@@ -1617,6 +1625,14 @@ extension BattleScene {
 
     var liveSoldierTypesForTesting: [SoldierType] {
         combat.soldiers.filter(\.isAlive).map(\.type)
+    }
+
+    var liveSoldierLevelsForTesting: [Int] {
+        combat.soldiers.filter(\.isAlive).map(\.level)
+    }
+
+    var liveSoldierAttackPowersForTesting: [Int] {
+        combat.soldiers.filter(\.isAlive).map(\.attackPower)
     }
 
     var firstLiveSoldierHPBarFrameForTesting: CGRect? {
@@ -1641,10 +1657,6 @@ extension BattleScene {
 
     var floatingFeedbackCountForTesting: Int {
         effectsLayer.children.filter { $0.name == EffectName.floatingFeedback }.count
-    }
-
-    var isUpgradeDeniedFeedbackRunningForTesting: Bool {
-        upgradeButton.action(forKey: EffectName.upgradeDenied) != nil
     }
 
     var isGoldBurstVisibleForTesting: Bool {
@@ -1708,10 +1720,6 @@ extension BattleScene {
         redraw()
     }
 
-    func upgradeSoldierForTesting() {
-        upgradeSoldier()
-    }
-
     func requestBuildingViewForTesting() {
         requestBuildingView()
     }
@@ -1762,30 +1770,6 @@ extension BattleScene {
         }
 
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-
-    private func colorsMatch(_ lhs: SKColor, _ rhs: SKColor) -> Bool {
-        var lhsRed: CGFloat = 0
-        var lhsGreen: CGFloat = 0
-        var lhsBlue: CGFloat = 0
-        var lhsAlpha: CGFloat = 0
-        var rhsRed: CGFloat = 0
-        var rhsGreen: CGFloat = 0
-        var rhsBlue: CGFloat = 0
-        var rhsAlpha: CGFloat = 0
-
-        guard
-            lhs.getRed(&lhsRed, green: &lhsGreen, blue: &lhsBlue, alpha: &lhsAlpha),
-            rhs.getRed(&rhsRed, green: &rhsGreen, blue: &rhsBlue, alpha: &rhsAlpha)
-        else {
-            return lhs.isEqual(rhs)
-        }
-
-        let tolerance: CGFloat = 0.001
-        return abs(lhsRed - rhsRed) <= tolerance
-            && abs(lhsGreen - rhsGreen) <= tolerance
-            && abs(lhsBlue - rhsBlue) <= tolerance
-            && abs(lhsAlpha - rhsAlpha) <= tolerance
     }
 
     private func containsLabelWithText(in node: SKNode, text: String?) -> Bool {
