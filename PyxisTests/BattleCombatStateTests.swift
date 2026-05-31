@@ -79,20 +79,42 @@ struct BattleCombatStateTests {
     }
 
     @Test func expandedSoldierTypesMatchLiveCombatStats() throws {
-        let expectedStats: [
-            (
-                type: SoldierType,
-                maxHP: Int,
-                attackRange: Double,
-                attackSpeed: Double,
-                movementSpeed: Double
+        let expectedStats: [ExpectedSoldierStats] = [
+            ExpectedSoldierStats(
+                type: .infantry,
+                maxHP: 10,
+                attackRange: 0.12,
+                attackSpeed: 1.0,
+                movementSpeed: 0.45
+            ),
+            ExpectedSoldierStats(
+                type: .archer,
+                maxHP: 7,
+                attackRange: 0.264,
+                attackSpeed: 1.0,
+                movementSpeed: 0.45
+            ),
+            ExpectedSoldierStats(
+                type: .cavalry,
+                maxHP: 9,
+                attackRange: 0.12,
+                attackSpeed: 1.15,
+                movementSpeed: 0.6525
+            ),
+            ExpectedSoldierStats(
+                type: .mage,
+                maxHP: 7,
+                attackRange: 0.24,
+                attackSpeed: 0.85,
+                movementSpeed: 0.405
+            ),
+            ExpectedSoldierStats(
+                type: .siege,
+                maxHP: 14,
+                attackRange: 0.18,
+                attackSpeed: 0.55,
+                movementSpeed: 0.2475
             )
-        ] = [
-            (.infantry, 10, 0.12, 1.0, 0.45),
-            (.archer, 7, 0.264, 1.0, 0.45),
-            (.cavalry, 9, 0.12, 1.15, 0.6525),
-            (.mage, 7, 0.24, 0.85, 0.405),
-            (.siege, 14, 0.18, 0.55, 0.2475)
         ]
         var combat = BattleCombatState(configuration: .live(cityLevel: 1))
 
@@ -434,6 +456,14 @@ struct BattleCombatStateTests {
         _ = combat.tick(deltaTime: 10.0, cityRemainingHP: 20)
 
         #expect(try #require(combat.soldier(id: id)).position == 0.25)
+    }
+
+    private struct ExpectedSoldierStats {
+        let type: SoldierType
+        let maxHP: Int
+        let attackRange: Double
+        let attackSpeed: Double
+        let movementSpeed: Double
     }
 
     private func isApproximatelyEqual(
