@@ -29,6 +29,15 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
+      <MacroExpansion>
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "24DF5CF92FAAE84100819D17"
+            BuildableName = "Pyxis.app"
+            BlueprintName = "Pyxis"
+            ReferencedContainer = "container:Pyxis.xcodeproj">
+         </BuildableReference>
+      </MacroExpansion>
       <Testables>
          <TestableReference
             skipped = "NO"
@@ -42,8 +51,7 @@
             </BuildableReference>
          </TestableReference>
          <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
+            skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "24DF5D1C2FAAE84300819D17"
@@ -53,15 +61,6 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "24DF5CF92FAAE84100819D17"
-            BuildableName = "Pyxis.app"
-            BlueprintName = "Pyxis"
-            ReferencedContainer = "container:Pyxis.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
