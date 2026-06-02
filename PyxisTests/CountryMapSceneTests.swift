@@ -98,6 +98,52 @@ struct CountryMapSceneTests {
         #expect(router.didRequestBattle)
     }
 
+    @Test func requestCurrentCityBattleResolvesIdleProgress() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1000,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestCurrentCityBattleForTesting()
+
+        let saved = store.load()
+        #expect(saved.lastBackgroundedAt == nil)
+        #expect(router.didRequestBattle)
+        #expect(saved.cityRemainingPower < 1000)
+    }
+
+    @Test func enteringCurrentCityResolvesIdleProgress() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1000,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.enterCityForTesting(3)
+
+        let saved = store.load()
+        #expect(saved.lastBackgroundedAt == nil)
+        #expect(router.didRequestBattle)
+        #expect(saved.cityRemainingPower < 1000)
+    }
+
     @Test func mapShowsTraitForUnlockedCityInFeedback() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,

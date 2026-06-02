@@ -520,6 +520,8 @@ final class CountryMapScene: SKScene {
             return
         }
 
+        _ = state.returnFromBackground(at: Date())
+        store.save(state)
         router.countryMapSceneDidRequestBattle(self)
     }
 
@@ -535,6 +537,7 @@ final class CountryMapScene: SKScene {
                 return
             }
 
+            _ = latestState.returnFromBackground(at: Date())
             state = latestState
             store.save(state)
             router.countryMapSceneDidRequestBattle(self)
