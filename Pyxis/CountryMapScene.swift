@@ -259,6 +259,7 @@ final class CountryMapScene: SKScene {
         )
         let titleLabelMaxWidth = titlePanelSize.width
             - (showsCurrentCityButton ? currentCityButtonSize.width + 34 : 24)
+        titleLabel.text = "Country \(state.countryNumber)"
         fitLabel(titleLabel, maxWidth: titleLabelMaxWidth)
         fitLabel(currentCityButtonLabel, maxWidth: currentCityButtonSize.width - 18)
 
@@ -595,6 +596,14 @@ extension CountryMapScene {
 
     func isUnlockedCityPulseRunningForTesting(_ cityNumber: Int) -> Bool {
         cityNodes[cityNumber]?.action(forKey: ActionKey.unlockedPulse) != nil
+    }
+
+    var titleLabelFontSizeForTesting: CGFloat {
+        titleLabel.fontSize
+    }
+
+    var titleLabelFrameWidthForTesting: CGFloat {
+        titleLabel.frame.width
     }
 }
 #endif
