@@ -19,6 +19,7 @@ final class BattleScene: SKScene {
         static let playerCastle = "player-castle"
         static let enemyCity = "enemy-city"
         static let normalSoldier = "normal-soldier"
+        static let archerSoldier = "archer-soldier"
         static let battlefieldBackdrop = "battlefield-backdrop"
         static let hitFlash = "hit-flash"
         static let towerProjectile = "tower-projectile"
@@ -28,6 +29,7 @@ final class BattleScene: SKScene {
     private enum ButtonName {
         static let spawn = "spawnSoldierButton"
         static let manualType = "manualType"
+        static let world = "worldButton"
         static let build = "buildButton"
         static let popupContinue = "conquestPopupContinueButton"
     }
@@ -68,6 +70,7 @@ final class BattleScene: SKScene {
     private var isObservingLifecycle = false
     private var selectedManualSoldierType: SoldierType = .infantry
     private var isManualTypeMenuOpen = false
+    private var manualTypeMenuTopY: CGFloat = 0
 
     private let battlefieldLayer = SKNode()
     private let environmentLayer = SKNode()
@@ -98,6 +101,9 @@ final class BattleScene: SKScene {
     private let spawnButton = SKNode()
     private let spawnButtonBackground = SKShapeNode()
     private let spawnButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let worldButton = SKNode()
+    private let worldButtonBackground = SKShapeNode()
+    private let worldButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let buildButton = SKNode()
     private let buildButtonBackground = SKShapeNode()
     private let buildButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -113,6 +119,9 @@ final class BattleScene: SKScene {
 
     private var feedbackText = "Tap Spawn Soldier to attack the city."
     private var currentLeftHUDLabelWidth: CGFloat = 140
+    #if DEBUG
+    private var battlefieldLayoutCount = 0
+    #endif
     private var buildingProgressSaveAccumulator: TimeInterval = 0
     private static let buildingProgressSaveInterval: TimeInterval = 2.0
 
@@ -191,20 +200,21 @@ final class BattleScene: SKScene {
         case ButtonName.manualType:
             toggleManualTypeMenu()
         case ButtonName.spawn:
-            isManualTypeMenuOpen = false
+            hideManualTypeMenuWithoutLayoutIfNeeded()
             spawnSoldier()
+        case ButtonName.world:
+            hideManualTypeMenuWithoutLayoutIfNeeded()
+            requestCountryMap()
         case ButtonName.build:
-            isManualTypeMenuOpen = false
+            hideManualTypeMenuWithoutLayoutIfNeeded()
             requestBuildingView()
         case ButtonName.popupContinue:
-            isManualTypeMenuOpen = false
+            hideManualTypeMenuWithoutLayoutIfNeeded()
             closeConquestPopup()
         default:
             if isManualTypeMenuOpen {
-                isManualTypeMenuOpen = false
-                redraw()
+                hideManualTypeMenuWithoutLayoutIfNeeded()
             }
-            break
         }
     }
 
@@ -267,6 +277,13 @@ final class BattleScene: SKScene {
             color: GameUITheme.Color.spawn
         )
         configureButton(
+            worldButton,
+            background: worldButtonBackground,
+            label: worldButtonLabel,
+            name: ButtonName.world,
+            color: SKColor(red: 0.22, green: 0.42, blue: 0.54, alpha: 1.0)
+        )
+        configureButton(
             buildButton,
             background: buildButtonBackground,
             label: buildButtonLabel,
@@ -302,6 +319,7 @@ final class BattleScene: SKScene {
             feedbackLabel,
             manualTypeButton,
             spawnButton,
+            worldButton,
             buildButton
         ].forEach { $0.zPosition = GameUITheme.Z.hud }
 
@@ -316,6 +334,7 @@ final class BattleScene: SKScene {
             addChild(bundle.button)
         }
         addChild(spawnButton)
+        addChild(worldButton)
         addChild(buildButton)
         addChild(popupOverlay)
         addChild(popupTitleLabel)
@@ -422,10 +441,26 @@ final class BattleScene: SKScene {
                 y: buttonY
             )
         )
+        let worldButtonSize = CGSize(width: metrics.worldButtonWidth, height: metrics.secondaryButtonHeight)
+        layoutButton(
+            worldButton,
+            background: worldButtonBackground,
+            size: worldButtonSize,
+            position: CGPoint(
+                x: buildButton.position.x,
+                y: buttonY + metrics.buttonHeight / 2 + 4 + worldButtonSize.height / 2
+            )
+        )
 
         let hudBottomY = hudCenterY - metrics.hudHeight / 2
         let buttonTopY = buttonY + metrics.buttonHeight / 2
-        let feedbackY = buttonTopY + max(32, (hudBottomY - buttonTopY) * 0.25)
+        let bottomControlsTopY = max(
+            buttonTopY,
+            manualTypeButtonPosition.y + manualTypeButtonSize.height / 2,
+            manualTypeMenuTopY,
+            worldButton.position.y + worldButtonSize.height / 2
+        )
+        let feedbackY = bottomControlsTopY + max(32, (hudBottomY - bottomControlsTopY) * 0.25)
         feedbackLabel.position = CGPoint(x: centerX, y: feedbackY)
 
         layoutConquestPopup(contentWidth: metrics.contentWidth)
@@ -433,7 +468,7 @@ final class BattleScene: SKScene {
         layoutBattlefield(
             contentWidth: metrics.contentWidth,
             hpBarBottomY: hudBottomY,
-            spawnButtonTopY: buttonTopY,
+            spawnButtonTopY: bottomControlsTopY,
             feedbackY: feedbackY
         )
 
@@ -449,6 +484,7 @@ final class BattleScene: SKScene {
             fitLabel(bundle.label, maxWidth: manualTypeMenuItemSize.width - 18)
         }
         fitLabel(spawnButtonLabel, maxWidth: metrics.spawnButtonWidth - 28)
+        fitLabel(worldButtonLabel, maxWidth: metrics.worldButtonWidth - 20)
         fitLabel(buildButtonLabel, maxWidth: metrics.buildButtonWidth - 24)
         fitLabel(popupTitleLabel, maxWidth: metrics.contentWidth - 48)
         fitLabel(popupRewardLabel, maxWidth: metrics.contentWidth - 48)
@@ -471,6 +507,7 @@ final class BattleScene: SKScene {
             bundle.label.fontSize = 13
         }
         spawnButtonLabel.fontSize = 16
+        worldButtonLabel.fontSize = 16
         buildButtonLabel.fontSize = 16
         popupTitleLabel.fontSize = 22
         popupRewardLabel.fontSize = 18
@@ -482,11 +519,13 @@ final class BattleScene: SKScene {
         let horizontalMargin: CGFloat
         let topMargin: CGFloat
         let buttonHeight: CGFloat
+        let secondaryButtonHeight: CGFloat
         let bottomMargin: CGFloat
         let leftHUDWidth: CGFloat
         let rightHUDWidth: CGFloat
         let hudHeight: CGFloat
         let spawnButtonWidth: CGFloat
+        let worldButtonWidth: CGFloat
         let buildButtonWidth: CGFloat
         let contentWidth: CGFloat
         let buttonGap: CGFloat
@@ -504,6 +543,7 @@ final class BattleScene: SKScene {
         let compactHeight = size.height < 500
         let horizontalMargin = max(8, min(compactHeight ? 16 : 18, size.width * 0.045))
         let buttonHeight: CGFloat = compactHeight ? 42 : 52
+        let secondaryButtonHeight: CGFloat = compactHeight ? 28 : 30
         let buttonGap: CGFloat = compactHeight ? 10 : 12
         let safeBottomInset = GameUITheme.bottomUnsafeInset(sceneSize: size, view: view)
         let bottomMargin = max(compactHeight ? 20 : 30, safeBottomInset + (compactHeight ? 8 : 12))
@@ -521,7 +561,8 @@ final class BattleScene: SKScene {
         )
 
         let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap)
-        let buildButtonWidth = min(compactHeight ? 92 : 104, availableButtonWidth * 0.30)
+        let buildButtonWidth = min(compactHeight ? 88 : 96, availableButtonWidth * 0.34)
+        let worldButtonWidth = buildButtonWidth
         let spawnButtonWidth = max(0, min(220, availableButtonWidth - buildButtonWidth))
         let contentWidth = min(max(0, size.width - horizontalMargin * 2), 560)
 
@@ -530,11 +571,13 @@ final class BattleScene: SKScene {
             horizontalMargin: horizontalMargin,
             topMargin: topMargin,
             buttonHeight: buttonHeight,
+            secondaryButtonHeight: secondaryButtonHeight,
             bottomMargin: bottomMargin,
             leftHUDWidth: leftHUDWidth,
             rightHUDWidth: rightHUDWidth,
             hudHeight: hudHeight,
             spawnButtonWidth: spawnButtonWidth,
+            worldButtonWidth: worldButtonWidth,
             buildButtonWidth: buildButtonWidth,
             contentWidth: contentWidth,
             buttonGap: buttonGap
@@ -575,39 +618,9 @@ final class BattleScene: SKScene {
     ) {
         let itemGap: CGFloat = 4
         let visibleTypes = manualSpawnableSoldierTypes
+        manualTypeMenuTopY = selectorPosition.y + selectorSize.height / 2
         guard !visibleTypes.isEmpty else {
             return
-        }
-
-        if visibleTypes.count <= 2 {
-            let selectorMaxX = selectorPosition.x + selectorSize.width / 2
-            let availableRowWidth = max(0, size.width - horizontalMargin - selectorMaxX - itemGap)
-            let fittedWidth = (
-                availableRowWidth - itemGap * CGFloat(max(0, visibleTypes.count - 1))
-            ) / CGFloat(visibleTypes.count)
-
-            if fittedWidth >= 52 {
-                let rowItemSize = CGSize(width: min(itemSize.width, fittedWidth), height: itemSize.height)
-                let firstX = selectorMaxX + itemGap + rowItemSize.width / 2
-                let rowY = selectorPosition.y + max(0, (rowItemSize.height - selectorSize.height) / 2) + 2
-
-                for (index, soldierType) in visibleTypes.enumerated() {
-                    guard let bundle = manualTypeButtonBundles[soldierType] else {
-                        continue
-                    }
-
-                    layoutButton(
-                        bundle.button,
-                        background: bundle.background,
-                        size: rowItemSize,
-                        position: CGPoint(
-                            x: firstX + CGFloat(index) * (rowItemSize.width + itemGap),
-                            y: rowY
-                        )
-                    )
-                }
-                return
-            }
         }
 
         let availableWidth = max(1, size.width - horizontalMargin * 2)
@@ -618,6 +631,10 @@ final class BattleScene: SKScene {
         let rowStartY = selectorPosition.y + selectorSize.height / 2 + itemGap + itemSize.height / 2
         let rowWidth = itemSize.width * CGFloat(columnCount) + itemGap * CGFloat(max(0, columnCount - 1))
         let firstX = size.width / 2 - rowWidth / 2 + itemSize.width / 2
+        let rowCount = (visibleTypes.count + columnCount - 1) / columnCount
+        manualTypeMenuTopY = rowStartY
+            + CGFloat(max(0, rowCount - 1)) * (itemSize.height + itemGap)
+            + itemSize.height / 2
 
         for (index, soldierType) in visibleTypes.enumerated() {
             guard let bundle = manualTypeButtonBundles[soldierType] else {
@@ -685,6 +702,9 @@ final class BattleScene: SKScene {
         spawnButtonTopY: CGFloat,
         feedbackY: CGFloat
     ) {
+        #if DEBUG
+        battlefieldLayoutCount += 1
+        #endif
         let actualGap = hpBarBottomY - spawnButtonTopY
         let verticalPadding: CGFloat = 8
         let feedbackClearance = max(30, feedbackLabel.fontSize + 18)
@@ -828,13 +848,15 @@ final class BattleScene: SKScene {
         return SoldierType(rawValue: rawValue)
     }
 
-    private func redraw() {
+    private func redraw(shouldLayout: Bool = true) {
         reconcileSelectedManualSoldierType()
 
         goldLabel.text = "Gold: \(compactNumber(state.gold))"
         cityLevelLabel.text = state.displayCityTitle
         defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
         cityHPLabel.text = "City HP: \(compactNumber(state.cityRemainingPower)) / \(compactNumber(state.cityMaxPower))"
+        let hpPercent = CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower))
+        cityHPBarNode.update(progress: hpPercent)
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         let spawnableTypes = manualSpawnableSoldierTypes
@@ -848,7 +870,10 @@ final class BattleScene: SKScene {
         }
         spawnButtonLabel.text = spawnableTypes.isEmpty ? "Build Unit" : "Spawn \(selectedManualSoldierType.displayName)"
         buildButtonLabel.text = "Build"
-        layoutInterface()
+        worldButtonLabel.text = "World"
+        if shouldLayout {
+            layoutInterface()
+        }
     }
 
     private func updateLiveCombatStatusLabel() {
@@ -932,7 +957,7 @@ final class BattleScene: SKScene {
         }
 
         store.save(state)
-        redraw()
+        redraw(shouldLayout: conqueredCity)
 
         if conqueredCity {
             playFloatingFeedback(text: "-\(compactNumber(damageResult.damageDealt))", at: enemyGatePoint)
@@ -985,12 +1010,12 @@ final class BattleScene: SKScene {
         if manualSpawnableSoldierTypes.isEmpty {
             feedbackText = "Build a unit building first."
             isManualTypeMenuOpen = false
-            redraw()
+            redraw(shouldLayout: false)
             return
         }
 
         isManualTypeMenuOpen.toggle()
-        redraw()
+        redraw(shouldLayout: false)
     }
 
     private func selectManualSoldierType(_ type: SoldierType) {
@@ -1001,13 +1026,38 @@ final class BattleScene: SKScene {
         guard manualSpawnableSoldierTypes.contains(type) else {
             feedbackText = "Build \(type.displayName) first."
             isManualTypeMenuOpen = false
-            redraw()
+            redraw(shouldLayout: false)
             return
         }
 
         selectedManualSoldierType = type
         isManualTypeMenuOpen = false
-        redraw()
+        redraw(shouldLayout: false)
+    }
+
+    private func hideManualTypeMenuWithoutLayoutIfNeeded() {
+        guard isManualTypeMenuOpen else {
+            return
+        }
+
+        isManualTypeMenuOpen = false
+        redraw(shouldLayout: false)
+    }
+
+    private func requestCountryMap() {
+        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+            return
+        }
+
+        guard combat.livingSoldierCount(source: .manual) == 0 else {
+            feedbackText = "Finish the current squad before viewing world."
+            redraw()
+            return
+        }
+
+        state.markCurrentCityBuildingProgressInactive(at: Date())
+        store.save(state)
+        router?.battleSceneDidRequestCountryMap(self)
     }
 
     private func requestBuildingView() {
@@ -1032,11 +1082,14 @@ final class BattleScene: SKScene {
         guard soldierNodes[id] == nil else {
             return
         }
+        guard let soldier = combat.soldier(id: id) else {
+            return
+        }
 
         let root = SKNode()
         root.name = BattleAssetName.normalSoldier
 
-        let body = makeSoldierNode()
+        let body = makeSoldierNode(for: soldier.type)
         body.zPosition = 1
         root.addChild(body)
 
@@ -1137,23 +1190,55 @@ final class BattleScene: SKScene {
         }
     }
 
-    private func makeSoldierNode() -> SKNode {
+    private func makeSoldierNode(for type: SoldierType) -> SKNode {
         let soldier: SKNode
+        let visualColor = soldierVisualColor(for: type)
+        let preferredAssetName = soldierAssetName(for: type)
+        let fallbackAssetName = BattleAssetName.normalSoldier
+        let assetName = UIImage(named: preferredAssetName) != nil ? preferredAssetName : fallbackAssetName
 
-        if UIImage(named: BattleAssetName.normalSoldier) != nil {
-            let sprite = SKSpriteNode(imageNamed: BattleAssetName.normalSoldier)
+        if UIImage(named: assetName) != nil {
+            let sprite = SKSpriteNode(imageNamed: assetName)
             sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            if assetName == fallbackAssetName {
+                sprite.color = visualColor
+                sprite.colorBlendFactor = type == .infantry ? 0.15 : 0.55
+            }
             soldier = sprite
         } else {
             let shape = SKShapeNode(rect: CGRect(x: -10, y: 0, width: 20, height: 28), cornerRadius: 5)
-            shape.fillColor = SKColor(red: 0.18, green: 0.52, blue: 1.0, alpha: 1.0)
+            shape.fillColor = visualColor
             shape.strokeColor = SKColor(white: 1.0, alpha: 0.4)
             shape.lineWidth = 2
             soldier = shape
         }
 
-        soldier.name = BattleAssetName.normalSoldier
+        soldier.name = assetName
         return soldier
+    }
+
+    private func soldierAssetName(for type: SoldierType) -> String {
+        switch type {
+        case .archer:
+            return BattleAssetName.archerSoldier
+        case .infantry, .cavalry, .mage, .siege:
+            return BattleAssetName.normalSoldier
+        }
+    }
+
+    private func soldierVisualColor(for type: SoldierType) -> SKColor {
+        switch type {
+        case .infantry:
+            return SKColor(red: 0.18, green: 0.52, blue: 1.0, alpha: 1.0)
+        case .archer:
+            return SKColor(red: 0.18, green: 0.76, blue: 0.34, alpha: 1.0)
+        case .cavalry:
+            return SKColor(red: 0.92, green: 0.58, blue: 0.22, alpha: 1.0)
+        case .mage:
+            return SKColor(red: 0.62, green: 0.38, blue: 0.94, alpha: 1.0)
+        case .siege:
+            return SKColor(red: 0.64, green: 0.68, blue: 0.70, alpha: 1.0)
+        }
     }
 
     private func playCityHitFeedback() {
@@ -1183,13 +1268,15 @@ final class BattleScene: SKScene {
 
         enemyCityNode.removeAction(forKey: "cityConquestFeedback")
 
-        let originalXScale = enemyCityNode.xScale
-        let originalYScale = enemyCityNode.yScale
-        let pulse = SKAction.scaleX(to: originalXScale * 1.12, y: originalYScale * 1.12, duration: 0.09)
-        pulse.timingMode = .easeOut
-        let restore = SKAction.scaleX(to: originalXScale, y: originalYScale, duration: 0.14)
-        restore.timingMode = .easeIn
-        enemyCityNode.run(SKAction.sequence([pulse, restore]), withKey: "cityConquestFeedback")
+        if let sprite = enemyCityNode as? SKSpriteNode {
+            let originalColor = sprite.color
+            let originalBlendFactor = sprite.colorBlendFactor
+            let flash = SKAction.colorize(with: GameUITheme.Color.gold, colorBlendFactor: 0.65, duration: 0.09)
+            let restore = SKAction.colorize(with: originalColor, colorBlendFactor: originalBlendFactor, duration: 0.18)
+            sprite.run(SKAction.sequence([flash, restore]), withKey: "cityConquestFeedback")
+        } else {
+            enemyCityNode.run(cityShakeAction(), withKey: "cityConquestFeedback")
+        }
 
         playImpactFlash()
     }
@@ -1209,14 +1296,13 @@ final class BattleScene: SKScene {
         }
         flash.position = enemyGatePoint
         flash.zPosition = GameUITheme.Z.effects
-        flash.setScale(0.4)
+        flash.setScale(1)
         effectsLayer.addChild(flash)
 
-        let expand = SKAction.scale(to: 2.2, duration: 0.22)
-        expand.timingMode = .easeOut
-        let fade = SKAction.fadeOut(withDuration: 0.22)
+        let fade = SKAction.fadeOut(withDuration: 0.18)
+        fade.timingMode = .easeOut
         let remove = SKAction.removeFromParent()
-        flash.run(SKAction.sequence([SKAction.group([expand, fade]), remove]))
+        flash.run(SKAction.sequence([fade, remove]))
     }
 
     private func playFloatingFeedback(text: String, at position: CGPoint, color: SKColor = GameUITheme.Color.gold) {
@@ -1352,6 +1438,7 @@ final class BattleScene: SKScene {
         let priority = manualSpawnableSoldierTypes.map { manualTypeButtonName(for: $0) } + [
             ButtonName.manualType,
             ButtonName.spawn,
+            ButtonName.world,
             ButtonName.build,
             ButtonName.popupContinue
         ]
@@ -1538,6 +1625,7 @@ extension BattleScene {
         let feedback: CGRect
         let feedbackPanel: CGRect
         let spawnButton: CGRect
+        let worldButton: CGRect
         let buildButton: CGRect
         let manualTypeButton: CGRect
         let manualTypeMenuButtons: [SoldierType: CGRect]
@@ -1546,6 +1634,7 @@ extension BattleScene {
         let cityLevelLabel: CGRect
         let cityHPLabel: CGRect
         let spawnButtonLabel: CGRect
+        let worldButtonLabel: CGRect
         let buildButtonLabel: CGRect
         let liveCombatStatus: CGRect
     }
@@ -1557,6 +1646,7 @@ extension BattleScene {
             let feedback = sceneFrame(for: feedbackLabel),
             let feedbackPanel = sceneFrame(for: feedbackPanel),
             let spawnFrame = sceneFrame(for: spawnButton),
+            let worldFrame = sceneFrame(for: worldButton),
             let buildFrame = sceneFrame(for: buildButton),
             let manualTypeFrame = sceneFrame(for: manualTypeButton),
             let goldFrame = sceneFrame(for: goldLabel),
@@ -1564,6 +1654,7 @@ extension BattleScene {
             let cityLevelFrame = sceneFrame(for: cityLevelLabel),
             let cityHPFrame = sceneFrame(for: cityHPLabel),
             let spawnLabelFrame = sceneFrame(for: spawnButtonLabel),
+            let worldLabelFrame = sceneFrame(for: worldButtonLabel),
             let buildLabelFrame = sceneFrame(for: buildButtonLabel),
             let liveCombatStatusFrame = sceneFrame(for: liveCombatStatusLabel)
         else {
@@ -1585,6 +1676,7 @@ extension BattleScene {
             feedback: feedback,
             feedbackPanel: feedbackPanel,
             spawnButton: spawnFrame,
+            worldButton: worldFrame,
             buildButton: buildFrame,
             manualTypeButton: manualTypeFrame,
             manualTypeMenuButtons: menuButtonFrames,
@@ -1593,6 +1685,7 @@ extension BattleScene {
             cityLevelLabel: cityLevelFrame,
             cityHPLabel: cityHPFrame,
             spawnButtonLabel: spawnLabelFrame,
+            worldButtonLabel: worldLabelFrame,
             buildButtonLabel: buildLabelFrame,
             liveCombatStatus: liveCombatStatusFrame
         )
@@ -1658,12 +1751,41 @@ extension BattleScene {
         return sceneFrame(for: bundle.body)
     }
 
+    var firstLiveSoldierBodyNameForTesting: String? {
+        guard let bundle = soldierNodes.values.first else {
+            return nil
+        }
+
+        return bundle.body.name
+    }
+
+    func firstLiveSoldierVisualMatchesForTesting(_ type: SoldierType) -> Bool {
+        guard
+            let soldier = combat.soldiers.first(where: \.isAlive),
+            let bundle = soldierNodes[soldier.id]
+        else {
+            return false
+        }
+
+        return colorsMatch(soldierBodyColor(bundle.body), soldierVisualColor(for: type))
+    }
+
     var isCityConquestFeedbackRunningForTesting: Bool {
         enemyCityNode?.action(forKey: "cityConquestFeedback") != nil
     }
 
     var floatingFeedbackCountForTesting: Int {
         effectsLayer.children.filter { $0.name == EffectName.floatingFeedback }.count
+    }
+
+    var impactEffectScalesForTesting: [(x: CGFloat, y: CGFloat)] {
+        effectsLayer.children
+            .filter { $0.zPosition == GameUITheme.Z.effects }
+            .map { (x: $0.xScale, y: $0.yScale) }
+    }
+
+    var battlefieldLayoutCountForTesting: Int {
+        battlefieldLayoutCount
     }
 
     var isGoldBurstVisibleForTesting: Bool {
@@ -1724,7 +1846,7 @@ extension BattleScene {
 
     func openManualTypeMenuForTesting() {
         isManualTypeMenuOpen = true
-        redraw()
+        redraw(shouldLayout: false)
     }
 
     func toggleManualTypeMenuForTesting() {
@@ -1737,6 +1859,10 @@ extension BattleScene {
 
     func requestBuildingViewForTesting() {
         requestBuildingView()
+    }
+
+    func requestCountryMapForTesting() {
+        requestCountryMap()
     }
 
     func advanceCombatForTesting(deltaTime: TimeInterval) {
@@ -1793,6 +1919,35 @@ extension BattleScene {
         }
 
         return node.children.contains { containsLabelWithText(in: $0, text: text) }
+    }
+
+    private func soldierBodyColor(_ node: SKNode) -> SKColor {
+        if let sprite = node as? SKSpriteNode {
+            return sprite.color
+        }
+        if let shape = node as? SKShapeNode {
+            return shape.fillColor
+        }
+        return .clear
+    }
+
+    private func colorsMatch(_ lhs: SKColor, _ rhs: SKColor) -> Bool {
+        var lhsRed: CGFloat = 0
+        var lhsGreen: CGFloat = 0
+        var lhsBlue: CGFloat = 0
+        var lhsAlpha: CGFloat = 0
+        var rhsRed: CGFloat = 0
+        var rhsGreen: CGFloat = 0
+        var rhsBlue: CGFloat = 0
+        var rhsAlpha: CGFloat = 0
+
+        lhs.getRed(&lhsRed, green: &lhsGreen, blue: &lhsBlue, alpha: &lhsAlpha)
+        rhs.getRed(&rhsRed, green: &rhsGreen, blue: &rhsBlue, alpha: &rhsAlpha)
+
+        return abs(lhsRed - rhsRed) < 0.001
+            && abs(lhsGreen - rhsGreen) < 0.001
+            && abs(lhsBlue - rhsBlue) < 0.001
+            && abs(lhsAlpha - rhsAlpha) < 0.001
     }
 }
 #endif
