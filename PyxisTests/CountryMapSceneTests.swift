@@ -80,6 +80,24 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackTextForTesting == "Country 1 conquered.")
     }
 
+    @Test func cityButtonReturnsToActiveBattleWithoutMutatingStore() throws {
+        let initialState = KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 24,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestCurrentCityBattleForTesting()
+
+        #expect(store.load() == initialState)
+        #expect(router.didRequestBattle)
+    }
+
     @Test func mapShowsTraitForUnlockedCityInFeedback() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,

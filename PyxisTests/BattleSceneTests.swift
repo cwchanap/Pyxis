@@ -108,6 +108,28 @@ struct BattleSceneTests {
         #expect(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? 10 < 1)
     }
 
+    @Test func archeryRangeBuildingSpawnUsesArcherVisual() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 2)
+        let interval = KingdomGameState.activeSpawnInterval(for: .archeryRange)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .archeryRange, spawnTimerElapsed: interval - 0.1)]
+        )
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 2,
+                completedCityCount: 1,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.advanceCombatForTesting(deltaTime: 0.2)
+
+        #expect(scene.liveSoldierTypesForTesting == [.archer])
+        #expect(scene.firstLiveSoldierBodyNameForTesting == "archer-soldier")
+    }
+
     @Test func battleSceneShowsDefenseTraitAndRemovesUpgradeAction() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(
@@ -341,6 +363,59 @@ struct BattleSceneTests {
         #expect(scene.floatingFeedbackCountForTesting > 0)
     }
 
+    @Test func cityDamageDoesNotCreateScalingImpactEffect() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 50,
+                completedCityCount: 0
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        let impactEffectScales = scene.impactEffectScalesForTesting
+
+        #expect(!impactEffectScales.isEmpty)
+        #expect(impactEffectScales.allSatisfy { $0.x == 1 && $0.y == 1 })
+    }
+
+    @Test func cityDamageDoesNotRelayoutBattlefieldBackdrop() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 50,
+                completedCityCount: 0
+            )
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        let layoutCountBeforeDamage = scene.battlefieldLayoutCountForTesting
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.cityRemainingPowerForTesting < 50)
+        #expect(scene.battlefieldLayoutCountForTesting == layoutCountBeforeDamage)
+    }
+
+    @Test func infantrySelectorDoesNotRelayoutBattlefieldBackdrop() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 50,
+                completedCityCount: 0
+            )
+        )
+        let scene = makeScene(store: store)
+
+        let layoutCountBeforeInfantryMenu = scene.battlefieldLayoutCountForTesting
+
+        scene.toggleManualTypeMenuForTesting()
+        scene.selectManualSoldierTypeForTesting(.infantry)
+
+        #expect(scene.battlefieldLayoutCountForTesting == layoutCountBeforeInfantryMenu)
+    }
+
     @Test func towerDamageCanKillAndRemoveVisibleSoldier() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(
@@ -521,6 +596,16 @@ struct BattleSceneTests {
         #expect(router.didRequestBuildingView)
     }
 
+    @Test func worldButtonRequestsCountryMapRoute() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestCountryMapForTesting()
+
+        #expect(router.didRequestCountryMap)
+    }
+
     @Test func buildButtonWaitsForLiveSoldiersBeforeRouting() throws {
         let start = Date(timeIntervalSinceReferenceDate: 500)
         var initialState = KingdomGameState(gold: 100, cityRemainingPower: 20)
@@ -601,14 +686,19 @@ struct BattleSceneTests {
         #expect(frames.feedbackPanel.contains(frames.feedback))
         #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
         #expect(frames.feedbackPanel.minY >= frames.spawnButton.maxY)
+        #expect(frames.feedbackPanel.minY >= frames.worldButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minX >= 12)
+        #expect(frames.worldButton.maxY <= frames.battlefield.minY)
+        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
         #expect(frames.buildButton.maxX <= scene.size.width - 12)
         #expect(frames.spawnButton.maxX < frames.buildButton.minX)
         #expect(frames.buildButton.minY >= 12)
         #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
         #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
+        #expect(frames.worldButtonLabel.minX >= frames.worldButton.minX + 12)
+        #expect(frames.worldButtonLabel.maxX <= frames.worldButton.maxX - 12)
         #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
         #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
     }
@@ -633,10 +723,13 @@ struct BattleSceneTests {
         #expect(frames.feedbackPanel.contains(frames.feedback))
         #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
         #expect(frames.feedback.minY >= frames.spawnButton.maxY)
+        #expect(frames.feedback.minY >= frames.worldButton.maxY)
         #expect(frames.feedback.minY >= frames.buildButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minY >= 8)
+        #expect(frames.worldButton.maxY <= frames.battlefield.minY)
+        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
         #expect(frames.buildButton.minY >= 8)
         #expect(frames.spawnButton.maxX < frames.buildButton.minX)
     }
@@ -656,6 +749,7 @@ struct BattleSceneTests {
 
             #expect(!infantryButton.intersects(frames.feedbackPanel))
             #expect(!infantryButton.intersects(frames.battlefield))
+            #expect(!infantryButton.intersects(frames.worldButton))
             #expect(infantryButton.minY >= frames.spawnButton.maxY)
             #expect(infantryButton.maxX <= size.width - 8)
             #expect(archerButton == nil)
@@ -692,6 +786,7 @@ struct BattleSceneTests {
             #expect(!button.intersects(frames.buildButton))
             #expect(!button.intersects(frames.feedbackPanel))
             #expect(!button.intersects(frames.battlefield))
+            #expect(!button.intersects(frames.worldButton))
         }
     }
 
@@ -709,9 +804,13 @@ struct BattleSceneTests {
         #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
         #expect(frames.spawnButton.minX >= 8)
         #expect(frames.buildButton.maxX <= size.width - 8)
+        #expect(frames.worldButton.maxX <= size.width - 8)
+        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
         #expect(frames.spawnButton.maxX < frames.buildButton.minX)
         #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
         #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
+        #expect(frames.worldButtonLabel.minX >= frames.worldButton.minX + 12)
+        #expect(frames.worldButtonLabel.maxX <= frames.worldButton.maxX - 12)
         #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
         #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
 
@@ -719,6 +818,21 @@ struct BattleSceneTests {
         let updatedFrames = try #require(scene.battleLayoutFramesForTesting)
         #expect(updatedFrames.liveCombatStatus.minX >= updatedFrames.leftHUD.minX + 10)
         #expect(updatedFrames.liveCombatStatus.maxX <= updatedFrames.leftHUD.maxX - 10)
+    }
+
+    @Test func worldToggleDoesNotCompressInfantryAndBuildControlsInNarrowViewport() throws {
+        let size = CGSize(width: 320, height: 568)
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = BattleScene(size: size, store: store, router: nil)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.spawnButton.width >= 150)
+        #expect(frames.manualTypeButton.width >= 112)
+        #expect(frames.buildButton.width >= 92)
+        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
     }
 
     @Test func commanderHUDFitsLateGameNumbersInNarrowViewport() throws {

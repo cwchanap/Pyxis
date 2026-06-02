@@ -29,6 +29,7 @@ struct CountryMapLayoutFrames {
 final class CountryMapScene: SKScene {
     private enum NodeName {
         static let cityPrefix = "countryMapCity-"
+        static let currentCityButton = "countryMapCurrentCityButton"
     }
 
     private enum MapAssetName {
@@ -52,6 +53,9 @@ final class CountryMapScene: SKScene {
     private let feedbackPanel = PanelNode(size: CGSize(width: 320, height: 56))
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let feedbackLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let currentCityButton = SKNode()
+    private let currentCityButtonBackground = SKShapeNode()
+    private let currentCityButtonLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private var backdropNode: SKSpriteNode?
     private var cityNodes: [Int: SKShapeNode] = [:]
     private var cityLabels: [Int: SKLabelNode] = [:]
@@ -103,7 +107,13 @@ final class CountryMapScene: SKScene {
             return
         }
 
-        guard let cityNumber = cityNumber(at: touch.location(in: self)) else {
+        let point = touch.location(in: self)
+        if buttonName(at: point) == NodeName.currentCityButton {
+            requestCurrentCityBattle()
+            return
+        }
+
+        guard let cityNumber = cityNumber(at: point) else {
             return
         }
 
@@ -133,8 +143,17 @@ final class CountryMapScene: SKScene {
 
         configureLabel(titleLabel, fontSize: 30, color: GameUITheme.Color.textPrimary)
         configureLabel(feedbackLabel, fontSize: 16, color: GameUITheme.Color.gold)
+        configureButton(
+            currentCityButton,
+            background: currentCityButtonBackground,
+            label: currentCityButtonLabel,
+            name: NodeName.currentCityButton,
+            color: SKColor(red: 0.22, green: 0.42, blue: 0.54, alpha: 1.0)
+        )
         titlePanel.addChild(titleLabel)
         feedbackPanel.addChild(feedbackLabel)
+        currentCityButton.zPosition = GameUITheme.Z.hud + 1
+        addChild(currentCityButton)
 
         let hasConqueredMarkerAsset = UIImage(named: MapAssetName.conqueredMarker) != nil
 
@@ -171,6 +190,30 @@ final class CountryMapScene: SKScene {
         label.verticalAlignmentMode = .center
     }
 
+    private func configureButton(
+        _ button: SKNode,
+        background: SKShapeNode,
+        label: SKLabelNode,
+        name: String,
+        color: SKColor
+    ) {
+        button.name = name
+        background.name = name
+        background.fillColor = color
+        background.strokeColor = SKColor(white: 1.0, alpha: 0.20)
+        background.lineWidth = 2
+
+        label.name = name
+        label.text = "City"
+        label.fontSize = 15
+        label.fontColor = GameUITheme.Color.textPrimary
+        label.horizontalAlignmentMode = .center
+        label.verticalAlignmentMode = .center
+
+        button.addChild(background)
+        button.addChild(label)
+    }
+
     private func layoutInterface() {
         guard didBuildInterface else {
             return
@@ -191,16 +234,33 @@ final class CountryMapScene: SKScene {
         let panelWidth = max(220, min(size.width - horizontalMargin * 2, 520))
         let titlePanelSize = CGSize(width: panelWidth, height: isCompactHeight ? 46 : 66)
         let feedbackPanelSize = CGSize(width: panelWidth, height: isCompactHeight ? 42 : 56)
+        let currentCityButtonSize = CGSize(width: isCompactHeight ? 70 : 82, height: isCompactHeight ? 30 : 36)
+        let showsCurrentCityButton = state.stageStatus == .battleActive
 
         titlePanel.update(size: titlePanelSize)
         feedbackPanel.update(size: feedbackPanelSize)
         titlePanel.position = CGPoint(x: size.width / 2, y: size.height - topInset - titlePanelSize.height / 2)
         feedbackPanel.position = CGPoint(x: size.width / 2, y: bottomInset + feedbackPanelSize.height / 2)
 
-        titleLabel.position = .zero
+        titleLabel.position = CGPoint(x: showsCurrentCityButton ? -currentCityButtonSize.width * 0.34 : 0, y: 0)
         feedbackLabel.position = .zero
         titleLabel.fontSize = isCompactHeight ? 21 : 28
         feedbackLabel.fontSize = isCompactHeight ? 12 : 15
+        currentCityButtonLabel.fontSize = isCompactHeight ? 13 : 15
+        currentCityButton.isHidden = !showsCurrentCityButton
+        layoutButton(
+            currentCityButton,
+            background: currentCityButtonBackground,
+            size: currentCityButtonSize,
+            position: CGPoint(
+                x: titlePanel.position.x + titlePanelSize.width / 2 - currentCityButtonSize.width / 2 - 10,
+                y: titlePanel.position.y
+            )
+        )
+        let titleLabelMaxWidth = titlePanelSize.width
+            - (showsCurrentCityButton ? currentCityButtonSize.width + 34 : 24)
+        fitLabel(titleLabel, maxWidth: titleLabelMaxWidth)
+        fitLabel(currentCityButtonLabel, maxWidth: currentCityButtonSize.width - 18)
 
         let illustratedTop = titlePanel.position.y - titlePanelSize.height / 2 - (isCompactHeight ? 8 : 18)
         let illustratedBottom = feedbackPanel.position.y + feedbackPanelSize.height / 2 + (isCompactHeight ? 8 : 18)
@@ -242,7 +302,10 @@ final class CountryMapScene: SKScene {
             cityNodes[cityNumber]?.position = position
             cityLabels[cityNumber]?.fontSize = labelFontSize
             cityLabels[cityNumber]?.position = position
-            conqueredMarkers[cityNumber]?.position = CGPoint(x: position.x + nodeRadius * 0.74, y: position.y + nodeRadius * 0.62)
+            conqueredMarkers[cityNumber]?.position = CGPoint(
+                x: position.x + nodeRadius * 0.74,
+                y: position.y + nodeRadius * 0.62
+            )
             conqueredMarkers[cityNumber]?.size = CGSize(width: nodeRadius * 1.35, height: nodeRadius * 1.35)
         }
 
@@ -251,6 +314,26 @@ final class CountryMapScene: SKScene {
 
     private func frame(centeredAt center: CGPoint, size: CGSize) -> CGRect {
         CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+    }
+
+    private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
+        background.path = CGPath(
+            roundedRect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height),
+            cornerWidth: 9,
+            cornerHeight: 9,
+            transform: nil
+        )
+        button.position = position
+    }
+
+    private func fitLabel(_ label: SKLabelNode, maxWidth: CGFloat) {
+        guard maxWidth > 0 else {
+            return
+        }
+
+        while label.frame.width > maxWidth && label.fontSize > 8 {
+            label.fontSize -= 1
+        }
     }
 
     private func cityPositions(in regionFrame: CGRect, nodeRadius: CGFloat) -> [Int: CGPoint] {
@@ -272,7 +355,7 @@ final class CountryMapScene: SKScene {
             CGPoint(x: 0.33, y: 0.59),
             CGPoint(x: 0.19, y: 0.73),
             CGPoint(x: 0.47, y: 0.80),
-            CGPoint(x: 0.76, y: 0.90),
+            CGPoint(x: 0.76, y: 0.90)
         ]
         var positions: [Int: CGPoint] = [:]
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
@@ -382,11 +465,11 @@ final class CountryMapScene: SKScene {
 
         let pulseUp = SKAction.group([
             SKAction.scale(to: cityNode.xScale * 1.08, duration: 0.8),
-            SKAction.fadeAlpha(to: 0.86, duration: 0.8),
+            SKAction.fadeAlpha(to: 0.86, duration: 0.8)
         ])
         let pulseDown = SKAction.group([
             SKAction.scale(to: cityNode.xScale, duration: 0.8),
-            SKAction.fadeAlpha(to: 1.0, duration: 0.8),
+            SKAction.fadeAlpha(to: 1.0, duration: 0.8)
         ])
         cityNode.run(SKAction.repeatForever(SKAction.sequence([pulseUp, pulseDown])), withKey: ActionKey.unlockedPulse)
     }
@@ -411,6 +494,32 @@ final class CountryMapScene: SKScene {
         }
 
         return nil
+    }
+
+    private func buttonName(at point: CGPoint) -> String? {
+        let touchedNames = Set(nodes(at: point).compactMap(\.name))
+        if touchedNames.contains(NodeName.currentCityButton) {
+            return NodeName.currentCityButton
+        }
+
+        return nil
+    }
+
+    private func requestCurrentCityBattle() {
+        state = store.load()
+        guard state.stageStatus == .battleActive else {
+            feedbackText = defaultFeedbackText(for: state)
+            redraw()
+            return
+        }
+
+        guard let router else {
+            feedbackText = "Cannot enter city yet."
+            redraw()
+            return
+        }
+
+        router.countryMapSceneDidRequestBattle(self)
     }
 
     private func enterCity(_ cityNumber: Int) {
@@ -462,6 +571,10 @@ extension CountryMapScene {
 
     func enterCityForTesting(_ cityNumber: Int) {
         enterCity(cityNumber)
+    }
+
+    func requestCurrentCityBattleForTesting() {
+        requestCurrentCityBattle()
     }
 
     func cityNumberAtPointForTesting(_ point: CGPoint) -> Int? {
