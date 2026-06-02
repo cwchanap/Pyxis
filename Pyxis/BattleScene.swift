@@ -1767,6 +1767,11 @@ extension BattleScene {
             return false
         }
 
+        let preferredAssetName = soldierAssetName(for: type)
+        if bundle.body.name == preferredAssetName {
+            return true
+        }
+
         return colorsMatch(soldierBodyColor(bundle.body), soldierVisualColor(for: type))
     }
 
