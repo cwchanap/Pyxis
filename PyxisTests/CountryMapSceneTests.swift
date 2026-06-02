@@ -275,6 +275,38 @@ struct CountryMapSceneTests {
         #expect(scene.cityNumberAtPointForTesting(cityPoint) == 2)
     }
 
+    @Test func titleLabelFitsWithinPanelOnFirstLayout() throws {
+        let size = CGSize(width: 320, height: 568)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = scene.mapLayoutFramesForTesting
+
+        #expect(scene.titleLabelFrameWidthForTesting <= frames.titlePanelFrame.width)
+        #expect(scene.titleLabelFontSizeForTesting >= 8)
+    }
+
+    @Test func titleLabelFitsWithCurrentCityButtonVisible() throws {
+        let size = CGSize(width: 320, height: 568)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 50,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = scene.mapLayoutFramesForTesting
+
+        // With the button visible, available title width is smaller — verify fitting works
+        #expect(scene.titleLabelFrameWidthForTesting <= frames.titlePanelFrame.width - 82)
+        #expect(scene.titleLabelFontSizeForTesting >= 8)
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         private(set) var didRequestBattle = false
 
