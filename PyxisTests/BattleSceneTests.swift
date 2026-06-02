@@ -45,6 +45,15 @@ struct BattleSceneTests {
         #expect(store.load().cityRemainingPower == 20)
     }
 
+    @Test func infantrySoldierVisualMatchesFallbackAssetColor() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.firstLiveSoldierVisualMatchesForTesting(.infantry))
+    }
+
     @Test func manualSelectorChangesSpawnedSoldierType() throws {
         let state = stateWithBuildings(
             [.barracks, .archeryRange],
@@ -128,6 +137,7 @@ struct BattleSceneTests {
 
         #expect(scene.liveSoldierTypesForTesting == [.archer])
         #expect(scene.firstLiveSoldierBodyNameForTesting == "archer-soldier")
+        #expect(scene.firstLiveSoldierVisualMatchesForTesting(.archer))
     }
 
     @Test func battleSceneShowsDefenseTraitAndRemovesUpgradeAction() throws {
