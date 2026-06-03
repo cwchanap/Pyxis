@@ -168,17 +168,6 @@ struct CountryMapSceneTests {
 
     @Test func enteringCityStaysOnMapWhenIdleProgressConquersCity() throws {
         let start = Date.distantPast
-        var initialState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 0,
-            cityNumberInCountry: 2,
-            completedCityCount: 2,
-            stageStatus: .cityConqueredPendingMap
-        )
-        let store = try makeStore(initialState: initialState)
-        store.save(initialState)
-
-        // Simulate: external save sets up city 3 as battleActive with tiny HP + backgrounded
         var battleState = KingdomGameState(
             gold: 100,
             cityRemainingPower: 1,
@@ -188,7 +177,7 @@ struct CountryMapSceneTests {
             stageStatus: .battleActive
         )
         _ = battleState.buildBuilding(.barracks, inSlot: 1, at: start)
-        store.save(battleState)
+        let store = try makeStore(initialState: battleState)
 
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
