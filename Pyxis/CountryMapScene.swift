@@ -521,6 +521,14 @@ final class CountryMapScene: SKScene {
         }
 
         _ = state.returnFromBackground(at: Date())
+
+        guard state.stageStatus == .battleActive else {
+            feedbackText = defaultFeedbackText(for: state)
+            store.save(state)
+            redraw()
+            return
+        }
+
         store.save(state)
         router.countryMapSceneDidRequestBattle(self)
     }
@@ -539,6 +547,14 @@ final class CountryMapScene: SKScene {
 
             _ = latestState.returnFromBackground(at: Date())
             state = latestState
+
+            guard state.stageStatus == .battleActive else {
+                feedbackText = defaultFeedbackText(for: state)
+                store.save(state)
+                redraw()
+                return
+            }
+
             store.save(state)
             router.countryMapSceneDidRequestBattle(self)
         case .locked:

@@ -121,6 +121,28 @@ struct CountryMapSceneTests {
         #expect(saved.cityRemainingPower < 1000)
     }
 
+    @Test func requestCurrentCityBattleStaysOnMapWhenIdleProgressConquersCity() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestCurrentCityBattleForTesting()
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(!router.didRequestBattle)
+    }
+
     @Test func enteringCurrentCityResolvesIdleProgress() throws {
         let start = Date.distantPast
         var initialState = KingdomGameState(
@@ -142,6 +164,40 @@ struct CountryMapSceneTests {
         #expect(saved.lastBackgroundedAt == nil)
         #expect(router.didRequestBattle)
         #expect(saved.cityRemainingPower < 1000)
+    }
+
+    @Test func enteringCityStaysOnMapWhenIdleProgressConquersCity() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 2,
+            completedCityCount: 2,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: initialState)
+        store.save(initialState)
+
+        // Simulate: external save sets up city 3 as battleActive with tiny HP + backgrounded
+        var battleState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = battleState.buildBuilding(.barracks, inSlot: 1, at: start)
+        store.save(battleState)
+
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.enterCityForTesting(3)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(!router.didRequestBattle)
     }
 
     @Test func mapShowsTraitForUnlockedCityInFeedback() throws {
