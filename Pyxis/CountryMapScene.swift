@@ -409,6 +409,7 @@ final class CountryMapScene: SKScene {
     private func redraw() {
         titleLabel.text = "Country \(state.countryNumber)"
         feedbackLabel.text = feedbackText
+        currentCityButton.isHidden = (state.stageStatus != .battleActive)
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             applyVisualState(visualState(for: cityNumber), to: cityNumber)
@@ -623,6 +624,10 @@ extension CountryMapScene {
 
     var titleLabelFrameWidthForTesting: CGFloat {
         titleLabel.frame.width
+    }
+
+    var isCurrentCityButtonHiddenForTesting: Bool {
+        currentCityButton.isHidden
     }
 }
 #endif
