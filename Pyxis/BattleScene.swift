@@ -1893,6 +1893,10 @@ extension BattleScene {
         compactNumber(value)
     }
 
+    var popupContinueButtonFrameForTesting: CGRect? {
+        sceneFrame(for: popupContinueButton)
+    }
+
     private func sceneFrame(for node: SKNode) -> CGRect? {
         guard let parent = node.parent else {
             return nil
