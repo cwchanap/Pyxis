@@ -200,6 +200,79 @@ struct CountryMapSceneTests {
         #expect(!router.didRequestBattle)
     }
 
+    @Test func cityButtonHidesAfterIdleConquestViaRequestCurrentCityBattle() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        // Button should be visible while battle is active
+        #expect(!scene.isCurrentCityButtonHiddenForTesting)
+
+        scene.requestCurrentCityBattleForTesting()
+
+        // Idle progress conquers city → status changes, button must hide
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(scene.isCurrentCityButtonHiddenForTesting)
+    }
+
+    @Test func cityButtonHidesAfterIdleConquestViaEnterCity() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 2,
+            completedCityCount: 2,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: initialState)
+        store.save(initialState)
+
+        var battleState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = battleState.buildBuilding(.barracks, inSlot: 1, at: start)
+        store.save(battleState)
+
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        // Reload gives scene the battleActive state, so button is visible
+        #expect(!scene.isCurrentCityButtonHiddenForTesting)
+
+        scene.enterCityForTesting(3)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(scene.isCurrentCityButtonHiddenForTesting)
+    }
+
+    @Test func cityButtonHidesOnMapLoadWhenNoBattleActive() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 3,
+            completedCityCount: 3,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.isCurrentCityButtonHiddenForTesting)
+    }
+
     @Test func mapShowsTraitForUnlockedCityInFeedback() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
