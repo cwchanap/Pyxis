@@ -54,6 +54,27 @@ struct BattleSceneTests {
         #expect(scene.firstLiveSoldierVisualMatchesForTesting(.infantry))
     }
 
+    @Test func mismatchedSoldierTypeFallsBackToColorComparison() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        // Infantry soldier body does not match archer asset name, so it falls back to color comparison
+        #expect(!scene.firstLiveSoldierVisualMatchesForTesting(.archer))
+    }
+
+    @Test func cavalrySoldierVisualMatches() throws {
+        let state = stateWithBuildings([.stable], cityRemainingPower: 20)
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.firstLiveSoldierVisualMatchesForTesting(.cavalry))
+    }
+
     @Test func manualSelectorChangesSpawnedSoldierType() throws {
         let state = stateWithBuildings(
             [.barracks, .archeryRange],
@@ -520,6 +541,18 @@ struct BattleSceneTests {
         #expect(scene.isCityConquestFeedbackRunningForTesting)
     }
 
+    @Test func visualMatchReturnsFalseWithNoSoldiers() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        #expect(!scene.firstLiveSoldierVisualMatchesForTesting(.infantry))
+    }
+
+    @Test func goldBurstZPositionFallsBackWhenAbsent() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        #expect(scene.goldBurstZPositionForTesting < 0)
+    }
+
     @Test func conquestPopupUsesRewardPresentationNodes() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(
@@ -965,6 +998,120 @@ struct BattleSceneTests {
         func battleSceneDidRequestBuildingView(_ scene: BattleScene) {
             didRequestBuildingView = true
         }
+    }
+
+    private final class MockTouch: UITouch {
+        private let loc: CGPoint
+        init(location: CGPoint) {
+            self.loc = location
+            super.init()
+        }
+        override func location(in view: UIView?) -> CGPoint {
+            return loc
+        }
+    }
+
+    // MARK: - touchesEnded
+
+    @Test func touchesEndedEmptyTouchesDoesNothing() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let liveCountBefore = scene.liveSoldierCountForTesting
+
+        scene.touchesEnded([], with: nil)
+
+        #expect(scene.liveSoldierCountForTesting == liveCountBefore)
+        #expect(!router.didRequestCountryMap)
+        #expect(!router.didRequestBuildingView)
+    }
+
+    @Test func touchesEndedSpawnButtonSpawnsSoldier() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let point = CGPoint(x: frames.spawnButton.midX, y: frames.spawnButton.midY)
+
+        scene.touchesEnded([MockTouch(location: point)], with: nil)
+
+        #expect(scene.liveSoldierCountForTesting == 1)
+    }
+
+    @Test func touchesEndedBuildButtonRequestsBuildingView() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let point = CGPoint(x: frames.buildButton.midX, y: frames.buildButton.midY)
+
+        scene.touchesEnded([MockTouch(location: point)], with: nil)
+
+        #expect(router.didRequestBuildingView)
+    }
+
+    @Test func touchesEndedWorldButtonRequestsCountryMap() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let point = CGPoint(x: frames.worldButton.midX, y: frames.worldButton.midY)
+
+        scene.touchesEnded([MockTouch(location: point)], with: nil)
+
+        #expect(router.didRequestCountryMap)
+    }
+
+    @Test func touchesEndedPopupContinueClosesPopupAndRoutes() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+        #expect(scene.isConquestPopupVisibleForTesting)
+
+        let frame = try #require(scene.popupContinueButtonFrameForTesting)
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        scene.touchesEnded([MockTouch(location: point)], with: nil)
+
+        #expect(router.didRequestCountryMap)
+        #expect(!scene.isConquestPopupVisibleForTesting)
+    }
+
+    @Test func touchesEndedOutsideClosesManualTypeMenu() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        scene.openManualTypeMenuForTesting()
+        #expect(scene.isManualTypeMenuOpenForTesting)
+
+        let point = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
+        scene.touchesEnded([MockTouch(location: point)], with: nil)
+
+        #expect(!scene.isManualTypeMenuOpenForTesting)
+    }
+
+    @Test func requestCountryMapBlocksWithManualSoldiersAlive() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        scene.spawnSoldierForTesting()
+
+        scene.requestCountryMapForTesting()
+
+        #expect(!router.didRequestCountryMap)
+        #expect(scene.feedbackTextForTesting == "Finish the current squad before viewing world.")
+    }
+
+    @Test func requestCountryMapBlocksWhenConquestPopupVisible() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+        #expect(scene.isConquestPopupVisibleForTesting)
+
+        scene.requestCountryMapForTesting()
+
+        #expect(!router.didRequestCountryMap)
     }
 
     // MARK: - compactNumber

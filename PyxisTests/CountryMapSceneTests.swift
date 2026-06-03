@@ -482,11 +482,151 @@ struct CountryMapSceneTests {
         #expect(scene.titleLabelFontSizeForTesting >= 8)
     }
 
+    @Test func touchesEndedEmptyTouchesDoesNothing() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.touchesEnded([], with: nil)
+
+        #expect(!router.didRequestBattle)
+    }
+
+    @Test func touchesEndedOnCityNodeEntersUnlockedCity() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(2))
+
+        scene.touchesEnded([MockTouch(location: cityPoint)], with: nil)
+
+        #expect(router.didRequestBattle)
+    }
+
+    @Test func touchesEndedOutsideDoesNothing() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.touchesEnded([MockTouch(location: CGPoint(x: 1, y: 1))], with: nil)
+
+        #expect(!router.didRequestBattle)
+    }
+
+    @Test func touchesEndedCurrentCityButtonRequestsBattle() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 50,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let point = try #require(scene.currentCityButtonPositionForTesting)
+
+        scene.touchesEnded([MockTouch(location: point)], with: nil)
+
+        #expect(router.didRequestBattle)
+    }
+
+    @Test func requestCurrentCityBattleWhenNotBattleActiveShowsFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 3,
+            completedCityCount: 3,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestCurrentCityBattleForTesting()
+
+        #expect(!router.didRequestBattle)
+        #expect(scene.feedbackTextForTesting == "City 4: Spiked Gate")
+    }
+
+    @Test func requestCurrentCityBattleWithoutRouterShowsFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 50,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        ))
+        let scene = makeScene(store: store, router: nil)
+
+        scene.requestCurrentCityBattleForTesting()
+
+        #expect(scene.feedbackTextForTesting == "Cannot enter city yet.")
+    }
+
+    @Test func fitLabelWithZeroMaxWidthDoesNotCrash() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let label = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        label.text = "Test"
+        label.fontSize = 30
+
+        scene.fitLabelForTesting(label, maxWidth: 0)
+
+        #expect(label.fontSize == 30)
+    }
+
+    @Test func fitLabelShrinksFontWhenLabelIsTooWide() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let label = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+        label.text = "Very Long Text That Exceeds Narrow Width"
+        label.fontSize = 30
+
+        scene.fitLabelForTesting(label, maxWidth: 20)
+
+        #expect(label.fontSize < 30)
+        #expect(label.fontSize >= 8)
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         private(set) var didRequestBattle = false
 
         func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) {
             didRequestBattle = true
+        }
+    }
+
+    private final class MockTouch: UITouch {
+        private let loc: CGPoint
+        init(location: CGPoint) {
+            self.loc = location
+            super.init()
+        }
+        override func location(in view: UIView?) -> CGPoint {
+            return loc
         }
     }
 

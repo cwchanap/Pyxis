@@ -629,5 +629,13 @@ extension CountryMapScene {
     var isCurrentCityButtonHiddenForTesting: Bool {
         currentCityButton.isHidden
     }
+
+    var currentCityButtonPositionForTesting: CGPoint? {
+        currentCityButton.position
+    }
+
+    func fitLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) {
+        fitLabel(label, maxWidth: maxWidth)
+    }
 }
 #endif
