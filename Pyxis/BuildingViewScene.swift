@@ -242,16 +242,13 @@ final class BuildingViewScene: SKScene {
             hitArea.strokeColor = .clear
 
             let padSprite = SKSpriteNode(imageNamed: AssetName.emptyPad)
-            padSprite.name = container.name
             padSprite.alpha = 0.78
             padSprite.zPosition = 0
 
             let buildingSprite = SKSpriteNode()
-            buildingSprite.name = container.name
             buildingSprite.zPosition = 2
 
             let selectionOutline = SKShapeNode()
-            selectionOutline.name = container.name
             selectionOutline.fillColor = .clear
             selectionOutline.strokeColor = GameUITheme.Color.gold
             selectionOutline.lineWidth = 3
@@ -259,14 +256,12 @@ final class BuildingViewScene: SKScene {
             selectionOutline.zPosition = 3
 
             let levelBadge = SKShapeNode()
-            levelBadge.name = container.name
             levelBadge.fillColor = SKColor(red: 0.07, green: 0.10, blue: 0.13, alpha: 0.92)
             levelBadge.strokeColor = GameUITheme.Color.gold
             levelBadge.lineWidth = 1
             levelBadge.zPosition = 4
 
             let levelLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
-            levelLabel.name = container.name
             levelLabel.fontSize = 10
             levelLabel.fontColor = GameUITheme.Color.textPrimary
             levelLabel.horizontalAlignmentMode = .center
@@ -275,7 +270,6 @@ final class BuildingViewScene: SKScene {
             levelBadge.addChild(levelLabel)
 
             let label = SKLabelNode(fontNamed: GameUITheme.Font.medium)
-            label.name = container.name
             label.fontSize = 10
             label.fontColor = GameUITheme.Color.textPrimary
             label.horizontalAlignmentMode = .center
@@ -748,13 +742,14 @@ final class BuildingViewScene: SKScene {
     }
 
     private func slot(at point: CGPoint) -> Int? {
-        for node in nodes(at: point) {
-            guard let name = node.name, name.hasPrefix(SlotName.prefix) else {
+        for slot in CityBattleState.slotRange {
+            guard let hitArea = slotNodes[slot]?.hitArea,
+                  let path = hitArea.path else {
                 continue
             }
 
-            let slotText = name.dropFirst(SlotName.prefix.count)
-            if let slot = Int(slotText) {
+            let pointInHitArea = convert(point, to: hitArea)
+            if path.contains(pointInHitArea) {
                 return slot
             }
         }
@@ -806,7 +801,7 @@ final class BuildingViewScene: SKScene {
 
     private func gridFrameForSlots() -> CGRect {
         slotNodes.values
-            .compactMap { sceneFrame(for: $0.container) }
+            .compactMap { sceneFrame(for: $0.hitArea) }
             .reduce(nil) { partialFrame, frame in
                 partialFrame?.union(frame) ?? frame
             } ?? .zero
@@ -875,6 +870,27 @@ extension BuildingViewScene {
         Dictionary(uniqueKeysWithValues: slotNodes.map { slot, bundle in
             (slot, bundle.container.position)
         })
+    }
+
+    func slotHitAreaCenterPointForTesting(_ slot: Int) -> CGPoint? {
+        guard let hitArea = slotNodes[slot]?.hitArea else {
+            return nil
+        }
+
+        return hitArea.convert(.zero, to: self)
+    }
+
+    func slotLabelOverhangPointForTesting(_ slot: Int) -> CGPoint? {
+        guard let label = slotNodes[slot]?.label,
+              let frame = sceneFrame(for: label) else {
+            return nil
+        }
+
+        return CGPoint(x: frame.midX, y: frame.minY + 1)
+    }
+
+    func slotAtPointForTesting(_ point: CGPoint) -> Int? {
+        slot(at: point)
     }
 
     var selectedSlotForTesting: Int? {

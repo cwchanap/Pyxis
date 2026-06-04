@@ -114,6 +114,16 @@ struct BuildingViewSceneTests {
         #expect(scene.slotLevelTextForTesting(7) == "Lv 2")
     }
 
+    @Test func slotLookupUsesHitAreaInsteadOfOverhangingLabel() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let hitAreaPoint = try #require(scene.slotHitAreaCenterPointForTesting(7))
+        let labelOverhangPoint = try #require(scene.slotLabelOverhangPointForTesting(7))
+
+        #expect(scene.slotAtPointForTesting(hitAreaPoint) == 7)
+        #expect(scene.slotAtPointForTesting(labelOverhangPoint) == nil)
+    }
+
     @Test func buildingUpdatesStoreSlotAndGoldLabel() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())
@@ -334,6 +344,19 @@ struct BuildingViewSceneTests {
         #expect(!frames.grid.intersects(frames.upgradeButton))
         #expect(!frames.grid.intersects(frames.battleButton))
         #expect(!frames.upgradeButton.intersects(frames.battleButton))
+    }
+
+    @Test func occupiedShortLandscapeLayoutKeepsGridBetweenPanels() throws {
+        let size = CGSize(width: 568, height: 320)
+        var initial = KingdomGameState(gold: 100)
+        #expect(initial.buildBuilding(.barracks, inSlot: 24) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initial)
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = try #require(scene.buildingLayoutFramesForTesting)
+
+        #expect(frames.scene.contains(frames.grid))
+        #expect(frames.grid.maxY < frames.titlePanel.minY)
+        #expect(frames.grid.minY > frames.actionPanel.maxY)
     }
 
     @Test func foregroundReArmsIdleTrackingWhenBattleRemainsActive() throws {
