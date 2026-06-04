@@ -647,6 +647,14 @@ final class BuildingViewScene: SKScene {
             return false
         }
 
+        // When a slot is selected, only render the icon as enabled if building
+        // is actually possible on that slot. With no slot selected, the palette
+        // still communicates which types are affordable in the current city.
+        if let selectedSlot,
+           state.cityBattleStateForCurrentCity.building(inSlot: selectedSlot) != nil {
+            return false
+        }
+
         let cityState = state.cityBattleStateForCurrentCity
         guard cityState.buildingCount(for: type) < CityBattleState.maxBuildingsPerType else {
             return false
@@ -871,7 +879,7 @@ final class BuildingViewScene: SKScene {
 
     private func gridFrameForSlots() -> CGRect {
         slotNodes.values
-            .compactMap { sceneFrame(for: $0.hitArea) }
+            .compactMap { sceneFrame(for: $0.container) }
             .reduce(nil) { partialFrame, frame in
                 partialFrame?.union(frame) ?? frame
             } ?? .zero

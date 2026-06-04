@@ -125,6 +125,28 @@ struct BuildingViewSceneTests {
         #expect(scene.buildButtonIconAlphaForTesting(.siegeWorkshop) == 0.65)
     }
 
+    @Test func occupiedSelectedSlotDimsBuildPaletteIcons() throws {
+        var initial = KingdomGameState(gold: 500, cityNumberInCountry: 11, completedCityCount: 10)
+        #expect(initial.buildBuilding(.barracks, inSlot: 4) == .built(cost: 15, remainingGold: 485))
+        let store = try makeStore(initialState: initial)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // With no slot selected, affordable types render at full alpha so the
+        // palette communicates what's buildable in this city.
+        #expect(scene.buildButtonIconAlphaForTesting(.archeryRange) == 1.0)
+
+        // Selecting the occupied slot makes build impossible; the icon should
+        // dim to match the unaffordable state used by the surrounding background.
+        scene.selectSlotForTesting(4)
+        #expect(!scene.canBuildForTesting(.archeryRange))
+        #expect(scene.buildButtonIconAlphaForTesting(.archeryRange) == 0.65)
+        #expect(scene.buildButtonIconAlphaForTesting(.barracks) == 0.65)
+
+        // Re-selecting an empty lot restores the enabled presentation.
+        scene.selectSlotForTesting(5)
+        #expect(scene.buildButtonIconAlphaForTesting(.archeryRange) == 1.0)
+    }
+
     @Test func scenicLayoutUsesAuthoredNonGridSlotPositions() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())
