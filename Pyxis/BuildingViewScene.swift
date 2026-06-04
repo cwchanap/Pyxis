@@ -941,7 +941,7 @@ extension BuildingViewScene {
     }
 
     var backdropAssetNameForTesting: String {
-        AssetName.backdrop
+        backdropNode.name ?? AssetName.backdrop
     }
 
     var slotCenterPointsForTesting: [Int: CGPoint] {
