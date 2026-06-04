@@ -431,7 +431,10 @@ final class BuildingViewScene: SKScene {
                 transform: nil
             )
             bundle.padSprite.size = CGSize(width: slotSize * 1.08, height: slotSize * 0.72)
-            bundle.buildingSprite.size = CGSize(width: slotSize * 1.16, height: slotSize * 1.16)
+            bundle.buildingSprite.size = aspectFitSize(
+                for: bundle.buildingSprite.texture,
+                maximumSize: CGSize(width: slotSize * 1.16, height: slotSize * 1.16)
+            )
             bundle.buildingSprite.position = CGPoint(x: 0, y: slotSize * 0.12)
             bundle.selectionOutline.path = CGPath(
                 ellipseIn: CGRect(
@@ -476,7 +479,10 @@ final class BuildingViewScene: SKScene {
                 position: CGPoint(x: x, y: y)
             )
             let iconSize = min(buttonHeight * 0.82, buildButtonWidth * 0.24)
-            bundle.icon.size = CGSize(width: iconSize, height: iconSize)
+            bundle.icon.size = aspectFitSize(
+                for: bundle.icon.texture,
+                maximumSize: CGSize(width: iconSize, height: iconSize)
+            )
             bundle.icon.position = CGPoint(x: -buildButtonWidth / 2 + iconSize * 0.72, y: 0)
             bundle.label.position = CGPoint(x: iconSize * 0.36, y: 0)
             fitLabel(bundle.label, maxWidth: buildButtonWidth - iconSize - 16)
@@ -828,6 +834,23 @@ final class BuildingViewScene: SKScene {
         }
     }
 
+    private func aspectFitSize(for texture: SKTexture?, maximumSize: CGSize) -> CGSize {
+        guard let texture else {
+            return maximumSize
+        }
+
+        let sourceSize = texture.size()
+        guard sourceSize.width > 0,
+              sourceSize.height > 0,
+              maximumSize.width > 0,
+              maximumSize.height > 0 else {
+            return maximumSize
+        }
+
+        let scale = min(maximumSize.width / sourceSize.width, maximumSize.height / sourceSize.height)
+        return CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+    }
+
     private struct LayoutFrames {
         var scene = CGRect.zero
         var titlePanel = CGRect.zero
@@ -1004,6 +1027,14 @@ extension BuildingViewScene {
 
     func slotBuildingAssetNameForTesting(_ slot: Int) -> String? {
         slotNodes[slot]?.buildingAssetName
+    }
+
+    func slotBuildingSpriteSizeForTesting(_ slot: Int) -> CGSize? {
+        slotNodes[slot]?.buildingSprite.size
+    }
+
+    func buildButtonIconSizeForTesting(_ type: BuildingType) -> CGSize? {
+        buildButtonBundles[type]?.icon.size
     }
 
     func slotLevelTextForTesting(_ slot: Int) -> String? {

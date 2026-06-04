@@ -161,6 +161,33 @@ struct BuildingViewSceneTests {
         #expect(scene.slotLevelTextForTesting(7) == "Lv 2")
     }
 
+    @Test func occupiedSlotBuildingSpritePreservesSourceAssetAspectRatio() throws {
+        var initial = KingdomGameState(gold: 500, cityNumberInCountry: 5, completedCityCount: 4)
+        #expect(initial.buildBuilding(.stable, inSlot: 7) == .built(cost: 28, remainingGold: 472))
+        #expect(initial.buildBuilding(.barracks, inSlot: 8) == .built(cost: 15, remainingGold: 457))
+        let store = try makeStore(initialState: initial)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        let stableSize = try #require(scene.slotBuildingSpriteSizeForTesting(7))
+        let barracksSize = try #require(scene.slotBuildingSpriteSizeForTesting(8))
+
+        #expect(stableSize.width > stableSize.height)
+        #expect(abs(barracksSize.width - barracksSize.height) < 0.5)
+    }
+
+    @Test func buildPaletteIconsPreserveSourceAssetAspectRatio() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 500, cityNumberInCountry: 5, completedCityCount: 4)
+        )
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        let stableSize = try #require(scene.buildButtonIconSizeForTesting(.stable))
+        let barracksSize = try #require(scene.buildButtonIconSizeForTesting(.barracks))
+
+        #expect(stableSize.width > stableSize.height)
+        #expect(abs(barracksSize.width - barracksSize.height) < 0.5)
+    }
+
     @Test func slotLookupUsesHitAreaInsteadOfOverhangingLabel() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())
