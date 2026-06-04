@@ -433,8 +433,8 @@ Add these tests to `PyxisTests/BuildingViewSceneTests.swift`:
 
 @Test func occupiedSlotsUseBuildingAssetAndLevelBadge() throws {
     var initial = KingdomGameState(gold: 200, cityNumberInCountry: 11, completedCityCount: 10)
-    #expect(initial.buildBuilding(.mageTower, inSlot: 7) == .built(cost: 36, remainingGold: 164))
-    #expect(initial.upgradeBuilding(inSlot: 7) == .upgraded(type: .mageTower, newLevel: 2, remainingGold: 96))
+    #expect(initial.buildBuilding(.mageTower, inSlot: 7) == .built(cost: 40, remainingGold: 160))
+    #expect(initial.upgradeBuilding(inSlot: 7) == .upgraded(cost: 30, newLevel: 2, remainingGold: 130))
     let store = try makeStore(initialState: initial)
     let scene = makeScene(store: store, router: RouteSpy())
 
