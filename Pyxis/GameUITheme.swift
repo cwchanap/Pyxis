@@ -27,6 +27,12 @@ enum GameUITheme {
         static let locked = SKColor(red: 0.20, green: 0.28, blue: 0.34, alpha: 1.0)
     }
 
+    enum Alpha {
+        static let enabledIcon: CGFloat = 1.0
+        static let unaffordableIcon: CGFloat = 0.65
+        static let lockedIcon: CGFloat = 0.35
+    }
+
     enum Z {
         static let background: CGFloat = -20
         static let battlefield: CGFloat = 0

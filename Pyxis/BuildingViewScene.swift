@@ -28,7 +28,9 @@ final class BuildingViewScene: SKScene {
     private struct BuildButtonBundle {
         let button: SKNode
         let background: SKShapeNode
+        let icon: SKSpriteNode
         let label: SKLabelNode
+        let assetName: String
     }
 
     private struct SlotNodeBundle {
@@ -190,11 +192,14 @@ final class BuildingViewScene: SKScene {
             let bundle = BuildButtonBundle(
                 button: SKNode(),
                 background: SKShapeNode(),
-                label: SKLabelNode(fontNamed: GameUITheme.Font.bold)
+                icon: SKSpriteNode(imageNamed: type.paletteIconAssetName),
+                label: SKLabelNode(fontNamed: GameUITheme.Font.bold),
+                assetName: type.paletteIconAssetName
             )
             configureButton(
                 bundle.button,
                 background: bundle.background,
+                icon: bundle.icon,
                 label: bundle.label,
                 name: buttonName(for: type),
                 color: buildColor(for: type)
@@ -309,6 +314,7 @@ final class BuildingViewScene: SKScene {
     private func configureButton(
         _ button: SKNode,
         background: SKShapeNode,
+        icon: SKSpriteNode? = nil,
         label: SKLabelNode,
         name: String,
         color: SKColor
@@ -319,13 +325,20 @@ final class BuildingViewScene: SKScene {
         background.strokeColor = SKColor(white: 1.0, alpha: 0.22)
         background.lineWidth = 2
 
+        icon?.name = name
+        icon?.zPosition = 1
+
         label.name = name
         label.fontSize = 15
         label.fontColor = GameUITheme.Color.textPrimary
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
+        label.zPosition = 2
 
         button.addChild(background)
+        if let icon {
+            button.addChild(icon)
+        }
         button.addChild(label)
     }
 
@@ -462,6 +475,11 @@ final class BuildingViewScene: SKScene {
                 size: CGSize(width: buildButtonWidth, height: buttonHeight),
                 position: CGPoint(x: x, y: y)
             )
+            let iconSize = min(buttonHeight * 0.82, buildButtonWidth * 0.24)
+            bundle.icon.size = CGSize(width: iconSize, height: iconSize)
+            bundle.icon.position = CGPoint(x: -buildButtonWidth / 2 + iconSize * 0.72, y: 0)
+            bundle.label.position = CGPoint(x: iconSize * 0.36, y: 0)
+            fitLabel(bundle.label, maxWidth: buildButtonWidth - iconSize - 16)
         }
 
         let bottomButtonWidth = (buttonAreaWidth - buttonGap) / 2
@@ -484,7 +502,6 @@ final class BuildingViewScene: SKScene {
         fitLabel(titleLabel, maxWidth: contentWidth - 28)
         fitLabel(goldLabel, maxWidth: contentWidth - 28)
         fitLabel(feedbackLabel, maxWidth: contentWidth - 28)
-        buildButtonBundles.values.forEach { fitLabel($0.label, maxWidth: buildButtonWidth - 12) }
         fitLabel(upgradeLabel, maxWidth: bottomButtonWidth - 18)
         fitLabel(battleLabel, maxWidth: bottomButtonWidth - 18)
 
@@ -531,14 +548,24 @@ final class BuildingViewScene: SKScene {
                 continue
             }
 
-            if state.isBuildingTypeUnlocked(type) {
+            let unlocked = state.isBuildingTypeUnlocked(type)
+            if unlocked {
                 bundle.label.text = "Build \(type.shortDisplayName)"
             } else {
                 bundle.label.text = "\(type.shortDisplayName) City \(KingdomGameState.unlockCity(for: type))"
             }
-            bundle.background.fillColor = canBuild(type)
+
+            let buildable = canBuild(type)
+            bundle.background.fillColor = buildable
                 ? buildColor(for: type)
                 : GameUITheme.Color.upgradeUnavailable
+            if !unlocked {
+                bundle.icon.alpha = GameUITheme.Alpha.lockedIcon
+            } else if canPresentEnabledIcon(for: type) {
+                bundle.icon.alpha = GameUITheme.Alpha.enabledIcon
+            } else {
+                bundle.icon.alpha = GameUITheme.Alpha.unaffordableIcon
+            }
         }
 
         let selectedBuilding = selectedSlot.flatMap { state.cityBattleStateForCurrentCity.building(inSlot: $0) }
@@ -591,6 +618,20 @@ final class BuildingViewScene: SKScene {
         }
 
         guard state.isBuildingTypeUnlocked(type) else {
+            return false
+        }
+
+        let cityState = state.cityBattleStateForCurrentCity
+        guard cityState.buildingCount(for: type) < CityBattleState.maxBuildingsPerType else {
+            return false
+        }
+
+        return state.gold >= KingdomGameState.buildingBuildCost(for: type)
+    }
+
+    private func canPresentEnabledIcon(for type: BuildingType) -> Bool {
+        guard state.stageStatus == .battleActive,
+              state.isBuildingTypeUnlocked(type) else {
             return false
         }
 
@@ -907,6 +948,20 @@ extension BuildingViewScene {
 
     var buildButtonTextsForTesting: [String] {
         BuildingType.allCases.compactMap { buildButtonBundles[$0]?.label.text }
+    }
+
+    var buildButtonIconAssetNamesForTesting: [BuildingType: String] {
+        Dictionary(uniqueKeysWithValues: buildButtonBundles.map { type, bundle in
+            (type, bundle.assetName)
+        })
+    }
+
+    func buildButtonIconAlphaForTesting(_ type: BuildingType) -> CGFloat? {
+        guard let alpha = buildButtonBundles[type]?.icon.alpha else {
+            return nil
+        }
+
+        return (alpha * 100).rounded() / 100
     }
 
     func canBuildForTesting(_ type: BuildingType) -> Bool {

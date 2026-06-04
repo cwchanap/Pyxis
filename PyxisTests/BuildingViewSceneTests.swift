@@ -78,6 +78,53 @@ struct BuildingViewSceneTests {
         }
     }
 
+    @Test func buildPaletteShowsAllBuildingIconAssets() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 500, cityNumberInCountry: 11, completedCityCount: 10)
+        )
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.buildButtonIconAssetNamesForTesting == [
+            .barracks: "building-barracks",
+            .archeryRange: "building-archery-range",
+            .stable: "building-stable",
+            .mageTower: "building-mage-tower",
+            .siegeWorkshop: "building-siege-workshop"
+        ])
+    }
+
+    @Test func lockedFutureBuildingIconsAreDimmedAndShowUnlockCity() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 500, cityNumberInCountry: 5, completedCityCount: 4)
+        )
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.buildButtonTextsForTesting == [
+            "Build Barracks",
+            "Build Archery",
+            "Build Stable",
+            "Mage City 8",
+            "Siege City 11"
+        ])
+        #expect(scene.buildButtonIconAlphaForTesting(.barracks) == 1.0)
+        #expect(scene.buildButtonIconAlphaForTesting(.archeryRange) == 1.0)
+        #expect(scene.buildButtonIconAlphaForTesting(.stable) == 1.0)
+        #expect(scene.buildButtonIconAlphaForTesting(.mageTower) == 0.35)
+        #expect(scene.buildButtonIconAlphaForTesting(.siegeWorkshop) == 0.35)
+    }
+
+    @Test func unaffordableUnlockedBuildingIconsRemainVisibleButSubdued() throws {
+        let store = try makeStore(
+            initialState: KingdomGameState(gold: 0, cityNumberInCountry: 11, completedCityCount: 10)
+        )
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(1)
+
+        #expect(scene.buildButtonIconAlphaForTesting(.barracks) == 0.65)
+        #expect(scene.buildButtonIconAlphaForTesting(.siegeWorkshop) == 0.65)
+    }
+
     @Test func scenicLayoutUsesAuthoredNonGridSlotPositions() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())
