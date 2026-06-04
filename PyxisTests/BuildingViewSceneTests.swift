@@ -78,6 +78,42 @@ struct BuildingViewSceneTests {
         }
     }
 
+    @Test func scenicLayoutUsesAuthoredNonGridSlotPositions() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let centers = scene.slotCenterPointsForTesting
+
+        #expect(centers.count == 25)
+
+        let roundedXValues = Set(centers.values.map { Int(($0.x / 4).rounded()) })
+        let roundedYValues = Set(centers.values.map { Int(($0.y / 4).rounded()) })
+
+        #expect(roundedXValues.count > 5)
+        #expect(roundedYValues.count > 5)
+    }
+
+    @Test func emptySlotsUsePadAssetAndNoBuildingAsset() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.backdropAssetNameForTesting == "building-view-countryside-backdrop")
+        #expect(scene.slotPadAssetNameForTesting(1) == "building-pad-empty")
+        #expect(scene.slotBuildingAssetNameForTesting(1) == nil)
+        #expect(scene.slotLevelTextForTesting(1) == nil)
+    }
+
+    @Test func occupiedSlotsUseBuildingAssetAndLevelBadge() throws {
+        var initial = KingdomGameState(gold: 200, cityNumberInCountry: 11, completedCityCount: 10)
+        #expect(initial.buildBuilding(.mageTower, inSlot: 7) == .built(cost: 40, remainingGold: 160))
+        #expect(initial.upgradeBuilding(inSlot: 7) == .upgraded(cost: 30, newLevel: 2, remainingGold: 130))
+        let store = try makeStore(initialState: initial)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.slotPadAssetNameForTesting(7) == "building-pad-empty")
+        #expect(scene.slotBuildingAssetNameForTesting(7) == "building-mage-tower")
+        #expect(scene.slotLevelTextForTesting(7) == "Lv 2")
+    }
+
     @Test func buildingUpdatesStoreSlotAndGoldLabel() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())
@@ -121,7 +157,7 @@ struct BuildingViewSceneTests {
         #expect(store.load().cityBattleStateForCurrentCity.occupiedSlotCount == 0)
     }
 
-    @Test func newBuildingTypesUseReadableSlotLabelsAndColors() throws {
+    @Test func newBuildingTypesUseReadableSlotLabelsAndAssets() throws {
         let store = try makeStore(
             initialState: KingdomGameState(gold: 500, cityNumberInCountry: 11, completedCityCount: 10)
         )
@@ -137,23 +173,9 @@ struct BuildingViewSceneTests {
         #expect(scene.slotTextForTesting(1)?.contains("Stable") == true)
         #expect(scene.slotTextForTesting(2)?.contains("Mage Tower") == true)
         #expect(scene.slotTextForTesting(3)?.contains("Siege Workshop") == true)
-
-        let stableColor = try #require(scene.slotFillColorForTesting(1))
-        let mageColor = try #require(scene.slotFillColorForTesting(2))
-        let siegeColor = try #require(scene.slotFillColorForTesting(3))
-        let stableComponents = try #require(rgbaComponents(of: stableColor))
-        let mageComponents = try #require(rgbaComponents(of: mageColor))
-        let siegeComponents = try #require(rgbaComponents(of: siegeColor))
-        let expectedStableComponents = try #require(rgbaComponents(of: expectedBuildColor(for: .stable)))
-        let expectedMageComponents = try #require(rgbaComponents(of: expectedBuildColor(for: .mageTower)))
-        let expectedSiegeComponents = try #require(rgbaComponents(of: expectedBuildColor(for: .siegeWorkshop)))
-
-        #expect(colorComponents(stableComponents, match: expectedStableComponents))
-        #expect(colorComponents(mageComponents, match: expectedMageComponents))
-        #expect(colorComponents(siegeComponents, match: expectedSiegeComponents))
-        #expect(stableComponents != mageComponents)
-        #expect(stableComponents != siegeComponents)
-        #expect(mageComponents != siegeComponents)
+        #expect(scene.slotBuildingAssetNameForTesting(1) == "building-stable")
+        #expect(scene.slotBuildingAssetNameForTesting(2) == "building-mage-tower")
+        #expect(scene.slotBuildingAssetNameForTesting(3) == "building-siege-workshop")
     }
 
     @Test func successfulBuildActionsPersistEveryBuildingType() throws {
@@ -393,42 +415,6 @@ struct BuildingViewSceneTests {
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(initialState)
         return store
-    }
-
-    private func expectedBuildColor(for type: BuildingType) -> SKColor {
-        switch type {
-        case .barracks:
-            return GameUITheme.Color.spawn
-        case .archeryRange:
-            return SKColor(red: 0.12, green: 0.55, blue: 0.48, alpha: 1.0)
-        case .stable:
-            return SKColor(red: 0.44, green: 0.32, blue: 0.18, alpha: 1.0)
-        case .mageTower:
-            return SKColor(red: 0.34, green: 0.24, blue: 0.62, alpha: 1.0)
-        case .siegeWorkshop:
-            return SKColor(red: 0.50, green: 0.28, blue: 0.18, alpha: 1.0)
-        }
-    }
-
-    private func rgbaComponents(of color: SKColor) -> [CGFloat]? {
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-
-        guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
-            return nil
-        }
-
-        return [red, green, blue, alpha]
-    }
-
-    private func colorComponents(_ lhs: [CGFloat], match rhs: [CGFloat]) -> Bool {
-        guard lhs.count == rhs.count else {
-            return false
-        }
-
-        return zip(lhs, rhs).allSatisfy { abs($0 - $1) < 0.0001 }
     }
 
     private final class RouteSpy: BuildingViewSceneRouting {
