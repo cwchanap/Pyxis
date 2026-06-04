@@ -570,12 +570,18 @@ final class BuildingViewScene: SKScene {
 
         let selectedBuilding = selectedSlot.flatMap { state.cityBattleStateForCurrentCity.building(inSlot: $0) }
         if let selectedBuilding {
-            upgradeLabel.text = "Upgrade \(KingdomGameState.buildingUpgradeCost(for: selectedBuilding.type, currentLevel: selectedBuilding.level))g"
+            let cost = KingdomGameState.buildingUpgradeCost(
+                for: selectedBuilding.type,
+                currentLevel: selectedBuilding.level
+            )
+            upgradeLabel.text = "Upgrade \(cost)g"
         } else {
             upgradeLabel.text = "Upgrade"
         }
 
-        upgradeBackground.fillColor = canUpgradeSelectedSlot ? GameUITheme.Color.upgradeAvailable : GameUITheme.Color.upgradeUnavailable
+        upgradeBackground.fillColor = canUpgradeSelectedSlot
+            ? GameUITheme.Color.upgradeAvailable
+            : GameUITheme.Color.upgradeUnavailable
 
         for slot in CityBattleState.slotRange {
             redrawSlot(slot)
