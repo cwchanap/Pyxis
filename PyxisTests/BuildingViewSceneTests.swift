@@ -64,6 +64,20 @@ struct BuildingViewSceneTests {
         #expect(!scene.canUpgradeSelectedSlotForTesting)
     }
 
+    @Test func buildingTypesExposeBuildingSpriteAssetNames() {
+        #expect(BuildingType.barracks.buildingAssetName == "building-barracks")
+        #expect(BuildingType.archeryRange.buildingAssetName == "building-archery-range")
+        #expect(BuildingType.stable.buildingAssetName == "building-stable")
+        #expect(BuildingType.mageTower.buildingAssetName == "building-mage-tower")
+        #expect(BuildingType.siegeWorkshop.buildingAssetName == "building-siege-workshop")
+    }
+
+    @Test func buildingTypesExposePaletteIconAssetNames() {
+        for type in BuildingType.allCases {
+            #expect(type.paletteIconAssetName == type.buildingAssetName)
+        }
+    }
+
     @Test func buildingUpdatesStoreSlotAndGoldLabel() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())

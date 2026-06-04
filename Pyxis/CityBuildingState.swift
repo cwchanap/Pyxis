@@ -75,6 +75,25 @@ enum BuildingType: String, Codable, CaseIterable, Equatable {
         }
     }
 
+    var buildingAssetName: String {
+        switch self {
+        case .barracks:
+            return "building-barracks"
+        case .archeryRange:
+            return "building-archery-range"
+        case .stable:
+            return "building-stable"
+        case .mageTower:
+            return "building-mage-tower"
+        case .siegeWorkshop:
+            return "building-siege-workshop"
+        }
+    }
+
+    var paletteIconAssetName: String {
+        buildingAssetName
+    }
+
     var soldierType: SoldierType {
         switch self {
         case .barracks:
