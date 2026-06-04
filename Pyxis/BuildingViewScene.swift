@@ -20,11 +20,64 @@ final class BuildingViewScene: SKScene {
         static let prefix = "buildingSlot-"
     }
 
+    private enum AssetName {
+        static let backdrop = "building-view-countryside-backdrop"
+        static let emptyPad = "building-pad-empty"
+    }
+
     private struct BuildButtonBundle {
         let button: SKNode
         let background: SKShapeNode
         let label: SKLabelNode
     }
+
+    private struct SlotNodeBundle {
+        let container: SKNode
+        let hitArea: SKShapeNode
+        let padSprite: SKSpriteNode
+        let buildingSprite: SKSpriteNode
+        let selectionOutline: SKShapeNode
+        let levelBadge: SKShapeNode
+        let levelLabel: SKLabelNode
+        let label: SKLabelNode
+        let padAssetName: String
+        var buildingAssetName: String?
+    }
+
+    private struct ScenicSlotLayout {
+        let slot: Int
+        let x: CGFloat
+        let y: CGFloat
+        let scale: CGFloat
+    }
+
+    private static let scenicSlotLayouts: [ScenicSlotLayout] = [
+        ScenicSlotLayout(slot: 1, x: 0.18, y: 0.78, scale: 0.96),
+        ScenicSlotLayout(slot: 2, x: 0.34, y: 0.82, scale: 0.90),
+        ScenicSlotLayout(slot: 3, x: 0.52, y: 0.78, scale: 0.98),
+        ScenicSlotLayout(slot: 4, x: 0.70, y: 0.82, scale: 0.90),
+        ScenicSlotLayout(slot: 5, x: 0.84, y: 0.72, scale: 0.88),
+        ScenicSlotLayout(slot: 6, x: 0.24, y: 0.64, scale: 1.02),
+        ScenicSlotLayout(slot: 7, x: 0.43, y: 0.66, scale: 0.94),
+        ScenicSlotLayout(slot: 8, x: 0.62, y: 0.62, scale: 1.02),
+        ScenicSlotLayout(slot: 9, x: 0.78, y: 0.56, scale: 0.92),
+        ScenicSlotLayout(slot: 10, x: 0.13, y: 0.49, scale: 0.86),
+        ScenicSlotLayout(slot: 11, x: 0.31, y: 0.50, scale: 1.02),
+        ScenicSlotLayout(slot: 12, x: 0.51, y: 0.48, scale: 1.10),
+        ScenicSlotLayout(slot: 13, x: 0.68, y: 0.43, scale: 0.98),
+        ScenicSlotLayout(slot: 14, x: 0.87, y: 0.42, scale: 0.86),
+        ScenicSlotLayout(slot: 15, x: 0.20, y: 0.34, scale: 0.94),
+        ScenicSlotLayout(slot: 16, x: 0.39, y: 0.32, scale: 1.06),
+        ScenicSlotLayout(slot: 17, x: 0.58, y: 0.31, scale: 0.96),
+        ScenicSlotLayout(slot: 18, x: 0.76, y: 0.27, scale: 0.94),
+        ScenicSlotLayout(slot: 19, x: 0.10, y: 0.19, scale: 0.82),
+        ScenicSlotLayout(slot: 20, x: 0.28, y: 0.17, scale: 0.94),
+        ScenicSlotLayout(slot: 21, x: 0.46, y: 0.15, scale: 1.02),
+        ScenicSlotLayout(slot: 22, x: 0.64, y: 0.13, scale: 0.94),
+        ScenicSlotLayout(slot: 23, x: 0.82, y: 0.14, scale: 0.84),
+        ScenicSlotLayout(slot: 24, x: 0.56, y: 0.88, scale: 0.86),
+        ScenicSlotLayout(slot: 25, x: 0.90, y: 0.62, scale: 0.80)
+    ]
 
     private let store: KingdomGameStore
     private weak var router: BuildingViewSceneRouting?
@@ -39,6 +92,7 @@ final class BuildingViewScene: SKScene {
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let goldLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let feedbackLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let backdropNode = SKSpriteNode(imageNamed: AssetName.backdrop)
     private let gridLayer = SKNode()
     private let upgradeButton = SKNode()
     private let upgradeBackground = SKShapeNode()
@@ -48,8 +102,7 @@ final class BuildingViewScene: SKScene {
     private let battleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
 
     private var buildButtonBundles: [BuildingType: BuildButtonBundle] = [:]
-    private var slotNodes: [Int: SKShapeNode] = [:]
-    private var slotLabels: [Int: SKLabelNode] = [:]
+    private var slotNodes: [Int: SlotNodeBundle] = [:]
     private var layoutFrames = LayoutFrames()
 
     init(size: CGSize, store: KingdomGameStore = .shared, router: BuildingViewSceneRouting? = nil) {
@@ -122,6 +175,9 @@ final class BuildingViewScene: SKScene {
         actionPanel.zPosition = GameUITheme.Z.hud
         gridLayer.zPosition = GameUITheme.Z.battlefield
 
+        backdropNode.name = AssetName.backdrop
+        backdropNode.zPosition = GameUITheme.Z.background
+        addChild(backdropNode)
         addChild(gridLayer)
         addChild(titlePanel)
         addChild(actionPanel)
@@ -177,21 +233,75 @@ final class BuildingViewScene: SKScene {
         addChild(battleButton)
 
         for slot in CityBattleState.slotRange {
-            let node = SKShapeNode()
-            node.name = "\(SlotName.prefix)\(slot)"
-            node.lineWidth = 2
+            let container = SKNode()
+            container.name = "\(SlotName.prefix)\(slot)"
+
+            let hitArea = SKShapeNode()
+            hitArea.name = container.name
+            hitArea.fillColor = .clear
+            hitArea.strokeColor = .clear
+
+            let padSprite = SKSpriteNode(imageNamed: AssetName.emptyPad)
+            padSprite.name = container.name
+            padSprite.alpha = 0.78
+            padSprite.zPosition = 0
+
+            let buildingSprite = SKSpriteNode()
+            buildingSprite.name = container.name
+            buildingSprite.zPosition = 2
+
+            let selectionOutline = SKShapeNode()
+            selectionOutline.name = container.name
+            selectionOutline.fillColor = .clear
+            selectionOutline.strokeColor = GameUITheme.Color.gold
+            selectionOutline.lineWidth = 3
+            selectionOutline.alpha = 0
+            selectionOutline.zPosition = 3
+
+            let levelBadge = SKShapeNode()
+            levelBadge.name = container.name
+            levelBadge.fillColor = SKColor(red: 0.07, green: 0.10, blue: 0.13, alpha: 0.92)
+            levelBadge.strokeColor = GameUITheme.Color.gold
+            levelBadge.lineWidth = 1
+            levelBadge.zPosition = 4
+
+            let levelLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            levelLabel.name = container.name
+            levelLabel.fontSize = 10
+            levelLabel.fontColor = GameUITheme.Color.textPrimary
+            levelLabel.horizontalAlignmentMode = .center
+            levelLabel.verticalAlignmentMode = .center
+            levelLabel.zPosition = 5
+            levelBadge.addChild(levelLabel)
 
             let label = SKLabelNode(fontNamed: GameUITheme.Font.medium)
-            label.name = node.name
-            label.fontSize = 11
+            label.name = container.name
+            label.fontSize = 10
             label.fontColor = GameUITheme.Color.textPrimary
             label.horizontalAlignmentMode = .center
             label.verticalAlignmentMode = .center
-            node.addChild(label)
+            label.zPosition = 5
 
-            gridLayer.addChild(node)
-            slotNodes[slot] = node
-            slotLabels[slot] = label
+            container.addChild(hitArea)
+            container.addChild(padSprite)
+            container.addChild(buildingSprite)
+            container.addChild(selectionOutline)
+            container.addChild(levelBadge)
+            container.addChild(label)
+            gridLayer.addChild(container)
+
+            slotNodes[slot] = SlotNodeBundle(
+                container: container,
+                hitArea: hitArea,
+                padSprite: padSprite,
+                buildingSprite: buildingSprite,
+                selectionOutline: selectionOutline,
+                levelBadge: levelBadge,
+                levelLabel: levelLabel,
+                label: label,
+                padAssetName: AssetName.emptyPad,
+                buildingAssetName: nil
+            )
         }
     }
 
@@ -282,32 +392,58 @@ final class BuildingViewScene: SKScene {
         let gridTop = titleCenterY - titleHeight / 2 - panelGridGap
         let gridBottom = actionCenterY + actionHeight / 2 + panelGridGap
         let gridHeight = max(0, gridTop - gridBottom)
-        let slotGap: CGFloat = veryShortLandscape ? 4 : (compactHeight ? 6 : 8)
-        let slotSize = max(12, min((contentWidth - slotGap * 4) / 5, (gridHeight - slotGap * 4) / 5))
-        let gridWidth = slotSize * 5 + slotGap * 4
-        let startX = (size.width - gridWidth) / 2
-        let startY = gridBottom + (gridHeight - gridWidth) / 2 + gridWidth - slotSize
 
-        for slot in CityBattleState.slotRange {
-            guard let node = slotNodes[slot] else {
+        let backdropScale = max(
+            size.width / max(backdropNode.size.width, 1),
+            size.height / max(backdropNode.size.height, 1)
+        )
+        backdropNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        backdropNode.setScale(backdropScale)
+
+        let slotArea = CGRect(
+            x: horizontalMargin,
+            y: gridBottom,
+            width: contentWidth,
+            height: gridHeight
+        )
+        let minimumSlotSize: CGFloat = veryShortLandscape ? 30 : 34
+        let baseSlotSize = max(minimumSlotSize, min(slotArea.width * 0.16, slotArea.height * 0.22, 82))
+
+        for layout in Self.scenicSlotLayouts {
+            guard let bundle = slotNodes[layout.slot] else {
                 continue
             }
 
-            let index = slot - 1
-            let row = index / 5
-            let column = index % 5
-            let x = startX + CGFloat(column) * (slotSize + slotGap) + slotSize / 2
-            let y = startY - CGFloat(row) * (slotSize + slotGap) + slotSize / 2
+            let slotSize = baseSlotSize * layout.scale
+            let x = slotArea.minX + slotArea.width * layout.x
+            let y = slotArea.minY + slotArea.height * layout.y
 
-            node.path = CGPath(
-                roundedRect: CGRect(x: -slotSize / 2, y: -slotSize / 2, width: slotSize, height: slotSize),
-                cornerWidth: 8,
-                cornerHeight: 8,
+            bundle.container.position = CGPoint(x: x, y: y)
+            bundle.hitArea.path = CGPath(
+                ellipseIn: CGRect(x: -slotSize / 2, y: -slotSize / 2, width: slotSize, height: slotSize),
                 transform: nil
             )
-            node.position = CGPoint(x: x, y: y)
-            slotLabels[slot]?.fontSize = slotSize < 48 ? 9 : 11
-            fitLabel(slotLabels[slot], maxWidth: slotSize - 8)
+            bundle.padSprite.size = CGSize(width: slotSize * 1.08, height: slotSize * 0.72)
+            bundle.buildingSprite.size = CGSize(width: slotSize * 1.16, height: slotSize * 1.16)
+            bundle.buildingSprite.position = CGPoint(x: 0, y: slotSize * 0.12)
+            bundle.selectionOutline.path = CGPath(
+                ellipseIn: CGRect(
+                    x: -slotSize * 0.62,
+                    y: -slotSize * 0.42,
+                    width: slotSize * 1.24,
+                    height: slotSize * 0.84
+                ),
+                transform: nil
+            )
+            bundle.levelBadge.path = CGPath(
+                roundedRect: CGRect(x: -18, y: -9, width: 36, height: 18),
+                cornerWidth: 6,
+                cornerHeight: 6,
+                transform: nil
+            )
+            bundle.levelBadge.position = CGPoint(x: slotSize * 0.34, y: -slotSize * 0.24)
+            bundle.label.position = CGPoint(x: 0, y: -slotSize * 0.50)
+            bundle.label.fontSize = slotSize < 48 ? 8 : 10
         }
 
         let buttonHeight: CGFloat = veryShortLandscape ? 24 : (compactHeight ? 30 : 34)
@@ -428,22 +564,29 @@ final class BuildingViewScene: SKScene {
     }
 
     private func redrawSlot(_ slot: Int) {
-        guard let node = slotNodes[slot], let label = slotLabels[slot] else {
+        guard var bundle = slotNodes[slot] else {
             return
         }
 
         if let building = state.cityBattleStateForCurrentCity.building(inSlot: slot) {
-            label.text = "\(building.type.displayName) Lv \(building.level)"
-            node.fillColor = buildColor(for: building.type)
+            bundle.label.text = building.type.displayName
+            bundle.buildingSprite.texture = SKTexture(imageNamed: building.type.buildingAssetName)
+            bundle.buildingSprite.alpha = 1
+            bundle.levelLabel.text = "Lv \(building.level)"
+            bundle.levelBadge.alpha = 1
+            bundle.buildingAssetName = building.type.buildingAssetName
         } else {
-            label.text = "Lot \(slot)"
-            node.fillColor = SKColor(red: 0.15, green: 0.20, blue: 0.21, alpha: 0.94)
+            bundle.label.text = "Lot \(slot)"
+            bundle.buildingSprite.texture = nil
+            bundle.buildingSprite.alpha = 0
+            bundle.levelLabel.text = nil
+            bundle.levelBadge.alpha = 0
+            bundle.buildingAssetName = nil
         }
 
-        node.strokeColor = selectedSlot == slot
-            ? GameUITheme.Color.gold
-            : SKColor(white: 1.0, alpha: 0.20)
-        node.lineWidth = selectedSlot == slot ? 4 : 2
+        bundle.padSprite.alpha = selectedSlot == slot ? 1.0 : 0.78
+        bundle.selectionOutline.alpha = selectedSlot == slot ? 1.0 : 0
+        slotNodes[slot] = bundle
     }
 
     private func canBuild(_ type: BuildingType) -> Bool {
@@ -663,7 +806,7 @@ final class BuildingViewScene: SKScene {
 
     private func gridFrameForSlots() -> CGRect {
         slotNodes.values
-            .compactMap { sceneFrame(for: $0) }
+            .compactMap { sceneFrame(for: $0.container) }
             .reduce(nil) { partialFrame, frame in
                 partialFrame?.union(frame) ?? frame
             } ?? .zero
@@ -724,6 +867,16 @@ extension BuildingViewScene {
         slotNodes.count
     }
 
+    var backdropAssetNameForTesting: String {
+        AssetName.backdrop
+    }
+
+    var slotCenterPointsForTesting: [Int: CGPoint] {
+        Dictionary(uniqueKeysWithValues: slotNodes.map { slot, bundle in
+            (slot, bundle.container.position)
+        })
+    }
+
     var selectedSlotForTesting: Int? {
         selectedSlot
     }
@@ -765,11 +918,19 @@ extension BuildingViewScene {
     }
 
     func slotTextForTesting(_ slot: Int) -> String? {
-        slotLabels[slot]?.text
+        slotNodes[slot]?.label.text
     }
 
-    func slotFillColorForTesting(_ slot: Int) -> SKColor? {
-        slotNodes[slot]?.fillColor
+    func slotPadAssetNameForTesting(_ slot: Int) -> String? {
+        slotNodes[slot]?.padAssetName
+    }
+
+    func slotBuildingAssetNameForTesting(_ slot: Int) -> String? {
+        slotNodes[slot]?.buildingAssetName
+    }
+
+    func slotLevelTextForTesting(_ slot: Int) -> String? {
+        slotNodes[slot]?.levelLabel.text
     }
 }
 #endif
