@@ -220,6 +220,31 @@ struct BuildingViewSceneTests {
         #expect(scene.slotAtPointForTesting(labelOverhangPoint) == nil)
     }
 
+    @Test func overlappingHitAreasResolveToTheTopmostSlot() throws {
+        // Slot 3 (x: 0.52, y: 0.78) and slot 24 (x: 0.56, y: 0.88) are
+        // positioned close enough that their hit ellipses overlap. Slot 24
+        // is added to gridLayer later than slot 3, so SpriteKit draws it on
+        // top — taps on the overlap region should select slot 24, not 3.
+        //
+        // The 600×844 scene size is wide enough for baseSlotSize to hit the
+        // 82-point cap, making the overlap region unambiguous (the midpoint
+        // between the two centers sits well inside both ellipses).
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(
+            size: CGSize(width: 600, height: 844),
+            store: store,
+            router: RouteSpy()
+        )
+        let slot3Center = try #require(scene.slotHitAreaCenterPointForTesting(3))
+        let slot24Center = try #require(scene.slotHitAreaCenterPointForTesting(24))
+        let overlapPoint = CGPoint(
+            x: (slot3Center.x + slot24Center.x) / 2,
+            y: (slot3Center.y + slot24Center.y) / 2
+        )
+
+        #expect(scene.slotAtPointForTesting(overlapPoint) == 24)
+    }
+
     @Test func buildingUpdatesStoreSlotAndGoldLabel() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())

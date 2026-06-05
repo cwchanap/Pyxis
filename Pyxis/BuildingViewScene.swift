@@ -803,7 +803,11 @@ final class BuildingViewScene: SKScene {
     }
 
     private func slot(at point: CGPoint) -> Int? {
-        for slot in CityBattleState.slotRange {
+        // Slot containers are added to gridLayer in ascending order with no
+        // per-container zPosition, so SpriteKit draws higher slot numbers on
+        // top. Iterate in reverse so the hit test resolves overlapping
+        // ellipses to the visually topmost slot.
+        for slot in CityBattleState.slotRange.reversed() {
             guard let hitArea = slotNodes[slot]?.hitArea,
                   let path = hitArea.path else {
                 continue
