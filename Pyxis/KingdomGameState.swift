@@ -687,6 +687,10 @@ struct KingdomGameState: Codable, Equatable {
         Self.defenseTrait(forCityNumber: cityNumberInCountry)
     }
 
+    var currentCityLaneDefenseProfile: LaneDefenseProfile {
+        LaneDefenseProfile.profile(forCityNumber: cityNumberInCountry)
+    }
+
     func manualSoldierLevel(for soldierType: SoldierType) -> Int? {
         let matchingLevels = cityBattleStateForCurrentCity.slots.values
             .filter { $0.type.soldierType == soldierType }
