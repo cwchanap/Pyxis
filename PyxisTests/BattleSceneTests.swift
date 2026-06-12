@@ -23,6 +23,17 @@ struct BattleSceneTests {
         #expect(scene.cityTitleTextForTesting == "Country 1 - City 3")
     }
 
+    @Test func combatUsesCurrentCityLaneDefenseMultipliers() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // City 1: left fortified (1.25), center standard (1.0), right exposed (0.80).
+        let multipliers = scene.combatLaneDamageMultipliersForTesting
+        #expect(multipliers[.left] == 1.25)
+        #expect(multipliers[.center] == 1.0)
+        #expect(multipliers[.right] == 0.80)
+    }
+
     @Test func battleSceneDisplaysLiveSoldierCount() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -451,8 +462,8 @@ struct BattleSceneTests {
         let store = try makeStore(
             initialState: stateWithBarracks(
                 cityRemainingPower: 100,
-                cityNumberInCountry: 8,
-                completedCityCount: 7
+                cityNumberInCountry: 9,
+                completedCityCount: 8
             )
         )
         let scene = makeScene(store: store)
@@ -471,8 +482,8 @@ struct BattleSceneTests {
         let store = try makeStore(
             initialState: stateWithBarracks(
                 cityRemainingPower: 20,
-                cityNumberInCountry: 8,
-                completedCityCount: 7
+                cityNumberInCountry: 9,
+                completedCityCount: 8
             )
         )
         let scene = makeScene(store: store)
