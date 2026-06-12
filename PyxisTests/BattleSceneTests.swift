@@ -980,6 +980,24 @@ struct BattleSceneTests {
         }
     }
 
+    @Test func laneIndicatorsMarkFortifiedAndExposedLanesOnly() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // City 1: left fortified, center standard, right exposed.
+        let indicators = scene.laneIndicatorsForTesting
+        #expect(indicators.count == 2)
+
+        let fortified = try #require(indicators.first { $0.role == .fortified })
+        let exposed = try #require(indicators.first { $0.role == .exposed })
+        let leftGateX = try #require(scene.enemyGatePointForTesting(lane: .left)?.x)
+        let rightGateX = try #require(scene.enemyGatePointForTesting(lane: .right)?.x)
+
+        #expect(abs(fortified.position.x - leftGateX) <= 0.5)
+        #expect(abs(exposed.position.x - rightGateX) <= 0.5)
+        #expect(indicators.allSatisfy { $0.role != .standard })
+    }
+
     @Test func backdropCoversFullScene() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
