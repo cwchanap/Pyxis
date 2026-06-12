@@ -41,6 +41,7 @@ struct BattleCombatState: Equatable {
         let type: SoldierType
         let source: SoldierSpawnSource
         let level: Int
+        let lane: BattleLane
         let maxHP: Int
         var currentHP: Int
         let defense: Int
@@ -74,12 +75,18 @@ struct BattleCombatState: Equatable {
     private(set) var soldiers: [Soldier]
     private var nextSoldierID: SoldierID
     private var towerCooldownRemaining: Double
+    private var rng: SplitMix64
 
-    init(configuration: Configuration) {
+    init(configuration: Configuration, seed: UInt64) {
         self.configuration = configuration
         self.soldiers = []
         self.nextSoldierID = 1
         self.towerCooldownRemaining = 0
+        self.rng = SplitMix64(seed: seed)
+    }
+
+    init(configuration: Configuration) {
+        self.init(configuration: configuration, seed: UInt64.random(in: .min ... .max))
     }
 
     init(cityLevel: Int) {
@@ -104,11 +111,13 @@ struct BattleCombatState: Equatable {
         type: SoldierType,
         source: SoldierSpawnSource,
         level: Int,
-        attackPower: Int
+        attackPower: Int,
+        lane: BattleLane? = nil
     ) -> SoldierID {
         let id = nextSoldierID
         nextSoldierID += 1
 
+        let assignedLane = lane ?? (BattleLane.allCases.randomElement(using: &rng) ?? .center)
         let clampedLevel = max(1, level)
         let maxHP = maxHP(for: type, level: clampedLevel)
         soldiers.append(
@@ -117,6 +126,7 @@ struct BattleCombatState: Equatable {
                 type: type,
                 source: source,
                 level: clampedLevel,
+                lane: assignedLane,
                 maxHP: maxHP,
                 currentHP: maxHP,
                 defense: max(0, configuration.soldierDefense),

@@ -480,6 +480,43 @@ struct BattleCombatStateTests {
         #expect(try #require(combat.soldier(id: id)).position == 0.25)
     }
 
+    @Test func spawnAssignsLaneDeterministicallyFromSeed() throws {
+        var first = BattleCombatState(configuration: .live(cityLevel: 1), seed: 99)
+        var second = BattleCombatState(configuration: .live(cityLevel: 1), seed: 99)
+
+        var firstLanes: [BattleLane] = []
+        var secondLanes: [BattleLane] = []
+        for _ in 0..<12 {
+            let firstID = first.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1)
+            let secondID = second.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1)
+            firstLanes.append(try #require(first.soldier(id: firstID)).lane)
+            secondLanes.append(try #require(second.soldier(id: secondID)).lane)
+        }
+
+        #expect(firstLanes == secondLanes)
+        // 12 spawns across 3 lanes should not all collapse into a single lane.
+        #expect(Set(firstLanes).count > 1)
+    }
+
+    @Test func spawnHonorsExplicitLane() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1), seed: 1)
+
+        for lane in BattleLane.allCases {
+            let id = combat.spawnSoldier(type: .archer, source: .building, level: 2, attackPower: 3, lane: lane)
+            #expect(try #require(combat.soldier(id: id)).lane == lane)
+        }
+    }
+
+    @Test func laneIsFixedForSoldierLifetime() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1), seed: 5)
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+
+        _ = combat.tick(deltaTime: 0.2, cityRemainingHP: 1_000)
+        _ = combat.tick(deltaTime: 0.2, cityRemainingHP: 1_000)
+
+        #expect(try #require(combat.soldier(id: id)).lane == .right)
+    }
+
     private struct ExpectedSoldierStats {
         let type: SoldierType
         let maxHP: Int
