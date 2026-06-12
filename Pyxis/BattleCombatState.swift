@@ -18,8 +18,36 @@ struct BattleCombatState: Equatable {
         let towerAttackSpeed: Double
         let towerAttackRange: Double
         let maxDeltaTime: Double
+        let laneDamageMultipliers: [BattleLane: Double]
 
-        static func live(cityLevel: Int) -> Configuration {
+        init(
+            soldierMaxHP: Int,
+            soldierDefense: Int,
+            soldierAttackSpeed: Double,
+            soldierAttackRange: Double,
+            soldierMovementSpeed: Double,
+            towerDamage: Int,
+            towerAttackSpeed: Double,
+            towerAttackRange: Double,
+            maxDeltaTime: Double,
+            laneDamageMultipliers: [BattleLane: Double] = [:]
+        ) {
+            self.soldierMaxHP = soldierMaxHP
+            self.soldierDefense = soldierDefense
+            self.soldierAttackSpeed = soldierAttackSpeed
+            self.soldierAttackRange = soldierAttackRange
+            self.soldierMovementSpeed = soldierMovementSpeed
+            self.towerDamage = towerDamage
+            self.towerAttackSpeed = towerAttackSpeed
+            self.towerAttackRange = towerAttackRange
+            self.maxDeltaTime = maxDeltaTime
+            self.laneDamageMultipliers = laneDamageMultipliers
+        }
+
+        static func live(
+            cityLevel: Int,
+            laneDamageMultipliers: [BattleLane: Double] = [:]
+        ) -> Configuration {
             let clampedLevel = max(1, cityLevel)
 
             return Configuration(
@@ -31,7 +59,8 @@ struct BattleCombatState: Equatable {
                 towerDamage: max(2, Int(ceil(1.5 * Double(clampedLevel)))),
                 towerAttackSpeed: 0.8,
                 towerAttackRange: 0.55,
-                maxDeltaTime: 0.25
+                maxDeltaTime: 0.25,
+                laneDamageMultipliers: laneDamageMultipliers
             )
         }
     }
@@ -316,7 +345,9 @@ struct BattleCombatState: Equatable {
     }
 
     private func damageAgainstSoldier(_ soldier: Soldier) -> Int {
-        max(1, max(0, configuration.towerDamage) - soldier.defense)
+        let baseDamage = max(1, max(0, configuration.towerDamage) - soldier.defense)
+        let laneMultiplier = max(0, configuration.laneDamageMultipliers[soldier.lane] ?? 1.0)
+        return max(1, Int((Double(baseDamage) * laneMultiplier).rounded()))
     }
 
     private func towerAttackInterval() -> Double {
