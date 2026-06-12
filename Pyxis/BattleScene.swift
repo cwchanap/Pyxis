@@ -855,6 +855,69 @@ final class BattleScene: SKScene {
 
     private func layoutLaneIndicators() {
         removeLaneIndicatorNodes()
+
+        let profile = state.currentCityLaneDefenseProfile
+        for lane in BattleLane.allCases {
+            let role = profile.role(for: lane)
+            guard role != .standard, let gate = enemyGatePoints[lane] else {
+                continue
+            }
+
+            let indicator = makeLaneIndicator(role: role)
+            indicator.position = CGPoint(x: gate.x, y: gate.y - 18)
+            indicator.zPosition = 2
+            environmentLayer.addChild(indicator)
+            laneIndicatorNodes.append(indicator)
+        }
+    }
+
+    private func makeLaneIndicator(role: LaneDefenseRole) -> SKNode {
+        let container = SKNode()
+        container.name = "laneIndicator-\(role.rawValue)"
+
+        let shieldPath = CGMutablePath()
+        shieldPath.move(to: CGPoint(x: 0, y: 9))
+        shieldPath.addLine(to: CGPoint(x: 8, y: 5))
+        shieldPath.addLine(to: CGPoint(x: 8, y: -2))
+        shieldPath.addCurve(
+            to: CGPoint(x: 0, y: -10),
+            control1: CGPoint(x: 8, y: -6),
+            control2: CGPoint(x: 5, y: -9)
+        )
+        shieldPath.addCurve(
+            to: CGPoint(x: -8, y: -2),
+            control1: CGPoint(x: -5, y: -9),
+            control2: CGPoint(x: -8, y: -6)
+        )
+        shieldPath.addLine(to: CGPoint(x: -8, y: 5))
+        shieldPath.closeSubpath()
+
+        let shield = SKShapeNode(path: shieldPath)
+        shield.lineWidth = 1.5
+
+        switch role {
+        case .fortified:
+            shield.fillColor = GameUITheme.Color.danger
+            shield.strokeColor = SKColor(white: 1.0, alpha: 0.7)
+        case .exposed:
+            shield.fillColor = SKColor(white: 0.55, alpha: 0.55)
+            shield.strokeColor = SKColor(white: 1.0, alpha: 0.4)
+            let crackPath = CGMutablePath()
+            crackPath.move(to: CGPoint(x: -2, y: 9))
+            crackPath.addLine(to: CGPoint(x: 2, y: 2))
+            crackPath.addLine(to: CGPoint(x: -1, y: -3))
+            crackPath.addLine(to: CGPoint(x: 2, y: -10))
+            let crack = SKShapeNode(path: crackPath)
+            crack.strokeColor = SKColor(red: 0.07, green: 0.10, blue: 0.13, alpha: 1.0)
+            crack.lineWidth = 2
+            crack.zPosition = 1
+            container.addChild(crack)
+        case .standard:
+            break
+        }
+
+        container.addChild(shield)
+        return container
     }
 
     private func removeLaneIndicatorNodes() {
@@ -1801,6 +1864,18 @@ extension BattleScene {
 
     func enemyGatePointForTesting(lane: BattleLane) -> CGPoint? {
         enemyGatePoints[lane]
+    }
+
+    var laneIndicatorsForTesting: [(role: LaneDefenseRole, position: CGPoint)] {
+        laneIndicatorNodes.compactMap { node in
+            guard let name = node.name,
+                  name.hasPrefix("laneIndicator-"),
+                  let role = LaneDefenseRole(rawValue: String(name.dropFirst("laneIndicator-".count)))
+            else {
+                return nil
+            }
+            return (role: role, position: node.position)
+        }
     }
 
     var soldierLanePlacementsForTesting: [(lane: BattleLane, nodePosition: CGPoint)] {
