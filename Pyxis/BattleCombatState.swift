@@ -289,9 +289,25 @@ struct BattleCombatState: Equatable {
         1.0 / max(0.1, soldier.attackSpeed)
     }
 
-    private func towerTargetIndex() -> Int? {
-        soldiers.indices
-            .filter { soldiers[$0].isAlive && isInTowerRange(soldiers[$0]) }
+    private mutating func towerTargetIndex() -> Int? {
+        let inRangeIndices = soldiers.indices.filter {
+            soldiers[$0].isAlive && isInTowerRange(soldiers[$0])
+        }
+        guard !inRangeIndices.isEmpty else {
+            return nil
+        }
+
+        let occupiedLanes = BattleLane.allCases.filter { lane in
+            inRangeIndices.contains { soldiers[$0].lane == lane }
+        }
+        // Only consume RNG when there is a real choice, so single-lane
+        // scenarios stay byte-for-byte deterministic.
+        let targetLane = occupiedLanes.count == 1
+            ? occupiedLanes[0]
+            : (occupiedLanes.randomElement(using: &rng) ?? occupiedLanes[0])
+
+        return inRangeIndices
+            .filter { soldiers[$0].lane == targetLane }
             .max { soldiers[$0].position < soldiers[$1].position }
     }
 
