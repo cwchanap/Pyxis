@@ -606,6 +606,102 @@ struct BattleCombatStateTests {
         #expect(try #require(combat.soldier(id: id)).lane == .right)
     }
 
+    @Test func fortifiedLaneScalesTowerDamageUp() throws {
+        // towerDamage 5, defense 1 → base 4; fortified 1.25× → 5.
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 20,
+                soldierDefense: 1,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0,
+                towerDamage: 5,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0,
+                laneDamageMultipliers: [.left: 1.25, .center: 1.0, .right: 0.80]
+            ),
+            seed: 1
+        )
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 1_000)
+
+        #expect(try #require(result.towerShots.first).damage == 5)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 15)
+    }
+
+    @Test func exposedLaneScalesTowerDamageDown() throws {
+        // towerDamage 5, defense 1 → base 4; exposed 0.80× → 3.2 → rounds to 3.
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 20,
+                soldierDefense: 1,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0,
+                towerDamage: 5,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0,
+                laneDamageMultipliers: [.left: 1.25, .center: 1.0, .right: 0.80]
+            ),
+            seed: 1
+        )
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 1_000)
+
+        #expect(try #require(result.towerShots.first).damage == 3)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 17)
+    }
+
+    @Test func missingLaneMultiplierDefaultsToNeutral() throws {
+        // Empty map → multiplier 1.0 everywhere; base damage 4 unchanged.
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 20,
+                soldierDefense: 1,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0,
+                towerDamage: 5,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0
+            ),
+            seed: 1
+        )
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 1_000)
+
+        #expect(try #require(result.towerShots.first).damage == 4)
+    }
+
+    @Test func nonPositiveLaneMultiplierStillDealsMinimumDamage() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 20,
+                soldierDefense: 1,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0,
+                towerDamage: 5,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0,
+                laneDamageMultipliers: [.center: -2.0]
+            ),
+            seed: 1
+        )
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 1_000)
+
+        #expect(try #require(result.towerShots.first).damage == 1)
+    }
+
     private struct ExpectedSoldierStats {
         let type: SoldierType
         let maxHP: Int
