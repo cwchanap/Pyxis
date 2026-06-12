@@ -352,9 +352,9 @@ struct BattleCombatStateTests {
                 maxDeltaTime: 1.0
             )
         )
-        let first = combat.spawnSoldier(attackPower: 1)
+        let first = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
         _ = combat.tick(deltaTime: 0.7, cityRemainingHP: 20)
-        let second = combat.spawnSoldier(attackPower: 1)
+        let second = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
 
         let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
 
@@ -364,6 +364,95 @@ struct BattleCombatStateTests {
         #expect(shot.damage == 2)
         #expect(try #require(combat.soldier(id: first)).currentHP == 8)
         #expect(try #require(combat.soldier(id: second)).currentHP == 10)
+    }
+
+    @Test func towerTargetsMostAdvancedSoldierWithinChosenLane() throws {
+        // Tower range covers the whole field; all soldiers are eligible.
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0.5,
+                towerDamage: 2,
+                towerAttackSpeed: 100.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0
+            ),
+            seed: 3
+        )
+        // Front and back soldier in the same lane; the back one must never be hit
+        // while the front one lives, regardless of which lane the RNG picks.
+        let front = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+        _ = combat.tick(deltaTime: 0.5, cityRemainingHP: 1_000)
+        let back = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 1_000)
+
+        #expect(result.towerShots.count == 1)
+        #expect(try #require(result.towerShots.first).soldierID == front)
+        #expect(try #require(combat.soldier(id: back)).currentHP == 10)
+    }
+
+    @Test func towerNeverTargetsLaneWithNoSoldierInRange() throws {
+        // Tower range 0.40: only soldiers past position 0.60 are eligible.
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0.7,
+                towerDamage: 2,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0.40,
+                maxDeltaTime: 1.0
+            ),
+            seed: 11
+        )
+        let advanced = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        _ = combat.tick(deltaTime: 1.0, cityRemainingHP: 1_000) // advanced reaches 0.70
+        let fresh = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+
+        let result = combat.tick(deltaTime: 0.05, cityRemainingHP: 1_000)
+
+        // Only the center lane has a soldier in range; the fresh right-lane
+        // soldier (position ~0) must never be chosen.
+        #expect(result.towerShots.count == 1)
+        #expect(try #require(result.towerShots.first).soldierID == advanced)
+        #expect(try #require(combat.soldier(id: fresh)).currentHP == 10)
+    }
+
+    @Test func towerSpreadsShotsAcrossOccupiedLanesOverTime() throws {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 1_000,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0,
+                towerDamage: 1,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0
+            ),
+            seed: 4
+        )
+        let left = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+        let right = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+
+        var hitSoldierIDs = Set<BattleCombatState.SoldierID>()
+        for _ in 0..<30 {
+            let result = combat.tick(deltaTime: 1.0, cityRemainingHP: 1_000_000)
+            for shot in result.towerShots {
+                hitSoldierIDs.insert(shot.soldierID)
+            }
+        }
+
+        // Over 30 shots with a seeded RNG, both occupied lanes get hit.
+        #expect(hitSoldierIDs.contains(left))
+        #expect(hitSoldierIDs.contains(right))
     }
 
     @Test func soldierDiesOnlyWhenHPReachesZeroAndStopsActing() throws {
