@@ -129,7 +129,7 @@ final class BattleScene: SKScene {
         let loadedState = store.load()
         self.store = store
         self.state = loadedState
-        self.combat = BattleCombatState(cityLevel: loadedState.cityLevel)
+        self.combat = Self.makeCombat(for: loadedState)
         self.router = router
         super.init(size: size)
     }
@@ -138,9 +138,18 @@ final class BattleScene: SKScene {
         let loadedState = KingdomGameStore.shared.load()
         self.store = .shared
         self.state = loadedState
-        self.combat = BattleCombatState(cityLevel: loadedState.cityLevel)
+        self.combat = Self.makeCombat(for: loadedState)
         self.router = nil
         super.init(coder: aDecoder)
+    }
+
+    private static func makeCombat(for state: KingdomGameState) -> BattleCombatState {
+        BattleCombatState(
+            configuration: .live(
+                cityLevel: state.cityLevel,
+                laneDamageMultipliers: state.currentCityLaneDefenseProfile.towerDamageMultipliers
+            )
+        )
     }
 
     deinit {
@@ -1164,7 +1173,7 @@ final class BattleScene: SKScene {
     }
 
     private func clearLiveCombat() {
-        combat = BattleCombatState(cityLevel: state.cityLevel)
+        combat = Self.makeCombat(for: state)
         lastUpdateTime = nil
 
         for id in Array(soldierNodes.keys) {
@@ -1721,6 +1730,10 @@ extension BattleScene {
 
     var buildingLiveSoldierCountForTesting: Int {
         combat.livingSoldierCount(source: .building)
+    }
+
+    var combatLaneDamageMultipliersForTesting: [BattleLane: Double] {
+        combat.configuration.laneDamageMultipliers
     }
 
     var liveSoldierTypesForTesting: [SoldierType] {
