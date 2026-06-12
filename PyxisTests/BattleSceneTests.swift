@@ -931,6 +931,70 @@ struct BattleSceneTests {
         #expect(frames.buildButton.minY >= 26)
     }
 
+    @Test func verticalBattlefieldPlacesEnemyCityAboveCastle() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        let enemyFrame = try #require(scene.enemyCityFrameForTesting)
+        let castleFrame = try #require(scene.playerCastleFrameForTesting)
+        let battlefield = try #require(scene.battleLayoutFramesForTesting).battlefield
+
+        // Enemy city base sits at the top of the lane field; castle base at the bottom.
+        #expect(enemyFrame.minY > castleFrame.maxY)
+        #expect(abs(enemyFrame.minY - battlefield.maxY) <= 1)
+        #expect(abs(castleFrame.minY - battlefield.minY) <= 1)
+    }
+
+    @Test func threeVerticalLanesSpanCastleGateToEnemyGate() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        let laneXs = scene.laneCenterXsForTesting
+        #expect(laneXs.count == 3)
+        // Distinct, ascending lane columns.
+        #expect(laneXs[0] < laneXs[1])
+        #expect(laneXs[1] < laneXs[2])
+
+        for lane in BattleLane.allCases {
+            let start = try #require(scene.castleGatePointForTesting(lane: lane))
+            let end = try #require(scene.enemyGatePointForTesting(lane: lane))
+            // Vertical marching: same x, gaining y.
+            #expect(start.x == end.x)
+            #expect(end.y > start.y)
+        }
+    }
+
+    @Test func soldierNodesRenderAtTheirLaneColumn() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
+        let scene = makeScene(store: store)
+
+        for _ in 0..<6 {
+            scene.spawnSoldierForTesting()
+        }
+
+        let placements = scene.soldierLanePlacementsForTesting
+        #expect(placements.count == 6)
+        for placement in placements {
+            let expectedX = try #require(scene.castleGatePointForTesting(lane: placement.lane)?.x)
+            #expect(abs(placement.nodePosition.x - expectedX) <= 0.5)
+        }
+    }
+
+    @Test func backdropCoversFullScene() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        guard let backdropFrame = scene.battlefieldBackdropFrameForTesting else {
+            // No backdrop asset bundled — nothing to assert.
+            return
+        }
+
+        #expect(backdropFrame.minX <= 0)
+        #expect(backdropFrame.maxX >= scene.size.width)
+        #expect(backdropFrame.minY <= 0)
+        #expect(backdropFrame.maxY >= scene.size.height)
+    }
+
     private func pollUntil(
         timeout: Duration,
         interval: Duration = .milliseconds(50),
