@@ -777,7 +777,12 @@ final class BattleScene: SKScene {
 
         let centerX = size.width / 2
         playerCastleNode?.position = CGPoint(x: centerX, y: battlefieldLayout.frame.minY)
-        enemyCityNode?.position = CGPoint(x: centerX, y: battlefieldLayout.frame.maxY)
+        // The city sprite uses a bottom anchor; offset by its height so the body
+        // sits inside the top of the frame instead of extending past it into the HUD.
+        enemyCityNode?.position = CGPoint(
+            x: centerX,
+            y: battlefieldLayout.frame.maxY - battlefieldLayout.enemyCityTargetHeight
+        )
 
         drawLanePaths()
         layoutLaneIndicators()
