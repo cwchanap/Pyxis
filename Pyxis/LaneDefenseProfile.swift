@@ -26,15 +26,43 @@ enum LaneDefenseRole: String, CaseIterable, Equatable {
 }
 
 /// Per-city deterministic assignment of one role per battle lane.
+///
+/// Stores only the two non-standard lanes; the remaining lane is implicitly
+/// `.standard`. This makes the "exactly one fortified / one exposed / one
+/// standard" invariant unbreakable by construction — there is no dictionary
+/// that can be missing keys or hold duplicate roles.
 struct LaneDefenseProfile: Equatable {
-    let roles: [BattleLane: LaneDefenseRole]
+    let fortifiedLane: BattleLane
+    let exposedLane: BattleLane
+
+    /// The lane that is neither fortified nor exposed.
+    /// Safe because ``init(fortifiedLane:exposedLane:)`` enforces that the two differ.
+    var standardLane: BattleLane {
+        BattleLane.allCases.first { $0 != fortifiedLane && $0 != exposedLane }!
+    }
+
+    init(fortifiedLane: BattleLane, exposedLane: BattleLane) {
+        precondition(fortifiedLane != exposedLane, "fortifiedLane and exposedLane must be different lanes")
+        self.fortifiedLane = fortifiedLane
+        self.exposedLane = exposedLane
+    }
 
     func role(for lane: BattleLane) -> LaneDefenseRole {
-        roles[lane] ?? .standard
+        if lane == fortifiedLane {
+            return .fortified
+        }
+        if lane == exposedLane {
+            return .exposed
+        }
+        return .standard
     }
 
     var towerDamageMultipliers: [BattleLane: Double] {
-        roles.mapValues(\.towerDamageMultiplier)
+        var multipliers: [BattleLane: Double] = [:]
+        for lane in BattleLane.allCases {
+            multipliers[lane] = role(for: lane).towerDamageMultiplier
+        }
+        return multipliers
     }
 
     static func profile(forCityNumber cityNumber: Int) -> LaneDefenseProfile {
@@ -42,18 +70,9 @@ struct LaneDefenseProfile: Equatable {
         let fortifiedIndex = (safe - 1) % 3
         let exposedIndex = (safe + 1) % 3
 
-        var roles: [BattleLane: LaneDefenseRole] = [:]
-        for lane in BattleLane.allCases {
-            switch lane.rawValue {
-            case fortifiedIndex:
-                roles[lane] = .fortified
-            case exposedIndex:
-                roles[lane] = .exposed
-            default:
-                roles[lane] = .standard
-            }
-        }
+        let fortified = BattleLane.allCases.first { $0.rawValue == fortifiedIndex }!
+        let exposed = BattleLane.allCases.first { $0.rawValue == exposedIndex }!
 
-        return LaneDefenseProfile(roles: roles)
+        return LaneDefenseProfile(fortifiedLane: fortified, exposedLane: exposed)
     }
 }
