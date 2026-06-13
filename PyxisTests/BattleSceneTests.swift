@@ -458,6 +458,11 @@ struct BattleSceneTests {
         #expect(scene.battlefieldLayoutCountForTesting == layoutCountBeforeInfantryMenu)
     }
 
+    // City 9 tower damage (14 - 1 defense = 13 base) kills a 10-HP soldier in
+    // one shot across ALL lanes: exposed lane 0.80× → 10, standard 1.0× → 13,
+    // fortified 1.25× → 16. A balance tweak that reduces tower damage below ~13
+    // or raises base soldier HP above 10 could reintroduce flakiness due to
+    // random lane assignment from spawnSoldierForTesting().
     @Test func towerDamageCanKillAndRemoveVisibleSoldier() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(
