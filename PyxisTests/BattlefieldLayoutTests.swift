@@ -131,6 +131,15 @@ struct BattlefieldLayoutTests {
         #expect(layout.enemyCityTargetHeight == layout.structureHeight * 1.04)
     }
 
+    @Test func enemyGateSitsAtCityBaseInsideFrameTop() {
+        let layout = BattlefieldLayout.compute(constraints: makeConstraints())
+        let enemyGate = layout.enemyGatePoints[.center]!
+        // Gate is the city's base: one city-height below the frame top so the body fits inside.
+        #expect(abs(enemyGate.y - (layout.frame.maxY - layout.enemyCityTargetHeight)) < 0.01)
+        #expect(enemyGate.y < layout.frame.maxY)
+        #expect(enemyGate.y >= layout.frame.minY)
+    }
+
     @Test func lanePathWidthScalesWithSceneWidth() {
         let narrow = BattlefieldLayout.lanePathWidth(for: 200)
         let wide = BattlefieldLayout.lanePathWidth(for: 600)

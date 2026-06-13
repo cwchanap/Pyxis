@@ -73,10 +73,14 @@ struct BattlefieldLayout: Equatable {
 
         let laneWidth = Self.lanePathWidth(for: constraints.sceneSize.width)
 
+        // The enemy city sits inside the top of the frame, so its height eats into
+        // the marching lane the same way the castle's height does at the bottom.
+        let enemyCityHeight = structureHeight * 1.04
+
         // Fallback: not enough room for a proper battlefield.
         guard availableHeight >= 44,
               structureHeight >= minimumStructureHeight,
-              safeTopY - (safeBottomY + structureHeight) >= minimumLaneLength else {
+              (safeTopY - enemyCityHeight) - (safeBottomY + structureHeight) >= minimumLaneLength else {
             let fallbackY = safeBottomY
                 + max(10, (safeTopY - safeBottomY) * 0.25)
             var fallbackGates: [BattleLane: CGPoint] = [:]
@@ -95,7 +99,7 @@ struct BattlefieldLayout: Equatable {
         }
 
         let castleGateY = safeBottomY + structureHeight
-        let enemyGateY = safeTopY
+        let enemyGateY = safeTopY - enemyCityHeight
 
         var castleGates: [BattleLane: CGPoint] = [:]
         var enemyGates: [BattleLane: CGPoint] = [:]

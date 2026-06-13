@@ -943,9 +943,11 @@ struct BattleSceneTests {
         let castleFrame = try #require(scene.playerCastleFrameForTesting)
         let battlefield = try #require(scene.battleLayoutFramesForTesting).battlefield
 
-        // Enemy city base sits at the top of the lane field; castle base at the bottom.
+        // Enemy city sits inside the top of the battlefield frame; castle at the bottom.
         #expect(enemyFrame.minY > castleFrame.maxY)
-        #expect(abs(enemyFrame.minY - battlefield.maxY) <= 1)
+        #expect(abs(enemyFrame.maxY - battlefield.maxY) <= 1)
+        #expect(enemyFrame.minY >= battlefield.minY)
+        #expect(enemyFrame.maxY <= battlefield.maxY)
         #expect(abs(castleFrame.minY - battlefield.minY) <= 1)
     }
 
