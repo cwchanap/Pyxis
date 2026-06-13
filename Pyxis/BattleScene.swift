@@ -847,10 +847,13 @@ final class BattleScene: SKScene {
         }
     }
 
+    /// Builds a lane-defense-role indicator glyph (shield, cracked shield, or plain).
+    /// Shield is drawn in a ~16×19 pt local coordinate space (x: −8…+8, y: −10…+9).
     private func makeLaneIndicator(role: LaneDefenseRole) -> SKNode {
         let container = SKNode()
         container.name = "laneIndicator-\(role.rawValue)"
 
+        // Shield outline in a 16×19 pt local space
         let shieldPath = CGMutablePath()
         shieldPath.move(to: CGPoint(x: 0, y: 9))
         shieldPath.addLine(to: CGPoint(x: 8, y: 5))

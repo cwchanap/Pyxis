@@ -98,8 +98,9 @@ consistency. Direction differs: `CityDefenseTrait` scales soldier→city damage;
 - **Soldier projection** — `pointForSoldierPosition` becomes
   `point(forLane:position:)`: x = lane center, y = linear interpolation from the
   player gate (position 0, bottom) to the enemy gate (position 1, top). Gate points
-  become per-lane (`enemyGatePoints[lane]`), so tower-shot flashes, floating damage
-  numbers, and attack effects originate at the correct lane's mouth of the enemy city.
+  become per-lane (`enemyGatePoints[lane]`), so tower-shot flashes and attack effects
+  originate at the correct lane's mouth of the enemy city. Floating damage numbers use
+  the center-lane gate because damage is reported in aggregate (not per-lane).
 - **Lane indicators** — small emblem near the enemy end of each non-standard lane:
   shield (fortified), cracked shield (exposed). Standard lanes get nothing. Rendered
   with `SKShapeNode`/`SKLabelNode` glyphs in the existing theme style; no new art
