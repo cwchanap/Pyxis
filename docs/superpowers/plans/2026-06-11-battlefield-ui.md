@@ -1,6 +1,6 @@
 # Battlefield UI (Vertical 3-Lane) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Rotate the battle screen to a vertical full-screen battlefield (enemy city top, player castle bottom) with three marching lanes, random lane assignment at spawn, per-lane tower targeting, and per-city deterministic lane defense modifiers.
 
@@ -45,7 +45,7 @@ If that simulator isn't available, list destinations with `xcodebuild -project P
 - Create: `Pyxis/SplitMix64.swift`
 - Create: `PyxisTests/SplitMix64Tests.swift`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `PyxisTests/SplitMix64Tests.swift`:
 
@@ -90,7 +90,7 @@ struct SplitMix64Tests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 ```bash
@@ -98,7 +98,7 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Sim
 ```
 Expected: BUILD FAILS with "cannot find 'SplitMix64' in scope".
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `Pyxis/SplitMix64.swift`:
 
@@ -128,11 +128,11 @@ struct SplitMix64: RandomNumberGenerator, Equatable {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Same command as Step 2. Expected: TEST SUCCEEDED, 3 tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Pyxis/SplitMix64.swift PyxisTests/SplitMix64Tests.swift
@@ -148,7 +148,7 @@ git commit -m "Add SplitMix64 seedable PRNG for deterministic combat"
 - Modify: `Pyxis/BattleCombatState.swift` (stored `rng`, seeded init, `Soldier.lane`, spawn lane parameter)
 - Modify: `PyxisTests/BattleCombatStateTests.swift` (add tests)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `PyxisTests/BattleCombatStateTests.swift` (inside `struct BattleCombatStateTests`):
 
@@ -191,7 +191,7 @@ Add to `PyxisTests/BattleCombatStateTests.swift` (inside `struct BattleCombatSta
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 ```bash
@@ -199,7 +199,7 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Sim
 ```
 Expected: BUILD FAILS with "cannot find 'BattleLane' in scope" / no `seed:` initializer.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `Pyxis/BattleLane.swift`:
 
@@ -295,18 +295,18 @@ In `Pyxis/BattleCombatState.swift`:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Same command as Step 2. Expected: TEST SUCCEEDED — all `BattleCombatStateTests` pass (existing tests are unaffected: `Soldier` memberwise init is only used inside the model).
 
-- [ ] **Step 5: Build the app target to catch any other call sites**
+- [x] **Step 5: Build the app target to catch any other call sites**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' build
 ```
 Expected: BUILD SUCCEEDED (scene call sites pass no `lane:`, so the default applies).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Pyxis/BattleLane.swift Pyxis/BattleCombatState.swift PyxisTests/BattleCombatStateTests.swift
@@ -321,7 +321,7 @@ git commit -m "Assign soldiers a random battle lane at spawn"
 - Modify: `Pyxis/BattleCombatState.swift` (`towerTargetIndex()`)
 - Modify: `PyxisTests/BattleCombatStateTests.swift` (new tests; pin lanes in `towerTargetsLivingSoldierClosestToCity`)
 
-- [ ] **Step 1: Update the existing targeting test to pin lanes**
+- [x] **Step 1: Update the existing targeting test to pin lanes**
 
 In `towerTargetsLivingSoldierClosestToCity`, both spawns must share a lane or the new lane-based targeting makes the test flaky. Replace its spawn lines:
 
@@ -339,7 +339,7 @@ with:
         let second = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Add to `PyxisTests/BattleCombatStateTests.swift`:
 
@@ -434,14 +434,14 @@ Add to `PyxisTests/BattleCombatStateTests.swift`:
     }
 ```
 
-- [ ] **Step 3: Run tests to verify the new ones fail**
+- [x] **Step 3: Run tests to verify the new ones fail**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/BattleCombatStateTests
 ```
 Expected: `towerSpreadsShotsAcrossOccupiedLanesOverTime` FAILS (current targeting always hits the single most advanced soldier — with movement 0 and insertion order, only one soldier gets hit). The two other new tests may pass already; that's fine.
 
-- [ ] **Step 4: Implement per-lane targeting**
+- [x] **Step 4: Implement per-lane targeting**
 
 In `Pyxis/BattleCombatState.swift`, replace `towerTargetIndex()`:
 
@@ -471,11 +471,11 @@ In `Pyxis/BattleCombatState.swift`, replace `towerTargetIndex()`:
 
 (The call site in `tick` already runs in a `mutating` context, so the `mutating` keyword change compiles as-is.)
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Same command as Step 3. Expected: TEST SUCCEEDED, all `BattleCombatStateTests` pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Pyxis/BattleCombatState.swift PyxisTests/BattleCombatStateTests.swift
@@ -490,7 +490,7 @@ git commit -m "Target tower shots at a random occupied lane"
 - Modify: `Pyxis/BattleCombatState.swift` (`Configuration` + `damageAgainstSoldier`)
 - Modify: `PyxisTests/BattleCombatStateTests.swift`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `PyxisTests/BattleCombatStateTests.swift`:
 
@@ -592,14 +592,14 @@ Add to `PyxisTests/BattleCombatStateTests.swift`:
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/BattleCombatStateTests
 ```
 Expected: BUILD FAILS — `Configuration` has no `laneDamageMultipliers` parameter.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Pyxis/BattleCombatState.swift`:
 
@@ -668,11 +668,11 @@ In `Pyxis/BattleCombatState.swift`:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Same command as Step 2. Expected: TEST SUCCEEDED, all `BattleCombatStateTests` pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Pyxis/BattleCombatState.swift PyxisTests/BattleCombatStateTests.swift
@@ -687,7 +687,7 @@ git commit -m "Scale tower damage by per-lane multipliers"
 - Create: `Pyxis/LaneDefenseProfile.swift`
 - Create: `PyxisTests/LaneDefenseProfileTests.swift`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `PyxisTests/LaneDefenseProfileTests.swift`:
 
@@ -765,14 +765,14 @@ struct LaneDefenseProfileTests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/LaneDefenseProfileTests
 ```
 Expected: BUILD FAILS with "cannot find 'LaneDefenseProfile' in scope".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `Pyxis/LaneDefenseProfile.swift`:
 
@@ -838,14 +838,14 @@ struct LaneDefenseProfile: Equatable {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/LaneDefenseProfileTests
 ```
 Expected: TEST SUCCEEDED, 6 tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Pyxis/LaneDefenseProfile.swift PyxisTests/LaneDefenseProfileTests.swift
@@ -860,7 +860,7 @@ git commit -m "Add per-city deterministic lane defense profiles"
 - Modify: `Pyxis/KingdomGameState.swift` (next to `currentCityDefenseTrait`, around line 686)
 - Modify: `PyxisTests/KingdomGameStateTests.swift`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `PyxisTests/KingdomGameStateTests.swift` (inside the test struct):
 
@@ -879,14 +879,14 @@ Add to `PyxisTests/KingdomGameStateTests.swift` (inside the test struct):
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/KingdomGameStateTests/currentCityLaneDefenseProfileFollowsCityNumber
 ```
 Expected: BUILD FAILS — `currentCityLaneDefenseProfile` not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Pyxis/KingdomGameState.swift`, directly below `currentCityDefenseTrait` (line ~688):
 
@@ -896,11 +896,11 @@ In `Pyxis/KingdomGameState.swift`, directly below `currentCityDefenseTrait` (lin
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Same command as Step 2. Expected: TEST SUCCEEDED.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Pyxis/KingdomGameState.swift PyxisTests/KingdomGameStateTests.swift
@@ -915,7 +915,7 @@ git commit -m "Expose current city lane defense profile"
 - Modify: `Pyxis/BattleScene.swift` (both inits ~line 128–144, `clearLiveCombat()` ~line 1166, DEBUG testing extension ~line 1620)
 - Modify: `PyxisTests/BattleSceneTests.swift`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `PyxisTests/BattleSceneTests.swift` (use the file's existing `makeStore`/`makeScene` helpers):
 
@@ -932,14 +932,14 @@ Add to `PyxisTests/BattleSceneTests.swift` (use the file's existing `makeStore`/
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/BattleSceneTests/combatUsesCurrentCityLaneDefenseMultipliers
 ```
 Expected: BUILD FAILS — `combatLaneDamageMultipliersForTesting` not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Pyxis/BattleScene.swift`:
 
@@ -976,18 +976,18 @@ In `Pyxis/BattleScene.swift`:
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Same command as Step 2. Expected: TEST SUCCEEDED.
 
-- [ ] **Step 5: Run the full BattleSceneTests suite for regressions**
+- [x] **Step 5: Run the full BattleSceneTests suite for regressions**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/BattleSceneTests
 ```
 Expected: TEST SUCCEEDED.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Pyxis/BattleScene.swift PyxisTests/BattleSceneTests.swift
@@ -1004,7 +1004,7 @@ This is the big scene task: cities move to top/bottom, three vertical lanes repl
 - Modify: `Pyxis/BattleScene.swift`
 - Modify: `PyxisTests/BattleSceneTests.swift`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `PyxisTests/BattleSceneTests.swift`:
 
@@ -1074,14 +1074,14 @@ Add to `PyxisTests/BattleSceneTests.swift`:
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/BattleSceneTests
 ```
 Expected: BUILD FAILS — the new `ForTesting` accessors don't exist yet.
 
-- [ ] **Step 3: Implement the vertical layout**
+- [x] **Step 3: Implement the vertical layout**
 
 All changes in `Pyxis/BattleScene.swift`.
 
@@ -1335,7 +1335,7 @@ In `syncSoldierNodes()`, replace
     }
 ```
 
-- [ ] **Step 4: Run the scene tests**
+- [x] **Step 4: Run the scene tests**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/BattleSceneTests
@@ -1344,14 +1344,14 @@ Expected: TEST SUCCEEDED — new tests pass AND the pre-existing layout tests (`
 
 If a compact-size test fails on the new `minimumLaneLength` guard hiding the battlefield, that's acceptable behavior (the guard frames stay consistent) — but verify the failing assertion is about battlefield emptiness, not an overlap regression, before adjusting `minimumLaneLength` downward (floor 44).
 
-- [ ] **Step 5: Run the full unit suite for regressions**
+- [x] **Step 5: Run the full unit suite for regressions**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests
 ```
 Expected: TEST SUCCEEDED.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Pyxis/BattleScene.swift PyxisTests/BattleSceneTests.swift
@@ -1366,7 +1366,7 @@ git commit -m "Rotate battlefield vertical with three marching lanes"
 - Modify: `Pyxis/BattleScene.swift` (fill in `layoutLaneIndicators()`, add `makeLaneIndicator(role:)`)
 - Modify: `PyxisTests/BattleSceneTests.swift`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `PyxisTests/BattleSceneTests.swift`:
 
@@ -1390,14 +1390,14 @@ Add to `PyxisTests/BattleSceneTests.swift`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:PyxisTests/BattleSceneTests/laneIndicatorsMarkFortifiedAndExposedLanesOnly
 ```
 Expected: BUILD FAILS — `laneIndicatorsForTesting` not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Pyxis/BattleScene.swift`, replace the Task 8 placeholder `layoutLaneIndicators()`:
 
@@ -1486,11 +1486,11 @@ Add the testing accessor to the `#if DEBUG` extension:
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Same command as Step 2. Expected: TEST SUCCEEDED.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Pyxis/BattleScene.swift PyxisTests/BattleSceneTests.swift
@@ -1504,21 +1504,21 @@ git commit -m "Show shield indicators on fortified and exposed lanes"
 **Files:**
 - Modify: `CLAUDE.md` (architecture notes)
 
-- [ ] **Step 1: Run the complete test suite (unit + UI)**
+- [x] **Step 1: Run the complete test suite (unit + UI)**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
 Expected: TEST SUCCEEDED. UI tests should pass untouched (no accessibility identifiers or button flows changed). If a UI test fails, inspect whether it asserts battlefield geometry before changing anything.
 
-- [ ] **Step 2: Lint**
+- [x] **Step 2: Lint**
 
 ```bash
 swiftlint lint
 ```
 Expected: no new violations in the touched files.
 
-- [ ] **Step 3: Update CLAUDE.md architecture notes**
+- [x] **Step 3: Update CLAUDE.md architecture notes**
 
 In `CLAUDE.md` section "## Architecture":
 
@@ -1530,14 +1530,14 @@ Each soldier is randomly assigned one of three `BattleLane`s (`left`/`center`/`r
 
 - In item **5**'s `BattleScene` bullet, update the description to mention the vertical battlefield, e.g. change "mirrors `TickResult` into UI (HP bar, soldier nodes, conquest popup)" to "mirrors `TickResult` into UI (HP bar, soldier nodes, conquest popup) on a vertical full-screen battlefield (enemy city top, player castle bottom, three marching lanes)".
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CLAUDE.md
 git commit -m "Document lane-based battlefield in architecture notes"
 ```
 
-- [ ] **Step 5: Update the Linear issue**
+- [x] **Step 5: Update the Linear issue**
 
 Mark HPA-50 as done / in review per the user's workflow (ask if unsure).
 
