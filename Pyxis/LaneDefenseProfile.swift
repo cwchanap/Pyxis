@@ -38,12 +38,9 @@ struct LaneDefenseProfile: Equatable {
     }
 
     static func profile(forCityNumber cityNumber: Int) -> LaneDefenseProfile {
-        // TODO: When multi-country support expands beyond firstCountryCityCount,
-        // cycle the profile by country (e.g., shift the base offset per country)
-        // instead of clamping to the last city's profile.
-        let clamped = min(max(1, cityNumber), KingdomGameState.firstCountryCityCount)
-        let fortifiedIndex = (clamped - 1) % 3
-        let exposedIndex = (clamped + 1) % 3
+        let safe = max(1, cityNumber)
+        let fortifiedIndex = (safe - 1) % 3
+        let exposedIndex = (safe + 1) % 3
 
         var roles: [BattleLane: LaneDefenseRole] = [:]
         for lane in BattleLane.allCases {

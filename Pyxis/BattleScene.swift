@@ -80,14 +80,16 @@ final class BattleScene: SKScene {
     private var playerCastleNode: SKNode?
     private var enemyCityNode: SKNode?
     private var battlefieldBackdropNode: SKSpriteNode?
-    private var castleGatePoints: [BattleLane: CGPoint] = [:]
-    private var enemyGatePoints: [BattleLane: CGPoint] = [:]
+    private var battlefieldLayout = BattlefieldLayout(
+        frame: .zero, structureHeight: 0,
+        castleGatePoints: [:], enemyGatePoints: [:],
+        isVisible: false, lanePathWidth: 14
+    )
     private var laneNodes: [SKShapeNode] = []
     private var laneIndicatorNodes: [SKNode] = []
-    private var battlefieldLayoutFrame = CGRect.zero
 
     private var enemyCityImpactPoint: CGPoint {
-        enemyGatePoints[.center] ?? .zero
+        battlefieldLayout.enemyCityImpactPoint
     }
 
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
@@ -720,43 +722,27 @@ final class BattleScene: SKScene {
         #if DEBUG
         battlefieldLayoutCount += 1
         #endif
-        let verticalPadding: CGFloat = 8
-        let feedbackClearance = max(30, feedbackLabel.fontSize + 18)
-        let safeTopY = hpBarBottomY - verticalPadding
-        let safeBottomY = max(spawnButtonTopY + verticalPadding, feedbackY + feedbackClearance)
-        battlefieldLayoutFrame = CGRect(
-            x: (size.width - contentWidth) / 2,
-            y: safeBottomY,
-            width: contentWidth,
-            height: max(0, safeTopY - safeBottomY)
-        )
-        let availableHeight = safeTopY - safeBottomY
+
+        battlefieldLayout = BattlefieldLayout.compute(constraints: .init(
+            sceneSize: size,
+            contentWidth: contentWidth,
+            safeTopY: hpBarBottomY - 8,
+            safeBottomY: spawnButtonTopY + 8,
+            feedbackY: feedbackY,
+            feedbackFontSize: feedbackLabel.fontSize
+        ))
 
         if !isConquestPopupVisible {
             cancelCityFeedbackActions()
         }
 
-        let structureHeight = min(96, size.height * 0.16, contentWidth * 0.30, max(0, availableHeight * 0.32))
-        let minimumStructureHeight: CGFloat = 28
-        let minimumLaneLength: CGFloat = 60
+        let castleGatePoints = battlefieldLayout.castleGatePoints
+        let enemyGatePoints = battlefieldLayout.enemyGatePoints
 
-        // The castle stands inside the field; the enemy city's base anchors at the
-        // field's top edge and its sprite extends up behind the floating HUD.
-        let castleGateY = safeBottomY + structureHeight
-        let enemyGateY = safeTopY
-
-        guard availableHeight >= 44,
-              structureHeight >= minimumStructureHeight,
-              enemyGateY - castleGateY >= minimumLaneLength else {
+        if !battlefieldLayout.isVisible {
             setBattlefieldHidden(true)
             removeLaneNodes()
             removeLaneIndicatorNodes()
-            let fallbackY = spawnButtonTopY + max(10, (hpBarBottomY - spawnButtonTopY) * 0.25)
-            for lane in BattleLane.allCases {
-                let x = size.width * (0.25 + 0.25 * CGFloat(lane.rawValue))
-                castleGatePoints[lane] = CGPoint(x: x, y: fallbackY)
-                enemyGatePoints[lane] = CGPoint(x: x, y: fallbackY)
-            }
             return
         }
 
@@ -773,22 +759,15 @@ final class BattleScene: SKScene {
         }
 
         if let playerCastleNode {
-            fitBattleNode(playerCastleNode, targetHeight: structureHeight)
+            fitBattleNode(playerCastleNode, targetHeight: battlefieldLayout.structureHeight)
         }
         if let enemyCityNode {
-            fitBattleNode(enemyCityNode, targetHeight: structureHeight * 1.04)
+            fitBattleNode(enemyCityNode, targetHeight: battlefieldLayout.enemyCityTargetHeight)
         }
 
         let centerX = size.width / 2
-        playerCastleNode?.position = CGPoint(x: centerX, y: safeBottomY)
-        enemyCityNode?.position = CGPoint(x: centerX, y: safeTopY)
-
-        for lane in BattleLane.allCases {
-            let x = battlefieldLayoutFrame.minX
-                + battlefieldLayoutFrame.width * (0.25 + 0.25 * CGFloat(lane.rawValue))
-            castleGatePoints[lane] = CGPoint(x: x, y: castleGateY)
-            enemyGatePoints[lane] = CGPoint(x: x, y: enemyGateY)
-        }
+        playerCastleNode?.position = CGPoint(x: centerX, y: battlefieldLayout.frame.minY)
+        enemyCityNode?.position = CGPoint(x: centerX, y: battlefieldLayout.frame.maxY)
 
         drawLanePaths()
         layoutLaneIndicators()
@@ -821,9 +800,10 @@ final class BattleScene: SKScene {
     private func drawLanePaths() {
         removeLaneNodes()
 
-        let laneWidth = lanePathWidth()
+        let laneWidth = battlefieldLayout.lanePathWidth
         for lane in BattleLane.allCases {
-            guard let start = castleGatePoints[lane], let end = enemyGatePoints[lane] else {
+            guard let start = battlefieldLayout.castleGatePoints[lane],
+                  let end = battlefieldLayout.enemyGatePoints[lane] else {
                 continue
             }
 
@@ -849,17 +829,13 @@ final class BattleScene: SKScene {
         laneNodes.removeAll()
     }
 
-    private func lanePathWidth() -> CGFloat {
-        max(14, min(26, size.width * 0.05))
-    }
-
     private func layoutLaneIndicators() {
         removeLaneIndicatorNodes()
 
         let profile = state.currentCityLaneDefenseProfile
         for lane in BattleLane.allCases {
             let role = profile.role(for: lane)
-            guard role != .standard, let gate = enemyGatePoints[lane] else {
+            guard role != .standard, let gate = battlefieldLayout.enemyGatePoints[lane] else {
                 continue
             }
 
@@ -1248,13 +1224,7 @@ final class BattleScene: SKScene {
     }
 
     private func point(forLane lane: BattleLane, position: Double) -> CGPoint {
-        let clamped = CGFloat(min(max(0, position), 1))
-        let start = castleGatePoints[lane] ?? .zero
-        let end = enemyGatePoints[lane] ?? start
-        return CGPoint(
-            x: start.x + (end.x - start.x) * clamped,
-            y: start.y + (end.y - start.y) * clamped
-        )
+        battlefieldLayout.point(forLane: lane, position: position)
     }
 
     private func layoutSoldierHPBar(_ bundle: SoldierNodeBundle, soldier: BattleCombatState.Soldier) {
@@ -1457,7 +1427,7 @@ final class BattleScene: SKScene {
             shape.strokeColor = .clear
             shot = shape
         }
-        shot.position = enemyGatePoints[bundle.lane] ?? enemyCityImpactPoint
+        shot.position = battlefieldLayout.enemyGatePoints[bundle.lane] ?? enemyCityImpactPoint
         shot.zPosition = GameUITheme.Z.effects
         effectsLayer.addChild(shot)
 
@@ -1783,7 +1753,7 @@ extension BattleScene {
             frames[element.key] = frame
         }
 
-        let battlefieldFrame = battlefieldLayoutFrame
+        let battlefieldFrame = battlefieldLayout.frame
         return BattleLayoutFrames(
             leftHUD: leftHUD,
             rightHUD: rightHUD,
@@ -1855,15 +1825,15 @@ extension BattleScene {
     }
 
     var laneCenterXsForTesting: [CGFloat] {
-        BattleLane.allCases.compactMap { enemyGatePoints[$0]?.x }
+        BattleLane.allCases.compactMap { battlefieldLayout.enemyGatePoints[$0]?.x }
     }
 
     func castleGatePointForTesting(lane: BattleLane) -> CGPoint? {
-        castleGatePoints[lane]
+        battlefieldLayout.castleGatePoints[lane]
     }
 
     func enemyGatePointForTesting(lane: BattleLane) -> CGPoint? {
-        enemyGatePoints[lane]
+        battlefieldLayout.enemyGatePoints[lane]
     }
 
     var laneIndicatorsForTesting: [(role: LaneDefenseRole, position: CGPoint)] {
