@@ -383,7 +383,8 @@ struct BattleCombatStateTests {
             seed: 3
         )
         // Front and back soldier in the same lane; the back one must never be hit
-        // while the front one lives, regardless of which lane the RNG picks.
+        // while the front one lives. Both are in .left so occupiedLanes == [.left]
+        // and the tower always targets that lane's most advanced soldier.
         let front = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
         _ = combat.tick(deltaTime: 0.5, cityRemainingHP: 1_000)
         let back = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
