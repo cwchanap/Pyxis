@@ -333,7 +333,7 @@ struct BattleCombatState: Equatable {
         // scenarios stay byte-for-byte deterministic.
         let targetLane = occupiedLanes.count == 1
             ? occupiedLanes[0]
-            : (occupiedLanes.randomElement(using: &rng) ?? occupiedLanes[0])
+            : occupiedLanes.randomElement(using: &rng)!
 
         return inRangeIndices
             .filter { soldiers[$0].lane == targetLane }
