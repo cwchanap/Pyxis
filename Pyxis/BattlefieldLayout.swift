@@ -9,8 +9,7 @@ import Foundation
 /// Pure-value battlefield geometry computed from scene dimensions and layout constraints.
 ///
 /// `BattlefieldLayout` owns no SpriteKit nodes — it only calculates positions and sizes.
-/// `BattleScene` calls ``compute(sceneSize:contentWidth:safeTopY:safeBottomY:feedbackY:feedbackFontSize:)``
-/// then applies the resulting values to its nodes.
+/// `BattleScene` calls ``compute(constraints:)`` then applies the resulting values to its nodes.
 struct BattlefieldLayout: Equatable {
     /// The axis-aligned region occupied by the battlefield (between HUD bottom and controls top).
     let frame: CGRect

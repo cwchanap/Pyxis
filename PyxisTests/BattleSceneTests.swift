@@ -460,9 +460,8 @@ struct BattleSceneTests {
 
     // City 9 tower damage (14 - 1 defense = 13 base) kills a 10-HP soldier in
     // one shot across ALL lanes: exposed lane 0.80× → 10, standard 1.0× → 13,
-    // fortified 1.25× → 16. A balance tweak that reduces tower damage below ~13
-    // or raises base soldier HP above 10 could reintroduce flakiness due to
-    // random lane assignment from spawnSoldierForTesting().
+    // fortified 1.25× → 16. With a fixed seed the lane assignment is
+    // deterministic, eliminating the balance-coincidence flakiness.
     @Test func towerDamageCanKillAndRemoveVisibleSoldier() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(
@@ -471,7 +470,7 @@ struct BattleSceneTests {
                 completedCityCount: 8
             )
         )
-        let scene = makeScene(store: store)
+        let scene = makeScene(store: store, combatSeed: 1)
 
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 18.0)
@@ -491,7 +490,7 @@ struct BattleSceneTests {
                 completedCityCount: 8
             )
         )
-        let scene = makeScene(store: store)
+        let scene = makeScene(store: store, combatSeed: 1)
 
         scene.spawnSoldierForTesting()
 
@@ -1031,9 +1030,9 @@ struct BattleSceneTests {
         Issue.record("Poll timed out after \(timeout)")
     }
 
-    private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil) -> BattleScene {
+    private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil, combatSeed: UInt64? = nil) -> BattleScene {
         let size = CGSize(width: 390, height: 844)
-        let scene = BattleScene(size: size, store: store, router: router)
+        let scene = BattleScene(size: size, store: store, router: router, combatSeed: combatSeed)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene

@@ -132,12 +132,19 @@ final class BattleScene: SKScene {
     #endif
     private var buildingProgressSaveAccumulator: TimeInterval = 0
     private static let buildingProgressSaveInterval: TimeInterval = 2.0
+    private let combatSeed: UInt64?
 
-    init(size: CGSize, store: KingdomGameStore = .shared, router: BattleSceneRouting? = nil) {
+    init(
+        size: CGSize,
+        store: KingdomGameStore = .shared,
+        router: BattleSceneRouting? = nil,
+        combatSeed: UInt64? = nil
+    ) {
         let loadedState = store.load()
         self.store = store
         self.state = loadedState
-        self.combat = Self.makeCombat(for: loadedState)
+        self.combatSeed = combatSeed
+        self.combat = Self.makeCombat(for: loadedState, seed: combatSeed)
         self.router = router
         super.init(size: size)
     }
@@ -146,18 +153,21 @@ final class BattleScene: SKScene {
         let loadedState = KingdomGameStore.shared.load()
         self.store = .shared
         self.state = loadedState
-        self.combat = Self.makeCombat(for: loadedState)
+        self.combatSeed = nil
+        self.combat = Self.makeCombat(for: loadedState, seed: nil)
         self.router = nil
         super.init(coder: aDecoder)
     }
 
-    private static func makeCombat(for state: KingdomGameState) -> BattleCombatState {
-        BattleCombatState(
-            configuration: .live(
-                cityLevel: state.cityLevel,
-                laneDamageMultipliers: state.currentCityLaneDefenseProfile.towerDamageMultipliers
-            )
+    private static func makeCombat(for state: KingdomGameState, seed: UInt64?) -> BattleCombatState {
+        let configuration = BattleCombatState.Configuration.live(
+            cityLevel: state.cityLevel,
+            laneDamageMultipliers: state.currentCityLaneDefenseProfile.towerDamageMultipliers
         )
+        if let seed {
+            return BattleCombatState(configuration: configuration, seed: seed)
+        }
+        return BattleCombatState(configuration: configuration)
     }
 
     deinit {
@@ -1252,7 +1262,7 @@ final class BattleScene: SKScene {
     }
 
     private func clearLiveCombat() {
-        combat = Self.makeCombat(for: state)
+        combat = Self.makeCombat(for: state, seed: combatSeed)
         lastUpdateTime = nil
 
         for id in Array(soldierNodes.keys) {

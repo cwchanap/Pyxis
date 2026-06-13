@@ -703,6 +703,50 @@ struct BattleCombatStateTests {
         #expect(try #require(result.towerShots.first).damage == 1)
     }
 
+    @Test func singleOccupiedLaneDoesNotConsumeRNG() throws {
+        // When only one lane has soldiers in tower range, the targeting
+        // short-circuit must NOT advance the RNG. We verify this by comparing
+        // downstream random lane assignments against a control state that
+        // never fired a tower shot.
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 100,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 0,
+            towerDamage: 1,
+            towerAttackSpeed: 1.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+
+        // State A: spawn one soldier (explicit lane → no RNG), tick (tower
+        // fires, single occupied lane → short-circuit, no RNG consumed).
+        var stateA = BattleCombatState(configuration: config, seed: 42)
+        _ = stateA.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        let shotResult = stateA.tick(deltaTime: 0.1, cityRemainingHP: 1_000)
+        #expect(shotResult.towerShots.count == 1) // confirm tower actually fired
+
+        // State B: identical setup, but skip the tick entirely.
+        var stateB = BattleCombatState(configuration: config, seed: 42)
+        _ = stateB.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+
+        // Both states should be at the same RNG position. Spawn several
+        // soldiers without explicit lanes and compare assignments.
+        var lanesA: [BattleLane] = []
+        var lanesB: [BattleLane] = []
+        for _ in 0..<6 {
+            let idA = stateA.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1)
+            lanesA.append(try #require(stateA.soldier(id: idA)).lane)
+
+            let idB = stateB.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1)
+            lanesB.append(try #require(stateB.soldier(id: idB)).lane)
+        }
+
+        // If RNG was conserved, every downstream assignment matches.
+        #expect(lanesA == lanesB)
+    }
+
     private struct ExpectedSoldierStats {
         let type: SoldierType
         let maxHP: Int

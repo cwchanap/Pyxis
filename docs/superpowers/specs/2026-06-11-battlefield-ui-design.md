@@ -42,11 +42,13 @@ Follows the existing split: gameplay rules live in pure Foundation models;
   `lane:` parameter.
 - **Seedable RNG** — the state stores a small SplitMix64-style PRNG struct (one
   `UInt64` of state, `Equatable`, conforming to `RandomNumberGenerator`). The live
-  `init(cityLevel:)` seeds it from the clock; tests use `init(configuration:seed:)`
-  for reproducible runs. The whole state remains an `Equatable` value type.
+  `init(cityLevel:)` seeds it from `UInt64.random` (system RNG); tests use
+  `init(configuration:seed:)` for reproducible runs. The whole state remains an
+  `Equatable` value type.
 - **Tower targeting** — each shot: collect lanes containing a living soldier within
   tower range → pick one uniformly at random with the RNG → target the most advanced
-  soldier in that lane. With a single occupied lane this matches today's behavior.
+  soldier in that lane. When only one lane is occupied the RNG is not consumed,
+  keeping single-lane scenarios byte-for-byte deterministic.
 - **Lane damage modifier** — `Configuration` gains
   `laneDamageMultipliers: [BattleLane: Double]` (default 1.0 per lane). Tower damage
   against a soldier becomes `max(1, towerDamage − defense)` scaled by the soldier's
