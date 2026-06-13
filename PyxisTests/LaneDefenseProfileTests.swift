@@ -8,7 +8,8 @@ import Testing
 
 struct LaneDefenseProfileTests {
     @Test func everyCityGetsExactlyOneOfEachRole() {
-        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
+        // Test within first country and beyond to verify cycling works.
+        for cityNumber in 1...30 {
             let profile = LaneDefenseProfile.profile(forCityNumber: cityNumber)
             let roles = BattleLane.allCases.map { profile.role(for: $0) }
 
@@ -41,16 +42,46 @@ struct LaneDefenseProfileTests {
         )
     }
 
-    @Test func outOfRangeCityNumbersClamp() {
+    @Test func outOfRangeCityNumbersClampToLowerBound() {
         #expect(
             LaneDefenseProfile.profile(forCityNumber: 0) == LaneDefenseProfile.profile(forCityNumber: 1)
         )
         #expect(
             LaneDefenseProfile.profile(forCityNumber: -3) == LaneDefenseProfile.profile(forCityNumber: 1)
         )
+    }
+
+    @Test func highCityNumbersCycleRatherThanClamp() {
+        // City 16 (one past firstCountryCityCount) must get its own cycling profile,
+        // not be clamped to city 15's profile.
+        let profile16 = LaneDefenseProfile.profile(forCityNumber: 16)
+        let profile15 = LaneDefenseProfile.profile(forCityNumber: 15)
+        #expect(profile16 != profile15)
+
+        // City 16 follows the rotation: fortified = (16-1) % 3 = 0 (left),
+        // exposed = (16+1) % 3 = 2 (right).
+        #expect(profile16.role(for: .left) == .fortified)
+        #expect(profile16.role(for: .center) == .standard)
+        #expect(profile16.role(for: .right) == .exposed)
+
+        // Cities separated by a multiple of 3 share the same profile (natural cycling).
         #expect(
-            LaneDefenseProfile.profile(forCityNumber: 99)
-                == LaneDefenseProfile.profile(forCityNumber: KingdomGameState.firstCountryCityCount)
+            LaneDefenseProfile.profile(forCityNumber: 1)
+                == LaneDefenseProfile.profile(forCityNumber: 4)
+        )
+        #expect(
+            LaneDefenseProfile.profile(forCityNumber: 2)
+                == LaneDefenseProfile.profile(forCityNumber: 5)
+        )
+        #expect(
+            LaneDefenseProfile.profile(forCityNumber: 3)
+                == LaneDefenseProfile.profile(forCityNumber: 6)
+        )
+
+        // Cities not separated by a multiple of 3 differ.
+        #expect(
+            LaneDefenseProfile.profile(forCityNumber: 16)
+                != LaneDefenseProfile.profile(forCityNumber: 18)
         )
     }
 
