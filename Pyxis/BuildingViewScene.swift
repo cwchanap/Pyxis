@@ -400,6 +400,7 @@ final class BuildingViewScene: SKScene {
         let gridBottom = actionCenterY + actionHeight / 2 + panelGridGap
         let gridHeight = max(0, gridTop - gridBottom)
 
+        backdropNode.setScale(1)
         let backdropScale = max(
             size.width / max(backdropNode.size.width, 1),
             size.height / max(backdropNode.size.height, 1)
@@ -946,6 +947,10 @@ extension BuildingViewScene {
 
     var backdropAssetNameForTesting: String {
         backdropNode.name ?? AssetName.backdrop
+    }
+
+    var backdropFrameForTesting: CGRect? {
+        sceneFrame(for: backdropNode)
     }
 
     var slotCenterPointsForTesting: [Int: CGPoint] {

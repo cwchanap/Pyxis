@@ -210,6 +210,22 @@ struct BuildingViewSceneTests {
         #expect(abs(barracksSize.width - barracksSize.height) < 0.5)
     }
 
+    @Test func backdropFrameStaysStableAfterScreenTapRelayout() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let initialFrame = try #require(scene.backdropFrameForTesting)
+
+        scene.selectSlotForTesting(7)
+
+        let tappedFrame = try #require(scene.backdropFrameForTesting)
+        #expect(abs(tappedFrame.width - initialFrame.width) < 0.5)
+        #expect(abs(tappedFrame.height - initialFrame.height) < 0.5)
+        #expect(tappedFrame.minX <= 0)
+        #expect(tappedFrame.maxX >= scene.size.width)
+        #expect(tappedFrame.minY <= 0)
+        #expect(tappedFrame.maxY >= scene.size.height)
+    }
+
     @Test func slotLookupUsesHitAreaInsteadOfOverhangingLabel() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())
