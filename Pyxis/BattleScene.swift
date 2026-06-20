@@ -47,11 +47,27 @@ final class BattleScene: SKScene {
         static let goldBurstRemovalDelayNanoseconds: UInt64 = 650_000_000
     }
 
+    private enum SoldierAnimationAction: String, CaseIterable {
+        case walk
+        case attack
+        case hit
+    }
+
+    private enum SoldierAnimationKey {
+        static let walk = "soldierWalkAnimation"
+        static let attack = "soldierAttackAnimation"
+        static let hit = "soldierHitAnimation"
+        static let delayedRemoval = "soldierDelayedRemoval"
+    }
+
+    private static let soldierAnimationFrameCount = 10
+
     private struct SoldierNodeBundle {
         let root: SKNode
         let body: SKNode
         let hpBarBackground: SKShapeNode
         let hpBarFill: SKShapeNode
+        let type: SoldierType
         let lane: BattleLane
     }
 
@@ -87,6 +103,7 @@ final class BattleScene: SKScene {
     )
     private var laneNodes: [SKShapeNode] = []
     private var laneIndicatorNodes: [SKNode] = []
+    private var pendingAnimatedRemovalSoldierIDs: Set<BattleCombatState.SoldierID> = []
 
     private var enemyCityImpactPoint: CGPoint {
         battlefieldLayout.enemyCityImpactPoint
@@ -129,6 +146,8 @@ final class BattleScene: SKScene {
     private var currentLeftHUDLabelWidth: CGFloat = 140
     #if DEBUG
     private var battlefieldLayoutCount = 0
+    private var recentSoldierAttackAnimationCount = 0
+    private var recentSoldierHitAnimationCount = 0
     #endif
     private var buildingProgressSaveAccumulator: TimeInterval = 0
     private static let buildingProgressSaveInterval: TimeInterval = 2.0
@@ -746,9 +765,6 @@ final class BattleScene: SKScene {
             cancelCityFeedbackActions()
         }
 
-        let castleGatePoints = battlefieldLayout.castleGatePoints
-        let enemyGatePoints = battlefieldLayout.enemyGatePoints
-
         if !battlefieldLayout.isVisible {
             setBattlefieldHidden(true)
             removeLaneNodes()
@@ -1031,7 +1047,14 @@ final class BattleScene: SKScene {
             playSoldierAttackFeedback(for: soldierID)
         }
 
-        for soldierID in result.killedSoldierIDs {
+        let damagedSoldierIDs = Set(result.damagedSoldierIDs)
+        let killedSoldierIDs = Set(result.killedSoldierIDs)
+
+        for soldierID in result.damagedSoldierIDs {
+            playSoldierHitFeedback(for: soldierID, schedulesRemoval: killedSoldierIDs.contains(soldierID))
+        }
+
+        for soldierID in result.killedSoldierIDs where !damagedSoldierIDs.contains(soldierID) {
             removeSoldierNode(id: soldierID, animated: true)
         }
 
@@ -1213,6 +1236,7 @@ final class BattleScene: SKScene {
             body: body,
             hpBarBackground: hpBackground,
             hpBarFill: hpFill,
+            type: soldier.type,
             lane: soldier.lane
         )
     }
@@ -1221,7 +1245,8 @@ final class BattleScene: SKScene {
         let liveSoldiers = combat.soldiers.filter(\.isAlive)
         let liveIDs = Set(liveSoldiers.map(\.id))
 
-        for id in Array(soldierNodes.keys) where !liveIDs.contains(id) {
+        for id in Array(soldierNodes.keys)
+            where !liveIDs.contains(id) && !pendingAnimatedRemovalSoldierIDs.contains(id) {
             removeSoldierNode(id: id, animated: false)
         }
 
@@ -1238,6 +1263,7 @@ final class BattleScene: SKScene {
             bundle.root.setScale(1)
             fitBattleNode(bundle.body, targetHeight: max(28, min(42, size.height * 0.05)))
             layoutSoldierHPBar(bundle, soldier: soldier)
+            startSoldierWalkAnimation(for: soldier.id, type: soldier.type)
         }
     }
 
@@ -1273,6 +1299,7 @@ final class BattleScene: SKScene {
         for id in Array(soldierNodes.keys) {
             removeSoldierNode(id: id, animated: false)
         }
+        pendingAnimatedRemovalSoldierIDs.removeAll()
 
         updateLiveCombatStatusLabel()
     }
@@ -1281,6 +1308,7 @@ final class BattleScene: SKScene {
         guard let bundle = soldierNodes.removeValue(forKey: id) else {
             return
         }
+        pendingAnimatedRemovalSoldierIDs.remove(id)
 
         bundle.root.removeAllActions()
 
@@ -1300,7 +1328,11 @@ final class BattleScene: SKScene {
         let fallbackAssetName = BattleAssetName.normalSoldier
         let assetName = UIImage(named: preferredAssetName) != nil ? preferredAssetName : fallbackAssetName
 
-        if UIImage(named: assetName) != nil {
+        if let animatedTextureName = firstAvailableSoldierAnimationFrameName(for: type) {
+            let sprite = SKSpriteNode(imageNamed: animatedTextureName)
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            soldier = sprite
+        } else if UIImage(named: assetName) != nil {
             let sprite = SKSpriteNode(imageNamed: assetName)
             sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
             if assetName == fallbackAssetName {
@@ -1327,6 +1359,28 @@ final class BattleScene: SKScene {
         case .infantry, .cavalry, .mage, .siege:
             return BattleAssetName.normalSoldier
         }
+    }
+
+    private func soldierAnimationFrameNames(for type: SoldierType, action: SoldierAnimationAction) -> [String] {
+        (1...Self.soldierAnimationFrameCount).map {
+            "\(type.rawValue)-\(action.rawValue)-\(String(format: "%02d", $0))"
+        }
+    }
+
+    private func firstAvailableSoldierAnimationFrameName(for type: SoldierType) -> String? {
+        let frameNames = soldierAnimationFrameNames(for: type, action: .walk)
+        guard let firstFrameName = frameNames.first, UIImage(named: firstFrameName) != nil else {
+            return nil
+        }
+        return firstFrameName
+    }
+
+    private func soldierAnimationTextures(for type: SoldierType, action: SoldierAnimationAction) -> [SKTexture] {
+        let frameNames = soldierAnimationFrameNames(for: type, action: action)
+        guard frameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
+            return []
+        }
+        return frameNames.map { SKTexture(imageNamed: $0) }
     }
 
     private func soldierVisualColor(for type: SoldierType) -> SKColor {
@@ -1459,9 +1513,107 @@ final class BattleScene: SKScene {
             return
         }
 
+        playSoldierAnimation(.attack, for: soldierID, resumesWalk: true)
         let lunge = SKAction.moveBy(x: 0, y: 8, duration: 0.06)
         let back = SKAction.moveBy(x: 0, y: -8, duration: 0.08)
         bundle.root.run(SKAction.sequence([lunge, back]), withKey: "soldierAttackFeedback")
+    }
+
+    private func playSoldierHitFeedback(
+        for soldierID: BattleCombatState.SoldierID,
+        schedulesRemoval: Bool
+    ) {
+        guard soldierNodes[soldierID] != nil else {
+            return
+        }
+
+        playSoldierAnimation(.hit, for: soldierID, resumesWalk: !schedulesRemoval)
+        if schedulesRemoval {
+            scheduleSoldierRemovalAfterHitAnimation(for: soldierID)
+        }
+    }
+
+    private func startSoldierWalkAnimation(for soldierID: BattleCombatState.SoldierID, type: SoldierType) {
+        guard let bundle = soldierNodes[soldierID],
+              let sprite = bundle.body as? SKSpriteNode,
+              sprite.action(forKey: SoldierAnimationKey.walk) == nil,
+              sprite.action(forKey: SoldierAnimationKey.attack) == nil,
+              sprite.action(forKey: SoldierAnimationKey.hit) == nil else {
+            return
+        }
+
+        let textures = soldierAnimationTextures(for: type, action: .walk)
+        guard !textures.isEmpty else {
+            return
+        }
+
+        let animate = SKAction.animate(with: textures, timePerFrame: 0.08, resize: false, restore: false)
+        sprite.run(SKAction.repeatForever(animate), withKey: SoldierAnimationKey.walk)
+    }
+
+    private func playSoldierAnimation(
+        _ action: SoldierAnimationAction,
+        for soldierID: BattleCombatState.SoldierID,
+        resumesWalk: Bool
+    ) {
+        guard let bundle = soldierNodes[soldierID],
+              let sprite = bundle.body as? SKSpriteNode else {
+            return
+        }
+
+        let textures = soldierAnimationTextures(for: bundle.type, action: action)
+        guard !textures.isEmpty else {
+            return
+        }
+        let soldierType = bundle.type
+
+        #if DEBUG
+        switch action {
+        case .attack:
+            recentSoldierAttackAnimationCount += 1
+        case .hit:
+            recentSoldierHitAnimationCount += 1
+        case .walk:
+            break
+        }
+        #endif
+
+        let key: String
+        switch action {
+        case .walk:
+            key = SoldierAnimationKey.walk
+        case .attack:
+            key = SoldierAnimationKey.attack
+        case .hit:
+            key = SoldierAnimationKey.hit
+        }
+
+        sprite.removeAction(forKey: SoldierAnimationKey.walk)
+        sprite.removeAction(forKey: key)
+
+        let animate = SKAction.animate(with: textures, timePerFrame: 0.045, resize: false, restore: false)
+        let resumeWalk = SKAction.run { [weak self] in
+            guard resumesWalk, let self, self.combat.soldier(id: soldierID)?.isAlive == true else {
+                return
+            }
+            self.startSoldierWalkAnimation(for: soldierID, type: soldierType)
+        }
+        sprite.run(SKAction.sequence([animate, resumeWalk]), withKey: key)
+    }
+
+    private func scheduleSoldierRemovalAfterHitAnimation(for soldierID: BattleCombatState.SoldierID) {
+        guard let bundle = soldierNodes[soldierID] else {
+            return
+        }
+
+        pendingAnimatedRemovalSoldierIDs.insert(soldierID)
+        bundle.root.removeAction(forKey: SoldierAnimationKey.delayedRemoval)
+
+        let wait = SKAction.wait(forDuration: 0.32)
+        let remove = SKAction.run { [weak self] in
+            self?.removeSoldierNode(id: soldierID, animated: true)
+        }
+        bundle.root.run(SKAction.sequence([wait, remove]), withKey: SoldierAnimationKey.delayedRemoval)
     }
 
     private func cancelCityFeedbackActions() {
@@ -1908,6 +2060,22 @@ extension BattleScene {
         return bundle.body.name
     }
 
+    func firstLiveSoldierHasActionForTesting(_ key: String) -> Bool {
+        guard let bundle = soldierNodes.values.first else {
+            return false
+        }
+
+        return bundle.body.action(forKey: key) != nil || bundle.root.action(forKey: key) != nil
+    }
+
+    var recentSoldierAttackAnimationCountForTesting: Int {
+        recentSoldierAttackAnimationCount
+    }
+
+    var recentSoldierHitAnimationCountForTesting: Int {
+        recentSoldierHitAnimationCount
+    }
+
     func firstLiveSoldierVisualMatchesForTesting(_ type: SoldierType) -> Bool {
         guard
             let soldier = combat.soldiers.first(where: \.isAlive),
@@ -1996,6 +2164,13 @@ extension BattleScene {
 
     func selectManualSoldierTypeForTesting(_ type: SoldierType) {
         selectManualSoldierType(type)
+    }
+
+    func animationFrameNamesForTesting(soldierType: SoldierType, action: String) -> [String] {
+        guard let action = SoldierAnimationAction(rawValue: action) else {
+            return []
+        }
+        return soldierAnimationFrameNames(for: soldierType, action: action)
     }
 
     func openManualTypeMenuForTesting() {
