@@ -11,6 +11,28 @@ SOLDIERS = ("infantry", "archer", "cavalry", "mage", "siege")
 ACTIONS = ("walk", "attack", "hit")
 FRAME_COUNT = 10
 
+# Assets are always written under the repo root (the current working directory
+# when the script is invoked). Paths supplied via CLI are resolved and clamped
+# to this root so a faulty --assets-dir cannot escape the project tree.
+REPO_ROOT = Path.cwd().resolve()
+
+
+def resolve_within_repo(target: str) -> Path:
+    """Resolve ``target`` and ensure it stays inside the repo root.
+
+    Accepts absolute or relative paths, but the resolved location must be the
+    repo root itself or a descendant of it. Raises ``argparse.ArgumentTypeError``
+    so argparse surfaces the problem as a usage error.
+    """
+    resolved = Path(target).expanduser().resolve()
+    try:
+        resolved.relative_to(REPO_ROOT)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{target!r} resolves to {resolved}, which is outside the repo root {REPO_ROOT}"
+        )
+    return resolved
+
 
 def write_contents_json(imageset: Path, filename: str) -> None:
     payload = {
@@ -58,6 +80,7 @@ def centered_square_frame(frame: Image.Image, frame_size: int) -> Image.Image:
 
 def slice_strip(strip: Path, output: Path, soldier: str, action: str, frame_size: int) -> None:
     image = strip_chroma_key(Image.open(strip))
+    output_resolved = output.resolve()
 
     for index in range(FRAME_COUNT):
         left = round(image.width * index / FRAME_COUNT)
@@ -66,7 +89,10 @@ def slice_strip(strip: Path, output: Path, soldier: str, action: str, frame_size
         canvas = centered_square_frame(raw_frame, frame_size)
 
         asset_name = f"{soldier}-{action}-{index + 1:02d}"
-        imageset = output / f"{asset_name}.imageset"
+        imageset = output_resolved / f"{asset_name}.imageset"
+        # Validate the constructed path stays under the declared output root
+        # before touching the filesystem (defends against faulty CLI arguments).
+        imageset.relative_to(output_resolved)
         imageset.mkdir(parents=True, exist_ok=True)
 
         filename = f"{asset_name}.png"
@@ -76,13 +102,20 @@ def slice_strip(strip: Path, output: Path, soldier: str, action: str, frame_size
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--strips-dir", required=True)
+    # ``type=resolve_within_repo`` validates each user-supplied path during
+    # parsing so a faulty argument is rejected with a clean usage error before
+    # any filesystem access happens. The default for ``--assets-dir`` is
+    # resolved below because argparse does not run ``type`` on defaults.
+    parser.add_argument("--strips-dir", required=True, type=resolve_within_repo)
     parser.add_argument("--assets-dir", default="Pyxis/Assets.xcassets")
     parser.add_argument("--frame-size", type=int, default=512)
     args = parser.parse_args()
 
-    strips_dir = Path(args.strips_dir)
-    assets_dir = Path(args.assets_dir)
+    strips_dir = args.strips_dir
+    try:
+        assets_dir = resolve_within_repo(args.assets_dir)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
     for soldier in SOLDIERS:
         for action in ACTIONS:
