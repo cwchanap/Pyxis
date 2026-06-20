@@ -61,6 +61,31 @@ struct BattlefieldLayoutTests {
         #expect(abs(gap1 - gap2) < 0.01)
     }
 
+    @Test func lanesUseCompactCenterSpread() {
+        let layout = BattlefieldLayout.compute(constraints: makeConstraints())
+        let xs = BattleLane.allCases.map { layout.castleGatePoints[$0]!.x }
+        let leftGap = xs[1] - xs[0]
+        let rightGap = xs[2] - xs[1]
+
+        #expect(abs(leftGap - rightGap) < 0.01)
+        #expect(leftGap < layout.frame.width * 0.20)
+        #expect(rightGap < layout.frame.width * 0.20)
+    }
+
+    @Test func fallbackLanesUseCompactCenterSpread() {
+        let layout = BattlefieldLayout.compute(constraints: makeConstraints(
+            sceneWidth: 200,
+            sceneHeight: 100,
+            safeTopY: 80,
+            safeBottomY: 70
+        ))
+        let xs = BattleLane.allCases.map { layout.castleGatePoints[$0]!.x }
+
+        #expect(abs(xs[1] - 100) < 0.01)
+        #expect(xs[1] - xs[0] < 40)
+        #expect(xs[2] - xs[1] < 40)
+    }
+
     @Test func tinySceneFallsBackToInvisible() {
         // Very small scene with no room for battlefield.
         let layout = BattlefieldLayout.compute(constraints: makeConstraints(

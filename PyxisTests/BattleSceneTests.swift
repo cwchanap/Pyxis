@@ -86,6 +86,55 @@ struct BattleSceneTests {
         #expect(scene.firstLiveSoldierVisualMatchesForTesting(.cavalry))
     }
 
+    @Test func allSoldierTypesExposeTenAnimationFramesForEachAction() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        for soldierType in SoldierType.allCases {
+            for action in ["walk", "attack", "hit"] {
+                let names = scene.animationFrameNamesForTesting(soldierType: soldierType, action: action)
+                #expect(names.count == 10)
+                #expect(names.first == "\(soldierType.rawValue)-\(action)-01")
+                #expect(names.last == "\(soldierType.rawValue)-\(action)-10")
+            }
+        }
+    }
+
+    @Test func spawnedSoldierStartsWalkingAnimation() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+    }
+
+    @Test func cityDamageStartsAttackAnimation() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+    }
+
+    @Test func towerDamageStartsHitAnimation() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+    }
+
     @Test func manualSelectorChangesSpawnedSoldierType() throws {
         let state = stateWithBuildings(
             [.barracks, .archeryRange],

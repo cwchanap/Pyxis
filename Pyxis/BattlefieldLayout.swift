@@ -49,7 +49,6 @@ struct BattlefieldLayout: Equatable {
     /// for structures and lanes; otherwise returns a fallback layout with collapsed
     /// gate points.
     static func compute(constraints: Constraints) -> BattlefieldLayout {
-        let verticalPadding: CGFloat = 8
         let feedbackClearance = max(30, constraints.feedbackFontSize + 18)
         let safeTopY = constraints.safeTopY
         let safeBottomY = max(constraints.safeBottomY, constraints.feedbackY + feedbackClearance)
@@ -85,7 +84,7 @@ struct BattlefieldLayout: Equatable {
                 + max(10, (safeTopY - safeBottomY) * 0.25)
             var fallbackGates: [BattleLane: CGPoint] = [:]
             for lane in BattleLane.allCases {
-                let x = constraints.sceneSize.width * (0.25 + 0.25 * CGFloat(lane.rawValue))
+                let x = Self.laneCenterX(in: layoutFrame, lane: lane)
                 fallbackGates[lane] = CGPoint(x: x, y: fallbackY)
             }
             return BattlefieldLayout(
@@ -104,8 +103,7 @@ struct BattlefieldLayout: Equatable {
         var castleGates: [BattleLane: CGPoint] = [:]
         var enemyGates: [BattleLane: CGPoint] = [:]
         for lane in BattleLane.allCases {
-            let x = layoutFrame.minX
-                + layoutFrame.width * (0.25 + 0.25 * CGFloat(lane.rawValue))
+            let x = Self.laneCenterX(in: layoutFrame, lane: lane)
             castleGates[lane] = CGPoint(x: x, y: castleGateY)
             enemyGates[lane] = CGPoint(x: x, y: enemyGateY)
         }
@@ -141,6 +139,15 @@ struct BattlefieldLayout: Equatable {
     /// Compute the lane path width for a given scene width.
     static func lanePathWidth(for sceneWidth: CGFloat) -> CGFloat {
         max(14, min(26, sceneWidth * 0.05))
+    }
+
+    private static func laneCenterX(in frame: CGRect, lane: BattleLane) -> CGFloat {
+        let compactOffsets: [BattleLane: CGFloat] = [
+            .left: -0.12,
+            .center: 0,
+            .right: 0.12
+        ]
+        return frame.midX + frame.width * (compactOffsets[lane] ?? 0)
     }
 
     /// The target height for the enemy-city node (slightly taller than the castle).
