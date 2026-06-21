@@ -2086,7 +2086,8 @@ extension BattleScene {
     }
 
     var firstLiveSoldierHPBarFrameForTesting: CGRect? {
-        guard let bundle = soldierNodes.values.first else {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID] else {
             return nil
         }
 
@@ -2094,7 +2095,8 @@ extension BattleScene {
     }
 
     var firstLiveSoldierBodyFrameForTesting: CGRect? {
-        guard let bundle = soldierNodes.values.first else {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID] else {
             return nil
         }
 
@@ -2102,15 +2104,25 @@ extension BattleScene {
     }
 
     var firstLiveSoldierBodyNameForTesting: String? {
-        guard let bundle = soldierNodes.values.first else {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID] else {
             return nil
         }
 
         return bundle.body.name
     }
 
+    /// Deterministic resolution of "the first live soldier" for test accessors.
+    /// Uses the combat roster (stable ordering) instead of `soldierNodes.first`
+    /// (Dictionary, non-deterministic across hash seeds) so tests stay
+    /// reproducible as the suite grows beyond a single soldier.
+    private var firstLiveSoldierIDForTesting: BattleCombatState.SoldierID? {
+        combat.soldiers.first(where: \.isAlive)?.id
+    }
+
     func firstLiveSoldierHasActionForTesting(_ key: String) -> Bool {
-        guard let bundle = soldierNodes.values.first else {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID] else {
             return false
         }
 
@@ -2122,14 +2134,20 @@ extension BattleScene {
     /// key and invokes the same resume-walk path the `SKAction.run` closure
     /// would fire on the real render loop. Lets tests verify the spec's
     /// "resume walk after attack/hit" contract without driving SKAction time.
-    func completeFirstLiveSoldierTransientAnimationForTesting() {
-        guard let (soldierID, bundle) = soldierNodes.first,
+    ///
+    /// `isAllowed` mirrors the `resumesWalk` flag the production path passes
+    /// to `resumeWalkForSoldierIfNeeded` (`true` for attacks, `!schedulesRemoval`
+    /// for hits). It defaults to `true` for the positive-case tests and can be
+    /// set to `false` to exercise the guard's negative branch.
+    func completeFirstLiveSoldierTransientAnimationForTesting(isAllowed: Bool = true) {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID],
               let sprite = bundle.body as? SKSpriteNode else {
             return
         }
         sprite.removeAction(forKey: SoldierAnimationKey.attack)
         sprite.removeAction(forKey: SoldierAnimationKey.hit)
-        resumeWalkForSoldierIfNeeded(id: soldierID, type: bundle.type, isAllowed: true)
+        resumeWalkForSoldierIfNeeded(id: soldierID, type: bundle.type, isAllowed: isAllowed)
     }
 
     var recentSoldierAttackAnimationCountForTesting: Int {

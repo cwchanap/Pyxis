@@ -34,7 +34,7 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Sim
 - Modify: `Pyxis/BattlefieldLayout.swift`
 - Modify: `PyxisTests/BattlefieldLayoutTests.swift`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add tests proving lanes remain symmetric but use a compact spread:
 
@@ -64,7 +64,7 @@ Add tests proving lanes remain symmetric but use a compact spread:
 }
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run:
 ```bash
@@ -73,7 +73,7 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Sim
 
 Expected: the new compact-spread tests fail because current lanes are at 25%, 50%, and 75%.
 
-- [ ] **Step 3: Implement compact lane centers**
+- [x] **Step 3: Implement compact lane centers**
 
 Add a helper that returns `0.38`, `0.50`, and `0.62` across the active layout width:
 
@@ -90,7 +90,7 @@ private static func laneCenterX(in frame: CGRect, lane: BattleLane) -> CGFloat {
 
 Use this helper for both visible and fallback gate points.
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run the same `BattlefieldLayoutTests` command and confirm the suite passes.
 
@@ -100,11 +100,11 @@ Run the same `BattlefieldLayoutTests` command and confirm the suite passes.
 - Create: `tools/slice_soldier_animation_strips.py`
 - Create: `Pyxis/Assets.xcassets/<soldier>-<action>-<frame>.imageset/`
 
-- [ ] **Step 1: Generate source strips**
+- [x] **Step 1: Generate source strips**
 
 Use the built-in image generation tool to create 15 horizontal sprite strips: 5 soldier types × 3 actions. Each strip must contain 10 equal-width frames on a flat chroma-key background.
 
-- [ ] **Step 2: Add slicing script**
+- [x] **Step 2: Add slicing script**
 
 Create `tools/slice_soldier_animation_strips.py`. The canonical implementation is version-controlled at that path; key behaviors:
 
@@ -114,7 +114,7 @@ Create `tools/slice_soldier_animation_strips.py`. The canonical implementation i
 - Writes one `<soldier>-<action>-NN.imageset/` bundle per frame (PNG + `Contents.json`).
 - `--assets-dir` (output) is resolved and clamped to the repo root (`resolve_within_repo`) so a faulty argument can't write outside the project tree. `--strips-dir` (read-only input) is intentionally **not** clamped, so source strips may live outside the repo (e.g. `/tmp`).
 
-- [ ] **Step 3: Slice strips**
+- [x] **Step 3: Slice strips**
 
 Run:
 ```bash
@@ -123,7 +123,7 @@ python3 tools/slice_soldier_animation_strips.py --strips-dir /private/tmp/pyxis-
 
 Expected: 150 `.imageset` directories are created.
 
-- [ ] **Step 4: Inspect image dimensions**
+- [x] **Step 4: Inspect image dimensions**
 
 Run:
 ```bash
@@ -138,7 +138,7 @@ Expected: a 128×128 square PNG frame (soldiers render at ~28-42 pt, so 128 px i
 - Modify: `Pyxis/BattleScene.swift`
 - Modify: `PyxisTests/BattleSceneTests.swift`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add tests that verify frame names are generated for every soldier type and action:
 
@@ -157,7 +157,7 @@ Add tests that verify frame names are generated for every soldier type and actio
 }
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run:
 ```bash
@@ -166,7 +166,7 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Sim
 
 Expected: build fails because `animationFrameNamesForTesting` does not exist.
 
-- [ ] **Step 3: Implement frame naming**
+- [x] **Step 3: Implement frame naming**
 
 Add a private animation action enum and frame-name builder in `BattleScene`, plus a debug test accessor:
 
@@ -186,7 +186,7 @@ private func soldierAnimationFrameNames(for type: SoldierType, action: SoldierAn
 }
 ```
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run the same `BattleSceneTests` command and confirm the new frame naming test passes.
 
@@ -196,7 +196,7 @@ Run the same `BattleSceneTests` command and confirm the new frame naming test pa
 - Modify: `Pyxis/BattleScene.swift`
 - Modify: `PyxisTests/BattleSceneTests.swift`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add tests that spawn a soldier and verify walking animation starts, then advance combat enough to trigger attack or tower-hit feedback and verify action keys are installed:
 
@@ -225,7 +225,7 @@ Add tests that spawn a soldier and verify walking animation starts, then advance
 }
 ```
 
-- [ ] **Step 2: Verify red**
+- [x] **Step 2: Verify red**
 
 Run:
 ```bash
@@ -234,11 +234,11 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Sim
 
 Expected: build fails because the animation hooks do not exist.
 
-- [ ] **Step 3: Implement playback**
+- [x] **Step 3: Implement playback**
 
 In `createSoldierNode`, create sprite-backed bodies when animation frames exist. In `syncSoldierNodes`, start a repeat-forever walk animation under `soldierWalkAnimation`. In `applyCombatResult`, play attack and hit animations with keys `soldierAttackAnimation` and `soldierHitAnimation`.
 
-- [ ] **Step 4: Verify green**
+- [x] **Step 4: Verify green**
 
 Run the same `BattleSceneTests` command and confirm the suite passes.
 
@@ -247,21 +247,21 @@ Run the same `BattleSceneTests` command and confirm the suite passes.
 **Files:**
 - Modify as needed from prior tasks.
 
-- [ ] **Step 1: Run unit tests**
+- [x] **Step 1: Run unit tests**
 
 Run:
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 17' test -only-testing:PyxisTests
 ```
 
-- [ ] **Step 2: Run build if unit tests pass**
+- [x] **Step 2: Run build if unit tests pass**
 
 Run:
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
-- [ ] **Step 3: Inspect final diff**
+- [x] **Step 3: Inspect final diff**
 
 Run:
 ```bash
