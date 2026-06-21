@@ -1637,6 +1637,14 @@ final class BattleScene: SKScene {
     /// calling animation was allowed to resume walk. Extracted from
     /// `playSoldierAnimation` so the resume path is unit-testable without
     /// driving the SpriteKit render loop.
+    ///
+    /// The transient action key is still installed on the sprite when this runs
+    /// in production: the `SKAction.run` closure fires as the final step of the
+    /// `[animate, resumeWalk]` sequence, which SpriteKit removes only *after*
+    /// the closure returns. We therefore clear the transient keys here before
+    /// starting walk — otherwise `startSoldierWalkAnimation`'s guard would bail
+    /// and walk would never resume from the closure (it would only resume on
+    /// the next `syncSoldierNodes` tick).
     private func resumeWalkForSoldierIfNeeded(
         id: BattleCombatState.SoldierID,
         type: SoldierType,
@@ -1644,6 +1652,10 @@ final class BattleScene: SKScene {
     ) {
         guard isAllowed, combat.soldier(id: id)?.isAlive == true else {
             return
+        }
+        if let sprite = soldierNodes[id]?.body as? SKSpriteNode {
+            sprite.removeAction(forKey: SoldierAnimationKey.attack)
+            sprite.removeAction(forKey: SoldierAnimationKey.hit)
         }
         startSoldierWalkAnimation(for: id, type: type)
     }
@@ -2130,10 +2142,14 @@ extension BattleScene {
     }
 
     /// Simulates the SpriteKit render loop completing the first live soldier's
-    /// current transient (attack/hit) animation: removes the transient action
-    /// key and invokes the same resume-walk path the `SKAction.run` closure
-    /// would fire on the real render loop. Lets tests verify the spec's
-    /// "resume walk after attack/hit" contract without driving SKAction time.
+    /// current transient (attack/hit) animation by invoking the same
+    /// resume-walk path the `SKAction.run` closure fires on the real render
+    /// loop. Crucially, this does NOT pre-clear the transient action key — in
+    /// production the closure runs as the final step of the keyed sequence, so
+    /// the key is still installed when `resumeWalkForSoldierIfNeeded` enters.
+    /// `resumeWalkForSoldierIfNeeded` is responsible for clearing it. Lets tests
+    /// verify the spec's "resume walk after attack/hit" contract without
+    /// driving SKAction time, while exercising the real production ordering.
     ///
     /// `isAllowed` mirrors the `resumesWalk` flag the production path passes
     /// to `resumeWalkForSoldierIfNeeded` (`true` for attacks, `!schedulesRemoval`
@@ -2141,12 +2157,9 @@ extension BattleScene {
     /// set to `false` to exercise the guard's negative branch.
     func completeFirstLiveSoldierTransientAnimationForTesting(isAllowed: Bool = true) {
         guard let soldierID = firstLiveSoldierIDForTesting,
-              let bundle = soldierNodes[soldierID],
-              let sprite = bundle.body as? SKSpriteNode else {
+              let bundle = soldierNodes[soldierID] else {
             return
         }
-        sprite.removeAction(forKey: SoldierAnimationKey.attack)
-        sprite.removeAction(forKey: SoldierAnimationKey.hit)
         resumeWalkForSoldierIfNeeded(id: soldierID, type: bundle.type, isAllowed: isAllowed)
     }
 

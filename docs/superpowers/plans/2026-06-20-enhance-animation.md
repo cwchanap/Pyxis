@@ -110,7 +110,7 @@ Create `tools/slice_soldier_animation_strips.py`. The canonical implementation i
 
 - Slices each `<soldier>-<action>.png` strip into 10 frames (`FRAME_COUNT = 10`).
 - Chroma-keys the green background and applies a light edge despill (`strip_chroma_key`).
-- Center-bottom-aligns each frame on a square `--frame-size` canvas (default 512) via `centered_square_frame`.
+- Center-bottom-aligns each frame on a square `--frame-size` canvas (default 128) via `centered_square_frame`.
 - Writes one `<soldier>-<action>-NN.imageset/` bundle per frame (PNG + `Contents.json`).
 - `--assets-dir` (output) is resolved and clamped to the repo root (`resolve_within_repo`) so a faulty argument can't write outside the project tree. `--strips-dir` (read-only input) is intentionally **not** clamped, so source strips may live outside the repo (e.g. `/tmp`).
 
