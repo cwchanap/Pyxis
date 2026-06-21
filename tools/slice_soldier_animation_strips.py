@@ -102,16 +102,18 @@ def slice_strip(strip: Path, output: Path, soldier: str, action: str, frame_size
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    # ``type=resolve_within_repo`` validates each user-supplied path during
-    # parsing so a faulty argument is rejected with a clean usage error before
-    # any filesystem access happens. The default for ``--assets-dir`` is
-    # resolved below because argparse does not run ``type`` on defaults.
-    parser.add_argument("--strips-dir", required=True, type=resolve_within_repo)
+    # ``--assets-dir`` is the OUTPUT root and is resolved/clamped to the repo
+    # below so a faulty argument cannot write assets outside the project tree.
+    # ``--strips-dir`` is a read-only INPUT, so it is intentionally NOT clamped
+    # — source strips legitimately live outside the repo (e.g. /tmp). The
+    # default for ``--assets-dir`` is resolved below because argparse does not
+    # run ``type`` on defaults.
+    parser.add_argument("--strips-dir", required=True)
     parser.add_argument("--assets-dir", default="Pyxis/Assets.xcassets")
     parser.add_argument("--frame-size", type=int, default=512)
     args = parser.parse_args()
 
-    strips_dir = args.strips_dir
+    strips_dir = Path(args.strips_dir)
     try:
         assets_dir = resolve_within_repo(args.assets_dir)
     except argparse.ArgumentTypeError as exc:
