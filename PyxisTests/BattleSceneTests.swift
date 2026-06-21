@@ -143,6 +143,30 @@ struct BattleSceneTests {
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
     }
 
+    @Test("Walk does not resume when transient animation clears with resumesWalk=false (spec §Runtime animation)")
+    func walkDoesNotResumeWhenTransientAnimationClearsWithResumesWalkFalse() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        // A transient attack/hit animation must have replaced the walk loop.
+        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.liveSoldierCountForTesting == 1)
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+
+        // Mirror the production path for a fatal hit: the hit animation is
+        // scheduled with `resumesWalk: !schedulesRemoval` → `false` when the
+        // soldier is pending removal. The resume-walk guard must short-circuit
+        // and leave the walk action uninstalled.
+        scene.completeFirstLiveSoldierTransientAnimationForTesting(isAllowed: false)
+
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+    }
+
     @Test func towerDamageStartsHitAnimation() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(
