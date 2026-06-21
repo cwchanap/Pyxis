@@ -119,6 +119,30 @@ struct BattleSceneTests {
         #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
     }
 
+    @Test("Walk animation resumes after a transient attack/hit animation completes (spec §Runtime animation)")
+    func walkAnimationResumesAfterTransientAnimationCompletes() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        // An attack must have fired. The transient attack (or hit) animation
+        // replaces the looping walk action — syncSoldierNodes no-ops the walk
+        // restart while any transient action key is present.
+        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.liveSoldierCountForTesting == 1)
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+
+        // Simulate the render loop finishing the transient animation: the
+        // resume-walk closure fires and reinstalls the looping walk action.
+        scene.completeFirstLiveSoldierTransientAnimationForTesting()
+
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+    }
+
     @Test func towerDamageStartsHitAnimation() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(

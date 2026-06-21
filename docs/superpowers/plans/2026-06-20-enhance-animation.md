@@ -130,7 +130,7 @@ Run:
 sips -g pixelWidth -g pixelHeight Pyxis/Assets.xcassets/infantry-walk-01.imageset/infantry-walk-01.png
 ```
 
-Expected: a square PNG frame, not a whole strip.
+Expected: a 128×128 square PNG frame (soldiers render at ~28-42 pt, so 128 px is ample for 3× devices without oversampling). Not a whole strip, and not 512 px (which would waste ~150 MB of GPU memory across the full animation set).
 
 ## Task 3: BattleScene Animation Resolution
 
