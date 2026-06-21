@@ -105,6 +105,13 @@ final class BattleScene: SKScene {
     private var laneIndicatorNodes: [SKNode] = []
     private var pendingAnimatedRemovalSoldierIDs: Set<BattleCombatState.SoldierID> = []
 
+    /// Memoized per-(type, action) animation textures. Each call to
+    /// `soldierAnimationTextures` previously performed ~20 `UIImage(named:)`
+    /// lookups plus fresh `SKTexture` allocations; this cache returns the same
+    /// `SKTexture` instances across soldiers and across the scene's lifetime.
+    /// Textures are keyed by static asset names, so they never need invalidation.
+    private var soldierAnimationTextureCache: [SoldierType: [SoldierAnimationAction: [SKTexture]]] = [:]
+
     private var enemyCityImpactPoint: CGPoint {
         battlefieldLayout.enemyCityImpactPoint
     }
@@ -1047,16 +1054,16 @@ final class BattleScene: SKScene {
             playSoldierAttackFeedback(for: soldierID)
         }
 
-        let damagedSoldierIDs = Set(result.damagedSoldierIDs)
         let killedSoldierIDs = Set(result.killedSoldierIDs)
 
         for soldierID in result.damagedSoldierIDs {
             playSoldierHitFeedback(for: soldierID, schedulesRemoval: killedSoldierIDs.contains(soldierID))
         }
 
-        for soldierID in result.killedSoldierIDs where !damagedSoldierIDs.contains(soldierID) {
-            removeSoldierNode(id: soldierID, animated: true)
-        }
+        // Note: `killedSoldierIDs` is a structural subset of `damagedSoldierIDs`
+        // (BattleCombatState appends to both in the same tower-shot block), so
+        // every killed soldier is already routed through playSoldierHitFeedback
+        // above with schedulesRemoval=true. No separate killed-loop is needed.
 
         if !result.killedSoldierIDs.isEmpty {
             updateLiveCombatStatusLabel()
@@ -1376,11 +1383,24 @@ final class BattleScene: SKScene {
     }
 
     private func soldierAnimationTextures(for type: SoldierType, action: SoldierAnimationAction) -> [SKTexture] {
+        if let cached = soldierAnimationTextureCache[type]?[action] {
+            return cached
+        }
         let frameNames = soldierAnimationFrameNames(for: type, action: action)
         guard frameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
             return []
         }
-        return frameNames.map { SKTexture(imageNamed: $0) }
+        let textures = frameNames.map { SKTexture(imageNamed: $0) }
+        // Only cache complete (non-empty) texture sets; an incomplete set likely
+        // means an asset is missing at this call, which we want to re-resolve
+        // rather than pin the empty result for the scene's lifetime.
+        if !textures.isEmpty {
+            if soldierAnimationTextureCache[type] == nil {
+                soldierAnimationTextureCache[type] = [:]
+            }
+            soldierAnimationTextureCache[type]?[action] = textures
+        }
+        return textures
     }
 
     private func soldierVisualColor(for type: SoldierType) -> SKColor {
@@ -1529,7 +1549,7 @@ final class BattleScene: SKScene {
 
         playSoldierAnimation(.hit, for: soldierID, resumesWalk: !schedulesRemoval)
         if schedulesRemoval {
-            scheduleSoldierRemovalAfterHitAnimation(for: soldierID)
+            scheduleDelayedSoldierRemoval(for: soldierID)
         }
     }
 
@@ -1601,7 +1621,7 @@ final class BattleScene: SKScene {
         sprite.run(SKAction.sequence([animate, resumeWalk]), withKey: key)
     }
 
-    private func scheduleSoldierRemovalAfterHitAnimation(for soldierID: BattleCombatState.SoldierID) {
+    private func scheduleDelayedSoldierRemoval(for soldierID: BattleCombatState.SoldierID) {
         guard let bundle = soldierNodes[soldierID] else {
             return
         }
@@ -2171,6 +2191,27 @@ extension BattleScene {
             return []
         }
         return soldierAnimationFrameNames(for: soldierType, action: action)
+    }
+
+    /// Returns the (cached) `[SKTexture]` for `soldierType`/`action`. Exposed so
+    /// tests can verify the cache memoizes — repeated calls must return the same
+    /// `SKTexture` instances rather than re-allocating from `UIImage(named:)`.
+    func cachedSoldierAnimationTexturesForTesting(soldierType: SoldierType, action: String) -> [SKTexture] {
+        guard let action = SoldierAnimationAction(rawValue: action) else {
+            return []
+        }
+        return soldierAnimationTextures(for: soldierType, action: action)
+    }
+
+    /// Number of (type, action) entries currently held in the texture cache.
+    var soldierAnimationTextureCacheEntryCountForTesting: Int {
+        soldierAnimationTextureCache.values.reduce(0) { $0 + $1.count }
+    }
+
+    /// IDs of soldiers awaiting animated removal after a tower kill. Exposed so
+    /// tests can verify the death-flow scheduler fires for killed soldiers.
+    var pendingAnimatedRemovalSoldierIDsForTesting: Set<BattleCombatState.SoldierID> {
+        pendingAnimatedRemovalSoldierIDs
     }
 
     func openManualTypeMenuForTesting() {

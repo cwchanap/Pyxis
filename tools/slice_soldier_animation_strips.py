@@ -78,17 +78,67 @@ def centered_square_frame(frame: Image.Image, frame_size: int) -> Image.Image:
     return transparent
 
 
+def _opaque_pixel_count(image: Image.Image) -> int:
+    if image.mode != "RGBA":
+        image = image.convert("RGBA")
+    pixels = image.load()
+    return sum(1 for y in range(image.height) for x in range(image.width) if pixels[x, y][3] > 0)
+
+
+def _validate_content_density(
+    canvases: list[Image.Image],
+    soldier: str,
+    action: str,
+    threshold: float = 0.40,
+) -> None:
+    """Reject strips where any frame has dramatically less content than its siblings.
+
+    A frame whose opaque-pixel count is below ``threshold * median`` typically
+    indicates a source-art defect (missing drawing, or chroma-key eating the
+    character) — the kind of frame that compresses to a tiny PNG and visibly
+    flickers every animation cycle. Failing here is far cheaper than shipping
+    the artifact. A strip whose median is 0 (entirely empty) is a different
+    failure mode and is allowed through this check.
+    """
+    counts = [_opaque_pixel_count(c) for c in canvases]
+    sorted_counts = sorted(counts)
+    median = sorted_counts[len(sorted_counts) // 2]
+    if median == 0:
+        return
+    offenders = [
+        (index + 1, count)
+        for index, count in enumerate(counts)
+        if count < threshold * median
+    ]
+    if offenders:
+        rendered = ", ".join(
+            f"frame {n}={c}px ({100 * c / median:.0f}% of median)" for n, c in offenders
+        )
+        raise ValueError(
+            f"{soldier}-{action}: content density check failed ({rendered}; "
+            f"median={median}px, threshold={int(threshold * 100)}% of median). "
+            "Inspect the source strip — likely a missing drawing or chroma-key over-removal."
+        )
+
+
 def slice_strip(strip: Path, output: Path, soldier: str, action: str, frame_size: int) -> None:
     image = strip_chroma_key(Image.open(strip))
     output_resolved = output.resolve()
 
+    # Slice every frame first, then run the content-density guard before writing
+    # any files. This keeps a defective strip from leaving behind a partial
+    # asset tree that masks the original problem on re-runs.
+    canvases: list[Image.Image] = []
     for index in range(FRAME_COUNT):
         left = round(image.width * index / FRAME_COUNT)
         right = round(image.width * (index + 1) / FRAME_COUNT)
         raw_frame = image.crop((left, 0, right, image.height))
-        canvas = centered_square_frame(raw_frame, frame_size)
+        canvases.append(centered_square_frame(raw_frame, frame_size))
 
-        asset_name = f"{soldier}-{action}-{index + 1:02d}"
+    _validate_content_density(canvases, soldier=soldier, action=action)
+
+    for index, canvas in enumerate(canvases, start=1):
+        asset_name = f"{soldier}-{action}-{index:02d}"
         imageset = output_resolved / f"{asset_name}.imageset"
         # Validate the constructed path stays under the declared output root
         # before touching the filesystem (defends against faulty CLI arguments).

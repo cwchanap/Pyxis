@@ -135,6 +135,55 @@ struct BattleSceneTests {
         #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
     }
 
+    @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
+    func soldierAnimationTexturesAreCachedAndReusedAcrossCalls() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 0)
+
+        // First call resolves & caches the walk textures for infantry.
+        let first = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "walk")
+        #expect(first.count == 10)
+        #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
+
+        // Second call must return the *same* SKTexture instances (cache hit).
+        let second = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "walk")
+        #expect(second.count == first.count)
+        for (a, b) in zip(first, second) {
+            #expect(a === b)
+        }
+        // No duplicate cache entry was inserted.
+        #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
+
+        // A different action populates a new entry without disturbing the first.
+        _ = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "hit")
+        #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 2)
+    }
+
+    @Test("A tower-killed soldier is routed through the delayed-removal scheduler")
+    func towerKilledSoldierSchedulesDelayedRemoval() throws {
+        // City 9 with maxed-out city power so a tower shot is lethal. The combat
+        // seed is fixed so the tower targets the spawned soldier's lane.
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        // Killed soldiers must be in pendingAnimatedRemovalSoldierIDs — this is
+        // the regression for the removed dead branch (killed ⊆ damaged is a
+        // structural invariant, so the death flow rides entirely on the
+        // schedulesRemoval path inside playSoldierHitFeedback).
+        #expect(!scene.pendingAnimatedRemovalSoldierIDsForTesting.isEmpty)
+    }
+
     @Test func manualSelectorChangesSpawnedSoldierType() throws {
         let state = stateWithBuildings(
             [.barracks, .archeryRange],
