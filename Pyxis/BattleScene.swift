@@ -1608,17 +1608,40 @@ final class BattleScene: SKScene {
             key = SoldierAnimationKey.hit
         }
 
+        // Remove every transient soldier-animation key before installing the new
+        // one. A soldier can both land a city attack and be hit by a tower in the
+        // same tick; if we only removed `walk` + the current key, the other
+        // transient animate-action would keep running concurrently and the two
+        // SKAction.animate streams would fight over `sprite.texture` every frame.
         sprite.removeAction(forKey: SoldierAnimationKey.walk)
-        sprite.removeAction(forKey: key)
+        sprite.removeAction(forKey: SoldierAnimationKey.attack)
+        sprite.removeAction(forKey: SoldierAnimationKey.hit)
 
         let animate = SKAction.animate(with: textures, timePerFrame: 0.045, resize: false, restore: false)
         let resumeWalk = SKAction.run { [weak self] in
-            guard resumesWalk, let self, self.combat.soldier(id: soldierID)?.isAlive == true else {
-                return
-            }
-            self.startSoldierWalkAnimation(for: soldierID, type: soldierType)
+            self?.resumeWalkForSoldierIfNeeded(
+                id: soldierID,
+                type: soldierType,
+                isAllowed: resumesWalk
+            )
         }
         sprite.run(SKAction.sequence([animate, resumeWalk]), withKey: key)
+    }
+
+    /// Restarts the looping walk animation for a soldier after a transient
+    /// (attack/hit) animation finishes, iff the soldier is still alive and the
+    /// calling animation was allowed to resume walk. Extracted from
+    /// `playSoldierAnimation` so the resume path is unit-testable without
+    /// driving the SpriteKit render loop.
+    private func resumeWalkForSoldierIfNeeded(
+        id: BattleCombatState.SoldierID,
+        type: SoldierType,
+        isAllowed: Bool
+    ) {
+        guard isAllowed, combat.soldier(id: id)?.isAlive == true else {
+            return
+        }
+        startSoldierWalkAnimation(for: id, type: type)
     }
 
     private func scheduleDelayedSoldierRemoval(for soldierID: BattleCombatState.SoldierID) {
@@ -2086,6 +2109,21 @@ extension BattleScene {
         }
 
         return bundle.body.action(forKey: key) != nil || bundle.root.action(forKey: key) != nil
+    }
+
+    /// Simulates the SpriteKit render loop completing the first live soldier's
+    /// current transient (attack/hit) animation: removes the transient action
+    /// key and invokes the same resume-walk path the `SKAction.run` closure
+    /// would fire on the real render loop. Lets tests verify the spec's
+    /// "resume walk after attack/hit" contract without driving SKAction time.
+    func completeFirstLiveSoldierTransientAnimationForTesting() {
+        guard let (soldierID, bundle) = soldierNodes.first,
+              let sprite = bundle.body as? SKSpriteNode else {
+            return
+        }
+        sprite.removeAction(forKey: SoldierAnimationKey.attack)
+        sprite.removeAction(forKey: SoldierAnimationKey.hit)
+        resumeWalkForSoldierIfNeeded(id: soldierID, type: bundle.type, isAllowed: true)
     }
 
     var recentSoldierAttackAnimationCountForTesting: Int {

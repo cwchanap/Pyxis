@@ -160,7 +160,10 @@ def main() -> None:
     # run ``type`` on defaults.
     parser.add_argument("--strips-dir", required=True)
     parser.add_argument("--assets-dir", default="Pyxis/Assets.xcassets")
-    parser.add_argument("--frame-size", type=int, default=512)
+    # Soldiers render at ~28-42 pt on screen, so 128 px is ample for 3x
+    # devices without oversampling. 512 px wastes ~150 MB of GPU memory when
+    # all five soldier types' animation sets are cached. See CLAUDE.md.
+    parser.add_argument("--frame-size", type=int, default=128)
     args = parser.parse_args()
 
     strips_dir = Path(args.strips_dir)

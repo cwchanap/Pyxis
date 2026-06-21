@@ -92,3 +92,4 @@ Both `BattleScene` and `BuildingViewScene` observe these notifications (the buil
 - New gameplay features follow a TDD flow: add a Swift Testing test, watch it fail, implement, watch it pass.
 - Implementation plans live in `docs/plans/` and (newer) `docs/superpowers/plans/`; design specs in `docs/superpowers/specs/`. Each feature typically has a paired spec + plan dated by filename.
 - `AGENTS.md` is a symlink to `CLAUDE.md` — edit `CLAUDE.md` only.
+- Soldier animation frames are generated at **128×128 px** (`tools/slice_soldier_animation_strips.py --frame-size 128`, the script default). Soldiers render at ~28-42 pt on the battlefield, so 128 px covers 3× devices without oversampling; 512 px would waste ~150 MB of GPU memory once all five soldier types' walk/attack/hit sets are cached. When adding new sprite-animated actors, pick the smallest square frame size that still looks crisp at their on-screen render height.
