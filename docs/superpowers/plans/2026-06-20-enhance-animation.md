@@ -106,70 +106,13 @@ Use the built-in image generation tool to create 15 horizontal sprite strips: 5 
 
 - [ ] **Step 2: Add slicing script**
 
-Create `tools/slice_soldier_animation_strips.py` that:
+Create `tools/slice_soldier_animation_strips.py`. The canonical implementation is version-controlled at that path; key behaviors:
 
-```python
-#!/usr/bin/env python3
-from __future__ import annotations
-
-import argparse
-import json
-from pathlib import Path
-from PIL import Image
-
-SOLDIERS = ("infantry", "archer", "cavalry", "mage", "siege")
-ACTIONS = ("walk", "attack", "hit")
-FRAME_COUNT = 10
-
-def write_contents_json(imageset: Path, filename: str) -> None:
-    payload = {
-        "images": [
-            {"idiom": "universal", "filename": filename, "scale": "1x"},
-            {"idiom": "universal", "scale": "2x"},
-            {"idiom": "universal", "scale": "3x"},
-        ],
-        "info": {"author": "xcode", "version": 1},
-    }
-    imageset.joinpath("Contents.json").write_text(json.dumps(payload, indent=2) + "\n")
-
-def slice_strip(strip: Path, output: Path, soldier: str, action: str) -> None:
-    image = Image.open(strip).convert("RGBA")
-    frame_width = image.width // FRAME_COUNT
-    frame_size = min(frame_width, image.height)
-    for index in range(FRAME_COUNT):
-        left = index * frame_width
-        frame = image.crop((left, 0, left + frame_width, image.height))
-        canvas = Image.new("RGBA", (frame_size, frame_size), (0, 0, 0, 0))
-        frame.thumbnail((frame_size, frame_size), Image.Resampling.LANCZOS)
-        canvas.alpha_composite(
-            frame,
-            ((frame_size - frame.width) // 2, (frame_size - frame.height) // 2),
-        )
-        asset_name = f"{soldier}-{action}-{index + 1:02d}"
-        imageset = output / f"{asset_name}.imageset"
-        imageset.mkdir(parents=True, exist_ok=True)
-        filename = f"{asset_name}.png"
-        canvas.save(imageset / filename)
-        write_contents_json(imageset, filename)
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--strips-dir", required=True)
-    parser.add_argument("--assets-dir", default="Pyxis/Assets.xcassets")
-    args = parser.parse_args()
-
-    strips_dir = Path(args.strips_dir)
-    assets_dir = Path(args.assets_dir)
-    for soldier in SOLDIERS:
-        for action in ACTIONS:
-            strip = strips_dir / f"{soldier}-{action}.png"
-            if not strip.exists():
-                raise FileNotFoundError(strip)
-            slice_strip(strip, assets_dir, soldier, action)
-
-if __name__ == "__main__":
-    main()
-```
+- Slices each `<soldier>-<action>.png` strip into 10 frames (`FRAME_COUNT = 10`).
+- Chroma-keys the green background and applies a light edge despill (`strip_chroma_key`).
+- Center-bottom-aligns each frame on a square `--frame-size` canvas (default 512) via `centered_square_frame`.
+- Writes one `<soldier>-<action>-NN.imageset/` bundle per frame (PNG + `Contents.json`).
+- `--assets-dir` (output) is resolved and clamped to the repo root (`resolve_within_repo`) so a faulty argument can't write outside the project tree. `--strips-dir` (read-only input) is intentionally **not** clamped, so source strips may live outside the repo (e.g. `/tmp`).
 
 - [ ] **Step 3: Slice strips**
 
