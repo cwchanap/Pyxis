@@ -1318,6 +1318,10 @@ final class BattleScene: SKScene {
         pendingAnimatedRemovalSoldierIDs.remove(id)
 
         bundle.root.removeAllActions()
+        // Body actions (walk/attack/hit) live on `bundle.body`, not `root`.
+        // Stop them too so a killed soldier doesn't keep animating its body
+        // during the fade-out.
+        bundle.body.removeAllActions()
 
         if animated {
             let fade = SKAction.fadeOut(withDuration: 0.18)
@@ -1652,7 +1656,9 @@ final class BattleScene: SKScene {
         pendingAnimatedRemovalSoldierIDs.insert(soldierID)
         bundle.root.removeAction(forKey: SoldierAnimationKey.delayedRemoval)
 
-        let wait = SKAction.wait(forDuration: 0.32)
+        // Match the hit animation duration (10 frames × 0.045s = 0.45s) so
+        // killed soldiers play the full hit cycle before fading out.
+        let wait = SKAction.wait(forDuration: 0.45)
         let remove = SKAction.run { [weak self] in
             self?.removeSoldierNode(id: soldierID, animated: true)
         }

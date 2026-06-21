@@ -56,7 +56,7 @@ struct BattleSceneTests {
         #expect(store.load().cityRemainingPower == 20)
     }
 
-    @Test func infantrySoldierVisualMatchesFallbackAssetColor() throws {
+    @Test func infantrySoldierVisualMatchesAssetName() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
