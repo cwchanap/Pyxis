@@ -41,6 +41,24 @@ final class CountryMapScene: SKScene {
         static let unlockedPulse = "countryMapUnlockedPulse"
     }
 
+    private static let authoredCityPadAnchors = [
+        CGPoint(x: 0.4000, y: 0.1696),
+        CGPoint(x: 0.7528, y: 0.2020),
+        CGPoint(x: 0.6846, y: 0.2874),
+        CGPoint(x: 0.6904, y: 0.3721),
+        CGPoint(x: 0.2776, y: 0.2517),
+        CGPoint(x: 0.3518, y: 0.3386),
+        CGPoint(x: 0.4171, y: 0.4171),
+        CGPoint(x: 0.7078, y: 0.4598),
+        CGPoint(x: 0.7200, y: 0.6160),
+        CGPoint(x: 0.5894, y: 0.6473),
+        CGPoint(x: 0.3468, y: 0.5793),
+        CGPoint(x: 0.4225, y: 0.6725),
+        CGPoint(x: 0.3452, y: 0.7280),
+        CGPoint(x: 0.4865, y: 0.7651),
+        CGPoint(x: 0.6807, y: 0.7931)
+    ]
+
     private let store: KingdomGameStore
     private weak var router: CountryMapSceneRouting?
     private var state: KingdomGameState
@@ -280,15 +298,12 @@ final class CountryMapScene: SKScene {
         )
 
         if let backdropNode {
-            backdropNode.position = CGPoint(x: illustratedRegionFrame.midX, y: illustratedRegionFrame.midY)
-            let scale = min(
-                illustratedRegionFrame.width / max(1, backdropNode.size.width),
-                illustratedRegionFrame.height / max(1, backdropNode.size.height)
-            )
-            backdropNode.setScale(scale)
+            layoutBackdrop(backdropNode)
         }
 
-        let positions = cityPositions(in: illustratedRegionFrame, nodeRadius: nodeRadius)
+        let backdropFrame = backdropNode?.calculateAccumulatedFrame() ?? illustratedRegionFrame
+        let cityPositionFrame = isCompactHeight ? illustratedRegionFrame : backdropFrame
+        let positions = cityPositions(in: cityPositionFrame)
         drawRoutes(positions: positions)
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
@@ -311,6 +326,17 @@ final class CountryMapScene: SKScene {
         }
 
         redraw()
+    }
+
+    private func layoutBackdrop(_ backdropNode: SKSpriteNode) {
+        backdropNode.setScale(1)
+        backdropNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+
+        let scale = max(
+            size.width / max(1, backdropNode.size.width),
+            size.height / max(1, backdropNode.size.height)
+        )
+        backdropNode.setScale(scale)
     }
 
     private func frame(centeredAt center: CGPoint, size: CGSize) -> CGRect {
@@ -337,33 +363,13 @@ final class CountryMapScene: SKScene {
         }
     }
 
-    private func cityPositions(in regionFrame: CGRect, nodeRadius: CGFloat) -> [Int: CGPoint] {
-        let insetX = max(nodeRadius + 4, regionFrame.width * 0.08)
-        let insetY = max(nodeRadius + 4, regionFrame.height * 0.05)
-        let drawable = regionFrame.insetBy(dx: insetX, dy: insetY)
-        let normalizedCoordinates = [
-            CGPoint(x: 0.17, y: 0.07),
-            CGPoint(x: 0.36, y: 0.14),
-            CGPoint(x: 0.61, y: 0.10),
-            CGPoint(x: 0.78, y: 0.21),
-            CGPoint(x: 0.58, y: 0.29),
-            CGPoint(x: 0.30, y: 0.27),
-            CGPoint(x: 0.16, y: 0.40),
-            CGPoint(x: 0.39, y: 0.47),
-            CGPoint(x: 0.66, y: 0.42),
-            CGPoint(x: 0.82, y: 0.55),
-            CGPoint(x: 0.60, y: 0.62),
-            CGPoint(x: 0.33, y: 0.59),
-            CGPoint(x: 0.19, y: 0.73),
-            CGPoint(x: 0.47, y: 0.80),
-            CGPoint(x: 0.76, y: 0.90)
-        ]
+    private func cityPositions(in mapFrame: CGRect) -> [Int: CGPoint] {
         var positions: [Int: CGPoint] = [:]
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
-            let normalized = normalizedCoordinates[cityNumber - 1]
+            let normalized = Self.authoredCityPadAnchors[cityNumber - 1]
             positions[cityNumber] = CGPoint(
-                x: drawable.minX + normalized.x * drawable.width,
-                y: drawable.minY + normalized.y * drawable.height
+                x: mapFrame.minX + normalized.x * mapFrame.width,
+                y: mapFrame.minY + normalized.y * mapFrame.height
             )
         }
 

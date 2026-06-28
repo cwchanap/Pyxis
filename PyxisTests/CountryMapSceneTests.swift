@@ -217,7 +217,7 @@ struct CountryMapSceneTests {
 
     @Test func cityButtonHidesAfterIdleConquestViaEnterCity() throws {
         let start = Date.distantPast
-        var initialState = KingdomGameState(
+        let initialState = KingdomGameState(
             cityRemainingPower: 0,
             cityNumberInCountry: 2,
             completedCityCount: 2,
@@ -354,7 +354,7 @@ struct CountryMapSceneTests {
         }
     }
 
-    @Test func illustratedMapLayoutKeepsTitleFeedbackAndAllCitiesVisible() throws {
+    @Test func fullBackdropMapLayoutKeepsTitleFeedbackAndAllCitiesVisible() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -375,7 +375,71 @@ struct CountryMapSceneTests {
             let cityNode = try #require(scene.childNode(withName: "//countryMapCity-\(cityNumber)"))
             let frame = cityNode.calculateAccumulatedFrame()
 
-            #expect(frames.illustratedRegionFrame.contains(frame))
+            #expect(frames.sceneFrame.contains(frame))
+            #expect(!frames.titlePanelFrame.intersects(frame))
+            #expect(!frames.feedbackPanelFrame.intersects(frame))
+        }
+    }
+
+    @Test func countryMapBackdropCoversFullSceneBehindHUD() throws {
+        let size = CGSize(width: 390, height: 844)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = scene.mapLayoutFramesForTesting
+        let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
+        let backdropFrame = backdrop.calculateAccumulatedFrame()
+
+        #expect(backdropFrame.minX <= 0)
+        #expect(backdropFrame.maxX >= size.width)
+        #expect(backdropFrame.minY <= 0)
+        #expect(backdropFrame.maxY >= size.height)
+        #expect(backdropFrame.contains(frames.titlePanelFrame))
+        #expect(backdropFrame.contains(frames.feedbackPanelFrame))
+    }
+
+    @Test func cityNodesAlignToAuthoredBackdropPads() throws {
+        let size = CGSize(width: 390, height: 844)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
+        let backdropFrame = backdrop.calculateAccumulatedFrame()
+        let authoredPadAnchors = [
+            1: CGPoint(x: 0.4000, y: 0.1696),
+            2: CGPoint(x: 0.7528, y: 0.2020),
+            3: CGPoint(x: 0.6846, y: 0.2874),
+            4: CGPoint(x: 0.6904, y: 0.3721),
+            5: CGPoint(x: 0.2776, y: 0.2517),
+            6: CGPoint(x: 0.3518, y: 0.3386),
+            7: CGPoint(x: 0.4171, y: 0.4171),
+            8: CGPoint(x: 0.7078, y: 0.4598),
+            9: CGPoint(x: 0.7200, y: 0.6160),
+            10: CGPoint(x: 0.5894, y: 0.6473),
+            11: CGPoint(x: 0.3468, y: 0.5793),
+            12: CGPoint(x: 0.4225, y: 0.6725),
+            13: CGPoint(x: 0.3452, y: 0.7280),
+            14: CGPoint(x: 0.4865, y: 0.7651),
+            15: CGPoint(x: 0.6807, y: 0.7931)
+        ]
+
+        for (cityNumber, anchor) in authoredPadAnchors {
+            let cityPosition = try #require(scene.cityNodePositionForTesting(cityNumber))
+            let expectedPosition = CGPoint(
+                x: backdropFrame.minX + backdropFrame.width * anchor.x,
+                y: backdropFrame.minY + backdropFrame.height * anchor.y
+            )
+
+            #expect(abs(cityPosition.x - expectedPosition.x) <= 1.0)
+            #expect(abs(cityPosition.y - expectedPosition.y) <= 1.0)
         }
     }
 

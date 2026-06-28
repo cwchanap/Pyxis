@@ -44,6 +44,11 @@ final class BattleScene: SKScene {
         static let soldierAttackCue = "soldierAttackCue"
     }
 
+    private enum BattlefieldNodeName {
+        static let cityHPBarBackground = "cityHPBarBackground"
+        static let cityHPBarFill = "cityHPBarFill"
+    }
+
     private enum EffectStyle {
         static let floatingFeedbackFontSize: CGFloat = 16
         static let floatingFeedbackZ: CGFloat = 55
@@ -133,7 +138,8 @@ final class BattleScene: SKScene {
     private let leftHUDPanel = PanelNode(size: CGSize(width: 160, height: 78))
     private let rightHUDPanel = PanelNode(size: CGSize(width: 190, height: 86))
     private let feedbackPanel = PanelNode(size: CGSize(width: 260, height: 34))
-    private let cityHPBarNode = ProgressBarNode(size: CGSize(width: 160, height: 12))
+    private let cityHPBarBackground = SKShapeNode()
+    private let cityHPBarFill = SKShapeNode()
     private let goldStatusIcon = SKSpriteNode(imageNamed: BattleAssetName.goldBurst)
     private let soldierStatusIcon = SKSpriteNode()
     private let cityStatusIcon = SKSpriteNode(imageNamed: BattleAssetName.enemyCity)
@@ -338,14 +344,13 @@ final class BattleScene: SKScene {
 
         buildBattlefield()
 
-        [leftHUDPanel, rightHUDPanel, cityHPBarNode].forEach { $0.zPosition = GameUITheme.Z.hud }
+        [leftHUDPanel, rightHUDPanel].forEach { $0.zPosition = GameUITheme.Z.hud }
         feedbackPanel.zPosition = GameUITheme.Z.hud - 1
         leftHUDPanel.name = ButtonName.goldInfo
         rightHUDPanel.name = ButtonName.cityInfo
         addChild(leftHUDPanel)
         addChild(rightHUDPanel)
         addChild(feedbackPanel)
-        addChild(cityHPBarNode)
 
         configureHUDIcon(goldStatusIcon, name: ButtonName.goldInfo)
         configureHUDIcon(soldierStatusIcon, name: ButtonName.goldInfo)
@@ -362,7 +367,7 @@ final class BattleScene: SKScene {
         configureLabel(cityLevelLabel, fontSize: 18, color: GameUITheme.Color.textPrimary)
         configureLabel(defenseTraitLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
         configureLabel(cityHPLabel, fontSize: 14, color: GameUITheme.Color.textPrimary)
-        configureLabel(liveCombatStatusLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
+        configureLabel(liveCombatStatusLabel, fontSize: 18, color: GameUITheme.Color.textPrimary)
         configureLabel(feedbackLabel, fontSize: 15, color: GameUITheme.Color.gold)
 
         configureButton(
@@ -504,8 +509,9 @@ final class BattleScene: SKScene {
     }
 
     private func applyPersistentHUDTextVisibility() {
-        [goldLabel, cityLevelLabel, cityHPLabel, liveCombatStatusLabel, manualTypeButtonLabel, spawnButtonLabel]
+        [goldLabel, cityLevelLabel, liveCombatStatusLabel, manualTypeButtonLabel, spawnButtonLabel]
             .forEach { $0.alpha = 1 }
+        cityHPLabel.alpha = 0
         [defenseTraitLabel, worldButtonLabel, buildButtonLabel].forEach { $0.alpha = 0 }
 
         for bundle in manualTypeButtonBundles.values {
@@ -573,12 +579,13 @@ final class BattleScene: SKScene {
         liveCombatStatusLabel.horizontalAlignmentMode = .left
         cityLevelLabel.horizontalAlignmentMode = .left
         cityHPLabel.horizontalAlignmentMode = .left
+        let resourceValueX = leftHUDCenterX - metrics.leftHUDWidth * 0.10
         goldLabel.position = CGPoint(
-            x: leftHUDCenterX - metrics.leftHUDWidth * 0.22,
+            x: resourceValueX,
             y: hudCenterY + metrics.hudHeight * 0.20
         )
         liveCombatStatusLabel.position = CGPoint(
-            x: leftHUDCenterX - metrics.leftHUDWidth * 0.22,
+            x: resourceValueX,
             y: hudCenterY - metrics.hudHeight * 0.20
         )
 
@@ -591,17 +598,14 @@ final class BattleScene: SKScene {
             x: rightHUDCenterX - metrics.rightHUDWidth * 0.24,
             y: hudCenterY - metrics.hudHeight * 0.18
         )
-        cityHPBarNode.position = CGPoint(x: rightHUDCenterX, y: hudCenterY - metrics.hudHeight * 0.34)
-        cityHPBarNode.update(size: CGSize(width: metrics.rightHUDWidth - 26, height: metrics.compactHeight ? 10 : 12))
-        let hpPercent = CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower))
-        cityHPBarNode.update(progress: hpPercent)
 
         let buttonY = metrics.bottomMargin + metrics.buttonHeight / 2
+        let primaryActionLeftX = metrics.horizontalMargin
         layoutButton(
             spawnButton,
             background: spawnButtonBackground,
             size: CGSize(width: metrics.spawnButtonWidth, height: metrics.buttonHeight),
-            position: CGPoint(x: metrics.horizontalMargin + metrics.spawnButtonWidth / 2, y: buttonY)
+            position: CGPoint(x: primaryActionLeftX + metrics.spawnButtonWidth / 2, y: buttonY)
         )
         layoutIcon(
             spawnButtonIcon,
@@ -610,11 +614,11 @@ final class BattleScene: SKScene {
         spawnButtonIcon.position = CGPoint(x: -metrics.spawnButtonWidth * 0.24, y: 0)
         spawnButtonLabel.position = CGPoint(x: metrics.spawnButtonWidth * 0.12, y: 0)
         let manualTypeButtonSize = CGSize(
-            width: min(metrics.spawnButtonWidth, metrics.compactHeight ? 112 : 128),
+            width: min(metrics.spawnButtonWidth, 112),
             height: metrics.compactHeight ? 28 : 30
         )
         let manualTypeButtonPosition = CGPoint(
-            x: spawnButton.position.x,
+            x: primaryActionLeftX + manualTypeButtonSize.width / 2,
             y: buttonY + metrics.buttonHeight / 2 + 4 + manualTypeButtonSize.height / 2
         )
         layoutButton(
@@ -690,11 +694,11 @@ final class BattleScene: SKScene {
         )
 
         currentLeftHUDLabelWidth = metrics.leftHUDLabelWidth
-        fitLabel(goldLabel, maxWidth: metrics.leftHUDLabelWidth - 40)
+        fitLabel(goldLabel, maxWidth: metrics.leftHUDWidth * 0.58)
         fitLabel(cityLevelLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
         fitLabel(defenseTraitLabel, maxWidth: metrics.rightHUDLabelWidth)
         fitLabel(cityHPLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
-        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDLabelWidth - 40)
+        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDWidth * 0.58)
         fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
         fitLabel(manualTypeButtonLabel, maxWidth: manualTypeButtonSize.width - 18)
         for bundle in manualTypeButtonBundles.values {
@@ -717,7 +721,7 @@ final class BattleScene: SKScene {
         cityLevelLabel.fontSize = 18
         defenseTraitLabel.fontSize = 13
         cityHPLabel.fontSize = 14
-        liveCombatStatusLabel.fontSize = 13
+        liveCombatStatusLabel.fontSize = 18
         feedbackLabel.fontSize = 15
         manualTypeButtonLabel.fontSize = 13
         for bundle in manualTypeButtonBundles.values {
@@ -781,7 +785,7 @@ final class BattleScene: SKScene {
         let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap)
         let buildButtonWidth = min(buttonHeight * 1.05, availableButtonWidth * 0.24)
         let worldButtonWidth = buildButtonWidth
-        let spawnButtonWidth = max(0, min(220, availableButtonWidth - buildButtonWidth))
+        let spawnButtonWidth = max(0, min(156, availableButtonWidth - buildButtonWidth))
         let contentWidth = min(max(0, size.width - horizontalMargin * 2), 560)
         let battlefieldWidth = max(0, size.width)
 
@@ -815,13 +819,16 @@ final class BattleScene: SKScene {
     }
 
     private func layoutStatusIcons(_ metrics: LayoutMetrics) {
-        let iconSize = metrics.compactHeight ? CGSize(width: 28, height: 28) : CGSize(width: 36, height: 36)
-        layoutIcon(goldStatusIcon, maximumSize: iconSize)
-        layoutIcon(soldierStatusIcon, maximumSize: iconSize)
-        layoutIcon(cityStatusIcon, maximumSize: iconSize)
+        let resourceIconSize = metrics.compactHeight
+            ? CGSize(width: 30, height: 30)
+            : CGSize(width: 36, height: 36)
+        let cityIconSize = metrics.compactHeight ? CGSize(width: 28, height: 28) : CGSize(width: 36, height: 36)
+        layoutIcon(goldStatusIcon, maximumSize: resourceIconSize)
+        layoutIcon(soldierStatusIcon, maximumSize: resourceIconSize)
+        layoutIcon(cityStatusIcon, maximumSize: cityIconSize)
 
-        goldStatusIcon.position = CGPoint(x: -metrics.leftHUDWidth * 0.40, y: metrics.hudHeight * 0.20)
-        soldierStatusIcon.position = CGPoint(x: -metrics.leftHUDWidth * 0.40, y: -metrics.hudHeight * 0.20)
+        goldStatusIcon.position = CGPoint(x: -metrics.leftHUDWidth * 0.36, y: metrics.hudHeight * 0.20)
+        soldierStatusIcon.position = CGPoint(x: -metrics.leftHUDWidth * 0.36, y: -metrics.hudHeight * 0.20)
         cityStatusIcon.position = CGPoint(x: -metrics.rightHUDWidth * 0.42, y: metrics.hudHeight * 0.12)
 
         let traitScale = (metrics.compactHeight ? 0.78 : 0.92)
@@ -946,6 +953,22 @@ final class BattleScene: SKScene {
         enemyCityNode = cityNode
         environmentLayer.addChild(castleNode)
         environmentLayer.addChild(cityNode)
+        configureCityHPBar()
+        environmentLayer.addChild(cityHPBarBackground)
+        environmentLayer.addChild(cityHPBarFill)
+    }
+
+    private func configureCityHPBar() {
+        cityHPBarBackground.name = BattlefieldNodeName.cityHPBarBackground
+        cityHPBarBackground.fillColor = SKColor(white: 0.05, alpha: 0.9)
+        cityHPBarBackground.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        cityHPBarBackground.lineWidth = 1
+        cityHPBarBackground.zPosition = 4
+
+        cityHPBarFill.name = BattlefieldNodeName.cityHPBarFill
+        cityHPBarFill.fillColor = SKColor(red: 0.25, green: 0.9, blue: 0.38, alpha: 1.0)
+        cityHPBarFill.strokeColor = .clear
+        cityHPBarFill.zPosition = 5
     }
 
     private func makeBattleSprite(named assetName: String, fallbackColor: SKColor) -> SKNode {
@@ -1013,16 +1036,67 @@ final class BattleScene: SKScene {
 
         let centerX = size.width / 2
         playerCastleNode?.position = CGPoint(x: centerX, y: battlefieldLayout.frame.minY)
-        // The city sprite uses a bottom anchor; offset by its height so the body
-        // sits inside the top of the frame instead of extending past it into the HUD.
+        // The city sprite uses a bottom anchor; the layout's enemy gate is the
+        // city base after reserving room for the HP bar above the body.
         enemyCityNode?.position = CGPoint(
             x: centerX,
-            y: battlefieldLayout.frame.maxY - battlefieldLayout.enemyCityTargetHeight
+            y: battlefieldLayout.enemyGatePoints[.center]?.y ?? (
+                battlefieldLayout.frame.maxY
+                    - BattlefieldLayout.enemyCityHPBarClearance
+                    - battlefieldLayout.enemyCityTargetHeight
+            )
         )
 
+        layoutCityHPBar()
         drawLanePaths()
         layoutLaneIndicators()
         syncSoldierNodes()
+    }
+
+    private func layoutCityHPBar() {
+        guard battlefieldLayout.isVisible, let enemyCityNode else {
+            cityHPBarBackground.path = nil
+            cityHPBarFill.path = nil
+            return
+        }
+
+        let cityFrame = enemyCityNode.calculateAccumulatedFrame()
+        guard cityFrame.width > 0, cityFrame.height > 0 else {
+            cityHPBarBackground.path = nil
+            cityHPBarFill.path = nil
+            return
+        }
+
+        let width = max(96, min(180, cityFrame.width * 0.72))
+        let height: CGFloat = 7
+        let topLimitY = battlefieldLayout.frame.maxY - height - 2
+        let y = min(topLimitY, cityFrame.maxY + 4)
+        let percent = min(max(CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower)), 0), 1)
+        let backgroundRect = CGRect(
+            x: cityFrame.midX - width / 2,
+            y: y,
+            width: width,
+            height: height
+        )
+        let fillRect = CGRect(
+            x: backgroundRect.minX,
+            y: backgroundRect.minY,
+            width: max(1, backgroundRect.width * percent),
+            height: backgroundRect.height
+        )
+
+        cityHPBarBackground.path = CGPath(
+            roundedRect: backgroundRect,
+            cornerWidth: height / 2,
+            cornerHeight: height / 2,
+            transform: nil
+        )
+        cityHPBarFill.path = CGPath(
+            roundedRect: fillRect,
+            cornerWidth: height / 2,
+            cornerHeight: height / 2,
+            transform: nil
+        )
     }
 
     private func fitBattleNode(_ node: SKNode, targetHeight: CGFloat) {
@@ -1238,12 +1312,11 @@ final class BattleScene: SKScene {
         reconcileSelectedManualSoldierType()
         updateHUDIcons()
 
-        goldLabel.text = "Gold: \(compactNumber(state.gold))"
+        goldLabel.text = compactNumber(state.gold)
         cityLevelLabel.text = state.displayCityTitle
         defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
-        cityHPLabel.text = "HP: \(compactNumber(state.cityRemainingPower)) / \(compactNumber(state.cityMaxPower))"
-        let hpPercent = CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower))
-        cityHPBarNode.update(progress: hpPercent)
+        cityHPLabel.text = ""
+        layoutCityHPBar()
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         let spawnableTypes = manualSpawnableSoldierTypes
@@ -1324,8 +1397,8 @@ final class BattleScene: SKScene {
     }
 
     private func updateLiveCombatStatusLabel() {
-        liveCombatStatusLabel.fontSize = 13
-        liveCombatStatusLabel.text = "Soldiers: \(combat.livingSoldierCount)"
+        liveCombatStatusLabel.fontSize = 18
+        liveCombatStatusLabel.text = "\(combat.livingSoldierCount)"
         fitLabel(liveCombatStatusLabel, maxWidth: currentLeftHUDLabelWidth)
     }
 
@@ -1610,10 +1683,10 @@ final class BattleScene: SKScene {
 
     private func soldierTargetHeight() -> CGFloat {
         if size.height < 500 {
-            return max(76, min(100, size.height * 0.24))
+            return max(38, min(50, size.height * 0.12))
         }
 
-        return max(108, min(140, size.height * 0.15))
+        return max(54, min(70, size.height * 0.075))
     }
 
     private func point(forLane lane: BattleLane, position: Double) -> CGPoint {
@@ -1622,8 +1695,8 @@ final class BattleScene: SKScene {
 
     private func layoutSoldierHPBar(_ bundle: SoldierNodeBundle, soldier: BattleCombatState.Soldier) {
         let bodyFrame = bundle.body.calculateAccumulatedFrame()
-        let width = max(72, min(112, bodyFrame.width * 0.72))
-        let height: CGFloat = 8
+        let width = max(36, min(56, bodyFrame.width * 0.72))
+        let height: CGFloat = 5
         let y = bodyFrame.maxY + 1.5
         let percent = min(max(CGFloat(soldier.currentHP) / CGFloat(max(1, soldier.maxHP)), 0), 1)
 
@@ -2345,6 +2418,7 @@ extension BattleScene {
         let defenseTraitLabel: CGRect
         let cityLevelLabel: CGRect
         let cityHPLabel: CGRect
+        let cityHPBar: CGRect
         let spawnButtonLabel: CGRect
         let worldButtonLabel: CGRect
         let buildButtonLabel: CGRect
@@ -2369,6 +2443,7 @@ extension BattleScene {
             let defenseTraitFrame = sceneFrame(for: defenseTraitLabel),
             let cityLevelFrame = sceneFrame(for: cityLevelLabel),
             let cityHPFrame = sceneFrame(for: cityHPLabel),
+            let cityHPBarFrame = sceneFrame(for: cityHPBarBackground),
             let spawnLabelFrame = sceneFrame(for: spawnButtonLabel),
             let worldLabelFrame = sceneFrame(for: worldButtonLabel),
             let buildLabelFrame = sceneFrame(for: buildButtonLabel),
@@ -2404,6 +2479,7 @@ extension BattleScene {
             defenseTraitLabel: defenseTraitFrame,
             cityLevelLabel: cityLevelFrame,
             cityHPLabel: cityHPFrame,
+            cityHPBar: cityHPBarFrame,
             spawnButtonLabel: spawnLabelFrame,
             worldButtonLabel: worldLabelFrame,
             buildButtonLabel: buildLabelFrame,
