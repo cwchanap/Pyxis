@@ -1176,7 +1176,7 @@ struct BattleSceneTests {
 
         #expect(frames.spawnButton.width >= 150)
         #expect(frames.manualTypeButton.width >= 112)
-        #expect(frames.buildButton.width >= 42)
+        #expect(frames.buildButton.width >= 44)
         #expect(frames.worldButton.minY >= frames.buildButton.maxY)
     }
 

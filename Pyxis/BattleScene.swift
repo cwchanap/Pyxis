@@ -1091,12 +1091,16 @@ final class BattleScene: SKScene {
             cornerHeight: height / 2,
             transform: nil
         )
-        cityHPBarFill.path = CGPath(
-            roundedRect: fillRect,
-            cornerWidth: height / 2,
-            cornerHeight: height / 2,
-            transform: nil
-        )
+        if state.cityRemainingPower > 0 {
+            cityHPBarFill.path = CGPath(
+                roundedRect: fillRect,
+                cornerWidth: height / 2,
+                cornerHeight: height / 2,
+                transform: nil
+            )
+        } else {
+            cityHPBarFill.path = nil
+        }
     }
 
     private func fitBattleNode(_ node: SKNode, targetHeight: CGFloat) {
@@ -1383,6 +1387,9 @@ final class BattleScene: SKScene {
 
         lastPresentedTooltipText = text
         feedbackLabel.text = text
+        let feedbackPanelWidth = min(layoutMetrics().contentWidth, max(220, feedbackLabel.frame.width + 32))
+        feedbackPanel.update(size: CGSize(width: feedbackPanelWidth, height: max(32, feedbackLabel.fontSize + 18)))
+        feedbackPanel.position = feedbackLabel.position
         feedbackPanel.removeAllActions()
         feedbackLabel.removeAllActions()
         feedbackPanel.alpha = 1
