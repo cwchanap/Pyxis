@@ -11,6 +11,9 @@ import Foundation
 /// `BattlefieldLayout` owns no SpriteKit nodes — it only calculates positions and sizes.
 /// `BattleScene` calls ``compute(constraints:)`` then applies the resulting values to its nodes.
 struct BattlefieldLayout: Equatable {
+    /// Vertical space reserved above the enemy city for its battlefield HP bar.
+    static let enemyCityHPBarClearance: CGFloat = 14
+
     /// The axis-aligned region occupied by the battlefield (between HUD bottom and controls top).
     let frame: CGRect
 
@@ -65,20 +68,25 @@ struct BattlefieldLayout: Equatable {
         )
         let availableHeight = safeTopY - safeBottomY
 
-        let structureHeight = min(
-            96,
-            constraints.sceneSize.height * 0.16,
-            constraints.contentWidth * 0.30,
-            max(0, availableHeight * 0.32)
-        )
         let minimumStructureHeight: CGFloat = 28
         let minimumLaneLength: CGFloat = 60
+        let maximumStructureHeightForLaneLength = max(
+            0,
+            (availableHeight - Self.enemyCityHPBarClearance - minimumLaneLength) / 2.04
+        )
+        let structureHeight = min(
+            144,
+            constraints.sceneSize.height * 0.24,
+            constraints.contentWidth * 0.45,
+            max(0, availableHeight * 0.48),
+            maximumStructureHeightForLaneLength
+        )
 
         let laneWidth = min(layoutFrame.width / 3, Self.lanePathWidth(for: layoutFrame.width))
 
         // The enemy city sits inside the top of the frame, so its height eats into
         // the marching lane the same way the castle's height does at the bottom.
-        let enemyCityHeight = structureHeight * 1.04
+        let enemyCityHeight = structureHeight * 1.04 + Self.enemyCityHPBarClearance
 
         // Fallback: not enough room for a proper battlefield.
         guard availableHeight >= 44,

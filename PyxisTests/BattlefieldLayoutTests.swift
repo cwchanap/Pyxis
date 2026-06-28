@@ -162,10 +162,21 @@ struct BattlefieldLayoutTests {
     @Test func enemyGateSitsAtCityBaseInsideFrameTop() {
         let layout = BattlefieldLayout.compute(constraints: makeConstraints())
         let enemyGate = layout.enemyGatePoints[.center]!
-        // Gate is the city's base: one city-height below the frame top so the body fits inside.
-        #expect(abs(enemyGate.y - (layout.frame.maxY - layout.enemyCityTargetHeight)) < 0.01)
+        // Gate is the city's base: one city-height plus the HP bar clearance below the frame top.
+        let expectedY = layout.frame.maxY
+            - BattlefieldLayout.enemyCityHPBarClearance
+            - layout.enemyCityTargetHeight
+        #expect(abs(enemyGate.y - expectedY) < 0.01)
         #expect(enemyGate.y < layout.frame.maxY)
         #expect(enemyGate.y >= layout.frame.minY)
+    }
+
+    @Test func enemyCityReservesRoomForHPBarAboveBody() {
+        let layout = BattlefieldLayout.compute(constraints: makeConstraints())
+        let enemyGate = layout.enemyGatePoints[.center]!
+        let cityTopY = enemyGate.y + layout.enemyCityTargetHeight
+
+        #expect(layout.frame.maxY - cityTopY >= BattlefieldLayout.enemyCityHPBarClearance)
     }
 
     @Test func lanePathWidthScalesWithSceneWidth() {
@@ -217,13 +228,14 @@ struct BattlefieldLayoutTests {
         #expect(layout.frame.width == contentWidth)
     }
 
-    @Test func structureHeightCappedAt96() {
-        // Very tall scene — structure should still cap at 96.
+    @Test func structureHeightCappedAt144() {
+        // Very tall scene — structure should still cap at the 1.5x battle-art size.
         let layout = BattlefieldLayout.compute(constraints: makeConstraints(
             sceneHeight: 2000,
             safeTopY: 1900,
             safeBottomY: 100
         ))
-        #expect(layout.structureHeight <= 96)
+        #expect(layout.structureHeight <= 144)
+        #expect(layout.structureHeight > 96)
     }
 }

@@ -34,15 +34,16 @@ struct BattleSceneTests {
         #expect(multipliers[.right] == 0.80)
     }
 
-    @Test func battleSceneDisplaysLiveSoldierCount() throws {
+    @Test func battleSceneKeepsSoldierHUDValueWithoutTitle() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
-        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 0")
+        #expect(scene.liveCombatStatusTextForTesting == "0")
 
         scene.spawnSoldierForTesting()
 
-        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 1")
+        #expect(scene.liveCombatStatusTextForTesting == "1")
+        #expect(scene.liveSoldierCountForTesting == 1)
     }
 
     @Test func tappingSpawnCreatesLiveCombatSoldierWithoutImmediateCityDamage() throws {
@@ -332,7 +333,8 @@ struct BattleSceneTests {
         #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
         #expect(scene.buildingLiveSoldierCountForTesting == 1)
         #expect(scene.liveSoldierCountForTesting == KingdomGameState.manualSoldierCap + 1)
-        #expect(scene.liveSoldierTypesForTesting.filter { $0 == .infantry }.count == KingdomGameState.manualSoldierCap + 1)
+        let infantryCount = scene.liveSoldierTypesForTesting.filter { $0 == .infantry }.count
+        #expect(infantryCount == KingdomGameState.manualSoldierCap + 1)
         scene.flushBuildingProgressSaveForTesting()
         #expect(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? 10 < 1)
     }
@@ -506,7 +508,9 @@ struct BattleSceneTests {
 
         #expect(scene.buildingLiveSoldierCountForTesting == 0)
         scene.flushBuildingProgressSaveForTesting()
-        let savedElapsed = try #require(store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed)
+        let savedElapsed = try #require(
+            store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed
+        )
         #expect(savedElapsed > 0)
         #expect(savedElapsed < KingdomGameState.activeSpawnInterval(for: .barracks))
     }
@@ -685,14 +689,14 @@ struct BattleSceneTests {
 
         scene.spawnSoldierForTesting()
 
-        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 1")
+        #expect(scene.liveCombatStatusTextForTesting == "1")
 
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
         #expect(scene.liveSoldierCountForTesting == 0)
         #expect(scene.cityRemainingPowerForTesting == 20)
         #expect(store.load().cityRemainingPower == 20)
-        #expect(scene.liveCombatStatusTextForTesting == "Soldiers: 0")
+        #expect(scene.liveCombatStatusTextForTesting == "0")
     }
 
     @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
@@ -949,15 +953,17 @@ struct BattleSceneTests {
         #expect(frames.battlefield.height >= scene.size.height * 0.64)
     }
 
-    @Test func battleHUDUsesMixedTextAndIconControls() throws {
+    @Test func battleHUDUsesResourceValuesWithoutTitlesAndTextForCommands() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         let texts = visibleLabelTexts(in: scene)
-        #expect(texts.contains("Gold: 30"))
-        #expect(texts.contains("Soldiers: 0"))
+        #expect(!texts.contains { $0.hasPrefix("Gold:") })
+        #expect(!texts.contains { $0.hasPrefix("Soldiers:") })
+        #expect(!texts.contains { $0.hasPrefix("HP:") })
+        #expect(texts.contains("30"))
+        #expect(texts.contains("0"))
         #expect(texts.contains("Country 1 - City 1"))
-        #expect(texts.contains { $0.contains("HP") })
         #expect(texts.contains("Infantry"))
         #expect(texts.contains("Spawn"))
 
@@ -974,6 +980,17 @@ struct BattleSceneTests {
         #expect(frames.buildButton.width <= frames.buildButton.height * 1.3)
         #expect(frames.worldButton.width <= frames.worldButton.height * 1.3)
         #expect(frames.spawnButton.width >= frames.buildButton.width * 2.2)
+    }
+
+    @Test func infantryAndSpawnButtonsAreCompactAndLeftAligned() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.spawnButtonBackground.width <= 170)
+        #expect(frames.manualTypeButtonBackground.width <= 116)
+        #expect(frames.manualTypeButtonBackground.width < frames.spawnButtonBackground.width)
+        #expect(abs(frames.manualTypeButtonBackground.minX - frames.spawnButtonBackground.minX) <= 0.5)
     }
 
     @Test func buttonIconsAreLargeEnoughToRead() throws {
@@ -1178,14 +1195,11 @@ struct BattleSceneTests {
 
         let frames = try #require(scene.battleLayoutFramesForTesting)
 
-        #expect(frames.goldLabel.minX >= frames.leftHUD.minX + 10)
-        #expect(frames.goldLabel.maxX <= frames.leftHUD.maxX - 10)
         #expect(frames.defenseTraitLabel.minX >= frames.rightHUD.minX + 10)
         #expect(frames.defenseTraitLabel.maxX <= frames.rightHUD.maxX - 10)
         #expect(frames.cityLevelLabel.minX >= frames.rightHUD.minX + 10)
         #expect(frames.cityLevelLabel.maxX <= frames.rightHUD.maxX - 10)
-        #expect(frames.cityHPLabel.minX >= frames.rightHUD.minX + 10)
-        #expect(frames.cityHPLabel.maxX <= frames.rightHUD.maxX - 10)
+        #expect(frames.cityHPBar.maxX <= size.width - 8)
         #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
         #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
     }
@@ -1215,10 +1229,25 @@ struct BattleSceneTests {
 
         // Enemy city sits inside the top of the battlefield frame; castle at the bottom.
         #expect(enemyFrame.minY > castleFrame.maxY)
-        #expect(abs(enemyFrame.maxY - battlefield.maxY) <= 1)
+        #expect(enemyFrame.maxY < battlefield.maxY)
         #expect(enemyFrame.minY >= battlefield.minY)
         #expect(enemyFrame.maxY <= battlefield.maxY)
         #expect(abs(castleFrame.minY - battlefield.minY) <= 1)
+    }
+
+    @Test func cityHPBarUsesBattlefieldArtAboveEnemyCity() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let enemyFrame = try #require(scene.enemyCityFrameForTesting)
+
+        #expect(frames.cityHPBar.minY >= enemyFrame.maxY + 2)
+        #expect(frames.cityHPBar.maxY <= frames.battlefield.maxY + 1)
+        #expect(abs(frames.cityHPBar.midX - enemyFrame.midX) <= 1)
+        #expect(frames.cityHPBar.width >= 96)
+        #expect(frames.cityHPBar.height >= 5)
+        #expect(!frames.cityHPBar.intersects(frames.rightHUD))
     }
 
     @Test func threeVerticalLanesSpanCastleGateToEnemyGate() throws {
@@ -1276,7 +1305,7 @@ struct BattleSceneTests {
         }
     }
 
-    @Test func soldierBodiesRenderLargeEnoughForBattleReadability() throws {
+    @Test func soldierBodiesRenderAtHalfScaleForBattleReadability() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
         let scene = makeScene(store: store)
 
@@ -1284,8 +1313,10 @@ struct BattleSceneTests {
 
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
         let hpFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
-        #expect(bodyFrame.height >= 108)
-        #expect(hpFrame.width >= 72)
+        #expect(bodyFrame.height >= 54)
+        #expect(bodyFrame.height <= 70)
+        #expect(hpFrame.width >= 36)
+        #expect(hpFrame.width <= 56)
         #expect(hpFrame.minY - bodyFrame.maxY <= 1.5)
     }
 
@@ -1298,7 +1329,7 @@ struct BattleSceneTests {
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
 
         #expect(bodyFrame.width < bodyFrame.height * 0.90)
-        #expect(bodyFrame.height >= 108)
+        #expect(bodyFrame.height >= 54)
     }
 
     @Test func laneIndicatorsMarkFortifiedAndExposedLanesOnly() throws {
@@ -1347,7 +1378,11 @@ struct BattleSceneTests {
         Issue.record("Poll timed out after \(timeout)")
     }
 
-    private func makeScene(store: KingdomGameStore, router: BattleSceneRouting? = nil, combatSeed: UInt64? = nil) -> BattleScene {
+    private func makeScene(
+        store: KingdomGameStore,
+        router: BattleSceneRouting? = nil,
+        combatSeed: UInt64? = nil
+    ) -> BattleScene {
         let size = CGSize(width: 390, height: 844)
         let scene = BattleScene(size: size, store: store, router: router, combatSeed: combatSeed)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
