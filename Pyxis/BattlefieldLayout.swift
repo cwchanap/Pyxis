@@ -49,9 +49,13 @@ struct BattlefieldLayout: Equatable {
     /// for structures and lanes; otherwise returns a fallback layout with collapsed
     /// gate points.
     static func compute(constraints: Constraints) -> BattlefieldLayout {
-        let feedbackClearance = max(30, constraints.feedbackFontSize + 18)
         let safeTopY = constraints.safeTopY
-        let safeBottomY = max(constraints.safeBottomY, constraints.feedbackY + feedbackClearance)
+        let feedbackClearance = constraints.feedbackFontSize > 0
+            ? max(30, constraints.feedbackFontSize + 18)
+            : 0
+        let safeBottomY = feedbackClearance > 0
+            ? max(constraints.safeBottomY, constraints.feedbackY + feedbackClearance)
+            : constraints.safeBottomY
 
         let layoutFrame = CGRect(
             x: (constraints.sceneSize.width - constraints.contentWidth) / 2,
@@ -70,7 +74,7 @@ struct BattlefieldLayout: Equatable {
         let minimumStructureHeight: CGFloat = 28
         let minimumLaneLength: CGFloat = 60
 
-        let laneWidth = Self.lanePathWidth(for: constraints.sceneSize.width)
+        let laneWidth = min(layoutFrame.width / 3, Self.lanePathWidth(for: layoutFrame.width))
 
         // The enemy city sits inside the top of the frame, so its height eats into
         // the marching lane the same way the castle's height does at the bottom.
@@ -138,16 +142,18 @@ struct BattlefieldLayout: Equatable {
 
     /// Compute the lane path width for a given scene width.
     static func lanePathWidth(for sceneWidth: CGFloat) -> CGFloat {
-        max(14, min(26, sceneWidth * 0.05))
+        max(54, min(180, sceneWidth * 0.30))
     }
 
     private static func laneCenterX(in frame: CGRect, lane: BattleLane) -> CGFloat {
-        let compactOffsets: [BattleLane: CGFloat] = [
-            .left: -0.12,
-            .center: 0,
-            .right: 0.12
-        ]
-        return frame.midX + frame.width * (compactOffsets[lane] ?? 0)
+        switch lane {
+        case .left:
+            return frame.minX + frame.width / 6
+        case .center:
+            return frame.midX
+        case .right:
+            return frame.minX + frame.width * 5 / 6
+        }
     }
 
     /// The target height for the enemy-city node (slightly taller than the castle).

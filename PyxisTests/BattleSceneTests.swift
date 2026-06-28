@@ -119,6 +119,16 @@ struct BattleSceneTests {
         #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
     }
 
+    @Test func cityDamageCreatesVisibleStableAttackCue() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") >= 1)
+    }
+
     @Test("Walk animation resumes after a transient attack/hit animation completes (spec §Runtime animation)")
     func walkAnimationResumesAfterTransientAnimationCompletes() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
@@ -204,9 +214,41 @@ struct BattleSceneTests {
         // No duplicate cache entry was inserted.
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
 
-        // A different action populates a new entry without disturbing the first.
+        // Hit playback also reuses the stable walk-frame identity, so it does
+        // not add a second texture-cache entry.
         _ = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "hit")
-        #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 2)
+        #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
+    }
+
+    @Test("Transient playback keeps the soldier's stable walk-frame identity")
+    func transientAnimationUsesStableWalkTexturesForEverySoldierType() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        for soldierType in SoldierType.allCases {
+            let walkTextures = scene.cachedSoldierAnimationTexturesForTesting(
+                soldierType: soldierType,
+                action: "walk"
+            )
+            let attackTextures = scene.cachedSoldierAnimationTexturesForTesting(
+                soldierType: soldierType,
+                action: "attack"
+            )
+
+            #expect(attackTextures.count == walkTextures.count)
+            for (attackTexture, walkTexture) in zip(attackTextures, walkTextures) {
+                #expect(attackTexture === walkTexture)
+            }
+
+            let hitTextures = scene.cachedSoldierAnimationTexturesForTesting(
+                soldierType: soldierType,
+                action: "hit"
+            )
+            #expect(hitTextures.count == walkTextures.count)
+            for (hitTexture, walkTexture) in zip(hitTextures, walkTextures) {
+                #expect(hitTexture === walkTexture)
+            }
+        }
     }
 
     @Test("A tower-killed soldier is routed through the delayed-removal scheduler")
@@ -513,7 +555,7 @@ struct BattleSceneTests {
         #expect(persisted < interval * 0.5)
     }
 
-    @Test func liveSoldierHPBarStaysReadableAboveScaledBody() throws {
+    @Test func liveSoldierHPBarStaysAttachedToScaledBodyTopEdge() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
@@ -521,8 +563,11 @@ struct BattleSceneTests {
 
         let hpBarFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
+        let gap = hpBarFrame.minY - bodyFrame.maxY
+
         #expect(hpBarFrame.height >= 4.5)
-        #expect(hpBarFrame.minY > bodyFrame.maxY)
+        #expect(gap >= 0)
+        #expect(gap <= 1.5)
     }
 
     @Test func combatTickCanDamageDurableCityHPAndSaveIt() throws {
@@ -882,15 +927,10 @@ struct BattleSceneTests {
         #expect(frames.leftHUD.minX >= 12)
         #expect(frames.rightHUD.maxX <= scene.size.width - 12)
         #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
-        #expect(frames.leftHUD.height >= 70)
-        #expect(frames.rightHUD.height >= 70)
+        #expect(frames.leftHUD.height >= 64)
+        #expect(frames.rightHUD.height >= 64)
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
         #expect(frames.buildButton.maxY <= frames.battlefield.minY)
-        #expect(frames.feedback.maxY <= frames.battlefield.minY)
-        #expect(frames.feedbackPanel.contains(frames.feedback))
-        #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
-        #expect(frames.feedbackPanel.minY >= frames.spawnButton.maxY)
-        #expect(frames.feedbackPanel.minY >= frames.worldButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minX >= 12)
@@ -905,6 +945,98 @@ struct BattleSceneTests {
         #expect(frames.worldButtonLabel.maxX <= frames.worldButton.maxX - 12)
         #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
         #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
+        #expect(frames.battlefield.width >= scene.size.width - 2)
+        #expect(frames.battlefield.height >= scene.size.height * 0.64)
+    }
+
+    @Test func battleHUDUsesMixedTextAndIconControls() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        let texts = visibleLabelTexts(in: scene)
+        #expect(texts.contains("Gold: 30"))
+        #expect(texts.contains("Soldiers: 0"))
+        #expect(texts.contains("Country 1 - City 1"))
+        #expect(texts.contains { $0.contains("HP") })
+        #expect(texts.contains("Infantry"))
+        #expect(texts.contains("Spawn"))
+
+        for controlName in ["manualType", "spawnSoldierButton", "worldButton", "buildButton"] {
+            #expect(visibleSpriteCount(in: scene, named: controlName) >= 1)
+        }
+    }
+
+    @Test func commonActionButtonsUseCompactIconShapes() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        #expect(frames.buildButton.width <= frames.buildButton.height * 1.3)
+        #expect(frames.worldButton.width <= frames.worldButton.height * 1.3)
+        #expect(frames.spawnButton.width >= frames.buildButton.width * 2.2)
+    }
+
+    @Test func buttonIconsAreLargeEnoughToRead() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        let spawnIcon = try #require(visibleSpriteFrames(in: scene, named: "spawnSoldierButton").first)
+        let manualIcon = try #require(visibleSpriteFrames(in: scene, named: "manualType").first)
+        let worldIcon = try #require(visibleSpriteFrames(in: scene, named: "worldButton").first)
+        let buildIcon = try #require(visibleSpriteFrames(in: scene, named: "buildButton").first)
+
+        #expect(spawnIcon.height >= 48)
+        #expect(manualIcon.height >= 26)
+        #expect(worldIcon.height >= 42)
+        #expect(buildIcon.height >= 42)
+    }
+
+    @Test func generatedSoldierButtonIconsUseTightPortraitCrop() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        let spawnIcon = try #require(visibleSpriteFrames(in: scene, named: "spawnSoldierButton").first)
+        let manualIcon = try #require(visibleSpriteFrames(in: scene, named: "manualType").first)
+
+        #expect(spawnIcon.width > spawnIcon.height * 0.78)
+        #expect(spawnIcon.width < spawnIcon.height * 0.86)
+        #expect(manualIcon.width > manualIcon.height * 0.78)
+        #expect(manualIcon.width < manualIcon.height * 0.86)
+    }
+
+    @Test func buttonIconsStayInsideTheirPaintedButtonBackgrounds() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        let spawnIcon = try #require(visibleSpriteFrames(in: scene, named: "spawnSoldierButton").first)
+        let manualIcon = try #require(visibleSpriteFrames(in: scene, named: "manualType").first)
+        let worldIcon = try #require(visibleSpriteFrames(in: scene, named: "worldButton").first)
+        let buildIcon = try #require(visibleSpriteFrames(in: scene, named: "buildButton").first)
+
+        #expect(spawnIcon.minX >= frames.spawnButtonBackground.minX + 4)
+        #expect(spawnIcon.maxX <= frames.spawnButtonBackground.midX + frames.spawnButtonBackground.width * 0.08)
+        #expect(spawnIcon.minY >= frames.spawnButtonBackground.minY + 1)
+        #expect(spawnIcon.maxY <= frames.spawnButtonBackground.maxY - 1)
+        #expect(abs(spawnIcon.midY - frames.spawnButtonBackground.midY) <= 3)
+
+        #expect(manualIcon.minX >= frames.manualTypeButtonBackground.minX + 3)
+        let manualIconRightLimit = frames.manualTypeButtonBackground.midX
+            + frames.manualTypeButtonBackground.width * 0.08
+        #expect(manualIcon.maxX <= manualIconRightLimit)
+        #expect(manualIcon.minY >= frames.manualTypeButtonBackground.minY + 1)
+        #expect(manualIcon.maxY <= frames.manualTypeButtonBackground.maxY - 1)
+        #expect(abs(manualIcon.midY - frames.manualTypeButtonBackground.midY) <= 2)
+
+        #expect(worldIcon.minX >= frames.worldButtonBackground.minX + 1)
+        #expect(worldIcon.maxX <= frames.worldButtonBackground.maxX - 1)
+        #expect(abs(worldIcon.midX - frames.worldButtonBackground.midX) <= 1)
+        #expect(abs(worldIcon.midY - frames.worldButtonBackground.midY) <= 1)
+
+        #expect(buildIcon.minX >= frames.buildButtonBackground.minX + 1)
+        #expect(buildIcon.maxX <= frames.buildButtonBackground.maxX - 1)
+        #expect(abs(buildIcon.midX - frames.buildButtonBackground.midX) <= 1)
+        #expect(abs(buildIcon.midY - frames.buildButtonBackground.midY) <= 1)
     }
 
     @Test func commanderHUDSurvivesCompactLandscapeWithoutOverlap() throws {
@@ -923,12 +1055,6 @@ struct BattleSceneTests {
         #expect(frames.rightHUD.height >= 56)
         #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
         #expect(frames.buildButton.maxY <= frames.battlefield.minY)
-        #expect(frames.feedback.maxY <= frames.battlefield.minY)
-        #expect(frames.feedbackPanel.contains(frames.feedback))
-        #expect(frames.feedbackPanel.maxY <= frames.battlefield.minY)
-        #expect(frames.feedback.minY >= frames.spawnButton.maxY)
-        #expect(frames.feedback.minY >= frames.worldButton.maxY)
-        #expect(frames.feedback.minY >= frames.buildButton.maxY)
         #expect(frames.battlefield.maxY < frames.leftHUD.minY)
         #expect(frames.battlefield.maxY < frames.rightHUD.minY)
         #expect(frames.spawnButton.minY >= 8)
@@ -951,7 +1077,6 @@ struct BattleSceneTests {
             let infantryButton = try #require(frames.manualTypeMenuButtons[.infantry])
             let archerButton = frames.manualTypeMenuButtons[.archer]
 
-            #expect(!infantryButton.intersects(frames.feedbackPanel))
             #expect(!infantryButton.intersects(frames.battlefield))
             #expect(!infantryButton.intersects(frames.worldButton))
             #expect(infantryButton.minY >= frames.spawnButton.maxY)
@@ -988,7 +1113,6 @@ struct BattleSceneTests {
             #expect(button.minY >= frames.spawnButton.maxY)
             #expect(!button.intersects(frames.spawnButton))
             #expect(!button.intersects(frames.buildButton))
-            #expect(!button.intersects(frames.feedbackPanel))
             #expect(!button.intersects(frames.battlefield))
             #expect(!button.intersects(frames.worldButton))
         }
@@ -1035,7 +1159,7 @@ struct BattleSceneTests {
 
         #expect(frames.spawnButton.width >= 150)
         #expect(frames.manualTypeButton.width >= 112)
-        #expect(frames.buildButton.width >= 92)
+        #expect(frames.buildButton.width >= 42)
         #expect(frames.worldButton.minY >= frames.buildButton.maxY)
     }
 
@@ -1116,6 +1240,26 @@ struct BattleSceneTests {
         }
     }
 
+    @Test func laneRenderingUsesTerrainStripsWithDetail() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(visibleNodeCount(in: scene, namePrefix: "battleLaneTerrain-") == 3)
+        #expect(visibleNodeCount(in: scene, namePrefix: "battleLaneDetail-") >= 12)
+    }
+
+    @Test func laneTerrainBlendsIntoBackdropInsteadOfCoveringIt() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        let alphas = visibleShapeAlphas(in: scene, namePrefix: "battleLaneTerrain-")
+        #expect(alphas.count == 3)
+        for alpha in alphas {
+            #expect(alpha.fill <= 0.18)
+            #expect(alpha.stroke <= 0.28)
+        }
+    }
+
     @Test func soldierNodesRenderAtTheirLaneColumn() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
         let scene = makeScene(store: store)
@@ -1130,6 +1274,31 @@ struct BattleSceneTests {
             let expectedX = try #require(scene.castleGatePointForTesting(lane: placement.lane)?.x)
             #expect(abs(placement.nodePosition.x - expectedX) <= 0.5)
         }
+    }
+
+    @Test func soldierBodiesRenderLargeEnoughForBattleReadability() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
+        let hpFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
+        #expect(bodyFrame.height >= 108)
+        #expect(hpFrame.width >= 72)
+        #expect(hpFrame.minY - bodyFrame.maxY <= 1.5)
+    }
+
+    @Test func liveSoldierBodyUsesCroppedAnimationFrameInsteadOfTransparentCanvas() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
+
+        #expect(bodyFrame.width < bodyFrame.height * 0.90)
+        #expect(bodyFrame.height >= 108)
     }
 
     @Test func laneIndicatorsMarkFortifiedAndExposedLanesOnly() throws {
@@ -1254,6 +1423,172 @@ struct BattleSceneTests {
         override func location(in view: UIView?) -> CGPoint {
             return loc
         }
+    }
+
+    private func visibleLabelTexts(
+        in node: SKNode,
+        inheritedHidden: Bool = false,
+        inheritedAlpha: CGFloat = 1
+    ) -> [String] {
+        let isHidden = inheritedHidden || node.isHidden
+        let alpha = inheritedAlpha * node.alpha
+        guard !isHidden, alpha > 0.01 else {
+            return []
+        }
+
+        var texts: [String] = []
+        if let label = node as? SKLabelNode,
+           let text = label.text,
+           !text.isEmpty {
+            texts.append(text)
+        }
+
+        for child in node.children {
+            texts.append(contentsOf: visibleLabelTexts(
+                in: child,
+                inheritedHidden: isHidden,
+                inheritedAlpha: alpha
+            ))
+        }
+        return texts
+    }
+
+    private func visibleSpriteCount(
+        in node: SKNode,
+        named name: String,
+        inheritedHidden: Bool = false,
+        inheritedAlpha: CGFloat = 1
+    ) -> Int {
+        let isHidden = inheritedHidden || node.isHidden
+        let alpha = inheritedAlpha * node.alpha
+        guard !isHidden, alpha > 0.01 else {
+            return 0
+        }
+
+        let selfCount = (node as? SKSpriteNode) != nil && node.name == name ? 1 : 0
+        return node.children.reduce(selfCount) { count, child in
+            count + visibleSpriteCount(
+                in: child,
+                named: name,
+                inheritedHidden: isHidden,
+                inheritedAlpha: alpha
+            )
+        }
+    }
+
+    private func visibleSpriteFrames(
+        in node: SKNode,
+        named name: String,
+        inheritedHidden: Bool = false,
+        inheritedAlpha: CGFloat = 1
+    ) -> [CGRect] {
+        let isHidden = inheritedHidden || node.isHidden
+        let alpha = inheritedAlpha * node.alpha
+        guard !isHidden, alpha > 0.01 else {
+            return []
+        }
+
+        var frames: [CGRect] = []
+        if (node as? SKSpriteNode) != nil,
+           node.name == name,
+           let sceneFrame = sceneFrameInTest(for: node) {
+            frames.append(sceneFrame)
+        }
+
+        for child in node.children {
+            frames.append(contentsOf: visibleSpriteFrames(
+                in: child,
+                named: name,
+                inheritedHidden: isHidden,
+                inheritedAlpha: alpha
+            ))
+        }
+        return frames
+    }
+
+    private func sceneFrameInTest(for node: SKNode) -> CGRect? {
+        guard let parent = node.parent else {
+            return nil
+        }
+
+        let frame = node.calculateAccumulatedFrame()
+        let corners = [
+            CGPoint(x: frame.minX, y: frame.minY),
+            CGPoint(x: frame.maxX, y: frame.minY),
+            CGPoint(x: frame.minX, y: frame.maxY),
+            CGPoint(x: frame.maxX, y: frame.maxY)
+        ].map { parent.convert($0, to: node.scene ?? parent) }
+
+        guard let first = corners.first else {
+            return nil
+        }
+
+        return corners.dropFirst().reduce(
+            CGRect(origin: first, size: .zero)
+        ) { partial, point in
+            partial.union(CGRect(origin: point, size: .zero))
+        }
+    }
+
+    private func visibleNodeCount(
+        in node: SKNode,
+        namePrefix: String,
+        inheritedHidden: Bool = false,
+        inheritedAlpha: CGFloat = 1
+    ) -> Int {
+        let isHidden = inheritedHidden || node.isHidden
+        let alpha = inheritedAlpha * node.alpha
+        guard !isHidden, alpha > 0.01 else {
+            return 0
+        }
+
+        let selfCount = node.name?.hasPrefix(namePrefix) == true ? 1 : 0
+        return node.children.reduce(selfCount) { count, child in
+            count + visibleNodeCount(
+                in: child,
+                namePrefix: namePrefix,
+                inheritedHidden: isHidden,
+                inheritedAlpha: alpha
+            )
+        }
+    }
+
+    private func visibleShapeAlphas(
+        in node: SKNode,
+        namePrefix: String,
+        inheritedHidden: Bool = false,
+        inheritedAlpha: CGFloat = 1
+    ) -> [(fill: CGFloat, stroke: CGFloat)] {
+        let isHidden = inheritedHidden || node.isHidden
+        let alpha = inheritedAlpha * node.alpha
+        guard !isHidden, alpha > 0.01 else {
+            return []
+        }
+
+        var alphas: [(fill: CGFloat, stroke: CGFloat)] = []
+        if let shape = node as? SKShapeNode,
+           node.name?.hasPrefix(namePrefix) == true {
+            alphas.append((
+                fill: alphaComponent(of: shape.fillColor) * alpha,
+                stroke: alphaComponent(of: shape.strokeColor) * alpha
+            ))
+        }
+
+        for child in node.children {
+            alphas.append(contentsOf: visibleShapeAlphas(
+                in: child,
+                namePrefix: namePrefix,
+                inheritedHidden: isHidden,
+                inheritedAlpha: alpha
+            ))
+        }
+        return alphas
+    }
+
+    private func alphaComponent(of color: SKColor) -> CGFloat {
+        var alpha: CGFloat = 0
+        color.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+        return alpha
     }
 
     // MARK: - touchesEnded

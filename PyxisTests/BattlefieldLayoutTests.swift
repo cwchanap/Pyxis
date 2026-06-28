@@ -14,7 +14,9 @@ struct BattlefieldLayoutTests {
         sceneHeight: CGFloat = 844,
         contentWidth: CGFloat? = nil,
         safeTopY: CGFloat? = nil,
-        safeBottomY: CGFloat? = nil
+        safeBottomY: CGFloat? = nil,
+        feedbackY: CGFloat? = nil,
+        feedbackFontSize: CGFloat = 15
     ) -> BattlefieldLayout.Constraints {
         let cw = contentWidth ?? min(sceneWidth - 36, 560)
         let top = safeTopY ?? sceneHeight - 60
@@ -24,8 +26,8 @@ struct BattlefieldLayoutTests {
             contentWidth: cw,
             safeTopY: top,
             safeBottomY: bottom,
-            feedbackY: bottom + 40,
-            feedbackFontSize: 15
+            feedbackY: feedbackY ?? bottom + 40,
+            feedbackFontSize: feedbackFontSize
         )
     }
 
@@ -61,18 +63,19 @@ struct BattlefieldLayoutTests {
         #expect(abs(gap1 - gap2) < 0.01)
     }
 
-    @Test func lanesUseCompactCenterSpread() {
+    @Test func lanesDivideFrameIntoEqualThirds() {
         let layout = BattlefieldLayout.compute(constraints: makeConstraints())
-        let xs = BattleLane.allCases.map { layout.castleGatePoints[$0]!.x }
-        let leftGap = xs[1] - xs[0]
-        let rightGap = xs[2] - xs[1]
+        let left = layout.castleGatePoints[.left]!
+        let center = layout.castleGatePoints[.center]!
+        let right = layout.castleGatePoints[.right]!
 
-        #expect(abs(leftGap - rightGap) < 0.01)
-        #expect(leftGap < layout.frame.width * 0.20)
-        #expect(rightGap < layout.frame.width * 0.20)
+        #expect(abs(left.x - (layout.frame.minX + layout.frame.width / 6)) < 0.01)
+        #expect(abs(center.x - layout.frame.midX) < 0.01)
+        #expect(abs(right.x - (layout.frame.minX + layout.frame.width * 5 / 6)) < 0.01)
+        #expect(abs((center.x - left.x) - (right.x - center.x)) < 0.01)
     }
 
-    @Test func fallbackLanesUseCompactCenterSpread() {
+    @Test func fallbackLanesDivideFrameIntoEqualThirds() {
         let layout = BattlefieldLayout.compute(constraints: makeConstraints(
             sceneWidth: 200,
             sceneHeight: 100,
@@ -81,9 +84,9 @@ struct BattlefieldLayoutTests {
         ))
         let xs = BattleLane.allCases.map { layout.castleGatePoints[$0]!.x }
 
-        #expect(abs(xs[1] - 100) < 0.01)
-        #expect(xs[1] - xs[0] < 40)
-        #expect(xs[2] - xs[1] < 40)
+        #expect(abs(xs[0] - layout.frame.minX - layout.frame.width / 6) < 0.01)
+        #expect(abs(xs[1] - layout.frame.midX) < 0.01)
+        #expect(abs(xs[2] - layout.frame.minX - layout.frame.width * 5 / 6) < 0.01)
     }
 
     @Test func tinySceneFallsBackToInvisible() {
@@ -174,8 +177,33 @@ struct BattlefieldLayoutTests {
     @Test func lanePathWidthHasMinAndMaxBounds() {
         let tiny = BattlefieldLayout.lanePathWidth(for: 0)
         let huge = BattlefieldLayout.lanePathWidth(for: 10_000)
-        #expect(tiny >= 14)
-        #expect(huge <= 26)
+        #expect(tiny >= 54)
+        #expect(huge <= 180)
+    }
+
+    @Test func normalLanePathReadsAsWideBand() {
+        let layout = BattlefieldLayout.compute(constraints: makeConstraints())
+
+        #expect(layout.lanePathWidth >= layout.frame.width * 0.28)
+        #expect(layout.lanePathWidth <= layout.frame.width / 3)
+    }
+
+    @Test func zeroFeedbackFontSizeDoesNotReserveTooltipClearance() {
+        let safeBottomY: CGFloat = 120
+        let feedbackY: CGFloat = 260
+        let withoutTooltip = BattlefieldLayout.compute(constraints: makeConstraints(
+            safeBottomY: safeBottomY,
+            feedbackY: feedbackY,
+            feedbackFontSize: 0
+        ))
+        let withTooltip = BattlefieldLayout.compute(constraints: makeConstraints(
+            safeBottomY: safeBottomY,
+            feedbackY: feedbackY,
+            feedbackFontSize: 15
+        ))
+
+        #expect(abs(withoutTooltip.frame.minY - safeBottomY) < 0.01)
+        #expect(withTooltip.frame.minY > withoutTooltip.frame.minY)
     }
 
     @Test func frameXCentersContentHorizontally() {
