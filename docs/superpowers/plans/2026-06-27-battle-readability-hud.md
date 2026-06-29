@@ -39,7 +39,7 @@ Expected: failure on the new lane spread/path width/feedback clearance expectati
 
 - [ ] **Step 3: Implement geometry**
 
-Change `BattlefieldLayout.compute` so `lanePathWidth` is based on the computed battlefield frame width, lane centers use `1/6`, `3/6`, and `5/6` of that frame, and feedback clearance is only reserved when `feedbackFontSize > 0`.
+Change `BattlefieldLayout.compute` so `lanePathWidth` is based on the computed battlefield frame width, lane centers use `1/6`, `3/6`, and `5/6` of that frame, and feedback clearance is only reserved when `feedbackFontSize > 0`. Note: the sole caller (`BattleScene.layoutBattlefield`) currently always passes `feedbackFontSize: 0`, so no clearance is reserved in practice; the conditional path is retained for future tooltip sizing but is not exercised today.
 
 - [ ] **Step 4: Run tests to verify pass**
 
