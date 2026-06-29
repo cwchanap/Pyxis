@@ -221,6 +221,40 @@ struct BattleSceneTests {
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
     }
 
+    @Test("HUD icon textures are memoized per soldier type (no per-tick SKTexture reallocation)")
+    func hudIconTexturesAreCachedAndReusedAcrossCalls() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // The scene's `buildInterface`/`redraw` eagerly populates the HUD icon
+        // cache for every soldier type, so the cache is non-empty at test start.
+        // The property under test is memoization: repeated calls return the same
+        // `SKTexture` instance and never grow the cache.
+        let baselineEntryCount = scene.soldierHUDIconTextureCacheEntryCountForTesting
+        #expect(baselineEntryCount >= 1)
+
+        // Repeated lookups for an already-cached type must return the identical
+        // `SKTexture` instance (cache hit), not a fresh SKTexture(imageNamed:).
+        let infantryFirst = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .infantry)
+        let infantrySecond = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .infantry)
+        #expect(infantryFirst === infantrySecond)
+        #expect(scene.soldierHUDIconTextureCacheEntryCountForTesting == baselineEntryCount)
+
+        // Every soldier type resolves to a cached entry; repeated lookups reuse
+        // the same instance and never add a new cache entry.
+        for soldierType in SoldierType.allCases {
+            let first = scene.cachedSoldierHUDIconTextureForTesting(soldierType: soldierType)
+            let second = scene.cachedSoldierHUDIconTextureForTesting(soldierType: soldierType)
+            #expect(first === second)
+        }
+        #expect(scene.soldierHUDIconTextureCacheEntryCountForTesting == baselineEntryCount)
+
+        // Distinct soldier types resolve to distinct textures (no aliasing).
+        let infantry = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .infantry)
+        let archer = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .archer)
+        #expect(infantry !== archer)
+    }
+
     @Test("Transient playback keeps the soldier's stable walk-frame identity")
     func transientAnimationUsesStableWalkTexturesForEverySoldierType() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
@@ -1274,6 +1308,30 @@ struct BattleSceneTests {
         #expect(scene.isCityHPBarFillHiddenForTesting)
     }
 
+    @Test func redrawWithLayoutRunsCityHPBarLayoutExactlyOnce() throws {
+        // Regression: `redraw(shouldLayout: true)` called `layoutCityHPBar()`
+        // directly and then again via `layoutInterface()`, building CGPaths on
+        // the first pass that were immediately discarded by the second. The fix
+        // defers to `layoutInterface()` when `shouldLayout` is true.
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // Baseline count after scene construction.
+        let baseline = scene.layoutCityHPBarCallCountForTesting
+
+        // A full-layout redraw must run `layoutCityHPBar` exactly once (via the
+        // `layoutInterface` pass), not twice.
+        scene.redrawForTesting(shouldLayout: true)
+        #expect(scene.layoutCityHPBarCallCountForTesting == baseline + 1)
+
+        // A no-layout redraw (the per-damage-tick hot path) must still run
+        // `layoutCityHPBar` exactly once so the HP bar reflects new damage
+        // without a full interface layout.
+        let baselineAfterLayout = scene.layoutCityHPBarCallCountForTesting
+        scene.redrawForTesting(shouldLayout: false)
+        #expect(scene.layoutCityHPBarCallCountForTesting == baselineAfterLayout + 1)
+    }
+
     @Test func feedbackTooltipHiddenByDefaultOnFreshScene() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -1282,6 +1340,38 @@ struct BattleSceneTests {
         // as a tooltip after an action. Guards against a regression that
         // leaves the tooltip permanently visible.
         #expect(!scene.isFeedbackTooltipVisibleForTesting)
+    }
+
+    @Test func infoTooltipSuppressedWhileConquestPopupIsVisible() throws {
+        // Regression: `handleInfoButton` had no `isConquestPopupVisible` guard,
+        // so tapping a HUD info button (gold/city) while the conquest popup
+        // overlayed the scene could present a tooltip rendered behind the popup.
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        // Fresh scene: no tooltip presented yet.
+        #expect(!scene.isFeedbackTooltipVisibleForTesting)
+        #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+
+        // Present the conquest popup (overlaying the HUD).
+        scene.presentConquestPopupForTesting(goldEarned: 5)
+        #expect(scene.isConquestPopupVisibleForTesting)
+
+        // While the popup is visible, both info buttons must be suppressed —
+        // no tooltip presentation (panel stays hidden), no dedupe token recorded.
+        scene.handleInfoButtonForTesting(named: scene.goldInfoButtonNameForTesting)
+        scene.handleInfoButtonForTesting(named: scene.cityInfoButtonNameForTesting)
+        #expect(!scene.isFeedbackTooltipVisibleForTesting)
+        #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+
+        // After the popup closes, info tooltips work again. A router is required
+        // for `closeConquestPopup` to complete its routing handoff.
+        scene.closeConquestPopupForTesting()
+        #expect(!scene.isConquestPopupVisibleForTesting)
+        scene.handleInfoButtonForTesting(named: scene.cityInfoButtonNameForTesting)
+        #expect(scene.isFeedbackTooltipVisibleForTesting)
+        #expect(!scene.lastPresentedTooltipTextForTesting.isEmpty)
     }
 
     @Test func repeatedIdenticalFeedbackRetriggersTooltipAfterFadeOut() throws {
