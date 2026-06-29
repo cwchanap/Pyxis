@@ -262,7 +262,6 @@ final class BattleScene: SKScene {
 
         observeLifecycleNotificationsIfNeeded()
         redraw()
-        layoutInterface()
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -732,7 +731,7 @@ final class BattleScene: SKScene {
         fitLabel(cityLevelLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
         fitLabel(defenseTraitLabel, maxWidth: metrics.rightHUDLabelWidth)
         fitLabel(cityHPLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
-        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDWidth * 0.58)
+        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDLabelWidth)
         fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
         fitLabel(manualTypeButtonLabel, maxWidth: manualTypeButtonSize.width - 18)
         for bundle in manualTypeButtonBundles.values {
