@@ -135,6 +135,19 @@ final class BattleScene: SKScene {
     /// Textures are keyed by static asset names, so they never need invalidation.
     private var soldierAnimationTextureCache: [SoldierType: [SoldierAnimationAction: [SKTexture]]] = [:]
 
+    /// Memoized per-type HUD icon textures. `updateHUDIcons` runs on every
+    /// combat-damage tick via `redraw` → `applyCombatResult`; without this cache
+    /// it reallocated ~16 `SKTexture` objects per tick even though the resolved
+    /// asset name is deterministic per `SoldierType`. Keyed by static asset
+    /// names, so entries never need invalidation.
+    private var soldierHUDIconTextureCache: [SoldierType: SKTexture] = [:]
+
+    /// Call counter for `layoutCityHPBar`, exposed via
+    /// `layoutCityHPBarCallCountForTesting` so tests can verify `redraw` does
+    /// not invoke it twice when `shouldLayout` is true (the layout pass in
+    /// `layoutInterface` already runs it).
+    private var layoutCityHPBarCallCount = 0
+
     private var enemyCityImpactPoint: CGPoint {
         battlefieldLayout.enemyCityImpactPoint
     }
@@ -326,6 +339,11 @@ final class BattleScene: SKScene {
     }
 
     private func handleInfoButton(named touchedButtonName: String) -> Bool {
+        // Info tooltips must not fire while the conquest popup is overlaying
+        // the HUD — otherwise the tooltip renders behind the popup overlay.
+        guard !isConquestPopupVisible else {
+            return false
+        }
         switch touchedButtonName {
         case ButtonName.goldInfo:
             hideManualTypeMenuWithoutLayoutIfNeeded()
@@ -1067,6 +1085,7 @@ final class BattleScene: SKScene {
     }
 
     private func layoutCityHPBar() {
+        layoutCityHPBarCallCount &+= 1
         guard battlefieldLayout.isVisible, let enemyCityNode else {
             cityHPBarBackground.path = nil
             cityHPBarFill.path = nil
@@ -1333,7 +1352,15 @@ final class BattleScene: SKScene {
         cityLevelLabel.text = state.displayCityTitle
         defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
         cityHPLabel.text = ""
-        layoutCityHPBar()
+        // When `shouldLayout` is true, `layoutInterface()` below re-runs
+        // `layoutCityHPBar()` as part of the full layout pass, so calling it
+        // here would build CGPaths that are immediately discarded. Skip it in
+        // that case; when `shouldLayout` is false (the per-damage-tick hot
+        // path), `layoutInterface()` does not run, so the HP bar must be
+        // refreshed here to reflect the new `cityRemainingPower`.
+        if !shouldLayout {
+            layoutCityHPBar()
+        }
         updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         let spawnableTypes = manualSpawnableSoldierTypes
@@ -1355,13 +1382,12 @@ final class BattleScene: SKScene {
     }
 
     private func updateHUDIcons() {
-        let selectedSoldierAsset = soldierIconAssetName(for: selectedManualSoldierType)
-        setIconTexture(manualTypeButtonIcon, assetName: selectedSoldierAsset)
-        setIconTexture(spawnButtonIcon, assetName: selectedSoldierAsset)
-        setIconTexture(soldierStatusIcon, assetName: selectedSoldierAsset)
+        setIconTexture(manualTypeButtonIcon, type: selectedManualSoldierType)
+        setIconTexture(spawnButtonIcon, type: selectedManualSoldierType)
+        setIconTexture(soldierStatusIcon, type: selectedManualSoldierType)
 
         for (soldierType, bundle) in manualTypeButtonBundles {
-            setIconTexture(bundle.icon, assetName: soldierIconAssetName(for: soldierType))
+            setIconTexture(bundle.icon, type: soldierType)
         }
     }
 
@@ -1369,11 +1395,29 @@ final class BattleScene: SKScene {
         firstAvailableSoldierAnimationFrameName(for: type) ?? soldierAssetName(for: type)
     }
 
-    private func setIconTexture(_ icon: SKSpriteNode, assetName: String) {
-        let texture = SKTexture(imageNamed: assetName)
-        if isSoldierAnimationFrameAssetName(assetName) {
-            icon.texture = SKTexture(rect: Self.soldierHUDIconAnimationFrameCrop, in: texture)
-        } else {
+    /// Returns the cached HUD icon texture for `type`, allocating it once.
+    /// The resolved asset name is deterministic per `SoldierType` (animation
+    /// frame availability is stable across the scene's lifetime), so the cached
+    /// `SKTexture` is reused across every `updateHUDIcons` call.
+    private func soldierHUDIconTexture(for type: SoldierType) -> SKTexture {
+        if let cached = soldierHUDIconTextureCache[type] {
+            return cached
+        }
+        let assetName = soldierIconAssetName(for: type)
+        let source = SKTexture(imageNamed: assetName)
+        let texture = isSoldierAnimationFrameAssetName(assetName)
+            ? SKTexture(rect: Self.soldierHUDIconAnimationFrameCrop, in: source)
+            : source
+        soldierHUDIconTextureCache[type] = texture
+        return texture
+    }
+
+    private func setIconTexture(_ icon: SKSpriteNode, type: SoldierType) {
+        let texture = soldierHUDIconTexture(for: type)
+        // Pointer equality guards redundant reassignment on the hot path: the
+        // cache returns the same `SKTexture` instance for a given type, so this
+        // skips the texture swap entirely when the type is unchanged.
+        if icon.texture !== texture {
             icon.texture = texture
         }
         icon.colorBlendFactor = 0
@@ -2790,6 +2834,19 @@ extension BattleScene {
         cityHPBarFill.path == nil
     }
 
+    /// Number of times `layoutCityHPBar` has run since scene creation. Tests
+    /// use this to verify `redraw(shouldLayout: true)` invokes it exactly once
+    /// (via `layoutInterface`) rather than twice (a discarded first pass).
+    var layoutCityHPBarCallCountForTesting: Int {
+        layoutCityHPBarCallCount
+    }
+
+    /// Drives `redraw` with an explicit `shouldLayout` flag so tests can verify
+    /// the HP bar layout count under each path.
+    func redrawForTesting(shouldLayout: Bool) {
+        redraw(shouldLayout: shouldLayout)
+    }
+
     func spawnSoldierForTesting() {
         spawnSoldier()
     }
@@ -2818,6 +2875,18 @@ extension BattleScene {
     /// Number of (type, action) entries currently held in the texture cache.
     var soldierAnimationTextureCacheEntryCountForTesting: Int {
         soldierAnimationTextureCache.values.reduce(0) { $0 + $1.count }
+    }
+
+    /// Returns the cached HUD icon texture for `soldierType`. Exposed so tests
+    /// can verify the cache memoizes — repeated calls must return the same
+    /// `SKTexture` instance rather than re-allocating from `UIImage(named:)`.
+    func cachedSoldierHUDIconTextureForTesting(soldierType: SoldierType) -> SKTexture {
+        soldierHUDIconTexture(for: soldierType)
+    }
+
+    /// Number of type entries currently held in the HUD icon texture cache.
+    var soldierHUDIconTextureCacheEntryCountForTesting: Int {
+        soldierHUDIconTextureCache.count
     }
 
     /// IDs of soldiers awaiting animated removal after a tower kill. Exposed so
@@ -2860,6 +2929,23 @@ extension BattleScene {
     func closeConquestPopupForTesting() {
         closeConquestPopup()
     }
+
+    /// Presents the conquest popup without requiring a live conquest, so tests
+    /// can verify HUD interactions are gated while the popup is overlaying.
+    func presentConquestPopupForTesting(goldEarned: Int = 0) {
+        showConquestPopup(goldEarned: goldEarned)
+    }
+
+    /// Drives the info-button touch path. Returns whether an info tooltip was
+    /// presented (true) or suppressed (false, e.g. while the conquest popup is
+    /// visible).
+    @discardableResult
+    func handleInfoButtonForTesting(named buttonName: String) -> Bool {
+        handleInfoButton(named: buttonName)
+    }
+
+    var goldInfoButtonNameForTesting: String { ButtonName.goldInfo }
+    var cityInfoButtonNameForTesting: String { ButtonName.cityInfo }
 
     func flushBuildingProgressSaveForTesting() {
         buildingProgressSaveAccumulator = 0

@@ -364,6 +364,14 @@ final class CountryMapScene: SKScene {
     }
 
     private func cityPositions(in mapFrame: CGRect) -> [Int: CGPoint] {
+        // Tie the authored anchor literal to the model's city count so a
+        // mismatch fails fast instead of producing an out-of-bounds crash on
+        // `authoredCityPadAnchors[cityNumber - 1]`. Runs in release builds too.
+        precondition(
+            Self.authoredCityPadAnchors.count == KingdomGameState.firstCountryCityCount,
+            "authoredCityPadAnchors has \(Self.authoredCityPadAnchors.count) entries but "
+                + "firstCountryCityCount is \(KingdomGameState.firstCountryCityCount)"
+        )
         var positions: [Int: CGPoint] = [:]
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             let normalized = Self.authoredCityPadAnchors[cityNumber - 1]
@@ -642,6 +650,13 @@ extension CountryMapScene {
 
     func fitLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) {
         fitLabel(label, maxWidth: maxWidth)
+    }
+
+    /// Number of authored city pad anchors. Exposed so tests can verify the
+    /// literal stays in sync with `KingdomGameState.firstCountryCityCount` —
+    /// a mismatch would trap in `cityPositions` via its `precondition`.
+    var authoredCityPadAnchorCountForTesting: Int {
+        Self.authoredCityPadAnchors.count
     }
 }
 #endif

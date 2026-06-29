@@ -443,6 +443,23 @@ struct CountryMapSceneTests {
         }
     }
 
+    @Test func authoredCityPadAnchorCountMatchesFirstCountryCityCount() throws {
+        // The `authoredCityPadAnchors` literal is indexed by `cityNumber - 1`
+        // where `cityNumber` ranges over `1...firstCountryCityCount`. A count
+        // mismatch would trap in `cityPositions` via its `precondition`; this
+        // test makes the coupling explicit so a future change to either side
+        // surfaces here rather than as a runtime crash.
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: CGSize(width: 390, height: 844), store: store, router: RouteSpy())
+
+        #expect(scene.authoredCityPadAnchorCountForTesting == KingdomGameState.firstCountryCityCount)
+    }
+
     @Test func illustratedRegionMapAvoidsTallPhoneSensorArea() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
