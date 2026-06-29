@@ -109,7 +109,7 @@ Run the same `BattleSceneTests` command. Expected: PASS or isolated failures tha
 
 - [ ] **Step 1: Write failing tests**
 
-Add tests that assert the battlefield frame occupies most of a tall phone viewport, the first live soldier body height is at least 108 pt, and its HP bar sits close to the body.
+Add tests that assert the battlefield frame occupies most of a tall phone viewport, the first live soldier body height is at least 54 pt and at most 70 pt (half scale — see the spec's Design section for why the original 108-140 pt target was reduced), and its HP bar sits close to the body.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -123,7 +123,7 @@ Expected: failure because the current feedback reservation shortens the battlefi
 
 - [ ] **Step 3: Implement presentation sizing**
 
-Reduce HUD height to an icon strip, pass the wider battlefield width into `BattlefieldLayout`, stop reserving tooltip space while hidden, increase soldier target height plus HP bar dimensions to 2x, and keep the HP bar near the body.
+Reduce HUD height to an icon strip, pass the wider battlefield width into `BattlefieldLayout`, stop reserving tooltip space while hidden, set soldier target height to the half-scale 54-70 pt band (matching the spec's Design rationale), and keep the HP bar near the body.
 
 - [ ] **Step 4: Run tests to verify pass**
 

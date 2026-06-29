@@ -945,10 +945,9 @@ struct BattleSceneTests {
         #expect(frames.buildButton.minY >= 12)
         #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
         #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
-        #expect(frames.worldButtonLabel.minX >= frames.worldButton.minX + 12)
-        #expect(frames.worldButtonLabel.maxX <= frames.worldButton.maxX - 12)
-        #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
-        #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
+        // World/Build are now icon-only (labels carry empty text), so their
+        // label-frame containment would be vacuous; icon presence is covered
+        // by battleHUDUsesResourceValuesWithoutTitlesAndTextForCommands.
         #expect(frames.battlefield.width >= scene.size.width - 2)
         #expect(frames.battlefield.height >= scene.size.height * 0.64)
     }
@@ -1154,10 +1153,7 @@ struct BattleSceneTests {
         #expect(frames.spawnButton.maxX < frames.buildButton.minX)
         #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
         #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
-        #expect(frames.worldButtonLabel.minX >= frames.worldButton.minX + 12)
-        #expect(frames.worldButtonLabel.maxX <= frames.worldButton.maxX - 12)
-        #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
-        #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
+        // World/Build are icon-only here; label-frame checks would be vacuous.
 
         scene.spawnSoldierForTesting()
         let updatedFrames = try #require(scene.battleLayoutFramesForTesting)
@@ -1200,8 +1196,7 @@ struct BattleSceneTests {
         #expect(frames.cityLevelLabel.minX >= frames.rightHUD.minX + 10)
         #expect(frames.cityLevelLabel.maxX <= frames.rightHUD.maxX - 10)
         #expect(frames.cityHPBar.maxX <= size.width - 8)
-        #expect(frames.buildButtonLabel.minX >= frames.buildButton.minX + 14)
-        #expect(frames.buildButtonLabel.maxX <= frames.buildButton.maxX - 14)
+        // Build is icon-only in the late-game layout; no text label to bound.
     }
 
     @Test func commanderHUDAvoidsTallPhoneSensorArea() throws {
@@ -1248,6 +1243,45 @@ struct BattleSceneTests {
         #expect(frames.cityHPBar.width >= 96)
         #expect(frames.cityHPBar.height >= 5)
         #expect(!frames.cityHPBar.intersects(frames.rightHUD))
+    }
+
+    @Test func cityHPBarFillVisibleWhenCityHasPower() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // Positive case: with power remaining the fill path is non-nil so the
+        // green HP sliver renders. Paired with the zero-power test below to
+        // isolate the power==0 branch from full conquest teardown.
+        #expect(!scene.isCityHPBarFillHiddenForTesting)
+    }
+
+    @Test func cityHPBarFillHiddenWhenCityPowerIsZero() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0)
+        )
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        // Regression for the zero-power sliver: previously the fill kept a
+        // 1px-wide path (`max(1, width * 0)`) and rendered a tiny green line
+        // after the city was drained. The fix nils the path at power==0.
+        #expect(scene.cityRemainingPowerForTesting == 0)
+        #expect(scene.isCityHPBarFillHiddenForTesting)
+    }
+
+    @Test func feedbackTooltipHiddenByDefaultOnFreshScene() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // The feedback panel starts transparent and is only revealed briefly
+        // as a tooltip after an action. Guards against a regression that
+        // leaves the tooltip permanently visible.
+        #expect(!scene.isFeedbackTooltipVisibleForTesting)
     }
 
     @Test func threeVerticalLanesSpanCastleGateToEnemyGate() throws {
