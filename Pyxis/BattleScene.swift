@@ -1556,7 +1556,8 @@ final class BattleScene: SKScene {
 
         if conqueredCity {
             clearLiveCombat()
-            feedbackText = "\(state.displayCityTitle) conquered! +\(damageResult.goldEarned) gold."
+            // The conquest popup communicates the result; skip the tooltip so it
+            // doesn't present behind the overlay and linger after the popup closes.
         } else {
             feedbackText = "Soldiers dealt \(compactNumber(damageResult.damageDealt)) damage."
         }
