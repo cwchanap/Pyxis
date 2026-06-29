@@ -56,6 +56,16 @@ final class BattleScene: SKScene {
         static let goldBurstSparkleZ: CGFloat = 0
         static let goldBurstRemovalDelayNanoseconds: UInt64 = 650_000_000
         static let tooltipVisibleDuration: TimeInterval = 1.65
+
+        /// Fixed slash cue drawn above a soldier on every melee attack.
+        /// Hoisted to a single immutable path so each attack reuses one
+        /// allocation instead of building a new `CGMutablePath` per strike.
+        static let soldierAttackCuePath: CGPath = {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: -18, y: 8))
+            path.addQuadCurve(to: CGPoint(x: 28, y: 28), control: CGPoint(x: 8, y: 42))
+            return path
+        }()
     }
 
     private enum SoldierAnimationAction: String, CaseIterable {
@@ -174,6 +184,9 @@ final class BattleScene: SKScene {
     private var feedbackText = ""
     private var lastPresentedTooltipText = ""
     private var currentLeftHUDLabelWidth: CGFloat = 140
+    /// Cached `LayoutMetrics.contentWidth` from the most recent layout pass.
+    /// `showTooltip` reads this instead of recomputing the full metrics struct.
+    private var cachedContentWidth: CGFloat = 0
     #if DEBUG
     private var battlefieldLayoutCount = 0
     private var recentSoldierAttackAnimationCount = 0
@@ -694,6 +707,7 @@ final class BattleScene: SKScene {
         )
 
         currentLeftHUDLabelWidth = metrics.leftHUDLabelWidth
+        cachedContentWidth = metrics.contentWidth
         fitLabel(goldLabel, maxWidth: metrics.leftHUDWidth * 0.58)
         fitLabel(cityLevelLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
         fitLabel(defenseTraitLabel, maxWidth: metrics.rightHUDLabelWidth)
@@ -740,7 +754,6 @@ final class BattleScene: SKScene {
         let horizontalMargin: CGFloat
         let topMargin: CGFloat
         let buttonHeight: CGFloat
-        let secondaryButtonHeight: CGFloat
         let bottomMargin: CGFloat
         let leftHUDWidth: CGFloat
         let rightHUDWidth: CGFloat
@@ -765,7 +778,6 @@ final class BattleScene: SKScene {
         let compactHeight = size.height < 500
         let horizontalMargin = max(8, min(compactHeight ? 16 : 18, size.width * 0.045))
         let buttonHeight: CGFloat = compactHeight ? 42 : 52
-        let secondaryButtonHeight: CGFloat = compactHeight ? 28 : 30
         let buttonGap: CGFloat = compactHeight ? 10 : 12
         let safeBottomInset = GameUITheme.bottomUnsafeInset(sceneSize: size, view: view)
         let bottomMargin = max(compactHeight ? 20 : 30, safeBottomInset + (compactHeight ? 8 : 12))
@@ -794,7 +806,6 @@ final class BattleScene: SKScene {
             horizontalMargin: horizontalMargin,
             topMargin: topMargin,
             buttonHeight: buttonHeight,
-            secondaryButtonHeight: secondaryButtonHeight,
             bottomMargin: bottomMargin,
             leftHUDWidth: leftHUDWidth,
             rightHUDWidth: rightHUDWidth,
@@ -1387,7 +1398,7 @@ final class BattleScene: SKScene {
 
         lastPresentedTooltipText = text
         feedbackLabel.text = text
-        let feedbackPanelWidth = min(layoutMetrics().contentWidth, max(220, feedbackLabel.frame.width + 32))
+        let feedbackPanelWidth = min(cachedContentWidth, max(220, feedbackLabel.frame.width + 32))
         feedbackPanel.update(size: CGSize(width: feedbackPanelWidth, height: max(32, feedbackLabel.fontSize + 18)))
         feedbackPanel.position = feedbackLabel.position
         feedbackPanel.removeAllActions()
@@ -1990,11 +2001,7 @@ final class BattleScene: SKScene {
     }
 
     private func playStableSoldierAttackCue(for bundle: SoldierNodeBundle) {
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: -18, y: 8))
-        path.addQuadCurve(to: CGPoint(x: 28, y: 28), control: CGPoint(x: 8, y: 42))
-
-        let slash = SKShapeNode(path: path)
+        let slash = SKShapeNode(path: EffectStyle.soldierAttackCuePath)
         slash.name = EffectName.soldierAttackCue
         slash.strokeColor = SKColor(red: 1.0, green: 0.90, blue: 0.38, alpha: 0.9)
         slash.lineWidth = 5
@@ -2738,6 +2745,18 @@ extension BattleScene {
 
     var isConquestPopupVisibleForTesting: Bool {
         isConquestPopupVisible
+    }
+
+    /// True when the feedback tooltip panel is currently shown (alpha > 0).
+    /// A fresh scene presents no tooltip, so this starts false.
+    var isFeedbackTooltipVisibleForTesting: Bool {
+        feedbackPanel.alpha > 0.01
+    }
+
+    /// True when the city HP bar fill is hidden because `cityRemainingPower`
+    /// has reached 0 (the fill path is nulled to avoid rendering a sliver).
+    var isCityHPBarFillHiddenForTesting: Bool {
+        cityHPBarFill.path == nil
     }
 
     func spawnSoldierForTesting() {
