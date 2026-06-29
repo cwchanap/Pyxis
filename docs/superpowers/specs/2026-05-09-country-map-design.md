@@ -288,3 +288,18 @@ Those behaviors are not part of the first country-map implementation.
 ## Open Decisions
 
 None. The approved first slice is a two-scene design with linear Country 1 progression, a branching-looking map layout, launch directly into City 1 battle, and idle progress that pauses at the current city's conquest until the player explicitly enters the next city from the country map.
+
+## Known Limitations
+
+### City anchors on cropped (iPad landscape) layouts
+
+`CountryMapScene.layoutBackdrop` aspect-fills the 2:3 portrait backdrop (`country-map-backdrop`, 1024×1536) to the full scene, and `cityPositions(in:)` maps the authored `authoredCityPadAnchors` into the backdrop's accumulated frame so cities sit on exact pixel landmarks.
+
+On layouts where the scene aspect is wider than 2:3 (notably iPad landscape, which is reachable because `TARGETED_DEVICE_FAMILY = "1,2"` and `GameViewController.supportedInterfaceOrientations` returns `.all` on iPad), aspect-fill extends the backdrop past the screen. The authored anchors then place early cities (1–3) below the visible band and late cities (13–15) above it, making them invisible/untappable.
+
+Two fixes were considered and deferred:
+
+1. **Aspect-fit the backdrop into the illustrated region** — keeps every landmark on-screen on every device, but shrinks the backdrop on portrait phone (no longer fills the screen) and drops the `countryMapBackdropCoversFullSceneBehindHUD` test assertion.
+2. **Map anchors into the visible illustrated region directly** — unifies compact + non-compact paths and keeps cities clear of the HUD, but cities no longer sit on exact backdrop pixel landmarks (portrait positions shift ~17pt x / ~70pt y) and breaks `cityNodesAlignToAuthoredBackdropPads`.
+
+Both trade off a behavior the current portrait implementation intentionally encodes. Until a design decision is made on which tradeoff to accept, the iPad-landscape layout is a known unsupported configuration.
