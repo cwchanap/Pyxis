@@ -186,7 +186,9 @@ final class BattleScene: SKScene {
     private var currentLeftHUDLabelWidth: CGFloat = 140
     /// Cached `LayoutMetrics.contentWidth` from the most recent layout pass.
     /// `showTooltip` reads this instead of recomputing the full metrics struct.
-    private var cachedContentWidth: CGFloat = 0
+    /// Defaults to a sane positive floor so a tooltip fired before the first
+    /// layout pass still gets a non-zero panel width.
+    private var cachedContentWidth: CGFloat = 220
     #if DEBUG
     private var battlefieldLayoutCount = 0
     private var recentSoldierAttackAnimationCount = 0
@@ -1410,8 +1412,22 @@ final class BattleScene: SKScene {
         let panelFade = SKAction.fadeOut(withDuration: 0.22)
         let labelWait = SKAction.wait(forDuration: EffectStyle.tooltipVisibleDuration)
         let labelFade = SKAction.fadeOut(withDuration: 0.22)
-        feedbackPanel.run(SKAction.sequence([panelWait, panelFade]), withKey: "feedbackTooltip")
+        // Reset the dedupe token once the tooltip finishes fading out so that a
+        // repeated identical message (e.g. "Soldiers dealt 5 damage." tick after
+        // tick from a single infantry) can re-trigger the tooltip. Without this,
+        // `presentFeedbackTooltipIfNeeded` would suppress it forever.
+        let resetToken = SKAction.run { [weak self] in
+            self?.resetFeedbackTooltipDedupeToken()
+        }
+        feedbackPanel.run(SKAction.sequence([panelWait, panelFade, resetToken]), withKey: "feedbackTooltip")
         feedbackLabel.run(SKAction.sequence([labelWait, labelFade]), withKey: "feedbackTooltip")
+    }
+
+    /// Clears the tooltip dedupe token. Called by the fade-out `SKAction` once
+    /// the tooltip has fully hidden, so a subsequent identical feedback message
+    /// can re-trigger the tooltip instead of being silently suppressed.
+    private func resetFeedbackTooltipDedupeToken() {
+        lastPresentedTooltipText = ""
     }
 
     private func updateLiveCombatStatusLabel() {
@@ -2751,6 +2767,21 @@ extension BattleScene {
     /// A fresh scene presents no tooltip, so this starts false.
     var isFeedbackTooltipVisibleForTesting: Bool {
         feedbackPanel.alpha > 0.01
+    }
+
+    /// The current tooltip dedupe token. Tests use this to verify that an
+    /// identical feedback message re-triggers the tooltip after the fade-out
+    /// completion resets the token.
+    var lastPresentedTooltipTextForTesting: String {
+        lastPresentedTooltipText
+    }
+
+    /// Simulates the tooltip fade-out `SKAction` completing, clearing the
+    /// dedupe token so a repeated identical message can re-trigger the tooltip.
+    /// Tests can't drive `SKAction` time without a render loop, so this invokes
+    /// the same production reset path the action's `run` block calls.
+    func completeFeedbackTooltipFadeOutForTesting() {
+        resetFeedbackTooltipDedupeToken()
     }
 
     /// True when the city HP bar fill is hidden because `cityRemainingPower`

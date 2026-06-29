@@ -1284,6 +1284,33 @@ struct BattleSceneTests {
         #expect(!scene.isFeedbackTooltipVisibleForTesting)
     }
 
+    @Test func repeatedIdenticalFeedbackRetriggersTooltipAfterFadeOut() throws {
+        // Regression: `lastPresentedTooltipText` was never reset after the
+        // tooltip faded out, so a repeated identical message (e.g. "Soldiers
+        // dealt 5 damage." tick after tick from a single infantry attacking a
+        // durable city) would show once then never again — making combat look
+        // stalled. The fix resets the dedupe token when the fade-out completes.
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 2000))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        // First attack: tooltip presents and records the dedupe token.
+        let firstToken = scene.lastPresentedTooltipTextForTesting
+        #expect(!firstToken.isEmpty)
+
+        // Simulate the fade-out SKAction completing: the token resets so the
+        // next identical message can re-trigger the tooltip.
+        scene.completeFeedbackTooltipFadeOutForTesting()
+        #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+
+        // Second attack with the same damage message: the tooltip must
+        // re-present, re-recording the dedupe token.
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+        #expect(scene.lastPresentedTooltipTextForTesting == firstToken)
+    }
+
     @Test func threeVerticalLanesSpanCastleGateToEnemyGate() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
