@@ -142,12 +142,6 @@ final class BattleScene: SKScene {
     /// names, so entries never need invalidation.
     private var soldierHUDIconTextureCache: [SoldierType: SKTexture] = [:]
 
-    /// Call counter for `layoutCityHPBar`, exposed via
-    /// `layoutCityHPBarCallCountForTesting` so tests can verify `redraw` does
-    /// not invoke it twice when `shouldLayout` is true (the layout pass in
-    /// `layoutInterface` already runs it).
-    private var layoutCityHPBarCallCount = 0
-
     private var enemyCityImpactPoint: CGPoint {
         battlefieldLayout.enemyCityImpactPoint
     }
@@ -206,6 +200,12 @@ final class BattleScene: SKScene {
     private var battlefieldLayoutCount = 0
     private var recentSoldierAttackAnimationCount = 0
     private var recentSoldierHitAnimationCount = 0
+    /// Call counter for `layoutCityHPBar`, exposed via
+    /// `layoutCityHPBarCallCountForTesting` so tests can verify `redraw` does
+    /// not invoke it twice when `shouldLayout` is true (the layout pass in
+    /// `layoutInterface` already runs it). DEBUG-only like the sibling layout
+    /// counters above; release builds never read it.
+    private var layoutCityHPBarCallCount = 0
     #endif
     private var buildingProgressSaveAccumulator: TimeInterval = 0
     private static let buildingProgressSaveInterval: TimeInterval = 2.0
@@ -1084,7 +1084,9 @@ final class BattleScene: SKScene {
     }
 
     private func layoutCityHPBar() {
+        #if DEBUG
         layoutCityHPBarCallCount &+= 1
+        #endif
         guard battlefieldLayout.isVisible, let enemyCityNode else {
             cityHPBarBackground.path = nil
             cityHPBarFill.path = nil
@@ -1908,6 +1910,15 @@ final class BattleScene: SKScene {
         SKTexture(rect: soldierAnimationFrameCrop(for: type), in: SKTexture(imageNamed: frameName))
     }
 
+    /// Normalized (0.0–1.0) sub-rect of each soldier animation frame texture,
+    /// used by `soldierAnimationTexture(named:in:)` to crop away transparent
+    /// padding so sprites align tightly inside their 28–42 pt render nodes.
+    /// These are fractions of the source texture, NOT pixel values — they are
+    /// independent of the authored frame size (128×128 today; see AGENTS.md),
+    /// so swapping in higher-res art requires no change here. The horizontal
+    /// crop is uniform (center 50%); the type-specific heights trim per-type
+    /// vertical padding. If a sprite set is re-authored with different padding,
+    /// re-derive these from the new art rather than tweaking by eye.
     private func soldierAnimationFrameCrop(for type: SoldierType) -> CGRect {
         switch type {
         case .infantry:
