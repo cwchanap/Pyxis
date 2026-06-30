@@ -302,7 +302,24 @@ final class CountryMapScene: SKScene {
         }
 
         let backdropFrame = backdropNode?.calculateAccumulatedFrame() ?? illustratedRegionFrame
-        let cityPositionFrame = isCompactHeight ? illustratedRegionFrame : backdropFrame
+        let cityPositionFrame: CGRect
+        if isCompactHeight {
+            cityPositionFrame = illustratedRegionFrame
+        } else {
+            // On wide layouts (e.g. iPad landscape / split view) the cover-scaled
+            // portrait backdrop overflows far above and below the screen, so
+            // mapping the authored anchors across the full backdrop frame would
+            // place lower cities behind the feedback panel and upper cities
+            // behind the title panel. When the backdrop-aligned positions would
+            // not stay within the visible map area, fall back to the illustrated
+            // region (the same frame the compact path uses). On portrait phones
+            // the backdrop fits, so the anchors keep their authored alignment
+            // with the backdrop art.
+            let fitsVisibleRegion = cityPositions(in: backdropFrame).values.allSatisfy {
+                illustratedRegionFrame.contains($0)
+            }
+            cityPositionFrame = fitsVisibleRegion ? backdropFrame : illustratedRegionFrame
+        }
         let positions = cityPositions(in: cityPositionFrame)
         drawRoutes(positions: positions)
 

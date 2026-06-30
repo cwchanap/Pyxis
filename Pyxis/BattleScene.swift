@@ -1557,8 +1557,12 @@ final class BattleScene: SKScene {
 
         if conqueredCity {
             clearLiveCombat()
-            // The conquest popup communicates the result; skip the tooltip so it
-            // doesn't present behind the overlay and linger after the popup closes.
+            // The conquest popup communicates the result; clear any stale
+            // feedback so the tooltip doesn't present behind the overlay and
+            // linger after the popup closes. Clearing (rather than just not
+            // setting) also covers a stale message left over from an earlier
+            // damage tick whose tooltip has already faded (dedupe token reset).
+            feedbackText = ""
         } else {
             feedbackText = "Soldiers dealt \(compactNumber(damageResult.damageDealt)) damage."
         }
@@ -2283,7 +2287,12 @@ final class BattleScene: SKScene {
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
                 clearLiveCombat()
-                feedbackText = "Buildings conquered \(state.displayCityTitle)."
+                // The conquest popup communicates the result; clear any stale
+                // feedback so the tooltip doesn't present behind the overlay and
+                // linger after the popup closes. Mirrors the live-combat conquest
+                // path. Clearing (rather than just not setting) also covers a
+                // stale message left over from before backgrounding.
+                feedbackText = ""
             } else if result.damageDealt > 0 {
                 feedbackText = "Buildings dealt \(compactNumber(result.damageDealt)) idle damage."
             } else {
@@ -2574,6 +2583,13 @@ extension BattleScene {
 
     var feedbackTextForTesting: String {
         feedbackText
+    }
+
+    /// Injects a feedback message without driving the tooltip pipeline, so tests
+    /// can reproduce the post-fade stale state (a prior message left in
+    /// `feedbackText` after its tooltip has faded and reset the dedupe token).
+    func setFeedbackTextForTesting(_ text: String) {
+        feedbackText = text
     }
 
     var defenseTraitTextForTesting: String? {
