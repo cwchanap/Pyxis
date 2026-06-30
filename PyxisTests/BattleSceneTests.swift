@@ -957,6 +957,61 @@ struct BattleSceneTests {
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
     }
 
+    @Test func idleConquestSuppressesFeedbackTooltipBehindPopup() throws {
+        // Regression: `sceneWillEnterForeground` set a non-empty conquest
+        // `feedbackText` then called `redraw()` before `showConquestPopup`,
+        // so `presentFeedbackTooltipIfNeeded` (invoked at the tail of `redraw`)
+        // presented the tooltip behind the modal, where it could linger after
+        // the popup closed. The live-combat conquest path already avoided this;
+        // the idle path must too.
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store)
+
+        // Fresh scene: no tooltip presented yet.
+        #expect(!scene.isFeedbackTooltipVisibleForTesting)
+        #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+
+        // The conquest popup is shown, and the feedback tooltip stays hidden
+        // with no dedupe token recorded — the popup communicates the result.
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(!scene.isFeedbackTooltipVisibleForTesting)
+        #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+        #expect(scene.feedbackTextForTesting.isEmpty)
+    }
+
+    @Test func liveConquestClearsStaleFeedbackSoTooltipStaysHiddenBehindPopup() throws {
+        // Regression: the live-combat conquest path only avoided *setting*
+        // `feedbackText`. A stale message left by an earlier damage tick (tooltip
+        // since faded, dedupe token reset to "") would be re-presented behind the
+        // conquest popup during the conquest `redraw`. Mirrors the idle path:
+        // clear `feedbackText` on conquest.
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
+        let scene = makeScene(store: store)
+
+        // Reproduce the post-fade stale state: a prior damage tick left a
+        // message in `feedbackText` while the dedupe token has since reset.
+        scene.setFeedbackTextForTesting("Soldiers dealt 5 damage.")
+        #expect(!scene.feedbackTextForTesting.isEmpty)
+        #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+
+        // Conquer via live combat (3 soldiers vs power 1).
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        // The conquest popup is shown and the stale feedback is cleared so the
+        // tooltip is not re-presented behind the overlay (no dedupe token).
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(scene.feedbackTextForTesting.isEmpty)
+        #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+    }
+
     @Test func commanderHUDKeepsTopClustersAndActionsInsideScene() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)

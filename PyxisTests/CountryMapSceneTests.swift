@@ -443,6 +443,40 @@ struct CountryMapSceneTests {
         }
     }
 
+    @Test func wideLayoutClampsCityAnchorsToVisibleMapRegion() throws {
+        // Regression on iPad landscape / split view: the 1024×1536 portrait
+        // backdrop is cover-scaled by width, so its accumulated frame extends
+        // far above and below the screen. Positioning cities across that
+        // offscreen frame placed lower cities behind the feedback panel (or
+        // below the screen) and upper cities behind the title panel (or above
+        // it). The anchor frame must fall back to the visible map area on wide
+        // layouts instead of using the overflowing backdrop frame.
+        let size = CGSize(width: 1366, height: 1024)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let frames = scene.mapLayoutFramesForTesting
+
+        // Sanity: this size actually triggers the overflow regime the fix
+        // targets — cover-scaling the portrait backdrop taller than the screen.
+        let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
+        let backdropFrame = backdrop.calculateAccumulatedFrame()
+        #expect(backdropFrame.height > size.height)
+
+        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
+            let cityNode = try #require(scene.childNode(withName: "//countryMapCity-\(cityNumber)"))
+            let frame = cityNode.calculateAccumulatedFrame()
+
+            #expect(frames.sceneFrame.contains(frame), "City \(cityNumber) escaped the scene on a wide layout")
+            #expect(!frames.titlePanelFrame.intersects(frame), "City \(cityNumber) overlapped the title panel")
+            #expect(!frames.feedbackPanelFrame.intersects(frame), "City \(cityNumber) overlapped the feedback panel")
+        }
+    }
+
     @Test func authoredCityPadAnchorCountMatchesFirstCountryCityCount() throws {
         // The `authoredCityPadAnchors` literal is indexed by `cityNumber - 1`
         // where `cityNumber` ranges over `1...firstCountryCityCount`. A count
