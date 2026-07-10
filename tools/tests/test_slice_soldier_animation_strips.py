@@ -81,3 +81,72 @@ class StoryboardCellTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "two square rows"):
             pipeline.storyboard_cells(board, KEY)
+
+
+class StoryboardValidationTests(unittest.TestCase):
+    def test_rejects_art_inside_reserved_cell_border(self) -> None:
+        board, _ = make_board()
+        normalized = pipeline._normalized_storyboard(board, KEY)
+        cell_size = normalized.width // 5
+        top = (normalized.height - cell_size * 2) // 2
+        ImageDraw.Draw(normalized).point((1, top + cell_size // 2), fill=(255, 0, 0, 255))
+
+        with self.assertRaisesRegex(ValueError, "reserved gutter"):
+            pipeline.prepare_storyboard_frames(normalized, soldier="infantry")
+
+    def test_prepared_frames_keep_transparent_border_and_fixed_size(self) -> None:
+        board, _ = make_board()
+
+        frames = pipeline.prepare_storyboard_frames(board, soldier="infantry")
+
+        self.assertEqual(len(frames), 10)
+        for frame in frames:
+            self.assertEqual(frame.mode, "RGBA")
+            self.assertEqual(frame.size, (128, 128))
+            for x in range(128):
+                self.assertEqual(frame.getpixel((x, 0))[3], 0)
+                self.assertEqual(frame.getpixel((x, 127))[3], 0)
+
+    def test_invalid_sequence_does_not_replace_existing_assets(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        board, _ = make_board()
+        normalized = pipeline._normalized_storyboard(board, KEY)
+        cell_size = normalized.width // 5
+        top = (normalized.height - cell_size * 2) // 2
+        ImageDraw.Draw(normalized).rectangle((0, top, 7, top + 7), fill=(255, 0, 0, 255))
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory)
+            sentinel = output / "infantry-attack-01.imageset" / "sentinel.txt"
+            sentinel.parent.mkdir(parents=True)
+            sentinel.write_text("keep", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                pipeline.slice_storyboard(normalized, output, "infantry", "attack", 128)
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+
+    def test_rejects_low_density_outlier(self) -> None:
+        boxes = [(16, 16, 47, 47)] * 10
+        boxes[4] = (28, 28, 35, 35)
+        with self.assertRaisesRegex(ValueError, "opaque pixel count"):
+            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+
+    def test_rejects_high_density_outlier(self) -> None:
+        boxes = [(20, 16, 43, 47)] * 10
+        boxes[4] = (6, 6, 57, 57)
+        with self.assertRaisesRegex(ValueError, "opaque pixel count"):
+            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+
+    def test_rejects_height_outlier_even_when_density_is_normal(self) -> None:
+        boxes = [(20, 16, 43, 47)] * 10
+        boxes[4] = (6, 24, 57, 39)
+        with self.assertRaisesRegex(ValueError, "bounding-box height"):
+            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+
+    def test_rejects_baseline_drift_greater_than_six_output_pixels(self) -> None:
+        boxes = [(16, 16, 47, 47)] * 10
+        boxes[4] = (16, 8, 47, 39)
+        with self.assertRaisesRegex(ValueError, "baseline"):
+            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
