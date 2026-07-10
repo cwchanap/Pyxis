@@ -6,10 +6,16 @@
 import Foundation
 import SpriteKit
 import Testing
+import UIKit
 @testable import Pyxis
 
 @MainActor
 struct BattleSceneTests {
+    private struct PixelBounds {
+        let minX: Int
+        let maxXExclusive: Int
+    }
+
     @Test func battleSceneDisplaysCampaignCityTitle() throws {
         let store = try makeStore(
             initialState: KingdomGameState(
@@ -94,9 +100,11 @@ struct BattleSceneTests {
         for soldierType in SoldierType.allCases {
             for action in ["walk", "attack", "hit"] {
                 let names = scene.animationFrameNamesForTesting(soldierType: soldierType, action: action)
-                #expect(names.count == 10)
-                #expect(names.first == "\(soldierType.rawValue)-\(action)-01")
-                #expect(names.last == "\(soldierType.rawValue)-\(action)-10")
+                let expectedNames = (1...10).map {
+                    "\(soldierType.rawValue)-\(action)-\(String(format: "%02d", $0))"
+                }
+
+                #expect(names == expectedNames)
             }
         }
     }
@@ -128,6 +136,82 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") >= 1)
+    }
+
+    @Test func cityDamageStartsStableBodyAttackMotion() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackBodyFeedback"))
+    }
+
+    @Test func cityDamageUsesReadableAttackPoseInsteadOfRootLungeOnly() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") >= 1)
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackFeedback"))
+    }
+
+    @Test func cityDamageAnimatesAttackPoseOverlay() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(visibleNodeHasAction(
+            in: scene,
+            namePrefix: "soldierAttackPose",
+            actionKey: "soldierAttackPoseAnimation"
+        ))
+    }
+
+    @Test func cityDamageAnimatesAttackPosePartsForSmoothMotionOnEverySoldierType() throws {
+        for soldierType in SoldierType.allCases {
+            let buildingType = buildingTypeForSoldier(soldierType)
+            let store = try makeStore(initialState: stateWithBuildings([buildingType], cityRemainingPower: 500))
+            let scene = makeScene(store: store)
+
+            scene.selectManualSoldierTypeForTesting(soldierType)
+            scene.spawnSoldierForTesting()
+
+            var foundAnimatedAttackPart = false
+            for _ in 0..<70 {
+                scene.advanceCombatForTesting(deltaTime: 0.1)
+                if visibleNodeHasAction(
+                    in: scene,
+                    namePrefix: "soldierAttackPart",
+                    actionKey: "soldierAttackPartAnimation"
+                ) {
+                    foundAnimatedAttackPart = true
+                    break
+                }
+            }
+
+            #expect(foundAnimatedAttackPart, "\(soldierType) attack pose has no animated part")
+        }
+    }
+
+    @Test func stableBodyAttackMotionIsReadableAgainstSoldierSize() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
+        #expect(scene.stableSoldierAttackMotionPeakOffsetForTesting >= bodyFrame.height * 0.26)
+        #expect(scene.stableSoldierAttackMotionPeakOffsetForTesting <= bodyFrame.height * 0.34)
+        #expect(scene.stableSoldierAttackMotionPeakLateralOffsetForTesting >= bodyFrame.width * 0.10)
+        #expect(scene.stableSoldierAttackMotionPeakLateralOffsetForTesting <= bodyFrame.width * 0.18)
+        #expect(scene.stableSoldierAttackMotionPeakRotationForTesting >= 0.22)
+        #expect(scene.stableSoldierAttackMotionPeakRotationForTesting <= 0.30)
     }
 
     @Test("Walk animation resumes after a transient attack/hit animation completes (spec §Runtime animation)")
@@ -194,6 +278,68 @@ struct BattleSceneTests {
         #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
     }
 
+    @Test func towerDamageStartsStableBodyHitMotion() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        #expect(scene.anyVisibleSoldierHasActionForTesting("soldierHitBodyFeedback"))
+    }
+
+    @Test func towerDamageShowsHitExpressionAndPosture() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitExpression") >= 1)
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") >= 1)
+    }
+
+    @Test func stableBodyHitMotionIsReadableAgainstSoldierSize() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
+        #expect(scene.stableSoldierHitMotionPeakOffsetForTesting >= bodyFrame.height * 0.36)
+        #expect(scene.stableSoldierHitMotionPeakRotationForTesting >= 0.34)
+    }
+
+    @Test("Transient soldier animations use readable playback timing (spec §Runtime animation)")
+    func transientSoldierAnimationsUseReadablePlaybackTiming() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        let attackFrameDuration = scene.soldierAnimationTimePerFrameForTesting(action: "attack")
+        let hitFrameDuration = scene.soldierAnimationTimePerFrameForTesting(action: "hit")
+        let attackDuration = scene.soldierAnimationDurationForTesting(action: "attack")
+        let hitDuration = scene.soldierAnimationDurationForTesting(action: "hit")
+
+        #expect(scene.soldierAnimationTimePerFrameForTesting(action: "walk") == 0.08)
+        #expect(attackFrameDuration >= 0.10)
+        #expect(hitFrameDuration == attackFrameDuration)
+        #expect(attackDuration > 0.95)
+        #expect(hitDuration == attackDuration)
+        #expect(scene.soldierDelayedRemovalWaitDurationForTesting == hitDuration)
+    }
+
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
     func soldierAnimationTexturesAreCachedAndReusedAcrossCalls() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
@@ -215,8 +361,19 @@ struct BattleSceneTests {
         // No duplicate cache entry was inserted.
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
 
-        // Hit playback also reuses the stable walk-frame identity, so it does
-        // not add a second texture-cache entry.
+        // Attack playback reuses the stable walk-frame identity, so generated
+        // attack body frames cannot swap the soldier into a mismatched or
+        // visually broken appearance. The action still reads through the
+        // body-feedback motion and attack cue layered by `BattleScene`.
+        let attack = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "attack")
+        #expect(attack.count == first.count)
+        for (attackTexture, walkTexture) in zip(attack, first) {
+            #expect(attackTexture === walkTexture)
+        }
+        #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
+
+        // Hit playback reuses the stable walk-frame identity, so it does not
+        // add a second texture-cache entry.
         _ = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "hit")
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
     }
@@ -255,8 +412,8 @@ struct BattleSceneTests {
         #expect(infantry !== archer)
     }
 
-    @Test("Transient playback keeps the soldier's stable walk-frame identity")
-    func transientAnimationUsesStableWalkTexturesForEverySoldierType() throws {
+    @Test("Attack/hit playback keeps each soldier's stable walk-frame identity")
+    func transientAnimationUsesStableWalkFrameIdentity() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
@@ -283,6 +440,51 @@ struct BattleSceneTests {
             for (hitTexture, walkTexture) in zip(hitTextures, walkTextures) {
                 #expect(hitTexture === walkTexture)
             }
+        }
+    }
+
+    @Test func attackFrameCropMatchesWalkFrameCropForStableBodyScale() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        for soldierType in SoldierType.allCases {
+            let walkCrop = scene.animationFrameCropForTesting(soldierType: soldierType, action: "walk")
+            let attackCrop = scene.animationFrameCropForTesting(soldierType: soldierType, action: "attack")
+
+            #expect(attackCrop == walkCrop)
+        }
+    }
+
+    @Test func attackFramesFitInsideRuntimeCropForEverySoldierType() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        for soldierType in SoldierType.allCases {
+            let crop = scene.animationFrameCropForTesting(soldierType: soldierType, action: "attack")
+            for frameIndex in 1...10 {
+                let imageName = "\(soldierType.rawValue)-attack-\(String(format: "%02d", frameIndex))"
+                let image = try #require(UIImage(named: imageName))
+
+                #expect(opaquePixelCountOutsideRuntimeCrop(in: image, crop: crop) == 0)
+            }
+        }
+    }
+
+    @Test func infantryAttackFramesKeepMotionInsideReadableCropInset() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let crop = scene.animationFrameCropForTesting(soldierType: .infantry, action: "attack")
+
+        for frameIndex in 1...10 {
+            let imageName = "infantry-attack-\(String(format: "%02d", frameIndex))"
+            let image = try #require(UIImage(named: imageName))
+            let cgImage = try #require(image.cgImage)
+            let bounds = try #require(opaquePixelBounds(in: image))
+            let cropMinX = Int(floor(crop.minX * CGFloat(cgImage.width)))
+            let cropMaxX = Int(ceil(crop.maxX * CGFloat(cgImage.width)))
+
+            #expect(bounds.minX - cropMinX >= 3)
+            #expect(cropMaxX - bounds.maxXExclusive >= 3)
         }
     }
 
@@ -1642,6 +1844,21 @@ struct BattleSceneTests {
         )
     }
 
+    private func buildingTypeForSoldier(_ soldierType: SoldierType) -> BuildingType {
+        switch soldierType {
+        case .infantry:
+            return .barracks
+        case .archer:
+            return .archeryRange
+        case .cavalry:
+            return .stable
+        case .mage:
+            return .mageTower
+        case .siege:
+            return .siegeWorkshop
+        }
+    }
+
     private final class RouteSpy: BattleSceneRouting {
         private(set) var didRequestCountryMap = false
         private(set) var didRequestBuildingView = false
@@ -1794,6 +2011,35 @@ struct BattleSceneTests {
         }
     }
 
+    private func visibleNodeHasAction(
+        in node: SKNode,
+        namePrefix: String,
+        actionKey: String,
+        inheritedHidden: Bool = false,
+        inheritedAlpha: CGFloat = 1
+    ) -> Bool {
+        let isHidden = inheritedHidden || node.isHidden
+        let alpha = inheritedAlpha * node.alpha
+        guard !isHidden, alpha > 0.01 else {
+            return false
+        }
+
+        if node.name?.hasPrefix(namePrefix) == true,
+           node.action(forKey: actionKey) != nil {
+            return true
+        }
+
+        return node.children.contains { child in
+            visibleNodeHasAction(
+                in: child,
+                namePrefix: namePrefix,
+                actionKey: actionKey,
+                inheritedHidden: isHidden,
+                inheritedAlpha: alpha
+            )
+        }
+    }
+
     private func visibleShapeAlphas(
         in node: SKNode,
         namePrefix: String,
@@ -1830,6 +2076,107 @@ struct BattleSceneTests {
         var alpha: CGFloat = 0
         color.getRed(nil, green: nil, blue: nil, alpha: &alpha)
         return alpha
+    }
+
+    private func opaquePixelCountOutsideRuntimeCrop(in image: UIImage, crop: CGRect) -> Int {
+        guard let cgImage = image.cgImage else {
+            return Int.max
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var didDraw = false
+
+        pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return
+            }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            didDraw = true
+        }
+
+        guard didDraw else {
+            return Int.max
+        }
+
+        let cropMinX = Int(floor(crop.minX * CGFloat(width)))
+        let cropMaxX = Int(ceil(crop.maxX * CGFloat(width)))
+        let cropMinY = Int(floor((1 - crop.maxY) * CGFloat(height)))
+        let cropMaxY = Int(ceil((1 - crop.minY) * CGFloat(height)))
+
+        var outsideCount = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let alphaIndex = (y * width + x) * 4 + 3
+                guard pixels[alphaIndex] > 0 else {
+                    continue
+                }
+                if x < cropMinX || x >= cropMaxX || y < cropMinY || y >= cropMaxY {
+                    outsideCount += 1
+                }
+            }
+        }
+        return outsideCount
+    }
+
+    private func opaquePixelBounds(in image: UIImage) -> PixelBounds? {
+        guard let cgImage = image.cgImage else {
+            return nil
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var didDraw = false
+
+        pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return
+            }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            didDraw = true
+        }
+
+        guard didDraw else {
+            return nil
+        }
+
+        var minX = width
+        var maxXExclusive = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let alphaIndex = (y * width + x) * 4 + 3
+                guard pixels[alphaIndex] > 0 else {
+                    continue
+                }
+                minX = min(minX, x)
+                maxXExclusive = max(maxXExclusive, x + 1)
+            }
+        }
+
+        guard minX < width else {
+            return nil
+        }
+        return PixelBounds(minX: minX, maxXExclusive: maxXExclusive)
     }
 
     // MARK: - touchesEnded

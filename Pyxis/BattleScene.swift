@@ -42,6 +42,10 @@ final class BattleScene: SKScene {
         static let floatingFeedback = "floatingFeedback"
         static let goldBurst = "goldBurst"
         static let soldierAttackCue = "soldierAttackCue"
+        static let soldierAttackPose = "soldierAttackPose"
+        static let soldierAttackPart = "soldierAttackPart"
+        static let soldierHitExpression = "soldierHitExpression"
+        static let soldierHitPosture = "soldierHitPosture"
     }
 
     private enum BattlefieldNodeName {
@@ -78,19 +82,49 @@ final class BattleScene: SKScene {
         static let walk = "soldierWalkAnimation"
         static let attack = "soldierAttackAnimation"
         static let hit = "soldierHitAnimation"
+        static let attackBodyFeedback = "soldierAttackBodyFeedback"
+        static let attackPoseAnimation = "soldierAttackPoseAnimation"
+        static let attackPartAnimation = "soldierAttackPartAnimation"
+        static let hitBodyFeedback = "soldierHitBodyFeedback"
+        static let hitBodyFlash = "soldierHitBodyFlash"
         static let delayedRemoval = "soldierDelayedRemoval"
     }
 
+    private enum StableSoldierBodyFeedback {
+        static let attackPeakOffsetScale: CGFloat = 0.30
+        static let attackPeakLateralOffsetScale: CGFloat = 0.40
+        static let attackPeakRotation: CGFloat = 0.26
+        static let hitPeakOffsetScale: CGFloat = 0.42
+        static let hitPeakRotation: CGFloat = 0.40
+    }
+
     private static let soldierAnimationFrameCount = 10
+    private static let soldierWalkAnimationTimePerFrame: TimeInterval = 0.08
+    private static let soldierTransientAnimationTimePerFrame: TimeInterval = 0.10
+    private static var soldierTransientAnimationDuration: TimeInterval {
+        TimeInterval(soldierAnimationFrameCount) * soldierTransientAnimationTimePerFrame
+    }
     private static let soldierHUDIconAnimationFrameCrop = CGRect(x: 0.22, y: 0, width: 0.56, height: 0.68)
 
     private struct SoldierNodeBundle {
         let root: SKNode
+        let motionRoot: SKNode
         let body: SKNode
         let hpBarBackground: SKShapeNode
         let hpBarFill: SKShapeNode
         let type: SoldierType
         let lane: BattleLane
+    }
+
+    private struct AttackPartMotion {
+        let windUpOffset: CGPoint
+        let strikeOffset: CGPoint
+        let followThroughOffset: CGPoint
+        let windUpRotation: CGFloat
+        let strikeRotation: CGFloat
+        let followThroughRotation: CGFloat
+        let strikeScale: CGFloat
+        var delay: TimeInterval = 0
     }
 
     private struct ManualTypeButtonBundle {
@@ -1711,9 +1745,13 @@ final class BattleScene: SKScene {
         let root = SKNode()
         root.name = BattleAssetName.normalSoldier
 
+        let motionRoot = SKNode()
+        motionRoot.name = "soldierMotionRoot"
+        root.addChild(motionRoot)
+
         let body = makeSoldierNode(for: soldier.type)
         body.zPosition = 1
-        root.addChild(body)
+        motionRoot.addChild(body)
 
         let hpBackground = SKShapeNode()
         hpBackground.fillColor = SKColor(white: 0.05, alpha: 0.9)
@@ -1731,6 +1769,7 @@ final class BattleScene: SKScene {
         soldierLayer.addChild(root)
         soldierNodes[id] = SoldierNodeBundle(
             root: root,
+            motionRoot: motionRoot,
             body: body,
             hpBarBackground: hpBackground,
             hpBarFill: hpFill,
@@ -1771,6 +1810,18 @@ final class BattleScene: SKScene {
         }
 
         return max(54, min(70, size.height * 0.075))
+    }
+
+    private func stableSoldierAttackMotionPeakOffset() -> CGFloat {
+        soldierTargetHeight() * StableSoldierBodyFeedback.attackPeakOffsetScale
+    }
+
+    private func stableSoldierAttackMotionPeakLateralOffset() -> CGFloat {
+        stableSoldierAttackMotionPeakOffset() * StableSoldierBodyFeedback.attackPeakLateralOffsetScale
+    }
+
+    private func stableSoldierHitMotionPeakOffset() -> CGFloat {
+        soldierTargetHeight() * StableSoldierBodyFeedback.hitPeakOffsetScale
     }
 
     private func point(forLane lane: BattleLane, position: Double) -> CGPoint {
@@ -1839,7 +1890,11 @@ final class BattleScene: SKScene {
         let assetName = UIImage(named: preferredAssetName) != nil ? preferredAssetName : fallbackAssetName
 
         if let animatedTextureName = firstAvailableSoldierAnimationFrameName(for: type) {
-            let sprite = SKSpriteNode(texture: soldierAnimationTexture(named: animatedTextureName, type: type))
+            let sprite = SKSpriteNode(texture: soldierAnimationTexture(
+                named: animatedTextureName,
+                type: type,
+                action: .walk
+            ))
             sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
             soldier = sprite
         } else if UIImage(named: assetName) != nil {
@@ -1887,6 +1942,10 @@ final class BattleScene: SKScene {
 
     private func soldierAnimationTextures(for type: SoldierType, action: SoldierAnimationAction) -> [SKTexture] {
         if action == .attack || action == .hit {
+            // The generated attack/hit body sets are not identity-consistent
+            // with the walk sets: several soldiers change silhouette/style or
+            // show cropped weapon artifacts. Keep the visible body stable and
+            // layer attack/hit feedback separately.
             return soldierAnimationTextures(for: type, action: .walk)
         }
 
@@ -1897,7 +1956,7 @@ final class BattleScene: SKScene {
         guard frameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
             return []
         }
-        let textures = frameNames.map { soldierAnimationTexture(named: $0, type: type) }
+        let textures = frameNames.map { soldierAnimationTexture(named: $0, type: type, action: action) }
         // Only cache complete (non-empty) texture sets; an incomplete set likely
         // means an asset is missing at this call, which we want to re-resolve
         // rather than pin the empty result for the scene's lifetime.
@@ -1910,8 +1969,12 @@ final class BattleScene: SKScene {
         return textures
     }
 
-    private func soldierAnimationTexture(named frameName: String, type: SoldierType) -> SKTexture {
-        SKTexture(rect: soldierAnimationFrameCrop(for: type), in: SKTexture(imageNamed: frameName))
+    private func soldierAnimationTexture(
+        named frameName: String,
+        type: SoldierType,
+        action: SoldierAnimationAction
+    ) -> SKTexture {
+        SKTexture(rect: soldierAnimationFrameCrop(for: type, action: action), in: SKTexture(imageNamed: frameName))
     }
 
     /// Normalized (0.0–1.0) sub-rect of each soldier animation frame texture,
@@ -1923,7 +1986,7 @@ final class BattleScene: SKScene {
     /// crop is uniform (center 50%); the type-specific heights trim per-type
     /// vertical padding. If a sprite set is re-authored with different padding,
     /// re-derive these from the new art rather than tweaking by eye.
-    private func soldierAnimationFrameCrop(for type: SoldierType) -> CGRect {
+    private func soldierAnimationFrameCrop(for type: SoldierType, action: SoldierAnimationAction) -> CGRect {
         switch type {
         case .infantry:
             return CGRect(x: 0.25, y: 0, width: 0.50, height: 0.57)
@@ -2070,9 +2133,439 @@ final class BattleScene: SKScene {
 
         playSoldierAnimation(.attack, for: soldierID, resumesWalk: true)
         playStableSoldierAttackCue(for: bundle)
-        let lunge = SKAction.moveBy(x: 0, y: 16, duration: 0.06)
-        let back = SKAction.moveBy(x: 0, y: -16, duration: 0.10)
-        bundle.root.run(SKAction.sequence([lunge, back]), withKey: "soldierAttackFeedback")
+        playStableSoldierAttackMotion(for: bundle)
+    }
+
+    private func playStableSoldierAttackMotion(for bundle: SoldierNodeBundle) {
+        let motionRoot = bundle.motionRoot
+        resetStableSoldierBodyFeedback(for: bundle)
+        playSoldierAttackPoseOverlay(for: bundle)
+
+        let peakOffset = stableSoldierAttackMotionPeakOffset()
+        let lateralOffset = stableSoldierAttackMotionPeakLateralOffset()
+        let peakRotation = StableSoldierBodyFeedback.attackPeakRotation
+        let windUp = SKAction.group([
+            eased(.move(to: CGPoint(x: -lateralOffset, y: -peakOffset * 0.18), duration: 0.22), .easeOut),
+            eased(.rotate(toAngle: -peakRotation * 0.50, duration: 0.22), .easeOut),
+            eased(.scaleX(to: 1.05, y: 0.97, duration: 0.22), .easeOut)
+        ])
+        let strike = SKAction.group([
+            eased(.move(to: CGPoint(x: lateralOffset * 0.78, y: peakOffset * 0.55), duration: 0.26), .easeIn),
+            eased(.rotate(toAngle: peakRotation, duration: 0.26), .easeIn),
+            eased(.scaleX(to: 0.96, y: 1.08, duration: 0.26), .easeIn)
+        ])
+        let followThrough = SKAction.group([
+            eased(.move(to: CGPoint(x: lateralOffset * 0.32, y: peakOffset * 0.18), duration: 0.24), .easeOut),
+            eased(.rotate(toAngle: peakRotation * 0.36, duration: 0.24), .easeOut),
+            eased(.scaleX(to: 1.03, y: 0.99, duration: 0.24), .easeOut)
+        ])
+        let recover = SKAction.group([
+            eased(.move(to: .zero, duration: 0.28), .easeInEaseOut),
+            eased(.rotate(toAngle: 0, duration: 0.28), .easeInEaseOut),
+            eased(.scaleX(to: 1, y: 1, duration: 0.28), .easeInEaseOut)
+        ])
+        motionRoot.run(
+            SKAction.sequence([windUp, strike, followThrough, recover]),
+            withKey: SoldierAnimationKey.attackBodyFeedback
+        )
+    }
+
+    private func playSoldierAttackPoseOverlay(for bundle: SoldierNodeBundle) {
+        let height = soldierTargetHeight()
+        let pose = makeSoldierAttackPoseNode(type: bundle.type, height: height)
+        pose.alpha = 1
+        pose.position = CGPoint(x: -height * 0.30, y: -height * 0.08)
+        pose.zRotation = -0.68
+        pose.setScale(0.72)
+        bundle.motionRoot.addChild(pose)
+
+        let windUp = SKAction.group([
+            eased(.fadeIn(withDuration: 0.12), .easeOut),
+            eased(.move(to: CGPoint(x: -height * 0.24, y: -height * 0.06), duration: 0.22), .easeOut),
+            eased(.rotate(toAngle: -0.58, duration: 0.22), .easeOut),
+            eased(.scale(to: 0.82, duration: 0.22), .easeOut)
+        ])
+        let strike = SKAction.group([
+            eased(.move(to: CGPoint(x: height * 0.12, y: height * 0.09), duration: 0.26), .easeIn),
+            eased(.rotate(toAngle: 0.10, duration: 0.26), .easeIn),
+            eased(.scale(to: 1.10, duration: 0.26), .easeIn)
+        ])
+        let followThrough = SKAction.group([
+            eased(.move(to: CGPoint(x: height * 0.20, y: height * 0.13), duration: 0.24), .easeOut),
+            eased(.rotate(toAngle: 0.24, duration: 0.24), .easeOut),
+            eased(.scale(to: 1.02, duration: 0.24), .easeOut)
+        ])
+        let recover = SKAction.group([
+            eased(.move(to: CGPoint(x: height * 0.22, y: height * 0.15), duration: 0.28), .easeInEaseOut),
+            eased(.rotate(toAngle: 0.30, duration: 0.28), .easeInEaseOut),
+            eased(.scale(to: 0.80, duration: 0.28), .easeInEaseOut),
+            eased(.fadeOut(withDuration: 0.28), .easeInEaseOut)
+        ])
+        pose.run(
+            SKAction.sequence([windUp, strike, followThrough, recover, .removeFromParent()]),
+            withKey: SoldierAnimationKey.attackPoseAnimation
+        )
+    }
+
+    private func makeSoldierAttackPoseNode(type: SoldierType, height: CGFloat) -> SKNode {
+        let pose = SKNode()
+        pose.name = EffectName.soldierAttackPose
+        pose.zPosition = 9
+
+        switch type {
+        case .archer:
+            addArcherAttackPose(to: pose, height: height)
+        case .infantry:
+            addInfantryAttackPose(to: pose, height: height)
+        case .cavalry:
+            addCavalryAttackPose(to: pose, height: height)
+        case .mage:
+            addMageAttackPose(to: pose, height: height)
+        case .siege:
+            addSiegeAttackPose(to: pose, height: height)
+        }
+
+        return pose
+    }
+
+    private func addArcherAttackPose(to pose: SKNode, height: CGFloat) {
+        let bowPath = CGMutablePath()
+        bowPath.move(to: CGPoint(x: height * 0.26, y: height * 0.78))
+        bowPath.addQuadCurve(
+            to: CGPoint(x: height * 0.26, y: height * 0.34),
+            control: CGPoint(x: height * 0.50, y: height * 0.56)
+        )
+        let bow = addAttackPoseStroke(path: bowPath, to: pose, height: height, color: attackPoseWoodColor())
+        runAttackPartAnimation(
+            on: bow,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.03, y: height * 0.02),
+                strikeOffset: CGPoint(x: height * 0.10, y: -height * 0.01),
+                followThroughOffset: CGPoint(x: height * 0.14, y: -height * 0.03),
+                windUpRotation: -0.10,
+                strikeRotation: 0.04,
+                followThroughRotation: 0.08,
+                strikeScale: 1.05
+            )
+        )
+
+        let stringPath = CGMutablePath()
+        stringPath.move(to: CGPoint(x: height * 0.26, y: height * 0.78))
+        stringPath.addLine(to: CGPoint(x: -height * 0.04, y: height * 0.57))
+        stringPath.addLine(to: CGPoint(x: height * 0.26, y: height * 0.34))
+        let string = addAttackPoseStroke(
+            path: stringPath,
+            to: pose,
+            height: height,
+            color: SKColor(white: 0.95, alpha: 0.95)
+        )
+        runAttackPartAnimation(
+            on: string,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.13, y: 0),
+                strikeOffset: CGPoint(x: height * 0.08, y: 0),
+                followThroughOffset: CGPoint(x: height * 0.13, y: -height * 0.01),
+                windUpRotation: -0.05,
+                strikeRotation: 0.02,
+                followThroughRotation: 0.04,
+                strikeScale: 1.10,
+                delay: 0.03
+            )
+        )
+
+        let arrowPath = CGMutablePath()
+        arrowPath.move(to: CGPoint(x: -height * 0.28, y: height * 0.57))
+        arrowPath.addLine(to: CGPoint(x: height * 0.38, y: height * 0.57))
+        arrowPath.move(to: CGPoint(x: height * 0.38, y: height * 0.57))
+        arrowPath.addLine(to: CGPoint(x: height * 0.28, y: height * 0.65))
+        arrowPath.move(to: CGPoint(x: height * 0.38, y: height * 0.57))
+        arrowPath.addLine(to: CGPoint(x: height * 0.28, y: height * 0.49))
+        let arrow = addAttackPoseStroke(path: arrowPath, to: pose, height: height, color: attackPoseSteelColor())
+        runAttackPartAnimation(
+            on: arrow,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.18, y: 0),
+                strikeOffset: CGPoint(x: height * 0.28, y: height * 0.01),
+                followThroughOffset: CGPoint(x: height * 0.42, y: height * 0.02),
+                windUpRotation: -0.04,
+                strikeRotation: 0.02,
+                followThroughRotation: 0.04,
+                strikeScale: 1.18,
+                delay: 0.06
+            )
+        )
+
+        let armPath = CGMutablePath()
+        armPath.move(to: CGPoint(x: -height * 0.18, y: height * 0.50))
+        armPath.addLine(to: CGPoint(x: -height * 0.04, y: height * 0.57))
+        armPath.addLine(to: CGPoint(x: height * 0.08, y: height * 0.64))
+        armPath.move(to: CGPoint(x: height * 0.06, y: height * 0.58))
+        armPath.addLine(to: CGPoint(x: height * 0.24, y: height * 0.60))
+        let arm = addAttackPoseStroke(path: armPath, to: pose, height: height, color: attackPoseLimbColor())
+        runAttackPartAnimation(
+            on: arm,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.10, y: height * 0.02),
+                strikeOffset: CGPoint(x: height * 0.11, y: -height * 0.01),
+                followThroughOffset: CGPoint(x: height * 0.15, y: -height * 0.02),
+                windUpRotation: -0.22,
+                strikeRotation: 0.12,
+                followThroughRotation: 0.20,
+                strikeScale: 1.10,
+                delay: 0.03
+            )
+        )
+    }
+
+    private func addInfantryAttackPose(to pose: SKNode, height: CGFloat) {
+        let armPath = CGMutablePath()
+        armPath.move(to: CGPoint(x: -height * 0.13, y: height * 0.56))
+        armPath.addLine(to: CGPoint(x: height * 0.12, y: height * 0.70))
+        armPath.addLine(to: CGPoint(x: height * 0.24, y: height * 0.82))
+        let arm = addAttackPoseStroke(path: armPath, to: pose, height: height, color: attackPoseLimbColor())
+        runAttackPartAnimation(
+            on: arm,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.05, y: height * 0.04),
+                strikeOffset: CGPoint(x: height * 0.08, y: -height * 0.04),
+                followThroughOffset: CGPoint(x: height * 0.12, y: -height * 0.08),
+                windUpRotation: -0.26,
+                strikeRotation: 0.22,
+                followThroughRotation: 0.34,
+                strikeScale: 1.10
+            )
+        )
+
+        let swordPath = CGMutablePath()
+        swordPath.move(to: CGPoint(x: height * 0.18, y: height * 0.74))
+        swordPath.addLine(to: CGPoint(x: height * 0.48, y: height * 1.02))
+        swordPath.move(to: CGPoint(x: height * 0.16, y: height * 0.72))
+        swordPath.addLine(to: CGPoint(x: height * 0.30, y: height * 0.66))
+        let sword = addAttackPoseStroke(path: swordPath, to: pose, height: height, color: attackPoseSteelColor())
+        runAttackPartAnimation(
+            on: sword,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.08, y: height * 0.05),
+                strikeOffset: CGPoint(x: height * 0.12, y: -height * 0.07),
+                followThroughOffset: CGPoint(x: height * 0.18, y: -height * 0.11),
+                windUpRotation: -0.42,
+                strikeRotation: 0.36,
+                followThroughRotation: 0.52,
+                strikeScale: 1.14,
+                delay: 0.03
+            )
+        )
+    }
+
+    private func addCavalryAttackPose(to pose: SKNode, height: CGFloat) {
+        let lancePath = CGMutablePath()
+        lancePath.move(to: CGPoint(x: -height * 0.22, y: height * 0.54))
+        lancePath.addLine(to: CGPoint(x: height * 0.58, y: height * 0.82))
+        lancePath.move(to: CGPoint(x: height * 0.58, y: height * 0.82))
+        lancePath.addLine(to: CGPoint(x: height * 0.45, y: height * 0.88))
+        lancePath.move(to: CGPoint(x: height * 0.58, y: height * 0.82))
+        lancePath.addLine(to: CGPoint(x: height * 0.49, y: height * 0.70))
+        let lance = addAttackPoseStroke(path: lancePath, to: pose, height: height, color: attackPoseSteelColor())
+        runAttackPartAnimation(
+            on: lance,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.12, y: -height * 0.02),
+                strikeOffset: CGPoint(x: height * 0.24, y: height * 0.04),
+                followThroughOffset: CGPoint(x: height * 0.31, y: height * 0.05),
+                windUpRotation: -0.14,
+                strikeRotation: 0.06,
+                followThroughRotation: 0.10,
+                strikeScale: 1.16
+            )
+        )
+
+        let armPath = CGMutablePath()
+        armPath.move(to: CGPoint(x: -height * 0.12, y: height * 0.55))
+        armPath.addLine(to: CGPoint(x: height * 0.10, y: height * 0.63))
+        let arm = addAttackPoseStroke(path: armPath, to: pose, height: height, color: attackPoseLimbColor())
+        runAttackPartAnimation(
+            on: arm,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.07, y: 0),
+                strikeOffset: CGPoint(x: height * 0.14, y: height * 0.02),
+                followThroughOffset: CGPoint(x: height * 0.18, y: height * 0.03),
+                windUpRotation: -0.10,
+                strikeRotation: 0.07,
+                followThroughRotation: 0.12,
+                strikeScale: 1.08,
+                delay: 0.03
+            )
+        )
+    }
+
+    private func addMageAttackPose(to pose: SKNode, height: CGFloat) {
+        let staffPath = CGMutablePath()
+        staffPath.move(to: CGPoint(x: height * 0.14, y: height * 0.28))
+        staffPath.addLine(to: CGPoint(x: height * 0.34, y: height * 0.92))
+        let staff = addAttackPoseStroke(path: staffPath, to: pose, height: height, color: attackPoseWoodColor())
+        runAttackPartAnimation(
+            on: staff,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.05, y: height * 0.03),
+                strikeOffset: CGPoint(x: height * 0.10, y: height * 0.03),
+                followThroughOffset: CGPoint(x: height * 0.16, y: height * 0.01),
+                windUpRotation: -0.18,
+                strikeRotation: 0.18,
+                followThroughRotation: 0.28,
+                strikeScale: 1.10
+            )
+        )
+
+        let castPath = CGMutablePath()
+        castPath.move(to: CGPoint(x: -height * 0.18, y: height * 0.58))
+        castPath.addLine(to: CGPoint(x: height * 0.08, y: height * 0.72))
+        castPath.move(to: CGPoint(x: height * 0.30, y: height * 0.86))
+        castPath.addLine(to: CGPoint(x: height * 0.42, y: height * 0.94))
+        castPath.move(to: CGPoint(x: height * 0.30, y: height * 0.86))
+        castPath.addLine(to: CGPoint(x: height * 0.44, y: height * 0.80))
+        let cast = addAttackPoseStroke(path: castPath, to: pose, height: height, color: attackPoseMagicColor())
+        runAttackPartAnimation(
+            on: cast,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.04, y: height * 0.02),
+                strikeOffset: CGPoint(x: height * 0.16, y: height * 0.06),
+                followThroughOffset: CGPoint(x: height * 0.24, y: height * 0.08),
+                windUpRotation: -0.12,
+                strikeRotation: 0.14,
+                followThroughRotation: 0.22,
+                strikeScale: 1.22,
+                delay: 0.05
+            )
+        )
+
+        let orb = SKShapeNode(circleOfRadius: max(4, height * 0.08))
+        orb.name = "\(EffectName.soldierAttackPart)-orb"
+        orb.fillColor = attackPoseMagicColor().withAlphaComponent(0.72)
+        orb.strokeColor = SKColor.white.withAlphaComponent(0.85)
+        orb.lineWidth = max(1.5, height * 0.025)
+        orb.glowWidth = max(2.5, height * 0.05)
+        orb.position = CGPoint(x: height * 0.42, y: height * 0.92)
+        pose.addChild(orb)
+        runAttackPartAnimation(
+            on: orb,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.06, y: -height * 0.02),
+                strikeOffset: CGPoint(x: height * 0.13, y: height * 0.05),
+                followThroughOffset: CGPoint(x: height * 0.22, y: height * 0.08),
+                windUpRotation: 0,
+                strikeRotation: 0,
+                followThroughRotation: 0,
+                strikeScale: 1.45,
+                delay: 0.08
+            )
+        )
+    }
+
+    private func addSiegeAttackPose(to pose: SKNode, height: CGFloat) {
+        let ramPath = CGMutablePath()
+        ramPath.move(to: CGPoint(x: -height * 0.36, y: height * 0.48))
+        ramPath.addLine(to: CGPoint(x: height * 0.44, y: height * 0.68))
+        ramPath.move(to: CGPoint(x: height * 0.40, y: height * 0.68))
+        ramPath.addLine(to: CGPoint(x: height * 0.30, y: height * 0.78))
+        ramPath.move(to: CGPoint(x: height * 0.40, y: height * 0.68))
+        ramPath.addLine(to: CGPoint(x: height * 0.32, y: height * 0.55))
+        let ram = addAttackPoseStroke(path: ramPath, to: pose, height: height, color: attackPoseWoodColor())
+        runAttackPartAnimation(
+            on: ram,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.16, y: -height * 0.03),
+                strikeOffset: CGPoint(x: height * 0.22, y: height * 0.04),
+                followThroughOffset: CGPoint(x: height * 0.28, y: height * 0.05),
+                windUpRotation: -0.10,
+                strikeRotation: 0.08,
+                followThroughRotation: 0.13,
+                strikeScale: 1.13
+            )
+        )
+
+        let impactPath = CGMutablePath()
+        impactPath.move(to: CGPoint(x: height * 0.48, y: height * 0.72))
+        impactPath.addLine(to: CGPoint(x: height * 0.60, y: height * 0.80))
+        impactPath.move(to: CGPoint(x: height * 0.50, y: height * 0.66))
+        impactPath.addLine(to: CGPoint(x: height * 0.64, y: height * 0.63))
+        let impact = addAttackPoseStroke(path: impactPath, to: pose, height: height, color: attackPoseSteelColor())
+        runAttackPartAnimation(
+            on: impact,
+            motion: AttackPartMotion(
+                windUpOffset: CGPoint(x: -height * 0.04, y: 0),
+                strikeOffset: CGPoint(x: height * 0.17, y: height * 0.04),
+                followThroughOffset: CGPoint(x: height * 0.22, y: height * 0.05),
+                windUpRotation: -0.06,
+                strikeRotation: 0.12,
+                followThroughRotation: 0.20,
+                strikeScale: 1.28,
+                delay: 0.10
+            )
+        )
+    }
+
+    @discardableResult
+    private func addAttackPoseStroke(path: CGPath, to pose: SKNode, height: CGFloat, color: SKColor) -> SKShapeNode {
+        let stroke = SKShapeNode(path: path)
+        stroke.name = "\(EffectName.soldierAttackPart)-stroke"
+        stroke.strokeColor = color
+        stroke.lineWidth = max(3.0, height * 0.055)
+        stroke.lineCap = .round
+        stroke.lineJoin = .round
+        stroke.glowWidth = max(1.0, height * 0.018)
+        pose.addChild(stroke)
+        return stroke
+    }
+
+    private func runAttackPartAnimation(
+        on node: SKNode,
+        motion: AttackPartMotion
+    ) {
+        let windUp = SKAction.group([
+            eased(.move(to: motion.windUpOffset, duration: 0.22), .easeOut),
+            eased(.rotate(toAngle: motion.windUpRotation, duration: 0.22), .easeOut),
+            eased(.scale(to: 0.94, duration: 0.22), .easeOut)
+        ])
+        let strike = SKAction.group([
+            eased(.move(to: motion.strikeOffset, duration: 0.26), .easeIn),
+            eased(.rotate(toAngle: motion.strikeRotation, duration: 0.26), .easeIn),
+            eased(.scale(to: motion.strikeScale, duration: 0.26), .easeIn)
+        ])
+        let followThrough = SKAction.group([
+            eased(.move(to: motion.followThroughOffset, duration: 0.24), .easeOut),
+            eased(.rotate(toAngle: motion.followThroughRotation, duration: 0.24), .easeOut),
+            eased(.scale(to: 1.04, duration: 0.24), .easeOut)
+        ])
+        let recover = SKAction.group([
+            eased(.move(to: .zero, duration: 0.28), .easeInEaseOut),
+            eased(.rotate(toAngle: 0, duration: 0.28), .easeInEaseOut),
+            eased(.scale(to: 1, duration: 0.28), .easeInEaseOut)
+        ])
+
+        var actions: [SKAction] = motion.delay > 0 ? [.wait(forDuration: motion.delay)] : []
+        actions.append(contentsOf: [windUp, strike, followThrough, recover])
+        node.run(SKAction.sequence(actions), withKey: SoldierAnimationKey.attackPartAnimation)
+    }
+
+    private func eased(_ action: SKAction, _ timingMode: SKActionTimingMode) -> SKAction {
+        action.timingMode = timingMode
+        return action
+    }
+
+    private func attackPoseLimbColor() -> SKColor {
+        SKColor(red: 0.28, green: 0.16, blue: 0.08, alpha: 0.96)
+    }
+
+    private func attackPoseWoodColor() -> SKColor {
+        SKColor(red: 0.44, green: 0.24, blue: 0.09, alpha: 0.98)
+    }
+
+    private func attackPoseSteelColor() -> SKColor {
+        SKColor(red: 0.94, green: 0.96, blue: 0.90, alpha: 0.98)
+    }
+
+    private func attackPoseMagicColor() -> SKColor {
+        SKColor(red: 0.45, green: 0.82, blue: 1.0, alpha: 0.98)
     }
 
     private func playStableSoldierAttackCue(for bundle: SoldierNodeBundle) {
@@ -2103,9 +2596,149 @@ final class BattleScene: SKScene {
             return
         }
 
+        if let bundle = soldierNodes[soldierID] {
+            playStableSoldierHitMotion(for: bundle)
+        }
         playSoldierAnimation(.hit, for: soldierID, resumesWalk: !schedulesRemoval)
         if schedulesRemoval {
             scheduleDelayedSoldierRemoval(for: soldierID)
+        }
+    }
+
+    private func playStableSoldierHitMotion(for bundle: SoldierNodeBundle) {
+        let body = bundle.body
+        let motionRoot = bundle.motionRoot
+        resetStableSoldierBodyFeedback(for: bundle)
+
+        let peakOffset = stableSoldierHitMotionPeakOffset()
+        let peakRotation = StableSoldierBodyFeedback.hitPeakRotation
+        let recoil = SKAction.group([
+            .move(to: CGPoint(x: -peakOffset * 0.28, y: -peakOffset), duration: 0.08),
+            .rotate(toAngle: -peakRotation, duration: 0.08),
+            .scaleX(to: 1.20, y: 0.82, duration: 0.08)
+        ])
+        let counter = SKAction.group([
+            .move(to: CGPoint(x: peakOffset * 0.22, y: peakOffset * 0.18), duration: 0.10),
+            .rotate(toAngle: peakRotation * 0.55, duration: 0.10),
+            .scaleX(to: 0.88, y: 1.14, duration: 0.10)
+        ])
+        let recover = SKAction.group([
+            .move(to: .zero, duration: 0.16),
+            .rotate(toAngle: 0, duration: 0.16),
+            .scaleX(to: 1, y: 1, duration: 0.16)
+        ])
+
+        let motion = SKAction.sequence([recoil, counter, recover])
+        playSoldierHitPoseOverlay(for: bundle)
+        if body is SKSpriteNode {
+            let hitColor = SKColor(red: 1.0, green: 0.22, blue: 0.16, alpha: 1.0)
+            let flash = SKAction.sequence([
+                .colorize(with: hitColor, colorBlendFactor: 0.65, duration: 0.04),
+                .colorize(withColorBlendFactor: 0, duration: 0.10)
+            ])
+            motionRoot.run(motion, withKey: SoldierAnimationKey.hitBodyFeedback)
+            body.run(flash, withKey: SoldierAnimationKey.hitBodyFlash)
+        } else {
+            motionRoot.run(motion, withKey: SoldierAnimationKey.hitBodyFeedback)
+        }
+    }
+
+    private func playSoldierHitPoseOverlay(for bundle: SoldierNodeBundle) {
+        let height = soldierTargetHeight()
+        let expression = makeSoldierHitExpressionNode(height: height)
+        let posture = makeSoldierHitPostureNode(height: height)
+
+        bundle.motionRoot.addChild(posture)
+        bundle.motionRoot.addChild(expression)
+
+        let hold = SKAction.wait(forDuration: 0.18)
+        let fade = SKAction.fadeOut(withDuration: 0.12)
+        let remove = SKAction.removeFromParent()
+        expression.run(SKAction.sequence([hold, fade, remove]))
+        posture.run(SKAction.sequence([hold, fade, remove]))
+    }
+
+    private func makeSoldierHitExpressionNode(height: CGFloat) -> SKNode {
+        let expression = SKNode()
+        expression.name = EffectName.soldierHitExpression
+        expression.position = CGPoint(x: 0, y: height * 0.74)
+        expression.zPosition = 8
+
+        let strokeColor = SKColor(red: 0.12, green: 0.02, blue: 0.02, alpha: 0.95)
+        let eyeOffset = height * 0.055
+        let eyeSize = max(3, height * 0.055)
+        for x in [-eyeOffset, eyeOffset] {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: x - eyeSize, y: eyeSize))
+            path.addLine(to: CGPoint(x: x + eyeSize, y: -eyeSize))
+            path.move(to: CGPoint(x: x - eyeSize, y: -eyeSize))
+            path.addLine(to: CGPoint(x: x + eyeSize, y: eyeSize))
+            let eye = SKShapeNode(path: path)
+            eye.strokeColor = strokeColor
+            eye.lineWidth = max(1.6, height * 0.025)
+            eye.lineCap = .round
+            expression.addChild(eye)
+        }
+
+        let mouthPath = CGMutablePath()
+        mouthPath.move(to: CGPoint(x: -height * 0.085, y: -height * 0.105))
+        mouthPath.addLine(to: CGPoint(x: -height * 0.025, y: -height * 0.145))
+        mouthPath.addLine(to: CGPoint(x: height * 0.035, y: -height * 0.105))
+        mouthPath.addLine(to: CGPoint(x: height * 0.095, y: -height * 0.145))
+        let mouth = SKShapeNode(path: mouthPath)
+        mouth.strokeColor = strokeColor
+        mouth.lineWidth = max(1.5, height * 0.022)
+        mouth.lineCap = .round
+        expression.addChild(mouth)
+
+        return expression
+    }
+
+    private func makeSoldierHitPostureNode(height: CGFloat) -> SKNode {
+        let posture = SKNode()
+        posture.name = EffectName.soldierHitPosture
+        posture.zPosition = 7
+
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: -height * 0.22, y: height * 0.62))
+        path.addLine(to: CGPoint(x: -height * 0.34, y: height * 0.48))
+        path.move(to: CGPoint(x: height * 0.20, y: height * 0.58))
+        path.addLine(to: CGPoint(x: height * 0.34, y: height * 0.45))
+        path.move(to: CGPoint(x: -height * 0.16, y: height * 0.42))
+        path.addLine(to: CGPoint(x: -height * 0.30, y: height * 0.34))
+
+        let stressLines = SKShapeNode(path: path)
+        stressLines.strokeColor = SKColor(red: 1.0, green: 0.86, blue: 0.18, alpha: 0.95)
+        stressLines.lineWidth = max(2.4, height * 0.045)
+        stressLines.lineCap = .round
+        stressLines.glowWidth = max(1.2, height * 0.02)
+        posture.addChild(stressLines)
+
+        return posture
+    }
+
+    private func resetStableSoldierBodyFeedback(for bundle: SoldierNodeBundle) {
+        let motionRoot = bundle.motionRoot
+        motionRoot.removeAction(forKey: SoldierAnimationKey.attackBodyFeedback)
+        motionRoot.removeAction(forKey: SoldierAnimationKey.hitBodyFeedback)
+        motionRoot.children
+            .filter {
+                $0.name?.hasPrefix(EffectName.soldierAttackPose) == true
+                    || $0.name?.hasPrefix(EffectName.soldierHitExpression) == true
+                    || $0.name?.hasPrefix(EffectName.soldierHitPosture) == true
+            }
+            .forEach { $0.removeFromParent() }
+        motionRoot.position = .zero
+        motionRoot.zRotation = 0
+        motionRoot.setScale(1)
+
+        bundle.body.removeAction(forKey: SoldierAnimationKey.attackBodyFeedback)
+        bundle.body.removeAction(forKey: SoldierAnimationKey.hitBodyFeedback)
+        bundle.body.removeAction(forKey: SoldierAnimationKey.hitBodyFlash)
+        bundle.body.position = .zero
+        bundle.body.zRotation = 0
+        if let sprite = bundle.body as? SKSpriteNode {
+            sprite.colorBlendFactor = 0
         }
     }
 
@@ -2123,8 +2756,22 @@ final class BattleScene: SKScene {
             return
         }
 
-        let animate = SKAction.animate(with: textures, timePerFrame: 0.08, resize: false, restore: false)
+        let animate = SKAction.animate(
+            with: textures,
+            timePerFrame: soldierAnimationTimePerFrame(for: .walk),
+            resize: false,
+            restore: false
+        )
         sprite.run(SKAction.repeatForever(animate), withKey: SoldierAnimationKey.walk)
+    }
+
+    private func soldierAnimationTimePerFrame(for action: SoldierAnimationAction) -> TimeInterval {
+        switch action {
+        case .walk:
+            Self.soldierWalkAnimationTimePerFrame
+        case .attack, .hit:
+            Self.soldierTransientAnimationTimePerFrame
+        }
     }
 
     private func playSoldierAnimation(
@@ -2173,7 +2820,12 @@ final class BattleScene: SKScene {
         sprite.removeAction(forKey: SoldierAnimationKey.attack)
         sprite.removeAction(forKey: SoldierAnimationKey.hit)
 
-        let animate = SKAction.animate(with: textures, timePerFrame: 0.045, resize: false, restore: false)
+        let animate = SKAction.animate(
+            with: textures,
+            timePerFrame: soldierAnimationTimePerFrame(for: action),
+            resize: false,
+            restore: false
+        )
         let resumeWalk = SKAction.run { [weak self] in
             self?.resumeWalkForSoldierIfNeeded(
                 id: soldierID,
@@ -2220,9 +2872,9 @@ final class BattleScene: SKScene {
         pendingAnimatedRemovalSoldierIDs.insert(soldierID)
         bundle.root.removeAction(forKey: SoldierAnimationKey.delayedRemoval)
 
-        // Match the hit animation duration (10 frames × 0.045s = 0.45s) so
-        // killed soldiers play the full hit cycle before fading out.
-        let wait = SKAction.wait(forDuration: 0.45)
+        // Match the full hit animation duration so killed soldiers finish the
+        // authored hit cycle before fading out.
+        let wait = SKAction.wait(forDuration: Self.soldierTransientAnimationDuration)
         let remove = SKAction.run { [weak self] in
             self?.removeSoldierNode(id: soldierID, animated: true)
         }
@@ -2705,6 +3357,50 @@ extension BattleScene {
         return bundle.body.name
     }
 
+    var stableSoldierAttackMotionPeakOffsetForTesting: CGFloat {
+        stableSoldierAttackMotionPeakOffset()
+    }
+
+    var stableSoldierAttackMotionPeakLateralOffsetForTesting: CGFloat {
+        stableSoldierAttackMotionPeakLateralOffset()
+    }
+
+    var stableSoldierAttackMotionPeakRotationForTesting: CGFloat {
+        StableSoldierBodyFeedback.attackPeakRotation
+    }
+
+    var stableSoldierHitMotionPeakOffsetForTesting: CGFloat {
+        stableSoldierHitMotionPeakOffset()
+    }
+
+    var stableSoldierHitMotionPeakRotationForTesting: CGFloat {
+        StableSoldierBodyFeedback.hitPeakRotation
+    }
+
+    var soldierTargetHeightForTesting: CGFloat {
+        soldierTargetHeight()
+    }
+
+    func soldierAnimationTimePerFrameForTesting(action: String) -> TimeInterval {
+        guard let action = SoldierAnimationAction(rawValue: action) else {
+            return 0
+        }
+
+        return soldierAnimationTimePerFrame(for: action)
+    }
+
+    func soldierAnimationDurationForTesting(action: String) -> TimeInterval {
+        guard let action = SoldierAnimationAction(rawValue: action) else {
+            return 0
+        }
+
+        return TimeInterval(Self.soldierAnimationFrameCount) * soldierAnimationTimePerFrame(for: action)
+    }
+
+    var soldierDelayedRemovalWaitDurationForTesting: TimeInterval {
+        Self.soldierTransientAnimationDuration
+    }
+
     /// Deterministic resolution of "the first live soldier" for test accessors.
     /// Uses the combat roster (stable ordering) instead of `soldierNodes.first`
     /// (Dictionary, non-deterministic across hash seeds) so tests stay
@@ -2719,7 +3415,17 @@ extension BattleScene {
             return false
         }
 
-        return bundle.body.action(forKey: key) != nil || bundle.root.action(forKey: key) != nil
+        return bundle.body.action(forKey: key) != nil
+            || bundle.motionRoot.action(forKey: key) != nil
+            || bundle.root.action(forKey: key) != nil
+    }
+
+    func anyVisibleSoldierHasActionForTesting(_ key: String) -> Bool {
+        soldierNodes.values.contains { bundle in
+            bundle.body.action(forKey: key) != nil
+                || bundle.motionRoot.action(forKey: key) != nil
+                || bundle.root.action(forKey: key) != nil
+        }
     }
 
     /// Simulates the SpriteKit render loop completing the first live soldier's
@@ -2897,6 +3603,13 @@ extension BattleScene {
             return []
         }
         return soldierAnimationTextures(for: soldierType, action: action)
+    }
+
+    func animationFrameCropForTesting(soldierType: SoldierType, action: String) -> CGRect {
+        guard let action = SoldierAnimationAction(rawValue: action) else {
+            return .zero
+        }
+        return soldierAnimationFrameCrop(for: soldierType, action: action)
     }
 
     /// Number of (type, action) entries currently held in the texture cache.
