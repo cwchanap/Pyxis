@@ -4,17 +4,53 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import TypeAlias
 
 from PIL import Image
 
 SOLDIERS = ("infantry", "archer", "cavalry", "mage", "siege")
 ACTIONS = ("walk", "attack", "hit")
 FRAME_COUNT = 10
+RGBAColor: TypeAlias = tuple[int, int, int, int]
+STORYBOARD_COLUMNS = 5
+STORYBOARD_ROWS = 2
 
 # Assets are always written under the repo root (the current working directory
 # when the script is invoked). Paths supplied via CLI are resolved and clamped
 # to this root so a faulty --assets-dir cannot escape the project tree.
 REPO_ROOT = Path.cwd().resolve()
+
+
+def _normalized_storyboard(image: Image.Image, key: RGBAColor) -> Image.Image:
+    rgba = image.convert("RGBA")
+    remainder = rgba.width % STORYBOARD_COLUMNS
+    if remainder == 0:
+        return rgba
+
+    padding = STORYBOARD_COLUMNS - remainder
+    normalized = Image.new("RGBA", (rgba.width + padding, rgba.height), key)
+    normalized.alpha_composite(rgba, (0, 0))
+    return normalized
+
+
+def storyboard_cells(image: Image.Image, key: RGBAColor) -> list[Image.Image]:
+    normalized = _normalized_storyboard(image, key)
+    cell_size = normalized.width // STORYBOARD_COLUMNS
+    grid_height = cell_size * STORYBOARD_ROWS
+    if normalized.height < grid_height:
+        raise ValueError(
+            f"storyboard height {normalized.height} cannot contain two square rows "
+            f"of {cell_size}px cells"
+        )
+
+    top = (normalized.height - grid_height) // 2
+    cells: list[Image.Image] = []
+    for row in range(STORYBOARD_ROWS):
+        for column in range(STORYBOARD_COLUMNS):
+            left = column * cell_size
+            upper = top + row * cell_size
+            cells.append(normalized.crop((left, upper, left + cell_size, upper + cell_size)))
+    return cells
 
 
 def resolve_within_repo(target: str) -> Path:
