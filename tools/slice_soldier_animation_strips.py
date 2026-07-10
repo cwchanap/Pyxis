@@ -16,6 +16,7 @@ FRAME_COUNT = 10
 RGBAColor: TypeAlias = tuple[int, int, int, int]
 STORYBOARD_COLUMNS = 5
 STORYBOARD_ROWS = 2
+STORYBOARD_FRAME_SIZE = 128
 STORYBOARD_BORDER_FRACTION = 0.08
 KEY_CHANNEL_TOLERANCE = 12
 TRANSPARENT_THRESHOLD = 12
@@ -205,9 +206,18 @@ def _validate_transparent_border(frame: Image.Image) -> None:
             raise ValueError("output right border is not transparent")
 
 
+def _validate_storyboard_frame_size(frame_size: int) -> None:
+    if frame_size != STORYBOARD_FRAME_SIZE:
+        raise ValueError(
+            "storyboard frames must be 128x128 "
+            f"(got {frame_size}x{frame_size})"
+        )
+
+
 def prepare_storyboard_frames(
     image: Image.Image, soldier: str, frame_size: int = 128
 ) -> list[Image.Image]:
+    _validate_storyboard_frame_size(frame_size)
     key = SOLDIER_KEYS[soldier]
     normalized, cell_size, grid_top = _storyboard_geometry(image, key)
     _validate_source_gutters(normalized, cell_size, grid_top, key)
@@ -407,6 +417,7 @@ def slice_storyboard(
     action: str,
     frame_size: int,
 ) -> None:
+    _validate_storyboard_frame_size(frame_size)
     frames = prepare_storyboard_frames(image, soldier, frame_size)
     output.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix=".soldier-animation-", dir=output) as directory:

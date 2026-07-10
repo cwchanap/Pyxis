@@ -84,6 +84,12 @@ class StoryboardCellTests(unittest.TestCase):
 
 
 class StoryboardValidationTests(unittest.TestCase):
+    def test_rejects_non_128_storyboard_frame_size(self) -> None:
+        board, _ = make_board()
+
+        with self.assertRaisesRegex(ValueError, "128x128"):
+            pipeline.prepare_storyboard_frames(board, soldier="infantry", frame_size=64)
+
     def test_rejects_art_inside_reserved_cell_border(self) -> None:
         board, _ = make_board()
         normalized = pipeline._normalized_storyboard(board, KEY)
