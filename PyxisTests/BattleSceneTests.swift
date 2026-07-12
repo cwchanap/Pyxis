@@ -328,6 +328,27 @@ struct BattleSceneTests {
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") >= 1)
     }
 
+    @Test func towerDamageUsesAuthoredArcherHitWithoutProceduralOverlay() throws {
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                [.archeryRange],
+                cityRemainingPower: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+        #expect(!scene.anyVisibleSoldierHasActionForTesting("soldierHitBodyFeedback"))
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitExpression") == 0)
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
+    }
+
     @Test func stableBodyHitMotionIsReadableAgainstSoldierSize() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
         let scene = makeScene(store: store)
@@ -361,6 +382,12 @@ struct BattleSceneTests {
             soldierType: .archer
         )
         #expect(abs(archerAttackDuration - 1.4) < 0.001)
+
+        let archerHitDuration = scene.soldierAnimationDurationForTesting(
+            action: "hit",
+            soldierType: .archer
+        )
+        #expect(abs(archerHitDuration - 0.8) < 0.001)
     }
 
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
@@ -435,7 +462,7 @@ struct BattleSceneTests {
         #expect(infantry !== archer)
     }
 
-    @Test("Approved archer attack uses authored frames while unapproved actions keep stable walk identity")
+    @Test("Approved archer attack and hit use authored frames while unapproved actions keep stable walk identity")
     func transientAnimationUsesStableWalkFrameIdentity() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -465,7 +492,11 @@ struct BattleSceneTests {
             )
             #expect(hitTextures.count == walkTextures.count)
             for (hitTexture, walkTexture) in zip(hitTextures, walkTextures) {
-                #expect(hitTexture === walkTexture)
+                if soldierType == .archer {
+                    #expect(hitTexture !== walkTexture)
+                } else {
+                    #expect(hitTexture === walkTexture)
+                }
             }
         }
     }
@@ -489,6 +520,7 @@ struct BattleSceneTests {
 
         #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "walk") == fullCanvas)
         #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "attack") == fullCanvas)
+        #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "hit") == fullCanvas)
     }
 
     @Test func approvedArcherFullCanvasPreservesLogicalBodyHeight() throws {

@@ -102,6 +102,7 @@ final class BattleScene: SKScene {
     private static let soldierWalkAnimationTimePerFrame: TimeInterval = 0.08
     private static let soldierTransientAnimationTimePerFrame: TimeInterval = 0.10
     private static let archerAttackAnimationTimePerFrame: TimeInterval = 0.14
+    private static let archerHitAnimationTimePerFrame: TimeInterval = 0.08
     private static var soldierTransientAnimationDuration: TimeInterval {
         TimeInterval(soldierAnimationFrameCount) * soldierTransientAnimationTimePerFrame
     }
@@ -2002,7 +2003,7 @@ final class BattleScene: SKScene {
         for type: SoldierType,
         action: SoldierAnimationAction
     ) -> Bool {
-        type == .archer && action == .attack
+        type == .archer && (action == .attack || action == .hit)
     }
 
     private func usesFullCanvasSoldierTextures(for type: SoldierType) -> Bool {
@@ -2632,14 +2633,16 @@ final class BattleScene: SKScene {
         for soldierID: BattleCombatState.SoldierID,
         schedulesRemoval: Bool
     ) {
-        guard soldierNodes[soldierID] != nil else {
+        guard let bundle = soldierNodes[soldierID] else {
             return
         }
 
-        if let bundle = soldierNodes[soldierID] {
+        playSoldierAnimation(.hit, for: soldierID, resumesWalk: !schedulesRemoval)
+        if usesAuthoredSoldierAnimation(for: bundle.type, action: .hit) {
+            resetStableSoldierBodyFeedback(for: bundle)
+        } else {
             playStableSoldierHitMotion(for: bundle)
         }
-        playSoldierAnimation(.hit, for: soldierID, resumesWalk: !schedulesRemoval)
         if schedulesRemoval {
             scheduleDelayedSoldierRemoval(for: soldierID)
         }
@@ -2814,6 +2817,8 @@ final class BattleScene: SKScene {
             Self.soldierWalkAnimationTimePerFrame
         case .attack where type == .archer:
             Self.archerAttackAnimationTimePerFrame
+        case .hit where type == .archer:
+            Self.archerHitAnimationTimePerFrame
         case .attack, .hit:
             Self.soldierTransientAnimationTimePerFrame
         }
