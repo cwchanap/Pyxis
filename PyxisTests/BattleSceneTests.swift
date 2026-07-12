@@ -173,8 +173,8 @@ struct BattleSceneTests {
         ))
     }
 
-    @Test func cityDamageAnimatesAttackPosePartsForSmoothMotionOnEverySoldierType() throws {
-        for soldierType in SoldierType.allCases {
+    @Test func cityDamageAnimatesAttackPosePartsForUnapprovedSoldierTypes() throws {
+        for soldierType in SoldierType.allCases where soldierType != .archer {
             let buildingType = buildingTypeForSoldier(soldierType)
             let store = try makeStore(initialState: stateWithBuildings([buildingType], cityRemainingPower: 500))
             let scene = makeScene(store: store)
@@ -197,6 +197,23 @@ struct BattleSceneTests {
 
             #expect(foundAnimatedAttackPart, "\(soldierType) attack pose has no animated part")
         }
+    }
+
+    @Test func approvedArcherAttackDoesNotLayerProceduralFeedback() throws {
+        let store = try makeStore(initialState: stateWithBuildings([.archeryRange], cityRemainingPower: 500))
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+
+        for _ in 0..<70 where scene.recentSoldierAttackAnimationCountForTesting == 0 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+        }
+
+        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackBodyFeedback"))
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") == 0)
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") == 0)
     }
 
     @Test func stableBodyAttackMotionIsReadableAgainstSoldierSize() throws {
@@ -338,6 +355,12 @@ struct BattleSceneTests {
         #expect(attackDuration > 0.95)
         #expect(hitDuration == attackDuration)
         #expect(scene.soldierDelayedRemovalWaitDurationForTesting == hitDuration)
+
+        let archerAttackDuration = scene.soldierAnimationDurationForTesting(
+            action: "attack",
+            soldierType: .archer
+        )
+        #expect(abs(archerAttackDuration - 1.4) < 0.001)
     }
 
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
@@ -412,7 +435,7 @@ struct BattleSceneTests {
         #expect(infantry !== archer)
     }
 
-    @Test("Attack/hit playback keeps each soldier's stable walk-frame identity")
+    @Test("Approved archer attack uses authored frames while unapproved actions keep stable walk identity")
     func transientAnimationUsesStableWalkFrameIdentity() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -429,7 +452,11 @@ struct BattleSceneTests {
 
             #expect(attackTextures.count == walkTextures.count)
             for (attackTexture, walkTexture) in zip(attackTextures, walkTextures) {
-                #expect(attackTexture === walkTexture)
+                if soldierType == .archer {
+                    #expect(attackTexture !== walkTexture)
+                } else {
+                    #expect(attackTexture === walkTexture)
+                }
             }
 
             let hitTextures = scene.cachedSoldierAnimationTexturesForTesting(
@@ -453,6 +480,47 @@ struct BattleSceneTests {
 
             #expect(attackCrop == walkCrop)
         }
+    }
+
+    @Test func approvedArcherAnimationUsesTheFullTextureCanvas() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+        #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "walk") == fullCanvas)
+        #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "attack") == fullCanvas)
+    }
+
+    @Test func approvedArcherFullCanvasPreservesLogicalBodyHeight() throws {
+        let store = try makeStore(initialState: stateWithBuildings([.archeryRange], cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+
+        let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
+        let expectedFrameSize = SoldierAnimationGeometry(type: .archer).frameSize(
+            forBodyHeight: scene.soldierTargetHeightForTesting
+        )
+
+        #expect(abs(bodyFrame.width - expectedFrameSize.width) < 0.001)
+        #expect(abs(bodyFrame.height - expectedFrameSize.height) < 0.001)
+    }
+
+    @Test func approvedArcherHPBarUsesLogicalBodyTopInsteadOfCanvasTop() throws {
+        let store = try makeStore(initialState: stateWithBuildings([.archeryRange], cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+
+        let hpBarFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
+        let placement = try #require(scene.soldierLanePlacementsForTesting.first)
+        let logicalBodyTop = placement.nodePosition.y + scene.soldierTargetHeightForTesting
+        let gap = hpBarFrame.minY - logicalBodyTop
+
+        #expect(gap >= 0)
+        #expect(gap <= 1.5)
     }
 
     @Test func attackFramesFitInsideRuntimeCropForEverySoldierType() throws {

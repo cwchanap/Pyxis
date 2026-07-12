@@ -101,6 +101,7 @@ final class BattleScene: SKScene {
     private static let soldierAnimationFrameCount = 10
     private static let soldierWalkAnimationTimePerFrame: TimeInterval = 0.08
     private static let soldierTransientAnimationTimePerFrame: TimeInterval = 0.10
+    private static let archerAttackAnimationTimePerFrame: TimeInterval = 0.14
     private static var soldierTransientAnimationDuration: TimeInterval {
         TimeInterval(soldierAnimationFrameCount) * soldierTransientAnimationTimePerFrame
     }
@@ -1798,7 +1799,7 @@ final class BattleScene: SKScene {
 
             bundle.root.position = point(forLane: soldier.lane, position: soldier.position)
             bundle.root.setScale(1)
-            fitBattleNode(bundle.body, targetHeight: soldierTargetHeight())
+            fitSoldierBodyNode(bundle.body, type: bundle.type, targetHeight: soldierTargetHeight())
             layoutSoldierHPBar(bundle, soldier: soldier)
             startSoldierWalkAnimation(for: soldier.id, type: soldier.type)
         }
@@ -1810,6 +1811,16 @@ final class BattleScene: SKScene {
         }
 
         return max(54, min(70, size.height * 0.075))
+    }
+
+    private func fitSoldierBodyNode(_ node: SKNode, type: SoldierType, targetHeight: CGFloat) {
+        guard let sprite = node as? SKSpriteNode, usesFullCanvasSoldierTextures(for: type) else {
+            fitBattleNode(node, targetHeight: targetHeight)
+            return
+        }
+
+        sprite.setScale(1)
+        sprite.size = SoldierAnimationGeometry(type: type).frameSize(forBodyHeight: targetHeight)
     }
 
     private func stableSoldierAttackMotionPeakOffset() -> CGFloat {
@@ -1829,7 +1840,7 @@ final class BattleScene: SKScene {
     }
 
     private func layoutSoldierHPBar(_ bundle: SoldierNodeBundle, soldier: BattleCombatState.Soldier) {
-        let bodyFrame = bundle.body.calculateAccumulatedFrame()
+        let bodyFrame = soldierLogicalBodyFrame(for: bundle)
         let width = max(36, min(56, bodyFrame.width * 0.72))
         let height: CGFloat = 5
         let y = bodyFrame.maxY + 1.5
@@ -1847,6 +1858,15 @@ final class BattleScene: SKScene {
             cornerHeight: height / 2,
             transform: nil
         )
+    }
+
+    private func soldierLogicalBodyFrame(for bundle: SoldierNodeBundle) -> CGRect {
+        guard let sprite = bundle.body as? SKSpriteNode,
+              usesFullCanvasSoldierTextures(for: bundle.type) else {
+            return bundle.body.calculateAccumulatedFrame()
+        }
+
+        return SoldierAnimationGeometry(type: bundle.type).logicalBodyFrame(frameSize: sprite.size)
     }
 
     private func clearLiveCombat() {
@@ -1941,11 +1961,12 @@ final class BattleScene: SKScene {
     }
 
     private func soldierAnimationTextures(for type: SoldierType, action: SoldierAnimationAction) -> [SKTexture] {
-        if action == .attack || action == .hit {
+        if (action == .attack || action == .hit)
+            && !usesAuthoredSoldierAnimation(for: type, action: action) {
             // The generated attack/hit body sets are not identity-consistent
             // with the walk sets: several soldiers change silhouette/style or
-            // show cropped weapon artifacts. Keep the visible body stable and
-            // layer attack/hit feedback separately.
+            // show cropped weapon artifacts. Keep unapproved actions on the
+            // stable walk identity until their replacement boards pass review.
             return soldierAnimationTextures(for: type, action: .walk)
         }
 
@@ -1977,6 +1998,17 @@ final class BattleScene: SKScene {
         SKTexture(rect: soldierAnimationFrameCrop(for: type, action: action), in: SKTexture(imageNamed: frameName))
     }
 
+    private func usesAuthoredSoldierAnimation(
+        for type: SoldierType,
+        action: SoldierAnimationAction
+    ) -> Bool {
+        type == .archer && action == .attack
+    }
+
+    private func usesFullCanvasSoldierTextures(for type: SoldierType) -> Bool {
+        type == .archer
+    }
+
     /// Normalized (0.0–1.0) sub-rect of each soldier animation frame texture,
     /// used by `soldierAnimationTexture(named:in:)` to crop away transparent
     /// padding so sprites align tightly inside their 28–42 pt render nodes.
@@ -1987,6 +2019,10 @@ final class BattleScene: SKScene {
     /// vertical padding. If a sprite set is re-authored with different padding,
     /// re-derive these from the new art rather than tweaking by eye.
     private func soldierAnimationFrameCrop(for type: SoldierType, action: SoldierAnimationAction) -> CGRect {
+        if usesFullCanvasSoldierTextures(for: type) {
+            return CGRect(x: 0, y: 0, width: 1, height: 1)
+        }
+
         switch type {
         case .infantry:
             return CGRect(x: 0.25, y: 0, width: 0.50, height: 0.57)
@@ -2132,6 +2168,10 @@ final class BattleScene: SKScene {
         }
 
         playSoldierAnimation(.attack, for: soldierID, resumesWalk: true)
+        guard !usesAuthoredSoldierAnimation(for: bundle.type, action: .attack) else {
+            resetStableSoldierBodyFeedback(for: bundle)
+            return
+        }
         playStableSoldierAttackCue(for: bundle)
         playStableSoldierAttackMotion(for: bundle)
     }
@@ -2758,17 +2798,22 @@ final class BattleScene: SKScene {
 
         let animate = SKAction.animate(
             with: textures,
-            timePerFrame: soldierAnimationTimePerFrame(for: .walk),
+            timePerFrame: soldierAnimationTimePerFrame(for: .walk, type: type),
             resize: false,
             restore: false
         )
         sprite.run(SKAction.repeatForever(animate), withKey: SoldierAnimationKey.walk)
     }
 
-    private func soldierAnimationTimePerFrame(for action: SoldierAnimationAction) -> TimeInterval {
+    private func soldierAnimationTimePerFrame(
+        for action: SoldierAnimationAction,
+        type: SoldierType
+    ) -> TimeInterval {
         switch action {
         case .walk:
             Self.soldierWalkAnimationTimePerFrame
+        case .attack where type == .archer:
+            Self.archerAttackAnimationTimePerFrame
         case .attack, .hit:
             Self.soldierTransientAnimationTimePerFrame
         }
@@ -2822,7 +2867,7 @@ final class BattleScene: SKScene {
 
         let animate = SKAction.animate(
             with: textures,
-            timePerFrame: soldierAnimationTimePerFrame(for: action),
+            timePerFrame: soldierAnimationTimePerFrame(for: action, type: soldierType),
             resize: false,
             restore: false
         )
@@ -3381,20 +3426,27 @@ extension BattleScene {
         soldierTargetHeight()
     }
 
-    func soldierAnimationTimePerFrameForTesting(action: String) -> TimeInterval {
+    func soldierAnimationTimePerFrameForTesting(
+        action: String,
+        soldierType: SoldierType = .infantry
+    ) -> TimeInterval {
         guard let action = SoldierAnimationAction(rawValue: action) else {
             return 0
         }
 
-        return soldierAnimationTimePerFrame(for: action)
+        return soldierAnimationTimePerFrame(for: action, type: soldierType)
     }
 
-    func soldierAnimationDurationForTesting(action: String) -> TimeInterval {
+    func soldierAnimationDurationForTesting(
+        action: String,
+        soldierType: SoldierType = .infantry
+    ) -> TimeInterval {
         guard let action = SoldierAnimationAction(rawValue: action) else {
             return 0
         }
 
-        return TimeInterval(Self.soldierAnimationFrameCount) * soldierAnimationTimePerFrame(for: action)
+        return TimeInterval(Self.soldierAnimationFrameCount)
+            * soldierAnimationTimePerFrame(for: action, type: soldierType)
     }
 
     var soldierDelayedRemovalWaitDurationForTesting: TimeInterval {
