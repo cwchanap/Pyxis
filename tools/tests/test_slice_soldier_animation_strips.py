@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
@@ -167,6 +168,13 @@ class StoryboardValidationTests(unittest.TestCase):
 
 
 class SoldierTrioValidationTests(unittest.TestCase):
+    def assert_action_boards_are_individually_valid(
+        self, boards: dict[str, Image.Image]
+    ) -> None:
+        for action in pipeline.ACTIONS:
+            frames = pipeline.prepare_storyboard_frames(boards[action], "infantry")
+            self.assertEqual(len(frames), pipeline.FRAME_COUNT)
+
     def test_prepares_all_thirty_frames(self) -> None:
         prepared = pipeline.prepare_soldier_storyboards(
             make_action_boards(), soldier="infantry"
@@ -184,6 +192,28 @@ class SoldierTrioValidationTests(unittest.TestCase):
         boards["hit"] = make_metric_board(shifted)
 
         with self.assertRaisesRegex(ValueError, "trio baseline"):
+            pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
+
+    def test_rejects_cross_action_density_drift(self) -> None:
+        boards = make_action_boards()
+        boards["hit"] = make_metric_board(
+            [(24 + index % 2, 24, 39 + index % 2, 39) for index in range(10)]
+        )
+
+        self.assert_action_boards_are_individually_valid(boards)
+
+        with self.assertRaisesRegex(ValueError, "trio opaque pixel count"):
+            pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
+
+    def test_rejects_cross_action_height_drift(self) -> None:
+        boards = make_action_boards()
+        boards["hit"] = make_metric_board(
+            [(24 + index % 2, 8, 39 + index % 2, 55) for index in range(10)]
+        )
+
+        self.assert_action_boards_are_individually_valid(boards)
+
+        with self.assertRaisesRegex(ValueError, "trio bounding-box height"):
             pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
 
     def test_requires_exactly_walk_attack_and_hit(self) -> None:
@@ -215,3 +245,43 @@ class SoldierTrioValidationTests(unittest.TestCase):
 
             for sentinel, action in sentinels:
                 self.assertEqual(sentinel.read_text(encoding="utf-8"), action)
+
+    def test_rename_failure_restores_every_preexisting_imageset(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory)
+            sentinels: dict[Path, str] = {}
+            for action in pipeline.ACTIONS:
+                for index in range(1, pipeline.FRAME_COUNT + 1):
+                    imageset = output / f"infantry-{action}-{index:02d}.imageset"
+                    sentinel = imageset / "sentinel.txt"
+                    sentinel.parent.mkdir(parents=True)
+                    sentinel_value = f"{action}-{index:02d}"
+                    sentinel.write_text(sentinel_value, encoding="utf-8")
+                    sentinels[sentinel] = sentinel_value
+
+            completed_walk_installs: list[str] = []
+            original_rename = Path.rename
+
+            def fail_staged_attack_install(path: Path, target: Path) -> Path:
+                if path.parent.name == "new" and path.name.startswith("infantry-walk-"):
+                    completed_walk_installs.append(path.name)
+                if (
+                    path.parent.name == "new"
+                    and path.name == "infantry-attack-01.imageset"
+                ):
+                    raise OSError("injected staged attack install failure")
+                return original_rename(path, target)
+
+            with patch.object(
+                Path, "rename", autospec=True, side_effect=fail_staged_attack_install
+            ):
+                with self.assertRaisesRegex(OSError, "injected staged attack"):
+                    pipeline.slice_soldier_storyboards(
+                        make_action_boards(), output, "infantry", 128
+                    )
+
+            self.assertEqual(len(completed_walk_installs), pipeline.FRAME_COUNT)
+            for sentinel, sentinel_value in sentinels.items():
+                self.assertEqual(sentinel.read_text(encoding="utf-8"), sentinel_value)
