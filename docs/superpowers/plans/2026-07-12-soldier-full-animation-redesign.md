@@ -92,7 +92,11 @@ Add helpers and tests:
 
 ```python
 def make_action_boards() -> dict[str, Image.Image]:
-    return {action: make_metric_board([(16, 16, 47, 47)] * 10) for action in pipeline.ACTIONS}
+    boxes = [
+        (16 + index % 2, 16, 47 + index % 2, 47)
+        for index in range(10)
+    ]
+    return {action: make_metric_board(boxes) for action in pipeline.ACTIONS}
 
 
 class SoldierTrioValidationTests(unittest.TestCase):
@@ -106,7 +110,11 @@ class SoldierTrioValidationTests(unittest.TestCase):
 
     def test_rejects_cross_action_baseline_drift(self) -> None:
         boards = make_action_boards()
-        boards["hit"] = make_metric_board([(16, 8, 47, 39)] * 10)
+        shifted = [
+            (16 + index % 2, 8, 47 + index % 2, 39)
+            for index in range(10)
+        ]
+        boards["hit"] = make_metric_board(shifted)
 
         with self.assertRaisesRegex(ValueError, "trio baseline"):
             pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
