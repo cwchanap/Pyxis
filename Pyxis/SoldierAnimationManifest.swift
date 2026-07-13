@@ -1,6 +1,6 @@
 struct SoldierAnimationManifest {
     private static let authoredActions: [SoldierType: Set<SoldierAnimationAction>] = [
-        .archer: [.attack, .hit]
+        .archer: Set(SoldierAnimationAction.allCases)
     ]
     private static let fullCanvasTypes: Set<SoldierType> = [.archer]
 

@@ -465,8 +465,8 @@ struct BattleSceneTests {
         #expect(infantry !== archer)
     }
 
-    @Test("Approved archer attack and hit use authored frames while unapproved actions keep stable walk identity")
-    func transientAnimationUsesStableWalkFrameIdentity() throws {
+    @Test("Approved archer trio uses pairwise-distinct frames while unapproved actions keep stable walk identity")
+    func approvedArcherTrioUsesPairwiseDistinctFrameIdentity() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
@@ -479,25 +479,23 @@ struct BattleSceneTests {
                 soldierType: soldierType,
                 action: "attack"
             )
-
-            #expect(attackTextures.count == walkTextures.count)
-            for (attackTexture, walkTexture) in zip(attackTextures, walkTextures) {
-                if soldierType == .archer {
-                    #expect(attackTexture !== walkTexture)
-                } else {
-                    #expect(attackTexture === walkTexture)
-                }
-            }
-
             let hitTextures = scene.cachedSoldierAnimationTexturesForTesting(
                 soldierType: soldierType,
                 action: "hit"
             )
+
+            #expect(attackTextures.count == walkTextures.count)
             #expect(hitTextures.count == walkTextures.count)
-            for (hitTexture, walkTexture) in zip(hitTextures, walkTextures) {
+            for ((walkTexture, attackTexture), hitTexture) in zip(
+                zip(walkTextures, attackTextures),
+                hitTextures
+            ) {
                 if soldierType == .archer {
-                    #expect(hitTexture !== walkTexture)
+                    #expect(walkTexture !== attackTexture)
+                    #expect(walkTexture !== hitTexture)
+                    #expect(attackTexture !== hitTexture)
                 } else {
+                    #expect(attackTexture === walkTexture)
                     #expect(hitTexture === walkTexture)
                 }
             }
