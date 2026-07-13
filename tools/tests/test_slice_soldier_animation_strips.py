@@ -53,6 +53,14 @@ def make_metric_board(boxes: list[tuple[int, int, int, int]]) -> Image.Image:
     return board
 
 
+def make_action_boards() -> dict[str, Image.Image]:
+    boxes = [
+        (16 + index % 2, 16, 47 + index % 2, 47)
+        for index in range(10)
+    ]
+    return {action: make_metric_board(boxes) for action in pipeline.ACTIONS}
+
+
 class StoryboardCellTests(unittest.TestCase):
     def test_extracts_ten_square_cells_in_row_major_order(self) -> None:
         board, colors = make_board()
@@ -156,3 +164,54 @@ class StoryboardValidationTests(unittest.TestCase):
         boxes[4] = (16, 8, 47, 39)
         with self.assertRaisesRegex(ValueError, "baseline"):
             pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+
+
+class SoldierTrioValidationTests(unittest.TestCase):
+    def test_prepares_all_thirty_frames(self) -> None:
+        prepared = pipeline.prepare_soldier_storyboards(
+            make_action_boards(), soldier="infantry"
+        )
+
+        self.assertEqual(set(prepared), set(pipeline.ACTIONS))
+        self.assertTrue(all(len(frames) == 10 for frames in prepared.values()))
+
+    def test_rejects_cross_action_baseline_drift(self) -> None:
+        boards = make_action_boards()
+        shifted = [
+            (16 + index % 2, 8, 47 + index % 2, 39)
+            for index in range(10)
+        ]
+        boards["hit"] = make_metric_board(shifted)
+
+        with self.assertRaisesRegex(ValueError, "trio baseline"):
+            pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
+
+    def test_requires_exactly_walk_attack_and_hit(self) -> None:
+        boards = make_action_boards()
+        del boards["hit"]
+
+        with self.assertRaisesRegex(ValueError, "walk, attack, and hit"):
+            pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
+
+    def test_invalid_hit_does_not_replace_walk_or_attack(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        boards = make_action_boards()
+        invalid = boards["hit"].copy()
+        ImageDraw.Draw(invalid).point((1, 80), fill=(255, 0, 0, 255))
+        boards["hit"] = invalid
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory)
+            sentinels = []
+            for action in pipeline.ACTIONS:
+                sentinel = output / f"infantry-{action}-01.imageset" / "sentinel.txt"
+                sentinel.parent.mkdir(parents=True)
+                sentinel.write_text(action, encoding="utf-8")
+                sentinels.append((sentinel, action))
+
+            with self.assertRaises(ValueError):
+                pipeline.slice_soldier_storyboards(boards, output, "infantry", 128)
+
+            for sentinel, action in sentinels:
+                self.assertEqual(sentinel.read_text(encoding="utf-8"), action)

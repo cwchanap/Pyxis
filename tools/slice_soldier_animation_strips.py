@@ -231,6 +231,48 @@ def prepare_storyboard_frames(
     return frames
 
 
+def _validate_trio_metrics(prepared: dict[str, list[Image.Image]]) -> None:
+    from statistics import median
+
+    metrics = [
+        _opaque_metrics(frame)
+        for action in ACTIONS
+        for frame in prepared[action]
+    ]
+    counts = [count for count, _ in metrics]
+    heights = [bounds[3] - bounds[1] for _, bounds in metrics]
+    baselines = [bounds[3] for _, bounds in metrics]
+    median_count = median(counts)
+    median_height = median(heights)
+
+    for count in counts:
+        ratio = count / median_count
+        if ratio < MIN_DENSITY_RATIO or ratio > MAX_DENSITY_RATIO:
+            raise ValueError(f"trio opaque pixel count ratio {ratio:.2f}")
+    for height in heights:
+        ratio = height / median_height
+        if ratio < MIN_HEIGHT_RATIO or ratio > MAX_HEIGHT_RATIO:
+            raise ValueError(f"trio bounding-box height ratio {ratio:.2f}")
+    if max(baselines) - min(baselines) > MAX_BASELINE_DELTA:
+        raise ValueError(
+            f"trio baseline delta {max(baselines) - min(baselines)} "
+            f"exceeds {MAX_BASELINE_DELTA}"
+        )
+
+
+def prepare_soldier_storyboards(
+    images: dict[str, Image.Image], soldier: str, frame_size: int = 128
+) -> dict[str, list[Image.Image]]:
+    if set(images) != set(ACTIONS):
+        raise ValueError("soldier trio requires walk, attack, and hit storyboards")
+    prepared = {
+        action: prepare_storyboard_frames(images[action], soldier, frame_size)
+        for action in ACTIONS
+    }
+    _validate_trio_metrics(prepared)
+    return prepared
+
+
 def resolve_within_repo(target: str) -> Path:
     """Resolve ``target`` and ensure it stays inside the repo root.
 
@@ -377,28 +419,29 @@ def _write_staged_imagesets(
 
 
 def _install_staged_imagesets_atomic(
-    stage_root: Path, output: Path, soldier: str, action: str
+    stage_root: Path, output: Path, soldier: str, actions: tuple[str, ...]
 ) -> None:
     backup_root = stage_root.parent / "backup"
     backup_root.mkdir()
     records: list[dict[str, object]] = []
     try:
-        for index in range(1, FRAME_COUNT + 1):
-            asset_name = f"{soldier}-{action}-{index:02d}.imageset"
-            staged = stage_root / asset_name
-            destination = output / asset_name
-            backup = backup_root / asset_name
-            record: dict[str, object] = {
-                "destination": destination,
-                "backup": backup,
-                "had_existing": destination.exists(),
-                "installed": False,
-            }
-            if destination.exists():
-                destination.rename(backup)
-            records.append(record)
-            staged.rename(destination)
-            record["installed"] = True
+        for action in actions:
+            for index in range(1, FRAME_COUNT + 1):
+                asset_name = f"{soldier}-{action}-{index:02d}.imageset"
+                staged = stage_root / asset_name
+                destination = output / asset_name
+                backup = backup_root / asset_name
+                record: dict[str, object] = {
+                    "destination": destination,
+                    "backup": backup,
+                    "had_existing": destination.exists(),
+                    "installed": False,
+                }
+                if destination.exists():
+                    destination.rename(backup)
+                records.append(record)
+                staged.rename(destination)
+                record["installed"] = True
     except Exception:
         for record in reversed(records):
             destination = record["destination"]
@@ -425,7 +468,26 @@ def slice_storyboard(
         stage_root = temp_root / "new"
         stage_root.mkdir()
         _write_staged_imagesets(frames, stage_root, soldier, action)
-        _install_staged_imagesets_atomic(stage_root, output, soldier, action)
+        _install_staged_imagesets_atomic(stage_root, output, soldier, (action,))
+
+
+def slice_soldier_storyboards(
+    images: dict[str, Image.Image],
+    output: Path,
+    soldier: str,
+    frame_size: int = 128,
+) -> None:
+    prepared = prepare_soldier_storyboards(images, soldier, frame_size)
+    output.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".soldier-animation-", dir=output) as directory:
+        temp_root = Path(directory)
+        stage_root = temp_root / "new"
+        stage_root.mkdir()
+        for action in ACTIONS:
+            _write_staged_imagesets(prepared[action], stage_root, soldier, action)
+        _install_staged_imagesets_atomic(
+            stage_root, output, soldier, tuple(ACTIONS)
+        )
 
 
 def main() -> None:
@@ -456,13 +518,24 @@ def main() -> None:
     if args.storyboards_dir is not None:
         source_root = Path(args.storyboards_dir)
         for soldier in args.soldiers:
-            for action in args.actions:
-                source = source_root / f"{soldier}-{action}.png"
-                if not source.exists():
-                    raise FileNotFoundError(source)
-                slice_storyboard(
-                    Image.open(source), assets_dir, soldier, action, args.frame_size
+            if set(args.actions) == set(ACTIONS):
+                images = {}
+                for action in ACTIONS:
+                    source = source_root / f"{soldier}-{action}.png"
+                    if not source.exists():
+                        raise FileNotFoundError(source)
+                    images[action] = Image.open(source)
+                slice_soldier_storyboards(
+                    images, assets_dir, soldier, args.frame_size
                 )
+            else:
+                for action in args.actions:
+                    source = source_root / f"{soldier}-{action}.png"
+                    if not source.exists():
+                        raise FileNotFoundError(source)
+                    slice_storyboard(
+                        Image.open(source), assets_dir, soldier, action, args.frame_size
+                    )
     else:
         source_root = Path(args.strips_dir)
         for soldier in args.soldiers:
