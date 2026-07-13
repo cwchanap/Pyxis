@@ -129,9 +129,10 @@ struct BattleSceneTests {
     }
 
     @Test func cityDamageCreatesVisibleStableAttackCue() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 50))
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
@@ -139,9 +140,10 @@ struct BattleSceneTests {
     }
 
     @Test func cityDamageStartsStableBodyAttackMotion() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 50))
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
@@ -149,9 +151,10 @@ struct BattleSceneTests {
     }
 
     @Test func cityDamageUsesReadableAttackPoseInsteadOfRootLungeOnly() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 50))
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
@@ -160,9 +163,10 @@ struct BattleSceneTests {
     }
 
     @Test func cityDamageAnimatesAttackPoseOverlay() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 50))
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
@@ -174,7 +178,7 @@ struct BattleSceneTests {
     }
 
     @Test func cityDamageAnimatesAttackPosePartsForUnapprovedSoldierTypes() throws {
-        for soldierType in SoldierType.allCases where soldierType != .archer {
+        for soldierType in SoldierType.allCases where soldierType != .archer && soldierType != .infantry {
             let buildingType = buildingTypeForSoldier(soldierType)
             let store = try makeStore(initialState: stateWithBuildings([buildingType], cityRemainingPower: 500))
             let scene = makeScene(store: store)
@@ -216,10 +220,27 @@ struct BattleSceneTests {
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") == 0)
     }
 
-    @Test func stableBodyAttackMotionIsReadableAgainstSoldierSize() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+    @Test func approvedInfantryAttackDoesNotLayerProceduralFeedback() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 500))
         let scene = makeScene(store: store)
 
+        scene.spawnSoldierForTesting()
+
+        for _ in 0..<70 where scene.recentSoldierAttackAnimationCountForTesting == 0 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+        }
+
+        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackBodyFeedback"))
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") == 0)
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") == 0)
+    }
+
+    @Test func stableBodyAttackMotionIsReadableAgainstSoldierSize() throws {
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
 
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
@@ -297,7 +318,8 @@ struct BattleSceneTests {
 
     @Test func towerDamageStartsStableBodyHitMotion() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: stateWithBuildings(
+                [.stable],
                 cityRemainingPower: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
@@ -305,6 +327,7 @@ struct BattleSceneTests {
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
@@ -313,7 +336,8 @@ struct BattleSceneTests {
 
     @Test func towerDamageShowsHitExpressionAndPosture() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: stateWithBuildings(
+                [.stable],
                 cityRemainingPower: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
@@ -321,6 +345,7 @@ struct BattleSceneTests {
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
@@ -349,10 +374,30 @@ struct BattleSceneTests {
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
     }
 
+    @Test func towerDamageUsesAuthoredInfantryHitWithoutProceduralOverlay() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+        #expect(!scene.anyVisibleSoldierHasActionForTesting("soldierHitBodyFeedback"))
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitExpression") == 0)
+        #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
+    }
+
     @Test func stableBodyHitMotionIsReadableAgainstSoldierSize() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 50))
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
 
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
@@ -395,18 +440,18 @@ struct BattleSceneTests {
 
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
     func soldierAnimationTexturesAreCachedAndReusedAcrossCalls() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 0)
 
-        // First call resolves & caches the walk textures for infantry.
-        let first = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "walk")
+        // First call resolves & caches the walk textures for an unapproved type.
+        let first = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .cavalry, action: "walk")
         #expect(first.count == 10)
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
 
         // Second call must return the *same* SKTexture instances (cache hit).
-        let second = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "walk")
+        let second = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .cavalry, action: "walk")
         #expect(second.count == first.count)
         for (a, b) in zip(first, second) {
             #expect(a === b)
@@ -418,7 +463,7 @@ struct BattleSceneTests {
         // attack body frames cannot swap the soldier into a mismatched or
         // visually broken appearance. The action still reads through the
         // body-feedback motion and attack cue layered by `BattleScene`.
-        let attack = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "attack")
+        let attack = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .cavalry, action: "attack")
         #expect(attack.count == first.count)
         for (attackTexture, walkTexture) in zip(attack, first) {
             #expect(attackTexture === walkTexture)
@@ -427,7 +472,7 @@ struct BattleSceneTests {
 
         // Hit playback reuses the stable walk-frame identity, so it does not
         // add a second texture-cache entry.
-        _ = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "hit")
+        _ = scene.cachedSoldierAnimationTexturesForTesting(soldierType: .cavalry, action: "hit")
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 1)
     }
 
@@ -465,8 +510,8 @@ struct BattleSceneTests {
         #expect(infantry !== archer)
     }
 
-    @Test("Approved archer trio uses pairwise-distinct frames while unapproved actions keep stable walk identity")
-    func approvedArcherTrioUsesPairwiseDistinctFrameIdentity() throws {
+    @Test("Approved archer and infantry trios use pairwise-distinct frames while unapproved actions keep stable walk identity")
+    func approvedArcherAndInfantryTriosUsePairwiseDistinctFrameIdentity() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
@@ -490,7 +535,7 @@ struct BattleSceneTests {
                 zip(walkTextures, attackTextures),
                 hitTextures
             ) {
-                if soldierType == .archer {
+                if soldierType == .archer || soldierType == .infantry {
                     #expect(walkTexture !== attackTexture)
                     #expect(walkTexture !== hitTexture)
                     #expect(attackTexture !== hitTexture)
@@ -522,6 +567,16 @@ struct BattleSceneTests {
         #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "walk") == fullCanvas)
         #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "attack") == fullCanvas)
         #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "hit") == fullCanvas)
+    }
+
+    @Test func approvedInfantryAnimationUsesTheFullTextureCanvas() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+        #expect(scene.animationFrameCropForTesting(soldierType: .infantry, action: "walk") == fullCanvas)
+        #expect(scene.animationFrameCropForTesting(soldierType: .infantry, action: "attack") == fullCanvas)
+        #expect(scene.animationFrameCropForTesting(soldierType: .infantry, action: "hit") == fullCanvas)
     }
 
     @Test func approvedArcherFullCanvasPreservesLogicalBodyHeight() throws {
@@ -897,9 +952,10 @@ struct BattleSceneTests {
     }
 
     @Test func liveSoldierHPBarStaysAttachedToScaledBodyTopEdge() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
 
         let hpBarFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
@@ -1815,9 +1871,12 @@ struct BattleSceneTests {
     }
 
     @Test func soldierBodiesRenderAtHalfScaleForBattleReadability() throws {
-        let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
+        let store = try makeStore(
+            initialState: stateWithBuildings([.stable], gold: 100, cityRemainingPower: 1_000)
+        )
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
 
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
@@ -1829,15 +1888,18 @@ struct BattleSceneTests {
         #expect(hpFrame.minY - bodyFrame.maxY <= 1.5)
     }
 
-    @Test func liveSoldierBodyUsesCroppedAnimationFrameInsteadOfTransparentCanvas() throws {
-        let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
+    @Test func unapprovedSoldierBodyUsesCroppedAnimationFrameInsteadOfTransparentCanvas() throws {
+        let store = try makeStore(
+            initialState: stateWithBuildings([.stable], gold: 100, cityRemainingPower: 1_000)
+        )
         let scene = makeScene(store: store)
 
+        scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
 
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
 
-        #expect(bodyFrame.width < bodyFrame.height * 0.90)
+        #expect(bodyFrame.width < bodyFrame.height * 0.96)
         #expect(bodyFrame.height >= 54)
     }
 
