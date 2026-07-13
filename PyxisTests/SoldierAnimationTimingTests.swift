@@ -13,6 +13,17 @@ struct SoldierAnimationTimingTests {
         }
     }
 
+    @Test func everyActionFrameDurationsSumToApprovedTotal() {
+        for type in SoldierType.allCases {
+            for action in SoldierAnimationAction.allCases {
+                let durations = SoldierAnimationTiming.frameDurations(for: action, type: type)
+                let frameTotal = durations.reduce(0, +)
+                let approvedTotal = SoldierAnimationTiming.totalDuration(for: action, type: type)
+                #expect(abs(frameTotal - approvedTotal) < 0.000_001)
+            }
+        }
+    }
+
     @Test func totalsMatchApprovedPlaybackDurations() {
         let attacks: [SoldierType: TimeInterval] = [
             .infantry: 1.2, .archer: 1.4, .cavalry: 1.2, .mage: 1.4, .siege: 1.6
