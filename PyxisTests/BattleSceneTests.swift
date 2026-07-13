@@ -360,34 +360,37 @@ struct BattleSceneTests {
         #expect(scene.stableSoldierHitMotionPeakRotationForTesting >= 0.34)
     }
 
-    @Test("Transient soldier animations use readable playback timing (spec §Runtime animation)")
-    func transientSoldierAnimationsUseReadablePlaybackTiming() throws {
+    @Test("Soldier animations use authored weighted playback timing")
+    func soldierAnimationsUseAuthoredWeightedPlaybackTiming() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
         let scene = makeScene(store: store)
 
-        let attackFrameDuration = scene.soldierAnimationTimePerFrameForTesting(action: "attack")
-        let hitFrameDuration = scene.soldierAnimationTimePerFrameForTesting(action: "hit")
-        let attackDuration = scene.soldierAnimationDurationForTesting(action: "attack")
-        let hitDuration = scene.soldierAnimationDurationForTesting(action: "hit")
+        for type in SoldierType.allCases {
+            #expect(scene.soldierAnimationFrameDurationsForTesting(action: "walk", soldierType: type).count == 10)
+            #expect(abs(scene.soldierAnimationDurationForTesting(action: "walk", soldierType: type) - 1.0) < 0.001)
+            #expect(abs(scene.soldierAnimationDurationForTesting(action: "hit", soldierType: type) - 0.9) < 0.001)
+            #expect(abs(scene.soldierDelayedRemovalWaitDurationForTesting(soldierType: type) - 0.9) < 0.001)
+        }
 
-        #expect(scene.soldierAnimationTimePerFrameForTesting(action: "walk") == 0.08)
-        #expect(attackFrameDuration >= 0.10)
-        #expect(hitFrameDuration == attackFrameDuration)
-        #expect(attackDuration > 0.95)
-        #expect(hitDuration == attackDuration)
-        #expect(scene.soldierDelayedRemovalWaitDurationForTesting == hitDuration)
+        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .infantry) - 1.2) < 0.001)
+        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .archer) - 1.4) < 0.001)
+        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .cavalry) - 1.2) < 0.001)
+        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .mage) - 1.4) < 0.001)
+        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .siege) - 1.6) < 0.001)
+    }
 
-        let archerAttackDuration = scene.soldierAnimationDurationForTesting(
-            action: "attack",
-            soldierType: .archer
-        )
-        #expect(abs(archerAttackDuration - 1.4) < 0.001)
+    @Test("Hit animation interrupts an in-flight attack animation")
+    func hitAnimationInterruptsInFlightAttackAnimation() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
 
-        let archerHitDuration = scene.soldierAnimationDurationForTesting(
-            action: "hit",
-            soldierType: .archer
-        )
-        #expect(abs(archerHitDuration - 0.8) < 0.001)
+        scene.spawnSoldierForTesting()
+        scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+
+        scene.triggerFirstLiveSoldierAnimationForTesting("hit")
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
     }
 
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
