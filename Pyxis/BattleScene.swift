@@ -72,12 +72,6 @@ final class BattleScene: SKScene {
         }()
     }
 
-    private enum SoldierAnimationAction: String, CaseIterable {
-        case walk
-        case attack
-        case hit
-    }
-
     private enum SoldierAnimationKey {
         static let walk = "soldierWalkAnimation"
         static let attack = "soldierAttackAnimation"
@@ -98,14 +92,6 @@ final class BattleScene: SKScene {
         static let hitPeakRotation: CGFloat = 0.40
     }
 
-    private static let soldierAnimationFrameCount = 10
-    private static let soldierWalkAnimationTimePerFrame: TimeInterval = 0.08
-    private static let soldierTransientAnimationTimePerFrame: TimeInterval = 0.10
-    private static let archerAttackAnimationTimePerFrame: TimeInterval = 0.14
-    private static let archerHitAnimationTimePerFrame: TimeInterval = 0.08
-    private static var soldierTransientAnimationDuration: TimeInterval {
-        TimeInterval(soldierAnimationFrameCount) * soldierTransientAnimationTimePerFrame
-    }
     private static let soldierHUDIconAnimationFrameCrop = CGRect(x: 0.22, y: 0, width: 0.56, height: 0.68)
 
     private struct SoldierNodeBundle {
@@ -1948,7 +1934,7 @@ final class BattleScene: SKScene {
     }
 
     private func soldierAnimationFrameNames(for type: SoldierType, action: SoldierAnimationAction) -> [String] {
-        (1...Self.soldierAnimationFrameCount).map {
+        (1...SoldierAnimationTiming.frameCount).map {
             "\(type.rawValue)-\(action.rawValue)-\(String(format: "%02d", $0))"
         }
     }
@@ -2003,11 +1989,11 @@ final class BattleScene: SKScene {
         for type: SoldierType,
         action: SoldierAnimationAction
     ) -> Bool {
-        type == .archer && (action == .attack || action == .hit)
+        SoldierAnimationManifest.isAuthored(action, for: type)
     }
 
     private func usesFullCanvasSoldierTextures(for type: SoldierType) -> Bool {
-        type == .archer
+        SoldierAnimationManifest.usesFullCanvas(for: type)
     }
 
     /// Normalized (0.0–1.0) sub-rect of each soldier animation frame texture,
@@ -2799,29 +2785,22 @@ final class BattleScene: SKScene {
             return
         }
 
-        let animate = SKAction.animate(
-            with: textures,
-            timePerFrame: soldierAnimationTimePerFrame(for: .walk, type: type),
-            resize: false,
-            restore: false
+        sprite.run(
+            SKAction.repeatForever(soldierTextureAction(textures: textures, action: .walk, type: type)),
+            withKey: SoldierAnimationKey.walk
         )
-        sprite.run(SKAction.repeatForever(animate), withKey: SoldierAnimationKey.walk)
     }
 
-    private func soldierAnimationTimePerFrame(
-        for action: SoldierAnimationAction,
+    private func soldierTextureAction(
+        textures: [SKTexture],
+        action: SoldierAnimationAction,
         type: SoldierType
-    ) -> TimeInterval {
-        switch action {
-        case .walk:
-            Self.soldierWalkAnimationTimePerFrame
-        case .attack where type == .archer:
-            Self.archerAttackAnimationTimePerFrame
-        case .hit where type == .archer:
-            Self.archerHitAnimationTimePerFrame
-        case .attack, .hit:
-            Self.soldierTransientAnimationTimePerFrame
+    ) -> SKAction {
+        let durations = SoldierAnimationTiming.frameDurations(for: action, type: type)
+        let steps = zip(textures, durations).flatMap { texture, duration in
+            [SKAction.setTexture(texture, resize: false), SKAction.wait(forDuration: duration)]
         }
+        return SKAction.sequence(steps)
     }
 
     private func playSoldierAnimation(
@@ -2870,12 +2849,7 @@ final class BattleScene: SKScene {
         sprite.removeAction(forKey: SoldierAnimationKey.attack)
         sprite.removeAction(forKey: SoldierAnimationKey.hit)
 
-        let animate = SKAction.animate(
-            with: textures,
-            timePerFrame: soldierAnimationTimePerFrame(for: action, type: soldierType),
-            resize: false,
-            restore: false
-        )
+        let animate = soldierTextureAction(textures: textures, action: action, type: soldierType)
         let resumeWalk = SKAction.run { [weak self] in
             self?.resumeWalkForSoldierIfNeeded(
                 id: soldierID,
@@ -2924,7 +2898,8 @@ final class BattleScene: SKScene {
 
         // Match the full hit animation duration so killed soldiers finish the
         // authored hit cycle before fading out.
-        let wait = SKAction.wait(forDuration: Self.soldierTransientAnimationDuration)
+        let duration = SoldierAnimationTiming.totalDuration(for: .hit, type: bundle.type)
+        let wait = SKAction.wait(forDuration: duration)
         let remove = SKAction.run { [weak self] in
             self?.removeSoldierNode(id: soldierID, animated: true)
         }
@@ -3431,15 +3406,12 @@ extension BattleScene {
         soldierTargetHeight()
     }
 
-    func soldierAnimationTimePerFrameForTesting(
+    func soldierAnimationFrameDurationsForTesting(
         action: String,
         soldierType: SoldierType = .infantry
-    ) -> TimeInterval {
-        guard let action = SoldierAnimationAction(rawValue: action) else {
-            return 0
-        }
-
-        return soldierAnimationTimePerFrame(for: action, type: soldierType)
+    ) -> [TimeInterval] {
+        guard let action = SoldierAnimationAction(rawValue: action) else { return [] }
+        return SoldierAnimationTiming.frameDurations(for: action, type: soldierType)
     }
 
     func soldierAnimationDurationForTesting(
@@ -3450,12 +3422,11 @@ extension BattleScene {
             return 0
         }
 
-        return TimeInterval(Self.soldierAnimationFrameCount)
-            * soldierAnimationTimePerFrame(for: action, type: soldierType)
+        return SoldierAnimationTiming.totalDuration(for: action, type: soldierType)
     }
 
-    var soldierDelayedRemovalWaitDurationForTesting: TimeInterval {
-        Self.soldierTransientAnimationDuration
+    func soldierDelayedRemovalWaitDurationForTesting(soldierType: SoldierType) -> TimeInterval {
+        SoldierAnimationTiming.totalDuration(for: .hit, type: soldierType)
     }
 
     /// Deterministic resolution of "the first live soldier" for test accessors.
@@ -3464,6 +3435,14 @@ extension BattleScene {
     /// reproducible as the suite grows beyond a single soldier.
     private var firstLiveSoldierIDForTesting: BattleCombatState.SoldierID? {
         combat.soldiers.first(where: \.isAlive)?.id
+    }
+
+    func triggerFirstLiveSoldierAnimationForTesting(_ rawAction: String) {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let action = SoldierAnimationAction(rawValue: rawAction) else {
+            return
+        }
+        playSoldierAnimation(action, for: soldierID, resumesWalk: true)
     }
 
     func firstLiveSoldierHasActionForTesting(_ key: String) -> Bool {
