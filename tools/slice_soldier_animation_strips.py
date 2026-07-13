@@ -222,7 +222,12 @@ def prepare_storyboard_frames(
     normalized, cell_size, grid_top = _storyboard_geometry(image, key)
     _validate_source_gutters(normalized, cell_size, grid_top, key)
     frames = [
-        _remove_key(cell, key).resize((frame_size, frame_size), Image.Resampling.LANCZOS)
+        _remove_key(
+            _remove_key(cell, key).resize(
+                (frame_size, frame_size), Image.Resampling.LANCZOS
+            ),
+            key,
+        )
         for cell in storyboard_cells(normalized, key)
     ]
     for frame in frames:

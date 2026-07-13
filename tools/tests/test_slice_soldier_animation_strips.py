@@ -62,6 +62,30 @@ def make_action_boards() -> dict[str, Image.Image]:
     return {action: make_metric_board(boxes) for action in pipeline.ACTIONS}
 
 
+def make_antialiased_chroma_edge_board() -> Image.Image:
+    cell_size = 355
+    board = Image.new(
+        "RGBA", (cell_size * 5, cell_size * 2 + 177), pipeline.SOLDIER_KEYS["archer"]
+    )
+    top = 88
+    for index in range(pipeline.FRAME_COUNT):
+        column = index % 5
+        row = index // 5
+        left = column * cell_size
+        upper = top + row * cell_size
+        antialiased_cell = Image.new(
+            "RGBA", (cell_size * 4, cell_size * 4), pipeline.SOLDIER_KEYS["archer"]
+        )
+        ImageDraw.Draw(antialiased_cell).ellipse(
+            (61 * 4, 50 * 4, 280 * 4, 287 * 4), fill=(20 + index, 0, 0, 255)
+        )
+        board.alpha_composite(
+            antialiased_cell.resize((cell_size, cell_size), Image.Resampling.LANCZOS),
+            (left, upper),
+        )
+    return board
+
+
 class StoryboardCellTests(unittest.TestCase):
     def test_extracts_ten_square_cells_in_row_major_order(self) -> None:
         board, colors = make_board()
@@ -121,6 +145,19 @@ class StoryboardValidationTests(unittest.TestCase):
             for x in range(128):
                 self.assertEqual(frame.getpixel((x, 0))[3], 0)
                 self.assertEqual(frame.getpixel((x, 127))[3], 0)
+
+    def test_prepared_archer_frames_remove_resampling_key_color_fringe(self) -> None:
+        frames = pipeline.prepare_storyboard_frames(
+            make_antialiased_chroma_edge_board(), soldier="archer"
+        )
+
+        key_red, key_green, key_blue, _ = pipeline.SOLDIER_KEYS["archer"]
+        for frame in frames:
+            for red, green, blue, alpha in frame.getdata():
+                if alpha == 0:
+                    continue
+                self.assertNotEqual((red, green, blue), (key_red, key_green, key_blue))
+                self.assertFalse(red == blue and red >= 128 and green < red)
 
     def test_invalid_sequence_does_not_replace_existing_assets(self) -> None:
         from tempfile import TemporaryDirectory
