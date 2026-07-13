@@ -1,7 +1,7 @@
 # Soldier Full Animation Redesign
 
 **Date:** 2026-07-12  
-**Status:** Pending written review
+**Status:** Approved
 
 ## Summary
 
