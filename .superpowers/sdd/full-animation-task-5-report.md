@@ -223,9 +223,8 @@ storyboards:
 - `/private/tmp/pyxis-full-animation/infantry-hit.png`
 
 The approved sources had already passed `prepare_soldier_storyboards`, the
-atomic preview slicer, and the 30-frame `0/0` fringe scan recorded above. No
-simulator visual playback was performed in this completion pass; the
-coordinator owns that post-commit check.
+atomic preview slicer, and the 30-frame `0/0` fringe scan recorded above. The
+coordinator performed the post-commit simulator playback check recorded below.
 
 ### Production Installation
 
@@ -306,3 +305,32 @@ rtk git diff --check
 ```
 
 Result: exit `0`.
+
+### Independent Review
+
+The Task 5 reviewer inspected commit range `d322d8be..6c4e9d9` and returned
+`APPROVED` with no critical, important, or minor findings. The review is
+recorded in `.superpowers/sdd/full-animation-task-5-review.md`. The reviewer
+correctly left simulator playback to the coordinator because the recording had
+not yet been captured during that review pass.
+
+### Simulator Playback Verification
+
+XcodeBuildMCP rebuilt, installed, and launched commit `6c4e9d9` on the configured
+`iPhone 17 Pro` simulator. A temporary, uncommitted XCUITest tapped the Infantry
+spawn control eight times and held the battle scene for 24 seconds. The test ran
+with parallel testing disabled and passed (`1 passed, 0 failed`); the temporary
+test file was deleted immediately after capture.
+
+Playback evidence:
+
+- `build/animation-preview/qa/infantry/simulator-playback.mp4`
+- `build/animation-preview/qa/infantry/simulator-playback-focus.gif`
+- `build/animation-preview/qa/infantry/simulator-action-contact.jpg`
+
+The live sequence shows the installed blue-plumed Infantry sprites advancing
+through the authored walk frames, changing sword-arm and body posture through
+the strike sequence at the enemy city, and entering the authored guarded hit
+reaction under tower fire. The soldiers retain the approved appearance and
+scale throughout; no legacy cropped texture or procedural-only substitution is
+visible.
