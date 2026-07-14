@@ -29,7 +29,7 @@ MAX_BASELINE_DELTA = 6
 MAX_NEUTRAL_HEIGHT_SCALE_DELTA = 0.05
 VERTICAL_CORE_LOW_QUANTILE = 0.05
 VERTICAL_CORE_HIGH_QUANTILE = 0.95
-MAX_VERTICAL_CORE_HEIGHT_DELTA = 6
+MAX_VERTICAL_CORE_HEIGHT_DELTA = 2
 MAX_VERTICAL_CORE_CENTROID_DELTA = 4.0
 
 SOLDIER_KEYS: dict[str, RGBAColor] = {
@@ -317,6 +317,18 @@ def _validate_trio_metrics(prepared: dict[str, list[Image.Image]]) -> None:
             f"exceeds {MAX_BASELINE_DELTA}"
         )
 
+    core_metrics = [
+        _vertical_core_metrics(frame)
+        for action in ACTIONS
+        for frame in prepared[action]
+    ]
+    core_heights = [height for height, _ in core_metrics]
+    core_height_delta = max(core_heights) - min(core_heights)
+    if core_height_delta > MAX_VERTICAL_CORE_HEIGHT_DELTA:
+        raise ValueError(
+            f"trio vertical core height delta {core_height_delta} "
+            f"exceeds {MAX_VERTICAL_CORE_HEIGHT_DELTA}"
+        )
     neutral_heights = {
         action: median(
             metrics_by_action[action][index][1][3]
