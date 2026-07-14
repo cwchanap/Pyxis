@@ -203,6 +203,28 @@ class StoryboardValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "baseline"):
             pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
 
+    def test_rejects_mid_action_vertical_core_compression(self) -> None:
+        boxes = [
+            (19 + index % 2, 19, 44 + index % 2, 44)
+            if 3 <= index <= 6
+            else (16 + index % 2, 16, 47 + index % 2, 47)
+            for index in range(10)
+        ]
+
+        with self.assertRaisesRegex(ValueError, "vertical core height delta"):
+            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+
+    def test_rejects_mid_action_vertical_core_centroid_drift(self) -> None:
+        boxes = [
+            (16 + index % 2, 19, 47 + index % 2, 50)
+            if 3 <= index <= 6
+            else (16 + index % 2, 16, 47 + index % 2, 47)
+            for index in range(10)
+        ]
+
+        with self.assertRaisesRegex(ValueError, "vertical core centroid delta"):
+            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+
 
 class SoldierTrioValidationTests(unittest.TestCase):
     def assert_action_boards_are_individually_valid(
@@ -267,7 +289,7 @@ class SoldierTrioValidationTests(unittest.TestCase):
     def test_allows_mid_action_posture_change_when_neutral_scale_matches(self) -> None:
         boards = make_action_boards()
         hit_boxes = [
-            (18 + index % 2, 18, 45 + index % 2, 45)
+            (17 + index % 2, 17, 46 + index % 2, 46)
             if 3 <= index <= 6
             else (16 + index % 2, 16, 47 + index % 2, 47)
             for index in range(10)
