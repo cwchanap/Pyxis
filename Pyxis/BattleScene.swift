@@ -102,6 +102,13 @@ final class BattleScene: SKScene {
         let hpBarFill: SKShapeNode
         let type: SoldierType
         let lane: BattleLane
+        let formationSlot: Int
+    }
+
+    private enum SoldierFormation {
+        static let columns = [0, -1, 1]
+        static let lateralSpacingScale: CGFloat = 0.42
+        static let rowSpacingScale: CGFloat = 0.30
     }
 
     private struct AttackPartMotion {
@@ -1752,6 +1759,8 @@ final class BattleScene: SKScene {
         hpFill.strokeColor = .clear
         hpFill.zPosition = 3
 
+        let formationSlot = nextAvailableFormationSlot(for: soldier.lane)
+
         root.addChild(hpBackground)
         root.addChild(hpFill)
         soldierLayer.addChild(root)
@@ -1762,7 +1771,28 @@ final class BattleScene: SKScene {
             hpBarBackground: hpBackground,
             hpBarFill: hpFill,
             type: soldier.type,
-            lane: soldier.lane
+            lane: soldier.lane,
+            formationSlot: formationSlot
+        )
+    }
+
+    private func nextAvailableFormationSlot(for lane: BattleLane) -> Int {
+        let occupiedSlots = Set(
+            soldierNodes.values
+                .filter { $0.lane == lane }
+                .map(\.formationSlot)
+        )
+        return (0...).first { !occupiedSlots.contains($0) } ?? 0
+    }
+
+    private func soldierFormationOffset(for slot: Int) -> CGPoint {
+        let clampedSlot = max(0, slot)
+        let column = SoldierFormation.columns[clampedSlot % SoldierFormation.columns.count]
+        let row = clampedSlot / SoldierFormation.columns.count
+        let bodyHeight = soldierTargetHeight()
+        return CGPoint(
+            x: CGFloat(column) * bodyHeight * SoldierFormation.lateralSpacingScale,
+            y: -CGFloat(row) * bodyHeight * SoldierFormation.rowSpacingScale
         )
     }
 
@@ -1784,7 +1814,12 @@ final class BattleScene: SKScene {
                 continue
             }
 
-            bundle.root.position = point(forLane: soldier.lane, position: soldier.position)
+            let lanePoint = point(forLane: soldier.lane, position: soldier.position)
+            let formationOffset = soldierFormationOffset(for: bundle.formationSlot)
+            bundle.root.position = CGPoint(
+                x: lanePoint.x + formationOffset.x,
+                y: lanePoint.y + formationOffset.y
+            )
             bundle.root.setScale(1)
             fitSoldierBodyNode(bundle.body, type: bundle.type, targetHeight: soldierTargetHeight())
             layoutSoldierHPBar(bundle, soldier: soldier)
@@ -3404,6 +3439,10 @@ extension BattleScene {
 
     var soldierTargetHeightForTesting: CGFloat {
         soldierTargetHeight()
+    }
+
+    var soldierFormationMaximumLateralOffsetForTesting: CGFloat {
+        soldierTargetHeight() * SoldierFormation.lateralSpacingScale
     }
 
     func soldierAnimationFrameDurationsForTesting(
