@@ -1866,7 +1866,35 @@ struct BattleSceneTests {
         #expect(placements.count == 6)
         for placement in placements {
             let expectedX = try #require(scene.castleGatePointForTesting(lane: placement.lane)?.x)
-            #expect(abs(placement.nodePosition.x - expectedX) <= 0.5)
+            #expect(
+                abs(placement.nodePosition.x - expectedX)
+                    <= scene.soldierFormationMaximumLateralOffsetForTesting + 0.5
+            )
+        }
+    }
+
+    @Test func soldiersSharingALaneDoNotRenderAtTheSamePoint() throws {
+        let store = try makeStore(initialState: stateWithBarracks(gold: 100, cityRemainingPower: 1_000))
+        let scene = makeScene(store: store)
+
+        for _ in 0..<6 {
+            scene.spawnSoldierForTesting()
+        }
+
+        let placementsByLane = Dictionary(grouping: scene.soldierLanePlacementsForTesting, by: \.lane)
+        #expect(scene.soldierLanePlacementsForTesting.count == 6)
+        #expect(placementsByLane.values.contains { $0.count > 1 })
+        for placements in placementsByLane.values where placements.count > 1 {
+            for firstIndex in placements.indices {
+                for secondIndex in placements.indices where secondIndex > firstIndex {
+                    let first = placements[firstIndex].nodePosition
+                    let second = placements[secondIndex].nodePosition
+                    #expect(
+                        hypot(first.x - second.x, first.y - second.y)
+                            >= scene.soldierTargetHeightForTesting * 0.25
+                    )
+                }
+            }
         }
     }
 
