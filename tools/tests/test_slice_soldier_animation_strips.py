@@ -203,6 +203,13 @@ class StoryboardValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "baseline"):
             pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
 
+    def test_rejects_four_pixel_vertical_core_height_pulse(self) -> None:
+        boxes = [(16 + index % 2, 16, 47 + index % 2, 47) for index in range(10)]
+        boxes[4] = (16, 18, 47, 47)
+
+        with self.assertRaisesRegex(ValueError, "vertical core height delta"):
+            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+
     def test_rejects_mid_action_vertical_core_compression(self) -> None:
         boxes = [
             (19 + index % 2, 19, 44 + index % 2, 44)
@@ -283,13 +290,31 @@ class SoldierTrioValidationTests(unittest.TestCase):
 
         self.assert_action_boards_are_individually_valid(boards)
 
-        with self.assertRaisesRegex(ValueError, "trio neutral-frame height"):
+        with self.assertRaisesRegex(
+            ValueError, "trio (neutral-frame height|vertical core height delta)"
+        ):
+            pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
+
+    def test_rejects_cross_action_vertical_core_height_pulse(self) -> None:
+        boards = {
+            action: make_metric_board(
+                [(8 + index % 2, 8, 55 + index % 2, 55) for index in range(10)]
+            )
+            for action in pipeline.ACTIONS
+        }
+        boards["attack"] = make_metric_board(
+            [(8 + index % 2, 10, 55 + index % 2, 55) for index in range(10)]
+        )
+
+        self.assert_action_boards_are_individually_valid(boards)
+
+        with self.assertRaisesRegex(ValueError, "trio vertical core height delta"):
             pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
 
     def test_allows_mid_action_posture_change_when_neutral_scale_matches(self) -> None:
         boards = make_action_boards()
         hit_boxes = [
-            (17 + index % 2, 17, 46 + index % 2, 46)
+            (20 + index % 2, 16, 51 + index % 2, 47)
             if 3 <= index <= 6
             else (16 + index % 2, 16, 47 + index % 2, 47)
             for index in range(10)
