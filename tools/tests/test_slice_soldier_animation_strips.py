@@ -253,6 +253,33 @@ class SoldierTrioValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trio bounding-box height"):
             pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
 
+    def test_rejects_cross_action_neutral_frame_height_drift(self) -> None:
+        boards = make_action_boards()
+        boards["attack"] = make_metric_board(
+            [(18 + index % 2, 18, 45 + index % 2, 45) for index in range(10)]
+        )
+
+        self.assert_action_boards_are_individually_valid(boards)
+
+        with self.assertRaisesRegex(ValueError, "trio neutral-frame height"):
+            pipeline.prepare_soldier_storyboards(boards, soldier="infantry")
+
+    def test_allows_mid_action_posture_change_when_neutral_scale_matches(self) -> None:
+        boards = make_action_boards()
+        hit_boxes = [
+            (18 + index % 2, 18, 45 + index % 2, 45)
+            if 3 <= index <= 6
+            else (16 + index % 2, 16, 47 + index % 2, 47)
+            for index in range(10)
+        ]
+        boards["hit"] = make_metric_board(hit_boxes)
+
+        prepared = pipeline.prepare_soldier_storyboards(
+            boards, soldier="infantry"
+        )
+
+        self.assertEqual(set(prepared), set(pipeline.ACTIONS))
+
     def test_requires_exactly_walk_attack_and_hit(self) -> None:
         boards = make_action_boards()
         del boards["hit"]

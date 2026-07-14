@@ -26,6 +26,7 @@ MAX_DENSITY_RATIO = 1.50
 MIN_HEIGHT_RATIO = 0.70
 MAX_HEIGHT_RATIO = 1.30
 MAX_BASELINE_DELTA = 6
+MAX_NEUTRAL_HEIGHT_SCALE_DELTA = 0.05
 
 SOLDIER_KEYS: dict[str, RGBAColor] = {
     "infantry": (0, 255, 0, 255),
@@ -239,10 +240,14 @@ def prepare_storyboard_frames(
 def _validate_trio_metrics(prepared: dict[str, list[Image.Image]]) -> None:
     from statistics import median
 
-    metrics = [
-        _opaque_metrics(frame)
+    metrics_by_action = {
+        action: [_opaque_metrics(frame) for frame in prepared[action]]
         for action in ACTIONS
-        for frame in prepared[action]
+    }
+    metrics = [
+        metric
+        for action in ACTIONS
+        for metric in metrics_by_action[action]
     ]
     counts = [count for count, _ in metrics]
     heights = [bounds[3] - bounds[1] for _, bounds in metrics]
@@ -263,6 +268,22 @@ def _validate_trio_metrics(prepared: dict[str, list[Image.Image]]) -> None:
             f"trio baseline delta {max(baselines) - min(baselines)} "
             f"exceeds {MAX_BASELINE_DELTA}"
         )
+
+    neutral_heights = {
+        action: median(
+            metrics_by_action[action][index][1][3]
+            - metrics_by_action[action][index][1][1]
+            for index in (0, -1)
+        )
+        for action in ACTIONS
+    }
+    walk_height = neutral_heights["walk"]
+    for action in ACTIONS:
+        ratio = neutral_heights[action] / walk_height
+        if abs(1.0 - ratio) > MAX_NEUTRAL_HEIGHT_SCALE_DELTA:
+            raise ValueError(
+                f"trio neutral-frame height ratio for {action} is {ratio:.2f}"
+            )
 
 
 def prepare_soldier_storyboards(
