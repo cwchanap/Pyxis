@@ -27,6 +27,10 @@ MIN_HEIGHT_RATIO = 0.70
 MAX_HEIGHT_RATIO = 1.30
 MAX_BASELINE_DELTA = 6
 MAX_NEUTRAL_HEIGHT_SCALE_DELTA = 0.05
+VERTICAL_CORE_LOW_QUANTILE = 0.05
+VERTICAL_CORE_HIGH_QUANTILE = 0.95
+MAX_VERTICAL_CORE_HEIGHT_DELTA = 6
+MAX_VERTICAL_CORE_CENTROID_DELTA = 4.0
 
 SOLDIER_KEYS: dict[str, RGBAColor] = {
     "infantry": (0, 255, 0, 255),
@@ -166,6 +170,35 @@ def _opaque_metrics(image: Image.Image) -> tuple[int, tuple[int, int, int, int]]
     return count, bounds
 
 
+def _vertical_core_metrics(image: Image.Image) -> tuple[int, float]:
+    alpha = image.getchannel("A")
+    row_counts = [
+        sum(1 for value in alpha.crop((0, y, image.width, y + 1)).getdata() if value > 0)
+        for y in range(image.height)
+    ]
+    total = sum(row_counts)
+    if total == 0:
+        raise ValueError("empty frame")
+
+    lower_target = total * VERTICAL_CORE_LOW_QUANTILE
+    upper_target = total * VERTICAL_CORE_HIGH_QUANTILE
+    cumulative = 0
+    lower_y = 0
+    upper_y = image.height - 1
+    found_lower = False
+    for y, count in enumerate(row_counts):
+        cumulative += count
+        if not found_lower and cumulative >= lower_target:
+            lower_y = y
+            found_lower = True
+        if cumulative >= upper_target:
+            upper_y = y
+            break
+
+    centroid = sum(y * count for y, count in enumerate(row_counts)) / total
+    return upper_y - lower_y + 1, centroid
+
+
 def _validate_sequence_metrics(frames: list[Image.Image]) -> None:
     from statistics import median
 
@@ -187,6 +220,21 @@ def _validate_sequence_metrics(frames: list[Image.Image]) -> None:
     if max(baselines) - min(baselines) > MAX_BASELINE_DELTA:
         raise ValueError(
             f"baseline delta {max(baselines) - min(baselines)} exceeds {MAX_BASELINE_DELTA}"
+        )
+    core_metrics = [_vertical_core_metrics(frame) for frame in frames]
+    core_heights = [height for height, _ in core_metrics]
+    core_height_delta = max(core_heights) - min(core_heights)
+    if core_height_delta > MAX_VERTICAL_CORE_HEIGHT_DELTA:
+        raise ValueError(
+            f"vertical core height delta {core_height_delta} "
+            f"exceeds {MAX_VERTICAL_CORE_HEIGHT_DELTA}"
+        )
+    core_centroids = [centroid for _, centroid in core_metrics]
+    core_centroid_delta = max(core_centroids) - min(core_centroids)
+    if core_centroid_delta > MAX_VERTICAL_CORE_CENTROID_DELTA:
+        raise ValueError(
+            f"vertical core centroid delta {core_centroid_delta:.2f} "
+            f"exceeds {MAX_VERTICAL_CORE_CENTROID_DELTA:.2f}"
         )
     for index, (first, second) in enumerate(zip(frames, frames[1:]), start=1):
         if first.tobytes() == second.tobytes():
