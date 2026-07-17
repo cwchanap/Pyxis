@@ -41,7 +41,7 @@ not compilation errors or empty test selectors.
 ### Source Images
 
 - Identity and equipment source:
-  `/Users/chanwaichan/workspace/Pyxis/Pyxis/Assets.xcassets/infantry-walk-01.imageset/infantry-walk-01.png`
+  `Pyxis/Assets.xcassets/infantry-walk-01.imageset/infantry-walk-01.png`
   (`128 x 128` PNG)
 - Approved render-quality source:
   `/private/tmp/pyxis-full-animation/archer-canonical.png`
@@ -78,7 +78,7 @@ Avoid: Archer clothing or equipment, green subject colors, closed helmet visor, 
 ```
 
 Built-in generation output:
-`/Users/chanwaichan/.codex/generated_images/019f59d9-6dbe-7243-97f4-58ef72f0855a/exec-0a14cdb7-e9fb-4f5e-9c4d-08e41b3777af.png`
+`<generated-artifact>/019f59d9-6dbe-7243-97f4-58ef72f0855a/exec-0a14cdb7-e9fb-4f5e-9c4d-08e41b3777af.png`
 (`1254 x 1254` PNG).
 
 ### Targeted Background Correction Prompt
@@ -108,7 +108,7 @@ Avoid: Gradient, vignette, texture, green glow, cast shadow, contact shadow, flo
 ```
 
 Built-in edit output:
-`/Users/chanwaichan/.codex/generated_images/019f59d9-6dbe-7243-97f4-58ef72f0855a/exec-91babb0f-6ae9-48a5-a5e0-52cbfad5dba0.png`
+`<generated-artifact>/019f59d9-6dbe-7243-97f4-58ef72f0855a/exec-91babb0f-6ae9-48a5-a5e0-52cbfad5dba0.png`
 (`1254 x 1254` PNG).
 
 The built-in edit retained a slight green variation, so deterministic chroma

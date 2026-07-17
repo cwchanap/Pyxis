@@ -1,7 +1,7 @@
 # Soldier Full Animation Redesign
 
 **Date:** 2026-07-12  
-**Status:** Approved
+**Status:** Implemented
 
 ## Summary
 

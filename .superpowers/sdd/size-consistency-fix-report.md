@@ -45,7 +45,7 @@ motion with the sword arm, elbow, shoulders, and mild torso rotation rather
 than whole-character translation or scaling.
 
 Generated source:
-`/Users/chanwaichan/.codex/generated_images/019f5e43-eb0f-7cb3-8208-d0e408330614/exec-6bba1246-cdb0-4cea-9a61-7b79d045fb6c.png`
+`<generated-artifact>/019f5e43-eb0f-7cb3-8208-d0e408330614/exec-6bba1246-cdb0-4cea-9a61-7b79d045fb6c.png`
 
 ### Infantry Hit
 
@@ -63,7 +63,7 @@ shoulder and elbow changes, planted feet, and only slight knee flexion. Frames
 7-10 recover smoothly to the walk-scale neutral.
 
 Generated source:
-`/Users/chanwaichan/.codex/generated_images/019f5e43-eb0f-7cb3-8208-d0e408330614/exec-c432214a-76b2-4bdb-9f45-e9c11fb5ecee.png`
+`<generated-artifact>/019f5e43-eb0f-7cb3-8208-d0e408330614/exec-c432214a-76b2-4bdb-9f45-e9c11fb5ecee.png`
 
 ### Archer Hit
 
@@ -81,7 +81,7 @@ movement, a mild torso lean, planted feet, and slight knee flexion while
 preserving the complete bow, quiver, arrows, hood, cape, belt, and pouches.
 
 Generated source:
-`/Users/chanwaichan/.codex/generated_images/019f5e43-eb0f-7cb3-8208-d0e408330614/exec-ee668231-b0e7-4824-ae82-cf97853fa249.png`
+`<generated-artifact>/019f5e43-eb0f-7cb3-8208-d0e408330614/exec-ee668231-b0e7-4824-ae82-cf97853fa249.png`
 
 All prompts also required exactly ten row-major 5-by-2 frames, fixed apparent
 scale, one baseline, complete equipment, generous exact chroma padding, and no

@@ -353,18 +353,61 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
         let scene = makeScene(store: store)
 
-        for type in SoldierType.allCases {
-            #expect(scene.soldierAnimationFrameDurationsForTesting(action: "walk", soldierType: type).count == 10)
-            #expect(abs(scene.soldierAnimationDurationForTesting(action: "walk", soldierType: type) - 1.0) < 0.001)
-            #expect(abs(scene.soldierAnimationDurationForTesting(action: "hit", soldierType: type) - 0.9) < 0.001)
-            #expect(abs(scene.soldierDelayedRemovalWaitDurationForTesting(soldierType: type) - 0.9) < 0.001)
+        // Authored per-frame weights (each sums to 10) from
+        // SoldierAnimationTiming / the July 12 full-animation spec. Pinning the
+        // actual non-uniform arrays — not just the per-action total — means a
+        // regression to uniform frame timing cannot satisfy this test.
+        let attackWeights: [Double] = [1.10, 1.20, 1.30, 0.75, 0.70, 0.85, 1.00, 1.15, 1.10, 0.85]
+        let hitWeights: [Double] = [0.90, 1.00, 1.10, 1.20, 1.20, 1.00, 0.95, 0.90, 0.90, 0.85]
+        let walkWeights: [Double] = Array(repeating: 1.0, count: 10)
+
+        func attackTotal(for type: SoldierType) -> Double {
+            switch type {
+            case .infantry, .cavalry: return 1.2
+            case .archer, .mage: return 1.4
+            case .siege: return 1.6
+            }
         }
 
-        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .infantry) - 1.2) < 0.001)
-        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .archer) - 1.4) < 0.001)
-        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .cavalry) - 1.2) < 0.001)
-        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .mage) - 1.4) < 0.001)
-        #expect(abs(scene.soldierAnimationDurationForTesting(action: "attack", soldierType: .siege) - 1.6) < 0.001)
+        func assertWeightedDurations(
+            action: String,
+            weights: [Double],
+            total: Double,
+            soldierType: SoldierType,
+            expectUniform: Bool
+        ) {
+            let durations = scene.soldierAnimationFrameDurationsForTesting(
+                action: action, soldierType: soldierType
+            )
+            #expect(durations.count == weights.count)
+            let unit = total / weights.reduce(0, +)
+            for index in 0..<weights.count {
+                #expect(abs(durations[index] - weights[index] * unit) < 0.001)
+            }
+            let span = (durations.max() ?? 0) - (durations.min() ?? 0)
+            if expectUniform {
+                #expect(span < 0.001)
+            } else {
+                #expect(span > 0.001)
+            }
+            #expect(abs(durations.reduce(0, +) - total) < 0.001)
+        }
+
+        for type in SoldierType.allCases {
+            assertWeightedDurations(
+                action: "walk", weights: walkWeights, total: 1.0,
+                soldierType: type, expectUniform: true
+            )
+            assertWeightedDurations(
+                action: "attack", weights: attackWeights, total: attackTotal(for: type),
+                soldierType: type, expectUniform: false
+            )
+            assertWeightedDurations(
+                action: "hit", weights: hitWeights, total: 0.9,
+                soldierType: type, expectUniform: false
+            )
+            #expect(abs(scene.soldierDelayedRemovalWaitDurationForTesting(soldierType: type) - 0.9) < 0.001)
+        }
     }
 
     @Test("Hit animation interrupts an in-flight attack animation")
