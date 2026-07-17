@@ -2821,7 +2821,12 @@ final class BattleScene: SKScene {
         }
 
         sprite.run(
-            SKAction.repeatForever(soldierTextureAction(textures: textures, action: .walk, type: type)),
+            SKAction.repeatForever(soldierTextureAction(
+                textures: textures,
+                action: .walk,
+                type: type,
+                sprite: sprite
+            )),
             withKey: SoldierAnimationKey.walk
         )
     }
@@ -2829,11 +2834,17 @@ final class BattleScene: SKScene {
     private func soldierTextureAction(
         textures: [SKTexture],
         action: SoldierAnimationAction,
-        type: SoldierType
+        type: SoldierType,
+        sprite: SKSpriteNode
     ) -> SKAction {
         let durations = SoldierAnimationTiming.frameDurations(for: action, type: type)
         let steps = zip(textures, durations).flatMap { texture, duration in
-            [SKAction.setTexture(texture, resize: false), SKAction.wait(forDuration: duration)]
+            // On iOS 26, SKAction.setTexture can restore the texture's intrinsic
+            // size even with resize disabled. Direct assignment preserves the
+            // fitted geometry owned by fitSoldierBodyNode.
+            [SKAction.run { [weak sprite] in
+                sprite?.texture = texture
+            }, SKAction.wait(forDuration: duration)]
         }
         return SKAction.sequence(steps)
     }
@@ -2884,7 +2895,12 @@ final class BattleScene: SKScene {
         sprite.removeAction(forKey: SoldierAnimationKey.attack)
         sprite.removeAction(forKey: SoldierAnimationKey.hit)
 
-        let animate = soldierTextureAction(textures: textures, action: action, type: soldierType)
+        let animate = soldierTextureAction(
+            textures: textures,
+            action: action,
+            type: soldierType,
+            sprite: sprite
+        )
         let resumeWalk = SKAction.run { [weak self] in
             self?.resumeWalkForSoldierIfNeeded(
                 id: soldierID,

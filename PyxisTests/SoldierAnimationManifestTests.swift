@@ -14,11 +14,13 @@ struct SoldierAnimationManifestTests {
             #expect(SoldierAnimationManifest.isAuthored(action, for: .infantry))
         }
         #expect(SoldierAnimationManifest.usesFullCanvas(for: .infantry))
+    }
 
-        for type in SoldierType.allCases where type != .archer && type != .infantry {
-            #expect(!SoldierAnimationManifest.usesFullCanvas(for: type))
+    @Test func remainingSoldierTriosAreApprovedForFullCanvasPlayback() {
+        for type in [SoldierType.cavalry, .mage, .siege] {
+            #expect(SoldierAnimationManifest.usesFullCanvas(for: type))
             for action in SoldierAnimationAction.allCases {
-                #expect(!SoldierAnimationManifest.isAuthored(action, for: type))
+                #expect(SoldierAnimationManifest.isAuthored(action, for: type))
             }
         }
     }
