@@ -1,7 +1,7 @@
 # Soldier Action Animation Redesign
 
 **Date:** 2026-07-09
-**Status:** Approved
+**Status:** Superseded by `2026-07-12-soldier-full-animation-redesign-design.md` (attack/hit-only scope expanded to a complete walk/attack/hit redesign with revised timing).
 
 ## Summary
 

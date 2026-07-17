@@ -46,11 +46,21 @@ struct SoldierRuntimeGeometryTests {
         scene.spawnSoldierForTesting()
         try await Task.sleep(for: .milliseconds(100))
 
+        // The walk animation must actually be playing before we sample the walk
+        // geometry, otherwise a silent no-op in the spawn path would leave the
+        // static sprite under test and the size-invariance check would pass
+        // without exercising walk rendering.
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+
         let motionRoot = try #require(scene.childNode(withName: "//soldierMotionRoot"))
         let body = try #require(motionRoot.children.compactMap { $0 as? SKSpriteNode }.first)
         var sampledSizes = try await collectSizes(of: body, count: 30)
 
         scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+        // Likewise, confirm the attack transient installed before sampling its
+        // geometry, so the attack half of the size-invariance check cannot be
+        // satisfied by the still-walking (or static) sprite.
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
         sampledSizes += try await collectSizes(of: body, count: 45)
 
         let widths = sampledSizes.map(\.width)

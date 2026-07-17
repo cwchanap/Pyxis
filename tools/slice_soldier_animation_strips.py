@@ -602,26 +602,29 @@ def main() -> None:
         parser.error(str(exc))
 
     if args.storyboards_dir is not None:
+        # Storyboard assets must be installed as complete walk/attack/hit trios
+        # so every frame set passes cross-action validation
+        # (`prepare_soldier_storyboards` -> `_validate_trio_metrics`). A partial
+        # `--actions` selection would route through `slice_storyboard`, which
+        # validates a single action only and could install scale-inconsistent
+        # frames. `slice_storyboard` remains available for direct/test use.
+        if set(args.actions) != set(ACTIONS):
+            parser.error(
+                "--storyboards-dir requires all three actions "
+                f"({', '.join(ACTIONS)}); partial selections would bypass "
+                "cross-action trio validation."
+            )
         source_root = Path(args.storyboards_dir)
         for soldier in args.soldiers:
-            if set(args.actions) == set(ACTIONS):
-                images = {}
-                for action in ACTIONS:
-                    source = source_root / f"{soldier}-{action}.png"
-                    if not source.exists():
-                        raise FileNotFoundError(source)
-                    images[action] = Image.open(source)
-                slice_soldier_storyboards(
-                    images, assets_dir, soldier, args.frame_size
-                )
-            else:
-                for action in args.actions:
-                    source = source_root / f"{soldier}-{action}.png"
-                    if not source.exists():
-                        raise FileNotFoundError(source)
-                    slice_storyboard(
-                        Image.open(source), assets_dir, soldier, action, args.frame_size
-                    )
+            images = {}
+            for action in ACTIONS:
+                source = source_root / f"{soldier}-{action}.png"
+                if not source.exists():
+                    raise FileNotFoundError(source)
+                images[action] = Image.open(source)
+            slice_soldier_storyboards(
+                images, assets_dir, soldier, args.frame_size
+            )
     else:
         source_root = Path(args.strips_dir)
         for soldier in args.soldiers:
