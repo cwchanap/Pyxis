@@ -1,5 +1,7 @@
 # Soldier Full Animation Redesign Implementation Plan
 
+**Status:** Implemented
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace all 150 soldier walk, attack, and hit frames with five identity-consistent animation trios and play them with readable action-specific timing.
