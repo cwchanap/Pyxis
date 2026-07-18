@@ -1960,6 +1960,9 @@ final class BattleScene: SKScene {
     }
 
     private func soldierAnimationFrameCrop(for type: SoldierType, action: SoldierAnimationAction) -> CGRect {
+        // Full-canvas storyboard frames need no sub-rect. Kept as a constant
+        // seam exposed via `animationFrameCropForTesting` so future per-type
+        // cropping can land without touching the texture-building call sites.
         CGRect(x: 0, y: 0, width: 1, height: 1)
     }
 

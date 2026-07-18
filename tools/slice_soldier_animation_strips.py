@@ -388,110 +388,6 @@ def write_contents_json(imageset: Path, filename: str) -> None:
     imageset.joinpath("Contents.json").write_text(json.dumps(payload, indent=2) + "\n")
 
 
-def strip_chroma_key(image: Image.Image) -> Image.Image:
-    rgba = image.convert("RGBA")
-    pixels = rgba.load()
-
-    for y in range(rgba.height):
-        for x in range(rgba.width):
-            red, green, blue, alpha = pixels[x, y]
-            is_key = green > 150 and red < 95 and blue < 95 and green > red * 1.6 and green > blue * 1.6
-            if is_key:
-                pixels[x, y] = (red, green, blue, 0)
-            elif alpha > 0 and green > red * 1.25 and green > blue * 1.25:
-                # Light despill on antialiased edges without touching darker green costumes.
-                pixels[x, y] = (red, min(green, max(red, blue) + 28), blue, alpha)
-
-    return rgba
-
-
-def centered_square_frame(frame: Image.Image, frame_size: int) -> Image.Image:
-    transparent = Image.new("RGBA", (frame_size, frame_size), (0, 0, 0, 0))
-    bbox = frame.getbbox()
-    if bbox is None:
-        return transparent
-
-    content = frame.crop(bbox)
-    content.thumbnail((frame_size, frame_size), Image.Resampling.LANCZOS)
-    transparent.alpha_composite(
-        content,
-        ((frame_size - content.width) // 2, frame_size - content.height),
-    )
-    return transparent
-
-
-def _opaque_pixel_count(image: Image.Image) -> int:
-    if image.mode != "RGBA":
-        image = image.convert("RGBA")
-    pixels = image.load()
-    return sum(1 for y in range(image.height) for x in range(image.width) if pixels[x, y][3] > 0)
-
-
-def _validate_content_density(
-    canvases: list[Image.Image],
-    soldier: str,
-    action: str,
-    threshold: float = 0.40,
-) -> None:
-    """Reject strips where any frame has dramatically less content than its siblings.
-
-    A frame whose opaque-pixel count is below ``threshold * median`` typically
-    indicates a source-art defect (missing drawing, or chroma-key eating the
-    character) — the kind of frame that compresses to a tiny PNG and visibly
-    flickers every animation cycle. Failing here is far cheaper than shipping
-    the artifact. A strip whose median is 0 (entirely empty) is a different
-    failure mode and is allowed through this check.
-    """
-    counts = [_opaque_pixel_count(c) for c in canvases]
-    sorted_counts = sorted(counts)
-    median = sorted_counts[len(sorted_counts) // 2]
-    if median == 0:
-        return
-    offenders = [
-        (index + 1, count)
-        for index, count in enumerate(counts)
-        if count < threshold * median
-    ]
-    if offenders:
-        rendered = ", ".join(
-            f"frame {n}={c}px ({100 * c / median:.0f}% of median)" for n, c in offenders
-        )
-        raise ValueError(
-            f"{soldier}-{action}: content density check failed ({rendered}; "
-            f"median={median}px, threshold={int(threshold * 100)}% of median). "
-            "Inspect the source strip — likely a missing drawing or chroma-key over-removal."
-        )
-
-
-def slice_strip(strip: Path, output: Path, soldier: str, action: str, frame_size: int) -> None:
-    image = strip_chroma_key(Image.open(strip))
-    output_resolved = output.resolve()
-
-    # Slice every frame first, then run the content-density guard before writing
-    # any files. This keeps a defective strip from leaving behind a partial
-    # asset tree that masks the original problem on re-runs.
-    canvases: list[Image.Image] = []
-    for index in range(FRAME_COUNT):
-        left = round(image.width * index / FRAME_COUNT)
-        right = round(image.width * (index + 1) / FRAME_COUNT)
-        raw_frame = image.crop((left, 0, right, image.height))
-        canvases.append(centered_square_frame(raw_frame, frame_size))
-
-    _validate_content_density(canvases, soldier=soldier, action=action)
-
-    for index, canvas in enumerate(canvases, start=1):
-        asset_name = f"{soldier}-{action}-{index:02d}"
-        imageset = output_resolved / f"{asset_name}.imageset"
-        # Validate the constructed path stays under the declared output root
-        # before touching the filesystem (defends against faulty CLI arguments).
-        imageset.relative_to(output_resolved)
-        imageset.mkdir(parents=True, exist_ok=True)
-
-        filename = f"{asset_name}.png"
-        canvas.save(imageset / filename)
-        write_contents_json(imageset, filename)
-
-
 def _write_staged_imagesets(
     frames: list[Image.Image], stage_root: Path, soldier: str, action: str
 ) -> None:
@@ -580,13 +476,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     # ``--assets-dir`` is the OUTPUT root and is resolved/clamped to the repo
     # below so a faulty argument cannot write assets outside the project tree.
-    # ``--strips-dir`` is a read-only INPUT, so it is intentionally NOT clamped
-    # — source strips legitimately live outside the repo (e.g. /tmp). The
-    # default for ``--assets-dir`` is resolved below because argparse does not
-    # run ``type`` on defaults.
-    inputs = parser.add_mutually_exclusive_group(required=True)
-    inputs.add_argument("--strips-dir")
-    inputs.add_argument("--storyboards-dir")
+    # ``--storyboards-dir`` is a read-only INPUT, so it is intentionally NOT
+    # clamped — source storyboards legitimately live outside the repo (e.g.
+    # /tmp). The default for ``--assets-dir`` is resolved below because argparse
+    # does not run ``type`` on defaults.
+    parser.add_argument("--storyboards-dir", required=True)
     parser.add_argument("--assets-dir", default="Pyxis/Assets.xcassets")
     # Soldiers render at ~28-42 pt on screen, so 128 px is ample for 3x
     # devices without oversampling. 512 px wastes ~150 MB of GPU memory when
@@ -601,38 +495,29 @@ def main() -> None:
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
 
-    if args.storyboards_dir is not None:
-        # Storyboard assets must be installed as complete walk/attack/hit trios
-        # so every frame set passes cross-action validation
-        # (`prepare_soldier_storyboards` -> `_validate_trio_metrics`). A partial
-        # `--actions` selection would route through `slice_storyboard`, which
-        # validates a single action only and could install scale-inconsistent
-        # frames. `slice_storyboard` remains available for direct/test use.
-        if set(args.actions) != set(ACTIONS):
-            parser.error(
-                "--storyboards-dir requires all three actions "
-                f"({', '.join(ACTIONS)}); partial selections would bypass "
-                "cross-action trio validation."
-            )
-        source_root = Path(args.storyboards_dir)
-        for soldier in args.soldiers:
-            images = {}
-            for action in ACTIONS:
-                source = source_root / f"{soldier}-{action}.png"
-                if not source.exists():
-                    raise FileNotFoundError(source)
-                images[action] = Image.open(source)
-            slice_soldier_storyboards(
-                images, assets_dir, soldier, args.frame_size
-            )
-    else:
-        source_root = Path(args.strips_dir)
-        for soldier in args.soldiers:
-            for action in args.actions:
-                source = source_root / f"{soldier}-{action}.png"
-                if not source.exists():
-                    raise FileNotFoundError(source)
-                slice_strip(source, assets_dir, soldier, action, args.frame_size)
+    # Storyboard assets must be installed as complete walk/attack/hit trios
+    # so every frame set passes cross-action validation
+    # (`prepare_soldier_storyboards` -> `_validate_trio_metrics`). A partial
+    # `--actions` selection would route through `slice_storyboard`, which
+    # validates a single action only and could install scale-inconsistent
+    # frames. `slice_storyboard` remains available for direct/test use.
+    if set(args.actions) != set(ACTIONS):
+        parser.error(
+            "--storyboards-dir requires all three actions "
+            f"({', '.join(ACTIONS)}); partial selections would bypass "
+            "cross-action trio validation."
+        )
+    source_root = Path(args.storyboards_dir)
+    for soldier in args.soldiers:
+        images = {}
+        for action in ACTIONS:
+            source = source_root / f"{soldier}-{action}.png"
+            if not source.exists():
+                raise FileNotFoundError(source)
+            images[action] = Image.open(source)
+        slice_soldier_storyboards(
+            images, assets_dir, soldier, args.frame_size
+        )
 
 
 if __name__ == "__main__":
