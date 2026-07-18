@@ -7,7 +7,7 @@
 > (attack: infantry/cavalry 1.2 s, archer/mage 1.4 s, siege 1.6 s; hit 0.9 s;
 > walk 1.0 s) and its tests. Treat any remaining timing text below as
 > historical, not a directive to restore the older values.
-
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace every soldier attack and hit animation with identity-consistent, naturally posed 10-frame art that cannot bleed across frame boundaries, then play those full-canvas frames without procedural pose overlays.

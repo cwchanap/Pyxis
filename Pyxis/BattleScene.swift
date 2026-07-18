@@ -1516,10 +1516,15 @@ final class BattleScene: SKScene {
             }
         }
 
+        // Decrement hit-reaction countdowns BEFORE combat.tick arms any new
+        // timers in applyCombatResult. Arming at 0.9s and then subtracting
+        // deltaTime in the same tick would shorten every hit animation by one
+        // frame; decrementing first means timers armed this tick keep their
+        // full authored duration and are first reduced on the next tick.
+        decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
         applyCombatResult(result)
         syncSoldierNodes()
-        decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
         if !buildingSpawns.isEmpty {
             updateLiveCombatStatusLabel()
         }
@@ -2981,6 +2986,18 @@ extension BattleScene {
             bundle.body.action(forKey: key) != nil
                 || bundle.root.action(forKey: key) != nil
         }
+    }
+
+    /// Returns the remaining hit-reaction countdown for the first live soldier,
+    /// or `nil` if no hit timer is armed. Used by regression tests that verify
+    /// a tower-generated hit arms the timer at the full authored duration
+    /// (0.9s) rather than `0.9s - deltaTime` (the bug fixed by reordering
+    /// `decrementSoldierHitAnimationRemaining` before `combat.tick`).
+    var firstLiveSoldierHitAnimationRemainingForTesting: TimeInterval? {
+        guard let soldierID = firstLiveSoldierIDForTesting else {
+            return nil
+        }
+        return soldierHitAnimationRemaining[soldierID]
     }
 
     /// Simulates the SpriteKit render loop completing the first live soldier's
