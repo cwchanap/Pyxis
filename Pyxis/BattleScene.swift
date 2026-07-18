@@ -1980,6 +1980,16 @@ final class BattleScene: SKScene {
             }
             soldier = sprite
         } else {
+            // Both the animated canvas and the static sprite asset are missing.
+            // This is almost always a build/asset mistake; in DEBUG we fail
+            // loudly so it gets noticed, mirroring `soldierAnimationTextures`.
+            // In release we keep the colored-rectangle fallback so a missing
+            // asset never crashes the game, but it should never ship this far.
+            #if DEBUG
+            assertionFailure(
+                "Missing soldier asset for \(type.rawValue) (no animated canvas or static sprite \"\(assetName)\")"
+            )
+            #endif
             let shape = SKShapeNode(rect: CGRect(x: -10, y: 0, width: 20, height: 28), cornerRadius: 5)
             shape.fillColor = visualColor
             shape.strokeColor = SKColor(white: 1.0, alpha: 0.4)
@@ -2007,22 +2017,30 @@ final class BattleScene: SKScene {
     }
 
     /// Probes whether the animated-canvas sprite path is available for `type`
-    /// by checking only the first walk frame (`<type>-walk-01`). This is a
-    /// deliberate granularity mismatch with `soldierAnimationTextures`, which
-    /// validates every frame of a specific action: a type can report
-    /// `isAnimatedCanvas == true` here (walk-01 exists) yet still have an
-    /// incomplete attack/hit set, in which case `playSoldierAnimation` falls
-    /// back to its silent no-op for that action and the soldier keeps walking.
-    /// The all-or-nothing storyboard validation in
-    /// `tools/slice_soldier_animation_strips.py` makes this a non-issue in
-    /// practice (a type either ships all 30 frames or none), so the walk-01
-    /// probe is sufficient as a cheap availability gate.
+    /// by checking the first frame of each action (`<type>-walk-01`,
+    /// `<type>-attack-01`, `<type>-hit-01`). Returns the walk-01 frame name
+    /// only when all three actions have at least their first frame installed,
+    /// so `isAnimatedCanvas` is true only for a complete trio — a partial set
+    /// (e.g. walk + attack but no hit) falls through to the static sprite path
+    /// instead of leaving `playSoldierAnimation` to silently no-op the missing
+    /// action while the soldier keeps walking. The all-or-nothing storyboard
+    /// validation in `tools/slice_soldier_animation_strips.py` makes a partial
+    /// trio unlikely in practice, but this probe is the runtime safety net for
+    /// hand-edited asset catalogs. `PyxisTests.allSoldierAnimationFramesAreInstalled`
+    /// guards the full 30-frame trio synchronously at test time.
     private func firstAvailableSoldierAnimationFrameName(for type: SoldierType) -> String? {
-        let frameNames = soldierAnimationFrameNames(for: type, action: .walk)
-        guard let firstFrameName = frameNames.first, UIImage(named: firstFrameName) != nil else {
+        let walkFrameNames = soldierAnimationFrameNames(for: type, action: .walk)
+        guard let firstWalkFrameName = walkFrameNames.first,
+              UIImage(named: firstWalkFrameName) != nil else {
             return nil
         }
-        return firstFrameName
+        for action in SoldierAnimationAction.allCases where action != .walk {
+            guard let firstActionFrameName = soldierAnimationFrameNames(for: type, action: action).first,
+                  UIImage(named: firstActionFrameName) != nil else {
+                return nil
+            }
+        }
+        return firstWalkFrameName
     }
 
     private func soldierAnimationTextures(for type: SoldierType, action: SoldierAnimationAction) -> [SKTexture] {
@@ -2323,10 +2341,11 @@ final class BattleScene: SKScene {
         let hitDurationExceedsAttackInterval =
             SoldierAnimationTiming.totalDuration(for: .hit, type: soldierType)
                 > combat.attackInterval(for: soldierType)
+        let attackAnimationInProgress = sprite.action(forKey: SoldierAnimationKey.attack) != nil
+        let hitReactionBlockingNextAttack = hitDurationExceedsAttackInterval
+            && (soldierHitAnimationRemaining[soldierID] ?? 0) > 0
         if action == .attack,
-           sprite.action(forKey: SoldierAnimationKey.attack) != nil
-            || (hitDurationExceedsAttackInterval
-                && (soldierHitAnimationRemaining[soldierID] ?? 0) > 0) {
+           attackAnimationInProgress || hitReactionBlockingNextAttack {
             return
         }
 

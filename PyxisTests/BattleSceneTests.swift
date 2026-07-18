@@ -744,6 +744,27 @@ struct BattleSceneTests {
         }
     }
 
+    @Test("Every authored soldier animation frame is installed in the asset catalog")
+    func allSoldierAnimationFramesAreInstalled() throws {
+        // Closes the lazy-detection hole left after SoldierAnimationManifest was
+        // removed: a missing or misnamed frame (e.g. `cavalry-walk-07`) would
+        // otherwise only surface at runtime via the silent no-op in
+        // `playSoldierAnimation`. Iterating every (type, action, frame) trio
+        // synchronously here turns an asset-catalog regression into a test
+        // failure on every run, before it can reach a simulator.
+        for soldierType in SoldierType.allCases {
+            for action in SoldierAnimationAction.allCases {
+                for frameIndex in 1...SoldierAnimationTiming.frameCount {
+                    let name = "\(soldierType.rawValue)-\(action.rawValue)-\(String(format: "%02d", frameIndex))"
+                    #expect(
+                        UIImage(named: name) != nil,
+                        "Missing soldier animation frame: \(name)"
+                    )
+                }
+            }
+        }
+    }
+
     @Test("A tower-killed soldier is routed through the delayed-removal scheduler")
     func towerKilledSoldierSchedulesDelayedRemoval() throws {
         // City 9 with maxed-out city power so a tower shot is lethal. The combat
