@@ -1787,9 +1787,15 @@ final class BattleScene: SKScene {
 
             let lanePoint = point(forLane: soldier.lane, position: soldier.position)
             let formationOffset = soldierFormationOffset(for: bundle.formationSlot)
+            // Animated sprites use full-canvas frames with a transparent foot
+            // margin (bodyRegion.minY). With anchorPoint.y == 0 the canvas
+            // bottom sits at the root, so the visible feet float above the lane
+            // by that margin. Shift the root down by the scaled margin so the
+            // feet land on the lane baseline.
+            let footMargin = animatedSoldierFootMargin(for: bundle)
             bundle.root.position = CGPoint(
                 x: lanePoint.x + formationOffset.x,
-                y: lanePoint.y + formationOffset.y
+                y: lanePoint.y + formationOffset.y - footMargin
             )
             bundle.root.setScale(1)
             fitSoldierBodyNode(
@@ -1801,6 +1807,20 @@ final class BattleScene: SKScene {
             layoutSoldierHPBar(bundle, soldier: soldier)
             startSoldierWalkAnimation(for: soldier.id, type: soldier.type)
         }
+    }
+
+    /// Scaled transparent-foot margin for an animated soldier — the vertical
+    /// distance between the canvas bottom (anchorPoint.y == 0) and the visible
+    /// feet. Returns 0 for non-animated (static fallback) sprites, which are
+    /// authored without the full-canvas margin.
+    private func animatedSoldierFootMargin(for bundle: SoldierNodeBundle) -> CGFloat {
+        guard bundle.isAnimatedCanvas else {
+            return 0
+        }
+
+        let geometry = SoldierAnimationGeometry(type: bundle.type)
+        let frameSize = geometry.frameSize(forBodyHeight: soldierTargetHeight())
+        return geometry.bodyRegion.minY * frameSize.height
     }
 
     private func soldierTargetHeight() -> CGFloat {
@@ -2087,6 +2107,7 @@ final class BattleScene: SKScene {
             return
         }
 
+        let target = towerShotTargetPoint(for: bundle)
         let shot: SKNode
         if UIImage(named: BattleAssetName.towerProjectile) != nil {
             let sprite = SKSpriteNode(imageNamed: BattleAssetName.towerProjectile)
@@ -2102,9 +2123,21 @@ final class BattleScene: SKScene {
         shot.zPosition = GameUITheme.Z.effects
         effectsLayer.addChild(shot)
 
-        let move = SKAction.move(to: bundle.root.position, duration: 0.12)
+        let move = SKAction.move(to: target, duration: 0.12)
         let remove = SKAction.removeFromParent()
         shot.run(SKAction.sequence([move, remove]))
+    }
+
+    /// Scene-space point where a tower projectile should connect with a
+    /// soldier. Targets the body center (via `soldierLogicalBodyFrame`) rather
+    /// than the raw root position, which — after the foot-margin offset is
+    /// applied to animated soldiers — sits below the lane baseline.
+    private func towerShotTargetPoint(for bundle: SoldierNodeBundle) -> CGPoint {
+        let bodyFrame = soldierLogicalBodyFrame(for: bundle)
+        return CGPoint(
+            x: bundle.root.position.x + bodyFrame.midX,
+            y: bundle.root.position.y + bodyFrame.midY
+        )
     }
 
     private func playSoldierAttackFeedback(for soldierID: BattleCombatState.SoldierID) {
@@ -2751,6 +2784,15 @@ extension BattleScene {
         }
 
         return sceneFrame(for: bundle.body)
+    }
+
+    var firstLiveSoldierTowerShotTargetForTesting: CGPoint? {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID] else {
+            return nil
+        }
+
+        return towerShotTargetPoint(for: bundle)
     }
 
     var firstLiveSoldierBodyNameForTesting: String? {
