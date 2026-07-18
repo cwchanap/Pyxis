@@ -66,7 +66,6 @@ final class BattleScene: SKScene {
 
     private struct SoldierNodeBundle {
         let root: SKNode
-        let motionRoot: SKNode
         let body: SKNode
         let hpBarBackground: SKShapeNode
         let hpBarFill: SKShapeNode
@@ -1709,13 +1708,9 @@ final class BattleScene: SKScene {
         let root = SKNode()
         root.name = BattleAssetName.normalSoldier
 
-        let motionRoot = SKNode()
-        motionRoot.name = "soldierMotionRoot"
-        root.addChild(motionRoot)
-
         let body = makeSoldierNode(for: soldier.type)
         body.zPosition = 1
-        motionRoot.addChild(body)
+        root.addChild(body)
 
         let hpBackground = SKShapeNode()
         hpBackground.fillColor = SKColor(white: 0.05, alpha: 0.9)
@@ -1736,7 +1731,6 @@ final class BattleScene: SKScene {
         soldierLayer.addChild(root)
         soldierNodes[id] = SoldierNodeBundle(
             root: root,
-            motionRoot: motionRoot,
             body: body,
             hpBarBackground: hpBackground,
             hpBarFill: hpFill,
@@ -1753,7 +1747,13 @@ final class BattleScene: SKScene {
                 .filter { $0.lane == lane }
                 .map(\.formationSlot)
         )
-        return (0...).first { !occupiedSlots.contains($0) }!
+        // The slot space is unbounded and only as many slots are occupied as
+        // there are live soldiers in this lane, so a free slot always exists.
+        var slot = 0
+        while occupiedSlots.contains(slot) {
+            slot += 1
+        }
+        return slot
     }
 
     private func soldierFormationOffset(for slot: Int) -> CGPoint {
@@ -1969,6 +1969,17 @@ final class BattleScene: SKScene {
         }
     }
 
+    /// Probes whether the animated-canvas sprite path is available for `type`
+    /// by checking only the first walk frame (`<type>-walk-01`). This is a
+    /// deliberate granularity mismatch with `soldierAnimationTextures`, which
+    /// validates every frame of a specific action: a type can report
+    /// `isAnimatedCanvas == true` here (walk-01 exists) yet still have an
+    /// incomplete attack/hit set, in which case `playSoldierAnimation` falls
+    /// back to its silent no-op for that action and the soldier keeps walking.
+    /// The all-or-nothing storyboard validation in
+    /// `tools/slice_soldier_animation_strips.py` makes this a non-issue in
+    /// practice (a type either ships all 30 frames or none), so the walk-01
+    /// probe is sufficient as a cheap availability gate.
     private func firstAvailableSoldierAnimationFrameName(for type: SoldierType) -> String? {
         let frameNames = soldierAnimationFrameNames(for: type, action: .walk)
         guard let firstFrameName = frameNames.first, UIImage(named: firstFrameName) != nil else {
@@ -1982,7 +1993,16 @@ final class BattleScene: SKScene {
             return cached
         }
         let frameNames = soldierAnimationFrameNames(for: type, action: action)
-        guard frameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
+        let missingFrameNames = frameNames.filter { UIImage(named: $0) == nil }
+        if !missingFrameNames.isEmpty {
+            // An incomplete texture set usually means an asset was dropped or
+            // misnamed. In DEBUG this is almost always a build/asset mistake
+            // worth failing loudly on; in release we fall through to the
+            // static fallback sprite path.
+            #if DEBUG
+            let actionKey = "\(type.rawValue)-\(action.rawValue)"
+            assertionFailure("Missing soldier animation frames for \(actionKey): \(missingFrameNames)")
+            #endif
             return []
         }
         let textures = frameNames.map { soldierAnimationTexture(named: $0) }
@@ -2222,6 +2242,16 @@ final class BattleScene: SKScene {
         // finishes, resumes walk, and the next trigger starts a fresh cycle.
         // Hit still interrupts an in-flight attack (a tower-hit reaction
         // should override the attack pose), so this guard is attack-only.
+        //
+        // Documented side-effect: because every other attack trigger lands
+        // while the previous cycle is still playing, the *visual* attack
+        // cadence for those four types is ~2x their damage cadence (infantry
+        // and archer cycle every ~2.0s, cavalry every ~1.74s, mage every
+        // ~2.36s; siege is unaffected because its 1.6s animation is shorter
+        // than its 1.82s damage interval). This is an accepted tradeoff —
+        // the alternative (restarting on every trigger) never reaches the
+        // strike frames and looks worse. See CLAUDE.md "Attack animations
+        // last longer..." note for the design rationale.
         if action == .attack,
            sprite.action(forKey: SoldierAnimationKey.attack) != nil {
             return
@@ -2786,6 +2816,18 @@ extension BattleScene {
         return sceneFrame(for: bundle.body)
     }
 
+    /// Returns the first live soldier's body as an `SKSpriteNode` for tests
+    /// that need to sample texture/size across animation frames. Returns nil
+    /// when the body is the static `SKShapeNode` fallback or no live soldier
+    /// exists.
+    var firstLiveSoldierBodySpriteForTesting: SKSpriteNode? {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID] else {
+            return nil
+        }
+        return bundle.body as? SKSpriteNode
+    }
+
     var firstLiveSoldierTowerShotTargetForTesting: CGPoint? {
         guard let soldierID = firstLiveSoldierIDForTesting,
               let bundle = soldierNodes[soldierID] else {
@@ -2858,14 +2900,12 @@ extension BattleScene {
         }
 
         return bundle.body.action(forKey: key) != nil
-            || bundle.motionRoot.action(forKey: key) != nil
             || bundle.root.action(forKey: key) != nil
     }
 
     func anyVisibleSoldierHasActionForTesting(_ key: String) -> Bool {
         soldierNodes.values.contains { bundle in
             bundle.body.action(forKey: key) != nil
-                || bundle.motionRoot.action(forKey: key) != nil
                 || bundle.root.action(forKey: key) != nil
         }
     }
