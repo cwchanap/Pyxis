@@ -443,6 +443,37 @@ struct BattleSceneTests {
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
     }
 
+    @Test("Attack trigger while a hit reaction is in flight is deferred, not interrupting the hit")
+    func attackTriggerWhileHitInFlightIsDeferred() throws {
+        // Cavalry is the only soldier type whose hit duration (0.9s) exceeds
+        // its attack interval (1/1.15 ~= 0.87s). Without the suppression
+        // guard in playSoldierAnimation, the next attack tick would land
+        // mid-hit and the remove-all-transient-keys block would cut off the
+        // authored hit reaction. The guard defers the attack: the hit cycle
+        // finishes, resumes walk, and the next attack tick starts a fresh
+        // attack cycle.
+        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnSoldierForTesting()
+        scene.triggerFirstLiveSoldierAnimationForTesting("hit")
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
+
+        let hitCountBefore = scene.recentSoldierHitAnimationCountForTesting
+        let attackCountBefore = scene.recentSoldierAttackAnimationCountForTesting
+
+        scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+
+        // The hit reaction must still be playing — attack did not remove it.
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+        // The attack trigger was suppressed (counter unchanged).
+        #expect(scene.recentSoldierAttackAnimationCountForTesting == attackCountBefore)
+        // The hit counter is also unchanged (we did not re-trigger hit).
+        #expect(scene.recentSoldierHitAnimationCountForTesting == hitCountBefore)
+    }
+
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
     func soldierAnimationTexturesAreCachedAndReusedAcrossCalls() throws {
         let store = try makeStore(initialState: stateWithBuildings([.mageTower], cityRemainingPower: 20))
