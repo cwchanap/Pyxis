@@ -284,6 +284,15 @@ struct BattleCombatState: Equatable {
         return max(0.1, configuration.soldierAttackSpeed * multiplier)
     }
 
+    /// Per-type attack interval (1 / attackSpeed) for the current configuration.
+    /// Exposed so BattleScene can determine whether a hit reaction can finish
+    /// before the next attack tick — only cavalry's 0.9s hit exceeds its
+    /// ~0.87s attack interval, so only cavalry needs the attack-while-hit
+    /// suppression guard. See `playSoldierAnimation` for the rationale.
+    func attackInterval(for type: SoldierType) -> Double {
+        1.0 / attackSpeed(for: type)
+    }
+
     private func movementSpeed(for type: SoldierType) -> Double {
         let baseSpeed = max(0, configuration.soldierMovementSpeed)
         switch type {

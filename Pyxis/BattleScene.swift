@@ -121,6 +121,13 @@ final class BattleScene: SKScene {
     private var laneIndicatorNodes: [SKNode] = []
     private var pendingAnimatedRemovalSoldierIDs: Set<BattleCombatState.SoldierID> = []
 
+    /// Remaining time (in seconds) of each soldier's authored hit-reaction
+    /// animation, decremented per combat tick. Used by
+    /// `playSoldierAnimation`'s attack guard to suppress attack triggers
+    /// while a hit reaction is still playing — see the guard comment for why
+    /// this is a combat-tick countdown rather than an SKAction-key check.
+    private var soldierHitAnimationRemaining: [BattleCombatState.SoldierID: TimeInterval] = [:]
+
     /// Memoized per-(type, action) animation textures. Each call to
     /// `soldierAnimationTextures` previously performed ~20 `UIImage(named:)`
     /// lookups plus fresh `SKTexture` allocations; this cache returns the same
@@ -1512,9 +1519,32 @@ final class BattleScene: SKScene {
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
         applyCombatResult(result)
         syncSoldierNodes()
+        decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
         if !buildingSpawns.isEmpty {
             updateLiveCombatStatusLabel()
         }
+    }
+
+    /// Advances the per-soldier hit-reaction countdown by `deltaTime`,
+    /// removing entries that have elapsed. Driven by the combat tick (not
+    /// the SpriteKit render loop) so it advances identically in production
+    /// and in `advanceCombatForTesting`-driven tests.
+    private func decrementSoldierHitAnimationRemaining(deltaTime: TimeInterval) {
+        guard !soldierHitAnimationRemaining.isEmpty, deltaTime > 0 else {
+            return
+        }
+        var decremented: [BattleCombatState.SoldierID: TimeInterval] = [:]
+        for (id, remaining) in soldierHitAnimationRemaining {
+            let newValue = remaining - deltaTime
+            // Snap to zero below a 1ms epsilon to avoid floating-point
+            // residue (e.g. 1.4e-16 after nine 0.1s steps from 0.9s) that
+            // would otherwise keep the suppression active past the authored
+            // hit duration and block the next attack trigger.
+            if newValue > 0.001 {
+                decremented[id] = newValue
+            }
+        }
+        soldierHitAnimationRemaining = decremented
     }
 
     private func applyCombatResult(_ result: BattleCombatState.TickResult) {
@@ -1898,6 +1928,7 @@ final class BattleScene: SKScene {
             removeSoldierNode(id: id, animated: false)
         }
         pendingAnimatedRemovalSoldierIDs.removeAll()
+        soldierHitAnimationRemaining.removeAll()
 
         updateLiveCombatStatusLabel()
     }
@@ -1907,6 +1938,7 @@ final class BattleScene: SKScene {
             return
         }
         pendingAnimatedRemovalSoldierIDs.remove(id)
+        soldierHitAnimationRemaining.removeValue(forKey: id)
 
         bundle.root.removeAllActions()
         // Body actions (walk/attack/hit) live on `bundle.body`, not `root`.
@@ -2241,7 +2273,38 @@ final class BattleScene: SKScene {
         // while an attack animation is already in flight; the in-flight cycle
         // finishes, resumes walk, and the next trigger starts a fresh cycle.
         // Hit still interrupts an in-flight attack (a tower-hit reaction
-        // should override the attack pose), so this guard is attack-only.
+        // should override the attack pose), so the attack-action check is
+        // attack-only with respect to *re-triggering the same action*.
+        //
+        // The guard also suppresses attack triggers while a hit reaction is
+        // still playing, but ONLY for soldier types whose hit duration
+        // exceeds their attack interval (currently cavalry: 0.9s hit vs
+        // ~0.87s attack interval). For those types, the next attack tick
+        // would always land mid-hit and the remove-all-transient-keys block
+        // below would cut off the authored hit reaction. Treating the hit as
+        // higher priority lets it finish, resume walk, and the next attack
+        // tick starts a fresh attack cycle. This only affects the *visual*
+        // pose — combat damage is applied by BattleCombatState.tick
+        // regardless of which animation is playing.
+        //
+        // For types where hit < attack interval (infantry, archer, mage,
+        // siege), the hit usually finishes before the next attack tick, so
+        // the attack replaces an already-completed hit (not a cut-off).
+        // Suppressing attacks for those types would cause a severe visual
+        // regression — the tower re-arms the 0.9s hit timer every 1.25s,
+        // so the suppression would be active ~72% of the time and soldiers
+        // would barely visually attack. The occasional 0.25s hit cut-off
+        // for those types is the accepted pre-review behavior.
+        //
+        // The hit check uses a combat-tick-driven countdown
+        // (`soldierHitAnimationRemaining`) rather than
+        // `sprite.action(forKey: .hit) != nil` because the test suite drives
+        // combat via `advanceCombatForTesting` without a SpriteKit render
+        // loop — installed SKActions never advance in tests, so an
+        // action-key check would suppress attacks forever after the first
+        // hit. The countdown is decremented in `advanceCombat` and lifts
+        // after the authored hit duration elapses, matching production
+        // behavior where the SKAction completes and removes itself.
         //
         // Documented side-effect: because every other attack trigger lands
         // while the previous cycle is still playing, the *visual* attack
@@ -2252,8 +2315,13 @@ final class BattleScene: SKScene {
         // the alternative (restarting on every trigger) never reaches the
         // strike frames and looks worse. See CLAUDE.md "Attack animations
         // last longer..." note for the design rationale.
+        let hitDurationExceedsAttackInterval =
+            SoldierAnimationTiming.totalDuration(for: .hit, type: soldierType)
+                > combat.attackInterval(for: soldierType)
         if action == .attack,
-           sprite.action(forKey: SoldierAnimationKey.attack) != nil {
+           sprite.action(forKey: SoldierAnimationKey.attack) != nil
+            || (hitDurationExceedsAttackInterval
+                && (soldierHitAnimationRemaining[soldierID] ?? 0) > 0) {
             return
         }
 
@@ -2276,6 +2344,11 @@ final class BattleScene: SKScene {
             key = SoldierAnimationKey.attack
         case .hit:
             key = SoldierAnimationKey.hit
+            // Arm the hit-reaction countdown so the attack guard can defer
+            // attack triggers that would land before this animation finishes
+            // (e.g. cavalry: 0.87s attack interval vs 0.9s hit duration).
+            soldierHitAnimationRemaining[soldierID] =
+                SoldierAnimationTiming.totalDuration(for: .hit, type: soldierType)
         }
 
         // Remove every transient soldier-animation key before installing the new
