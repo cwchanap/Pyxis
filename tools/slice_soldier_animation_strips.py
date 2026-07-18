@@ -6,14 +6,13 @@ import json
 import shutil
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from typing import TypeAlias
 
 from PIL import Image
 
 SOLDIERS = ("infantry", "archer", "cavalry", "mage", "siege")
 ACTIONS = ("walk", "attack", "hit")
 FRAME_COUNT = 10
-RGBAColor: TypeAlias = tuple[int, int, int, int]
+RGBAColor = tuple[int, int, int, int]
 STORYBOARD_COLUMNS = 5
 STORYBOARD_ROWS = 2
 STORYBOARD_FRAME_SIZE = 128
