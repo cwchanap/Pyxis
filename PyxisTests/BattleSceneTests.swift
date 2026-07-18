@@ -527,60 +527,6 @@ struct BattleSceneTests {
         }
     }
 
-    @Test func attackFrameCropMatchesWalkFrameCropForStableBodyScale() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-
-        for soldierType in SoldierType.allCases {
-            let walkCrop = scene.animationFrameCropForTesting(soldierType: soldierType, action: "walk")
-            let attackCrop = scene.animationFrameCropForTesting(soldierType: soldierType, action: "attack")
-
-            #expect(attackCrop == walkCrop)
-        }
-    }
-
-    @Test func approvedArcherAnimationUsesTheFullTextureCanvas() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-        let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
-
-        #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "walk") == fullCanvas)
-        #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "attack") == fullCanvas)
-        #expect(scene.animationFrameCropForTesting(soldierType: .archer, action: "hit") == fullCanvas)
-    }
-
-    @Test func approvedInfantryAnimationUsesTheFullTextureCanvas() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-        let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
-
-        #expect(scene.animationFrameCropForTesting(soldierType: .infantry, action: "walk") == fullCanvas)
-        #expect(scene.animationFrameCropForTesting(soldierType: .infantry, action: "attack") == fullCanvas)
-        #expect(scene.animationFrameCropForTesting(soldierType: .infantry, action: "hit") == fullCanvas)
-    }
-
-    @Test func approvedCavalryAnimationUsesTheFullTextureCanvas() throws {
-        let store = try makeStore(initialState: stateWithBuildings([.stable], cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-        let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
-
-        #expect(scene.animationFrameCropForTesting(soldierType: .cavalry, action: "walk") == fullCanvas)
-        #expect(scene.animationFrameCropForTesting(soldierType: .cavalry, action: "attack") == fullCanvas)
-        #expect(scene.animationFrameCropForTesting(soldierType: .cavalry, action: "hit") == fullCanvas)
-    }
-
-    @Test func approvedMageAndSiegeAnimationsUseTheFullTextureCanvas() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-        let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
-
-        for type in [SoldierType.mage, .siege] {
-            #expect(scene.animationFrameCropForTesting(soldierType: type, action: "walk") == fullCanvas)
-            #expect(scene.animationFrameCropForTesting(soldierType: type, action: "attack") == fullCanvas)
-            #expect(scene.animationFrameCropForTesting(soldierType: type, action: "hit") == fullCanvas)
-        }
-    }
-
     @Test func approvedArcherFullCanvasPreservesLogicalBodyHeight() throws {
         let store = try makeStore(initialState: stateWithBuildings([.archeryRange], cityRemainingPower: 50))
         let scene = makeScene(store: store)
@@ -613,33 +559,16 @@ struct BattleSceneTests {
         #expect(gap <= 1.5)
     }
 
-    @Test func attackFramesFitInsideRuntimeCropForEverySoldierType() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-
-        for soldierType in SoldierType.allCases {
-            let crop = scene.animationFrameCropForTesting(soldierType: soldierType, action: "attack")
-            for frameIndex in 1...10 {
-                let imageName = "\(soldierType.rawValue)-attack-\(String(format: "%02d", frameIndex))"
-                let image = try #require(UIImage(named: imageName))
-
-                #expect(opaquePixelCountOutsideRuntimeCrop(in: image, crop: crop) == 0)
-            }
-        }
-    }
-
-    @Test func infantryAttackFramesKeepMotionInsideReadableCropInset() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-        let crop = scene.animationFrameCropForTesting(soldierType: .infantry, action: "attack")
+    @Test func infantryAttackFramesKeepMotionInsideCanvasInset() throws {
+        let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
 
         for frameIndex in 1...10 {
             let imageName = "infantry-attack-\(String(format: "%02d", frameIndex))"
             let image = try #require(UIImage(named: imageName))
             let cgImage = try #require(image.cgImage)
             let bounds = try #require(opaquePixelBounds(in: image))
-            let cropMinX = Int(floor(crop.minX * CGFloat(cgImage.width)))
-            let cropMaxX = Int(ceil(crop.maxX * CGFloat(cgImage.width)))
+            let cropMinX = Int(floor(fullCanvas.minX * CGFloat(cgImage.width)))
+            let cropMaxX = Int(ceil(fullCanvas.maxX * CGFloat(cgImage.width)))
 
             #expect(bounds.minX - cropMinX >= 3)
             #expect(cropMaxX - bounds.maxXExclusive >= 3)
@@ -2280,57 +2209,6 @@ struct BattleSceneTests {
         var alpha: CGFloat = 0
         color.getRed(nil, green: nil, blue: nil, alpha: &alpha)
         return alpha
-    }
-
-    private func opaquePixelCountOutsideRuntimeCrop(in image: UIImage, crop: CGRect) -> Int {
-        guard let cgImage = image.cgImage else {
-            return Int.max
-        }
-
-        let width = cgImage.width
-        let height = cgImage.height
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        var didDraw = false
-
-        pixels.withUnsafeMutableBytes { buffer in
-            guard let context = CGContext(
-                data: buffer.baseAddress,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width * 4,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                return
-            }
-            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-            didDraw = true
-        }
-
-        guard didDraw else {
-            return Int.max
-        }
-
-        let cropMinX = Int(floor(crop.minX * CGFloat(width)))
-        let cropMaxX = Int(ceil(crop.maxX * CGFloat(width)))
-        let cropMinY = Int(floor((1 - crop.maxY) * CGFloat(height)))
-        let cropMaxY = Int(ceil((1 - crop.minY) * CGFloat(height)))
-
-        var outsideCount = 0
-        for y in 0..<height {
-            for x in 0..<width {
-                let alphaIndex = (y * width + x) * 4 + 3
-                guard pixels[alphaIndex] > 0 else {
-                    continue
-                }
-                if x < cropMinX || x >= cropMaxX || y < cropMinY || y >= cropMaxY {
-                    outsideCount += 1
-                }
-            }
-        }
-        return outsideCount
     }
 
     private func opaquePixelBounds(in image: UIImage) -> PixelBounds? {

@@ -1880,11 +1880,7 @@ final class BattleScene: SKScene {
         let assetName = UIImage(named: preferredAssetName) != nil ? preferredAssetName : fallbackAssetName
 
         if let animatedTextureName = firstAvailableSoldierAnimationFrameName(for: type) {
-            let sprite = SKSpriteNode(texture: soldierAnimationTexture(
-                named: animatedTextureName,
-                type: type,
-                action: .walk
-            ))
+            let sprite = SKSpriteNode(texture: soldierAnimationTexture(named: animatedTextureName))
             sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
             soldier = sprite
         } else if UIImage(named: assetName) != nil {
@@ -1938,7 +1934,7 @@ final class BattleScene: SKScene {
         guard frameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
             return []
         }
-        let textures = frameNames.map { soldierAnimationTexture(named: $0, type: type, action: action) }
+        let textures = frameNames.map { soldierAnimationTexture(named: $0) }
         // Only cache complete (non-empty) texture sets; an incomplete set likely
         // means an asset is missing at this call, which we want to re-resolve
         // rather than pin the empty result for the scene's lifetime.
@@ -1951,19 +1947,8 @@ final class BattleScene: SKScene {
         return textures
     }
 
-    private func soldierAnimationTexture(
-        named frameName: String,
-        type: SoldierType,
-        action: SoldierAnimationAction
-    ) -> SKTexture {
-        SKTexture(rect: soldierAnimationFrameCrop(for: type, action: action), in: SKTexture(imageNamed: frameName))
-    }
-
-    private func soldierAnimationFrameCrop(for type: SoldierType, action: SoldierAnimationAction) -> CGRect {
-        // Full-canvas storyboard frames need no sub-rect. Kept as a constant
-        // seam exposed via `animationFrameCropForTesting` so future per-type
-        // cropping can land without touching the texture-building call sites.
-        CGRect(x: 0, y: 0, width: 1, height: 1)
+    private func soldierAnimationTexture(named frameName: String) -> SKTexture {
+        SKTexture(imageNamed: frameName)
     }
 
     private func soldierVisualColor(for type: SoldierType) -> SKColor {
@@ -2092,10 +2077,6 @@ final class BattleScene: SKScene {
     }
 
     private func playSoldierAttackFeedback(for soldierID: BattleCombatState.SoldierID) {
-        guard soldierNodes[soldierID] != nil else {
-            return
-        }
-
         playSoldierAnimation(.attack, for: soldierID, resumesWalk: true)
     }
 
@@ -2103,10 +2084,6 @@ final class BattleScene: SKScene {
         for soldierID: BattleCombatState.SoldierID,
         schedulesRemoval: Bool
     ) {
-        guard soldierNodes[soldierID] != nil else {
-            return
-        }
-
         playSoldierAnimation(.hit, for: soldierID, resumesWalk: !schedulesRemoval)
         if schedulesRemoval {
             scheduleDelayedSoldierRemoval(for: soldierID)
@@ -2981,13 +2958,6 @@ extension BattleScene {
             return []
         }
         return soldierAnimationTextures(for: soldierType, action: action)
-    }
-
-    func animationFrameCropForTesting(soldierType: SoldierType, action: String) -> CGRect {
-        guard let action = SoldierAnimationAction(rawValue: action) else {
-            return .zero
-        }
-        return soldierAnimationFrameCrop(for: soldierType, action: action)
     }
 
     /// Number of (type, action) entries currently held in the texture cache.

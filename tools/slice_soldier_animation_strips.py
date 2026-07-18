@@ -83,7 +83,7 @@ def _channel_distance(pixel: RGBAColor, key: RGBAColor) -> int:
 
 
 def _remove_key(cell: Image.Image, key: RGBAColor) -> Image.Image:
-    output = cell.convert("RGBA")
+    output = cell
     pixels = output.load()
     for y in range(output.height):
         for x in range(output.width):
