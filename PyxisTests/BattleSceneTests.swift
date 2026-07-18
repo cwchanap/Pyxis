@@ -584,6 +584,43 @@ struct BattleSceneTests {
         #expect(gap <= 1.5)
     }
 
+    @Test func animatedSoldierFeetAlignWithLaneBaseline() throws {
+        let store = try makeStore(initialState: stateWithBuildings([.archeryRange], cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+
+        let placement = try #require(scene.soldierLanePlacementsForTesting.first)
+        let gatePoint = try #require(scene.castleGatePointForTesting(lane: placement.lane))
+        let geometry = SoldierAnimationGeometry(type: .archer)
+        let frameSize = geometry.frameSize(forBodyHeight: scene.soldierTargetHeightForTesting)
+        let footMargin = geometry.bodyRegion.minY * frameSize.height
+        // The visible feet (root + scaled bottom margin) must sit on the lane
+        // baseline, not float above it by the transparent foot margin.
+        let feetY = placement.nodePosition.y + footMargin
+        #expect(abs(feetY - gatePoint.y) < 0.5)
+    }
+
+    @Test func towerShotTargetsSoldierBodyCenter() throws {
+        let store = try makeStore(initialState: stateWithBuildings([.archeryRange], cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+
+        let placement = try #require(scene.soldierLanePlacementsForTesting.first)
+        let geometry = SoldierAnimationGeometry(type: .archer)
+        let frameSize = geometry.frameSize(forBodyHeight: scene.soldierTargetHeightForTesting)
+        let bodyCenterY = placement.nodePosition.y + geometry.logicalBodyFrame(frameSize: frameSize).midY
+
+        let target = try #require(scene.firstLiveSoldierTowerShotTargetForTesting)
+        #expect(abs(target.y - bodyCenterY) < 0.5)
+        // The target must not be the raw root position (which sits below the
+        // body after the foot-margin offset is applied).
+        #expect(abs(target.y - placement.nodePosition.y) > 1)
+    }
+
     @Test func infantryAttackFramesKeepMotionInsideCanvasInset() throws {
         let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
 
