@@ -52,8 +52,7 @@ struct SoldierRuntimeGeometryTests {
         // without exercising walk rendering.
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
 
-        let motionRoot = try #require(scene.childNode(withName: "//soldierMotionRoot"))
-        let body = try #require(motionRoot.children.compactMap { $0 as? SKSpriteNode }.first)
+        let body = try #require(scene.firstLiveSoldierBodySpriteForTesting)
         var sampledSizes = try await collectSizes(of: body, count: 30)
 
         scene.triggerFirstLiveSoldierAnimationForTesting("attack")
