@@ -474,6 +474,82 @@ struct BattleSceneTests {
         #expect(scene.recentSoldierHitAnimationCountForTesting == hitCountBefore)
     }
 
+    @Test("Tower-generated hit arms the full 0.9s countdown and stays suppressed past the cavalry attack interval")
+    func towerGeneratedHitArmsFullDurationAndStaysSuppressedPastAttackInterval() throws {
+        // Regression for the reorder of `decrementSoldierHitAnimationRemaining`
+        // before `combat.tick` in `advanceCombat`. With the old order, a tower
+        // hit armed the timer at 0.9s in `applyCombatResult` and then
+        // `decrementSoldierHitAnimationRemaining(deltaTime:)` immediately
+        // subtracted the tick's deltaTime, so the timer held `0.9 - deltaTime`
+        // and the hit animation played short by one frame every time. With the
+        // fix, the decrement runs before the tick, so a timer armed this tick
+        // keeps the full 0.9s and is first reduced on the next tick.
+        //
+        // Cavalry is the type where this matters most: hit duration (0.9s) >
+        // attack interval (~0.87s), so the attack-while-hit suppression guard
+        // relies on the countdown staying positive past 0.87s. With the old
+        // order the timer would reach zero at 0.8s elapsed (before the attack
+        // interval) and the guard would lift early; with the fix it reaches
+        // zero at 0.9s (after the attack interval), matching the authored hit.
+        // City 1: tower damage is 2, so after defense (1) and lane multiplier
+        // the cavalry takes 1 damage and survives with 8 HP — the timer must
+        // remain armed on a LIVING soldier so `firstLiveSoldierIDForTesting`
+        // can still resolve it. (City 9's tower one-shots a level-1 cavalry,
+        // which would remove the soldier from `combat.soldiers` and make the
+        // accessor return nil.) `cityRemainingPower: 500` keeps the city alive
+        // across the full 0.9s window so `stageStatus` stays `.battleActive`.
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                [.stable],
+                gold: 100,
+                cityRemainingPower: 500,
+                cityNumberInCountry: 1,
+                completedCityCount: 0
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnSoldierForTesting()
+
+        // Advance in 0.1s steps until the tower fires and lands a hit. The
+        // tower interval is 1.25s, so only one tower shot can land during this
+        // window; subsequent steps won't re-arm the timer.
+        var hitCount = 0
+        var stepsSinceSpawn = 0
+        while hitCount == 0 && stepsSinceSpawn < 30 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            hitCount = scene.recentSoldierHitAnimationCountForTesting
+            stepsSinceSpawn += 1
+        }
+        #expect(hitCount > 0, "Tower should have hit the cavalry soldier within 3.0s")
+
+        // Immediately after the tower-hit tick, the timer must hold the full
+        // authored 0.9s — not 0.9s minus the 0.1s tick step (the old-order bug).
+        let remainingAfterHit = try #require(scene.firstLiveSoldierHitAnimationRemainingForTesting)
+        #expect(abs(remainingAfterHit - 0.9) < 0.001)
+
+        // Advance 0.8s more (eight 0.1s steps). The timer should read ~0.1s,
+        // i.e. suppression is still active. This window spans the cavalry
+        // attack interval (~0.87s): at 0.8s elapsed the timer is 0.1 > 0, and
+        // it stays positive through 0.87s. With the old order the timer would
+        // have been armed at 0.8s and would already be zero here.
+        for _ in 0..<8 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+        }
+        let remainingAtEightTenths = scene.firstLiveSoldierHitAnimationRemainingForTesting
+        #expect(remainingAtEightTenths.map { $0 > 0 } == true,
+                "Hit suppression must still be active 0.8s after the tower hit")
+        if let remaining = remainingAtEightTenths {
+            #expect(abs(remaining - 0.1) < 0.001)
+        }
+
+        // One more 0.1s step reaches the authored 0.9s; the timer lifts and
+        // suppression ends.
+        scene.advanceCombatForTesting(deltaTime: 0.1)
+        #expect(scene.firstLiveSoldierHitAnimationRemainingForTesting == nil)
+    }
+
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
     func soldierAnimationTexturesAreCachedAndReusedAcrossCalls() throws {
         let store = try makeStore(initialState: stateWithBuildings([.mageTower], cityRemainingPower: 20))
