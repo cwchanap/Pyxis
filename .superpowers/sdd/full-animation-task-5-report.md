@@ -9,7 +9,7 @@ asset, storyboard, staging, or commit work was performed.
 
 Both suites ran through XcodeBuildMCP against the `Pyxis` scheme on `iPhone 17`
 with `-parallel-testing-enabled NO` and isolated DerivedData at
-`/private/tmp/pyxis-task5-derived-data`.
+`$TMPDIR/pyxis-task5-derived-data`.
 
 ### SoldierAnimationManifestTests
 
@@ -44,7 +44,7 @@ not compilation errors or empty test selectors.
   `Pyxis/Assets.xcassets/infantry-walk-01.imageset/infantry-walk-01.png`
   (`128 x 128` PNG)
 - Approved render-quality source:
-  `/private/tmp/pyxis-full-animation/archer-canonical.png`
+  `$TMPDIR/pyxis-full-animation/archer-canonical.png`
   (`1254 x 1254` PNG)
 
 The infantry source controlled identity and equipment semantics. The archer
@@ -118,7 +118,7 @@ canvas contains zero non-green pixels.
 
 ### Final Candidate
 
-Path: `/private/tmp/pyxis-full-animation/infantry-canonical.png`
+Path: `$TMPDIR/pyxis-full-animation/infantry-canonical.png`
 
 - Dimensions: `1254 x 1254`
 - Format: PNG, RGBA
@@ -144,9 +144,9 @@ image-generation calls then used that reference, the shared image/frame
 contracts, and the exact Task 5 walk, attack, and hit prompts. The generated
 boards were copied to:
 
-- `/private/tmp/pyxis-full-animation/infantry-walk.png`
-- `/private/tmp/pyxis-full-animation/infantry-attack.png`
-- `/private/tmp/pyxis-full-animation/infantry-hit.png`
+- `$TMPDIR/pyxis-full-animation/infantry-walk.png`
+- `$TMPDIR/pyxis-full-animation/infantry-attack.png`
+- `$TMPDIR/pyxis-full-animation/infantry-hit.png`
 
 Each source was `1774 x 887`, fixed 5x2 order, with one complete separated pose
 per frame and exact green background after deterministic normalization. Visual
@@ -175,9 +175,9 @@ providing stable padding and scale across all actions.
 
 Aligned candidates:
 
-- `/private/tmp/pyxis-full-animation/infantry-walk-aligned.png`
-- `/private/tmp/pyxis-full-animation/infantry-attack-aligned.png`
-- `/private/tmp/pyxis-full-animation/infantry-hit-aligned.png`
+- `$TMPDIR/pyxis-full-animation/infantry-walk-aligned.png`
+- `$TMPDIR/pyxis-full-animation/infantry-attack-aligned.png`
+- `$TMPDIR/pyxis-full-animation/infantry-hit-aligned.png`
 
 The aligned candidates replaced the three task storyboard paths only after an
 in-memory call to `prepare_soldier_storyboards` passed all source-gutter,
@@ -189,7 +189,7 @@ trio checks (`10` prepared frames for each action).
 The atomic preview command exited 0:
 
 ```bash
-rtk python3 tools/slice_soldier_animation_strips.py --storyboards-dir /private/tmp/pyxis-full-animation --assets-dir build/animation-preview/Assets.xcassets --soldiers infantry --actions walk attack hit
+rtk python3 tools/slice_soldier_animation_strips.py --storyboards-dir $TMPDIR/pyxis-full-animation --assets-dir build/animation-preview/Assets.xcassets --soldiers infantry --actions walk attack hit
 ```
 
 QA artifacts:
@@ -218,9 +218,9 @@ Status: awaiting user approval before production installation.
 The user approved all three validated GIFs generated from the exact-green
 storyboards:
 
-- `/private/tmp/pyxis-full-animation/infantry-walk.png`
-- `/private/tmp/pyxis-full-animation/infantry-attack.png`
-- `/private/tmp/pyxis-full-animation/infantry-hit.png`
+- `$TMPDIR/pyxis-full-animation/infantry-walk.png`
+- `$TMPDIR/pyxis-full-animation/infantry-attack.png`
+- `$TMPDIR/pyxis-full-animation/infantry-hit.png`
 
 The approved sources had already passed `prepare_soldier_storyboards`, the
 atomic preview slicer, and the 30-frame `0/0` fringe scan recorded above. The
@@ -229,7 +229,7 @@ coordinator performed the post-commit simulator playback check recorded below.
 ### Production Installation
 
 ```bash
-rtk python3 tools/slice_soldier_animation_strips.py --storyboards-dir /private/tmp/pyxis-full-animation --assets-dir Pyxis/Assets.xcassets --soldiers infantry --actions walk attack hit
+rtk python3 tools/slice_soldier_animation_strips.py --storyboards-dir $TMPDIR/pyxis-full-animation --assets-dir Pyxis/Assets.xcassets --soldiers infantry --actions walk attack hit
 ```
 
 Result: exit `0`. The atomic slicer replaced exactly the 30 approved infantry
@@ -273,7 +273,7 @@ print(f"frames={len(frames)} exact_green_nonzero_alpha={exact} key_dominant_gree
 Result: exit `0`; `frames=30 exact_green_nonzero_alpha=0 key_dominant_green_nonzero_alpha=0`.
 
 XcodeBuildMCP session defaults: `Pyxis.xcodeproj`, scheme `Pyxis`, simulator
-`iPhone 17`, derived data `/private/tmp/pyxis-task5-derived-data`. Each test
+`iPhone 17`, derived data `$TMPDIR/pyxis-task5-derived-data`. Each test
 call used `extraArgs: ["-parallel-testing-enabled", "NO", ...]`.
 
 ```text
@@ -295,7 +295,7 @@ test_sim -only-testing:PyxisTests
 Result: `351 passed, 0 failed, 0 skipped`.
 
 ```bash
-rtk swiftlint lint --quiet --cache-path /private/tmp/pyxis-full-animation-swiftlint-cache
+rtk swiftlint lint --quiet --cache-path $TMPDIR/pyxis-full-animation-swiftlint-cache
 ```
 
 Result: exit `0`; repository warnings remain but no lint errors.

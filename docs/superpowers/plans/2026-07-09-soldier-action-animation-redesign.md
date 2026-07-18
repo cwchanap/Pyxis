@@ -29,7 +29,7 @@
 - Keep source boards and QA previews under `/private/tmp` or ignored `build/`; commit only final frame assets.
 - Do not change combat formulas, attack speed, targeting, range, HP, movement, spawning, or battle layout.
 - Remove procedural limbs, weapons, facial marks, posture strokes, slash arcs, and exaggerated root movement after authored assets are installed.
-- Attack durations are infantry 0.90 s, archer 0.90 s, cavalry 0.80 s, mage 1.00 s, and siege 1.40 s; hit duration is 0.80 s for every type.
+- ~~Attack durations are infantry 0.90 s, archer 0.90 s, cavalry 0.80 s, mage 1.00 s, and siege 1.40 s; hit duration is 0.80 s for every type.~~ **Superseded** — final values: attack infantry/cavalry 1.2 s, archer/mage 1.4 s, siege 1.6 s; hit 0.9 s; walk 1.0 s (`SoldierAnimationTiming.swift`).
 - Disable parallel Xcode testing with `-parallel-testing-enabled NO`.
 - Do not edit `project.pbxproj`; synchronized root groups discover new Swift files automatically.
 
@@ -1157,16 +1157,19 @@ Delete tests that require `soldierAttackPose`, `soldierAttackPart`, `soldierHitE
     #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
 }
 
+// Superseded sample: final timing is weighted per-frame via
+// SoldierAnimationTiming (attack 1.2/1.4/1.6 s, hit 0.9 s, walk 1.0 s).
+// See BattleSceneTests.soldierAnimationsUseAuthoredWeightedPlaybackTiming.
 @Test func transientTimingMatchesSoldierCadence() throws {
     let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
     let scene = makeScene(store: store)
     let expectedAttack: [SoldierType: TimeInterval] = [
-        .infantry: 0.90, .archer: 0.90, .cavalry: 0.80, .mage: 1.00, .siege: 1.40
+        .infantry: 1.2, .archer: 1.4, .cavalry: 1.2, .mage: 1.4, .siege: 1.6
     ]
 
     for type in SoldierType.allCases {
         #expect(scene.soldierAnimationDurationForTesting(soldierType: type, action: "attack") == expectedAttack[type])
-        #expect(scene.soldierAnimationDurationForTesting(soldierType: type, action: "hit") == 0.80)
+        #expect(scene.soldierAnimationDurationForTesting(soldierType: type, action: "hit") == 0.9)
     }
 }
 ```
@@ -1290,7 +1293,7 @@ private func soldierAnimationTimePerFrame(
 }
 ```
 
-Make `playSoldierAnimation` return `true` only when it installs a complete authored animation. It removes walk, attack, and hit keys before installing the new transient; because `applyCombatResult` processes attacks before damaged IDs, a same-tick hit removes and replaces attack, preserving hit priority. Delayed death removal remains 0.80 seconds.
+Make `playSoldierAnimation` return `true` only when it installs a complete authored animation. It removes walk, attack, and hit keys before installing the new transient; because `applyCombatResult` processes attacks before damaged IDs, a same-tick hit removes and replaces attack, preserving hit priority. Delayed death removal remains 0.9 seconds (hit total duration).
 
 - [ ] **Step 6: Remove procedural action presentation**
 
