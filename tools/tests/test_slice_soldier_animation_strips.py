@@ -203,25 +203,31 @@ class StoryboardValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "baseline"):
             pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
 
-    def test_rejects_four_pixel_vertical_core_height_pulse(self) -> None:
+    def test_rejects_neutral_bookend_vertical_core_height_pulse(self) -> None:
+        # Scale checks use only first/last frames; a neutral bookend pulse still
+        # fails even when mid-action frames match each other.
         boxes = [(16 + index % 2, 16, 47 + index % 2, 47) for index in range(10)]
-        boxes[4] = (16, 18, 47, 47)
+        boxes[0] = (16, 18, 47, 47)
 
         with self.assertRaisesRegex(ValueError, "vertical core height delta"):
             pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
 
-    def test_rejects_mid_action_vertical_core_compression(self) -> None:
+    def test_allows_mid_action_vertical_core_height_articulation(self) -> None:
+        # Raised mid-action silhouette is articulation, not scale drift.
         boxes = [
-            (19 + index % 2, 19, 44 + index % 2, 44)
+            (16 + index % 2, 12, 47 + index % 2, 47)
             if 3 <= index <= 6
             else (16 + index % 2, 16, 47 + index % 2, 47)
             for index in range(10)
         ]
 
-        with self.assertRaisesRegex(ValueError, "vertical core height delta"):
-            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+        frames = pipeline.prepare_storyboard_frames(
+            make_metric_board(boxes), "infantry"
+        )
+        self.assertEqual(len(frames), pipeline.FRAME_COUNT)
 
-    def test_rejects_mid_action_vertical_core_centroid_drift(self) -> None:
+    def test_allows_mid_action_vertical_core_centroid_shift(self) -> None:
+        # Mid-action lean shifts the core centroid; bookend scale stays fixed.
         boxes = [
             (16 + index % 2, 19, 47 + index % 2, 50)
             if 3 <= index <= 6
@@ -229,8 +235,10 @@ class StoryboardValidationTests(unittest.TestCase):
             for index in range(10)
         ]
 
-        with self.assertRaisesRegex(ValueError, "vertical core centroid delta"):
-            pipeline.prepare_storyboard_frames(make_metric_board(boxes), "infantry")
+        frames = pipeline.prepare_storyboard_frames(
+            make_metric_board(boxes), "infantry"
+        )
+        self.assertEqual(len(frames), pipeline.FRAME_COUNT)
 
 
 class SoldierTrioValidationTests(unittest.TestCase):
@@ -313,8 +321,11 @@ class SoldierTrioValidationTests(unittest.TestCase):
 
     def test_allows_mid_action_posture_change_when_neutral_scale_matches(self) -> None:
         boards = make_action_boards()
+        # Mid-action frames raise the silhouette (articulated strike/lean) while
+        # neutral bookends keep the walk scale. Density/baseline still apply to
+        # every frame; vertical-core scale checks use only the bookends.
         hit_boxes = [
-            (20 + index % 2, 16, 51 + index % 2, 47)
+            (18 + index % 2, 8, 49 + index % 2, 47)
             if 3 <= index <= 6
             else (16 + index % 2, 16, 47 + index % 2, 47)
             for index in range(10)

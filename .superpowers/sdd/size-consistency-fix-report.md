@@ -32,11 +32,11 @@ the shared canonical and storyboard contracts from the implementation plan.
 
 Inputs:
 
-- `/private/tmp/pyxis-full-animation/infantry-canonical.png`: identity and
+- `$TMPDIR/pyxis-full-animation/infantry-canonical.png`: identity and
   equipment authority.
-- `/private/tmp/pyxis-full-animation/infantry-walk.png`: apparent head/body
+- `$TMPDIR/pyxis-full-animation/infantry-walk.png`: apparent head/body
   scale, neutral height, baseline, style, and composition authority.
-- `/private/tmp/pyxis-full-animation/infantry-attack.png`: attack-motion
+- `$TMPDIR/pyxis-full-animation/infantry-attack.png`: attack-motion
   reference only; its reduced scale was explicitly rejected.
 
 Prompt-specific request: restore the attack to the walk scale, preserve a
@@ -51,11 +51,11 @@ Generated source:
 
 Inputs:
 
-- `/private/tmp/pyxis-full-animation/infantry-canonical.png`: identity and
+- `$TMPDIR/pyxis-full-animation/infantry-canonical.png`: identity and
   equipment authority.
-- `/private/tmp/pyxis-full-animation/infantry-walk.png`: apparent head/body
+- `$TMPDIR/pyxis-full-animation/infantry-walk.png`: apparent head/body
   scale, neutral height, baseline, style, and composition authority.
-- `/private/tmp/pyxis-full-animation/infantry-hit.png`: reaction context only;
+- `$TMPDIR/pyxis-full-animation/infantry-hit.png`: reaction context only;
   its crouch and vertical compression were explicitly rejected.
 
 Prompt-specific request: use a shield-first lean and recoil, visible grimace,
@@ -69,11 +69,11 @@ Generated source:
 
 Inputs:
 
-- `/private/tmp/pyxis-full-animation/archer-canonical.png`: identity,
+- `$TMPDIR/pyxis-full-animation/archer-canonical.png`: identity,
   equipment, and rendering authority.
-- `/private/tmp/pyxis-full-animation/archer-walk.png`: apparent head/body
+- `$TMPDIR/pyxis-full-animation/archer-walk.png`: apparent head/body
   scale, neutral height, baseline, style, and composition authority.
-- `/private/tmp/pyxis-full-animation/archer-hit.png`: reaction context only;
+- `$TMPDIR/pyxis-full-animation/archer-hit.png`: reaction context only;
   its crouch and vertical compression were explicitly rejected.
 
 Prompt-specific request: use facial expression, shoulder recoil, elbow/cape
@@ -108,12 +108,12 @@ The separate candidate directory contains complete trios so the atomic preview
 can combine unchanged approved boards with corrected boards:
 
 ```text
-/private/tmp/pyxis-sizefix/infantry-walk.png
-/private/tmp/pyxis-sizefix/infantry-attack.png
-/private/tmp/pyxis-sizefix/infantry-hit.png
-/private/tmp/pyxis-sizefix/archer-walk.png
-/private/tmp/pyxis-sizefix/archer-attack.png
-/private/tmp/pyxis-sizefix/archer-hit.png
+$TMPDIR/pyxis-sizefix/infantry-walk.png
+$TMPDIR/pyxis-sizefix/infantry-attack.png
+$TMPDIR/pyxis-sizefix/infantry-hit.png
+$TMPDIR/pyxis-sizefix/archer-walk.png
+$TMPDIR/pyxis-sizefix/archer-attack.png
+$TMPDIR/pyxis-sizefix/archer-hit.png
 ```
 
 SHA-256:
@@ -128,7 +128,7 @@ f45f6a89cfef11da20c03f06df57733c6c26ee7b1a9914835b70aa8e0cb31ec7  archer-hit.png
 ```
 
 The unchanged walk boards and unchanged Archer attack hashes match their
-approved `/private/tmp/pyxis-full-animation` sources.
+approved `$TMPDIR/pyxis-full-animation` sources.
 
 ## Corrected 128 Px Metrics
 
@@ -152,7 +152,7 @@ Atomic preview command:
 
 ```bash
 rtk python3 tools/slice_soldier_animation_strips.py \
-  --storyboards-dir /private/tmp/pyxis-sizefix \
+  --storyboards-dir $TMPDIR/pyxis-sizefix \
   --assets-dir build/animation-preview/sizefix/Assets.xcassets \
   --soldiers infantry archer \
   --actions walk attack hit
@@ -206,7 +206,7 @@ jump, frame bleed, equipment crop, detached equipment, or added effect.
 ## Production Cutover And Simulator Verification
 
 The atomic production cutover installed both complete trios from
-`/private/tmp/pyxis-sizefix`. Git comparison confirmed that unchanged walk and
+`$TMPDIR/pyxis-sizefix`. Git comparison confirmed that unchanged walk and
 Archer attack frames remained byte-identical; exactly the intended 30 PNGs
 changed: ten Infantry attack, ten Infantry hit, and ten Archer hit frames.
 
@@ -215,7 +215,7 @@ tests pass, and the current Infantry source now satisfies the new guard instead
 of failing at the previous `0.88` attack-to-walk neutral-height ratio.
 
 XcodeBuildMCP used a fresh DerivedData directory at
-`/private/tmp/pyxis-sizefix-derived-data`, then built, installed, and launched
+`$TMPDIR/pyxis-sizefix-derived-data`, then built, installed, and launched
 bundle `cwchanap.Pyxis` on the iPhone 17 Pro simulator. Build and launch passed.
 A temporary uncommitted XCUITest spawned eight Infantry soldiers and held the
 battle scene for 24 seconds with parallel testing disabled; it passed (`1`

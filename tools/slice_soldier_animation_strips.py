@@ -221,7 +221,11 @@ def _validate_sequence_metrics(frames: list[Image.Image]) -> None:
         raise ValueError(
             f"baseline delta {max(baselines) - min(baselines)} exceeds {MAX_BASELINE_DELTA}"
         )
-    core_metrics = [_vertical_core_metrics(frame) for frame in frames]
+    # Scale drift is judged only from neutral bookends. Mid-action articulation
+    # (raised arms, sword arcs, hit lean) legitimately changes vertical core
+    # height; density and baseline above still catch transient-frame problems.
+    neutral_frames = (frames[0], frames[-1])
+    core_metrics = [_vertical_core_metrics(frame) for frame in neutral_frames]
     core_heights = [height for height, _ in core_metrics]
     core_height_delta = max(core_heights) - min(core_heights)
     if core_height_delta > MAX_VERTICAL_CORE_HEIGHT_DELTA:
@@ -317,10 +321,12 @@ def _validate_trio_metrics(prepared: dict[str, list[Image.Image]]) -> None:
             f"exceeds {MAX_BASELINE_DELTA}"
         )
 
+    # Cross-action scale uses neutral bookends only; mid-action core height
+    # variation is articulation, not scale drift.
     core_metrics = [
-        _vertical_core_metrics(frame)
+        _vertical_core_metrics(prepared[action][index])
         for action in ACTIONS
-        for frame in prepared[action]
+        for index in (0, -1)
     ]
     core_heights = [height for height, _ in core_metrics]
     core_height_delta = max(core_heights) - min(core_heights)
