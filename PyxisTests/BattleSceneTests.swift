@@ -128,6 +128,25 @@ struct BattleSceneTests {
         #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
     }
 
+    @Test("Attack triggers while an attack cycle is in flight are ignored, not restarted")
+    func attackTriggerWhileAttackInFlightIsIgnored() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+
+        scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+        let countAfterFirst = scene.recentSoldierAttackAnimationCountForTesting
+        #expect(countAfterFirst == 1)
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+
+        // A second attack trigger while the first cycle is still running must
+        // not restart the sequence (which would pop it back to frame 1).
+        scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+        #expect(scene.recentSoldierAttackAnimationCountForTesting == countAfterFirst)
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+    }
+
     @Test func remainingApprovedAttacksDoNotLayerProceduralFeedback() throws {
         for soldierType in [SoldierType.mage, .siege] {
             let buildingType = buildingTypeForSoldier(soldierType)
@@ -552,7 +571,13 @@ struct BattleSceneTests {
 
         let hpBarFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
         let placement = try #require(scene.soldierLanePlacementsForTesting.first)
-        let logicalBodyTop = placement.nodePosition.y + scene.soldierTargetHeightForTesting
+        // The logical body top is the silhouette top (bodyRegion.maxY * frameSize),
+        // not the requested body height: the regenerated frames have a
+        // transparent margin below the feet, so the silhouette top sits above
+        // the body-height offset from the feet.
+        let geometry = SoldierAnimationGeometry(type: .archer)
+        let frameSize = geometry.frameSize(forBodyHeight: scene.soldierTargetHeightForTesting)
+        let logicalBodyTop = placement.nodePosition.y + geometry.logicalBodyFrame(frameSize: frameSize).maxY
         let gap = hpBarFrame.minY - logicalBodyTop
 
         #expect(gap >= 0)
@@ -891,7 +916,9 @@ struct BattleSceneTests {
 
         let hpBarFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
         let placement = try #require(scene.soldierLanePlacementsForTesting.first)
-        let logicalBodyTop = placement.nodePosition.y + scene.soldierTargetHeightForTesting
+        let geometry = SoldierAnimationGeometry(type: .mage)
+        let frameSize = geometry.frameSize(forBodyHeight: scene.soldierTargetHeightForTesting)
+        let logicalBodyTop = placement.nodePosition.y + geometry.logicalBodyFrame(frameSize: frameSize).maxY
         let gap = hpBarFrame.minY - logicalBodyTop
 
         #expect(hpBarFrame.height >= 4.5)
@@ -1841,11 +1868,12 @@ struct BattleSceneTests {
 
         let bodyFrame = try #require(scene.firstLiveSoldierBodyFrameForTesting)
         let hpFrame = try #require(scene.firstLiveSoldierHPBarFrameForTesting)
-        let expectedFrameSize = SoldierAnimationGeometry(type: .mage).frameSize(
+        let geometry = SoldierAnimationGeometry(type: .mage)
+        let expectedFrameSize = geometry.frameSize(
             forBodyHeight: scene.soldierTargetHeightForTesting
         )
         let placement = try #require(scene.soldierLanePlacementsForTesting.first)
-        let logicalBodyTop = placement.nodePosition.y + scene.soldierTargetHeightForTesting
+        let logicalBodyTop = placement.nodePosition.y + geometry.logicalBodyFrame(frameSize: expectedFrameSize).maxY
 
         #expect(abs(bodyFrame.width - expectedFrameSize.width) < 0.001)
         #expect(abs(bodyFrame.height - expectedFrameSize.height) < 0.001)

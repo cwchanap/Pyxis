@@ -64,8 +64,6 @@ final class BattleScene: SKScene {
         static let delayedRemoval = "soldierDelayedRemoval"
     }
 
-    private static let soldierHUDIconAnimationFrameCrop = CGRect(x: 0.22, y: 0, width: 0.56, height: 0.68)
-
     private struct SoldierNodeBundle {
         let root: SKNode
         let motionRoot: SKNode
@@ -75,6 +73,12 @@ final class BattleScene: SKScene {
         let type: SoldierType
         let lane: BattleLane
         let formationSlot: Int
+        /// `true` when `body` is an animation-canvas sprite whose texture is a
+        /// 128px full-canvas animation frame and whose size is therefore owned
+        /// by `SoldierAnimationGeometry`. `false` for the static fallback
+        /// sprite (a standalone asset not authored against those normalized
+        /// bounds), which must stay on the legacy `fitBattleNode` fit path.
+        let isAnimatedCanvas: Bool
     }
 
     private enum SoldierFormation {
@@ -1396,8 +1400,12 @@ final class BattleScene: SKScene {
         }
         let assetName = soldierIconAssetName(for: type)
         let source = SKTexture(imageNamed: assetName)
+        // Crop the full-canvas walk frame to the authored body bounds so the
+        // icon shows the full body (hood/head included) without the transparent
+        // canvas padding. The body region is per-type and matches the actual
+        // opaque artwork, so no edge of the silhouette is clipped.
         let texture = isSoldierAnimationFrameAssetName(assetName)
-            ? SKTexture(rect: Self.soldierHUDIconAnimationFrameCrop, in: source)
+            ? SKTexture(rect: SoldierAnimationGeometry(type: type).bodyRegion, in: source)
             : source
         soldierHUDIconTextureCache[type] = texture
         return texture
@@ -1721,6 +1729,7 @@ final class BattleScene: SKScene {
         hpFill.zPosition = 3
 
         let formationSlot = nextAvailableFormationSlot(for: soldier.lane)
+        let isAnimatedCanvas = firstAvailableSoldierAnimationFrameName(for: soldier.type) != nil
 
         root.addChild(hpBackground)
         root.addChild(hpFill)
@@ -1733,7 +1742,8 @@ final class BattleScene: SKScene {
             hpBarFill: hpFill,
             type: soldier.type,
             lane: soldier.lane,
-            formationSlot: formationSlot
+            formationSlot: formationSlot,
+            isAnimatedCanvas: isAnimatedCanvas
         )
     }
 
@@ -1782,7 +1792,12 @@ final class BattleScene: SKScene {
                 y: lanePoint.y + formationOffset.y
             )
             bundle.root.setScale(1)
-            fitSoldierBodyNode(bundle.body, type: bundle.type, targetHeight: soldierTargetHeight())
+            fitSoldierBodyNode(
+                bundle.body,
+                type: bundle.type,
+                targetHeight: soldierTargetHeight(),
+                isAnimatedCanvas: bundle.isAnimatedCanvas
+            )
             layoutSoldierHPBar(bundle, soldier: soldier)
             startSoldierWalkAnimation(for: soldier.id, type: soldier.type)
         }
@@ -1796,9 +1811,24 @@ final class BattleScene: SKScene {
         return max(54, min(70, size.height * 0.075))
     }
 
-    private func fitSoldierBodyNode(_ node: SKNode, type: SoldierType, targetHeight: CGFloat) {
+    private func fitSoldierBodyNode(
+        _ node: SKNode,
+        type: SoldierType,
+        targetHeight: CGFloat,
+        isAnimatedCanvas: Bool
+    ) {
         guard let sprite = node as? SKSpriteNode else {
             fitBattleNode(node, targetHeight: targetHeight)
+            return
+        }
+
+        // Only the animation-canvas sprite is authored against the normalized
+        // `SoldierAnimationGeometry` body bounds. The static fallback sprite is
+        // a standalone asset; sizing it via the geometry would stretch it to
+        // the full animation canvas and misplace its HP bar, so it stays on the
+        // legacy fit path that scales to its intrinsic texture dimensions.
+        guard isAnimatedCanvas else {
+            fitBattleNode(sprite, targetHeight: targetHeight)
             return
         }
 
@@ -1832,7 +1862,8 @@ final class BattleScene: SKScene {
     }
 
     private func soldierLogicalBodyFrame(for bundle: SoldierNodeBundle) -> CGRect {
-        guard let sprite = bundle.body as? SKSpriteNode else {
+        guard bundle.isAnimatedCanvas,
+              let sprite = bundle.body as? SKSpriteNode else {
             return bundle.body.calculateAccumulatedFrame()
         }
 
@@ -2148,6 +2179,20 @@ final class BattleScene: SKScene {
             return
         }
         let soldierType = bundle.type
+
+        // Attack animations last longer than the combat attack interval for
+        // infantry, archer, cavalry, and mage (e.g. infantry attacks every
+        // 1.0s but its attack cycle is 1.2s). Restarting the attack sequence
+        // on every attack tick would pop it back to frame 1 before it ever
+        // reaches the final frames or resumes walking. Ignore attack triggers
+        // while an attack animation is already in flight; the in-flight cycle
+        // finishes, resumes walk, and the next trigger starts a fresh cycle.
+        // Hit still interrupts an in-flight attack (a tower-hit reaction
+        // should override the attack pose), so this guard is attack-only.
+        if action == .attack,
+           sprite.action(forKey: SoldierAnimationKey.attack) != nil {
+            return
+        }
 
         #if DEBUG
         switch action {
