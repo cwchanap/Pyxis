@@ -2295,15 +2295,17 @@ final class BattleScene: SKScene {
             return
         }
 
-        // `isAnimatedCanvas` is false when the catalog is missing an
-        // action's first frame (see `firstAvailableSoldierAnimationFrameName`).
-        // In that case the node was built on the static-fallback path and sized
+        // `isAnimatedCanvas` is false when the catalog is missing any of the
+        // 30 trio frames (see `firstAvailableSoldierAnimationFrameName`). In
+        // that case the node was built on the static-fallback path and sized
         // via `fitBattleNode` to the static sprite's intrinsic dimensions, not
         // the animation canvas geometry. Starting full-canvas walk textures on
-        // it would display the 128×128 canvas at the wrong size, and any later
-        // attack/hit trigger would silently no-op (missing first frame →
-        // `soldierAnimationTextures` returns []). Gating here keeps the
-        // fallback soldier on its static texture.
+        // it would display the 128×128 canvas at the wrong size. The same gate
+        // is applied in `playSoldierAnimation` for transient (attack/hit)
+        // playback — without it, a partial catalog where one action is
+        // complete but another is missing would let the complete action's
+        // full-canvas textures be installed on the differently-sized static
+        // sprite, mixing fallback and animated rendering.
         let textures = soldierAnimationTextures(for: type, action: .walk)
         guard !textures.isEmpty else {
             return
@@ -2344,6 +2346,7 @@ final class BattleScene: SKScene {
         resumesWalk: Bool
     ) {
         guard let bundle = soldierNodes[soldierID],
+              bundle.isAnimatedCanvas,
               let sprite = bundle.body as? SKSpriteNode else {
             return
         }
@@ -3265,6 +3268,32 @@ extension BattleScene {
     /// Number of (type, action) entries currently held in the texture cache.
     var soldierAnimationTextureCacheEntryCountForTesting: Int {
         soldierAnimationTextureCache.values.reduce(0) { $0 + $1.count }
+    }
+
+    /// Forces `isAnimatedCanvas` to be false for `soldierType` on the next
+    /// node creation, simulating a partially installed catalog (some actions
+    /// complete, at least one frame missing elsewhere) without touching the
+    /// texture cache — so `soldierAnimationTextures(for:action:)` still
+    /// returns the real textures for whichever actions ARE complete. Mirrors
+    /// the release-build failure mode where a static-fallback soldier would
+    /// otherwise have transient playback installed on its differently-sized
+    /// sprite. Pre-seeds `soldierAnimatedCanvasFrameNameCache` so the probe
+    /// short-circuits without re-running 30 `UIImage(named:)` lookups.
+    func forceStaticFallbackCanvasForTesting(soldierType: SoldierType) {
+        soldierAnimatedCanvasFrameNameCache[soldierType] = .some(nil)
+    }
+
+    /// Returns true when the first live soldier's bundle was built on the
+    /// animated-canvas path. Exposed so tests can verify the
+    /// `forceStaticFallbackCanvasForTesting` hook actually flips the flag on
+    /// the spawned node (and, after the fix, that transient playback is
+    /// therefore suppressed for that soldier).
+    var firstLiveSoldierIsAnimatedCanvasForTesting: Bool? {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID] else {
+            return nil
+        }
+        return bundle.isAnimatedCanvas
     }
 
     /// Returns the cached HUD icon texture for `soldierType`. Exposed so tests
