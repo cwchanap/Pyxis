@@ -198,8 +198,8 @@ final class BattleScene: SKScene {
     private var cachedContentWidth: CGFloat = 220
     #if DEBUG
     private var battlefieldLayoutCount = 0
-    private var recentSoldierAttackAnimationCount = 0
-    private var recentSoldierHitAnimationCount = 0
+    private var soldierAttackAnimationTriggerCount = 0
+    private var soldierHitAnimationTriggerCount = 0
     /// Call counter for `layoutCityHPBar`, exposed via
     /// `layoutCityHPBarCallCountForTesting` so tests can verify `redraw` does
     /// not invoke it twice when `shouldLayout` is true (the layout pass in
@@ -2020,14 +2020,22 @@ final class BattleScene: SKScene {
     /// by checking the first frame of each action (`<type>-walk-01`,
     /// `<type>-attack-01`, `<type>-hit-01`). Returns the walk-01 frame name
     /// only when all three actions have at least their first frame installed,
-    /// so `isAnimatedCanvas` is true only for a complete trio — a partial set
-    /// (e.g. walk + attack but no hit) falls through to the static sprite path
-    /// instead of leaving `playSoldierAnimation` to silently no-op the missing
-    /// action while the soldier keeps walking. The all-or-nothing storyboard
-    /// validation in `tools/slice_soldier_animation_strips.py` makes a partial
-    /// trio unlikely in practice, but this probe is the runtime safety net for
-    /// hand-edited asset catalogs. `PyxisTests.allSoldierAnimationFramesAreInstalled`
-    /// guards the full 30-frame trio synchronously at test time.
+    /// so `isAnimatedCanvas` is true only for a complete first-frame set — a
+    /// partial set (e.g. walk + attack but no hit) falls through to the static
+    /// sprite path instead of leaving `playSoldierAnimation` to silently no-op
+    /// the missing action while the soldier keeps walking.
+    ///
+    /// This probe only checks `*-01` of each action, not all 30 frames. A
+    /// hand-edited mid-sequence drop (e.g. `cavalry-walk-07` removed but
+    /// `cavalry-walk-01` kept) leaves `isAnimatedCanvas == true`; in that case
+    /// `soldierAnimationTextures(for:action:)` returns an empty array for the
+    /// incomplete action (firing `assertionFailure` in DEBUG) and
+    /// `playSoldierAnimation` silently no-ops in release. The full 30-frame
+    /// trio is guarded synchronously at test time by
+    /// `PyxisTests.allSoldierAnimationFramesAreInstalled`, and the all-or-nothing
+    /// storyboard validation in `tools/slice_soldier_animation_strips.py` makes
+    /// a partial trio unlikely in practice — this probe is only the runtime
+    /// safety net for first-frame presence.
     private func firstAvailableSoldierAnimationFrameName(for type: SoldierType) -> String? {
         let walkFrameNames = soldierAnimationFrameNames(for: type, action: .walk)
         guard let firstWalkFrameName = walkFrameNames.first,
@@ -2352,9 +2360,9 @@ final class BattleScene: SKScene {
         #if DEBUG
         switch action {
         case .attack:
-            recentSoldierAttackAnimationCount += 1
+            soldierAttackAnimationTriggerCount += 1
         case .hit:
-            recentSoldierHitAnimationCount += 1
+            soldierHitAnimationTriggerCount += 1
         case .walk:
             break
         }
@@ -3041,12 +3049,12 @@ extension BattleScene {
         resumeWalkForSoldierIfNeeded(id: soldierID, type: bundle.type, isAllowed: isAllowed)
     }
 
-    var recentSoldierAttackAnimationCountForTesting: Int {
-        recentSoldierAttackAnimationCount
+    var soldierAttackAnimationTriggerCountForTesting: Int {
+        soldierAttackAnimationTriggerCount
     }
 
-    var recentSoldierHitAnimationCountForTesting: Int {
-        recentSoldierHitAnimationCount
+    var soldierHitAnimationTriggerCountForTesting: Int {
+        soldierHitAnimationTriggerCount
     }
 
     func firstLiveSoldierVisualMatchesForTesting(_ type: SoldierType) -> Bool {

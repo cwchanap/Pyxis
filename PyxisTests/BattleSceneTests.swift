@@ -125,7 +125,7 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
-        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0)
     }
 
     @Test("Attack triggers while an attack cycle is in flight are ignored, not restarted")
@@ -136,14 +136,14 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
 
         scene.triggerFirstLiveSoldierAnimationForTesting("attack")
-        let countAfterFirst = scene.recentSoldierAttackAnimationCountForTesting
+        let countAfterFirst = scene.soldierAttackAnimationTriggerCountForTesting
         #expect(countAfterFirst == 1)
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
 
         // A second attack trigger while the first cycle is still running must
         // not restart the sequence (which would pop it back to frame 1).
         scene.triggerFirstLiveSoldierAnimationForTesting("attack")
-        #expect(scene.recentSoldierAttackAnimationCountForTesting == countAfterFirst)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting == countAfterFirst)
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
     }
 
@@ -156,11 +156,11 @@ struct BattleSceneTests {
             scene.selectManualSoldierTypeForTesting(soldierType)
             scene.spawnSoldierForTesting()
 
-            for _ in 0..<70 where scene.recentSoldierAttackAnimationCountForTesting == 0 {
+            for _ in 0..<70 where scene.soldierAttackAnimationTriggerCountForTesting == 0 {
                 scene.advanceCombatForTesting(deltaTime: 0.1)
             }
 
-            #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+            #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0)
             #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackBodyFeedback"))
             #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") == 0)
             #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") == 0)
@@ -174,11 +174,11 @@ struct BattleSceneTests {
         scene.selectManualSoldierTypeForTesting(.archer)
         scene.spawnSoldierForTesting()
 
-        for _ in 0..<70 where scene.recentSoldierAttackAnimationCountForTesting == 0 {
+        for _ in 0..<70 where scene.soldierAttackAnimationTriggerCountForTesting == 0 {
             scene.advanceCombatForTesting(deltaTime: 0.1)
         }
 
-        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0)
         #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackBodyFeedback"))
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") == 0)
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") == 0)
@@ -190,11 +190,11 @@ struct BattleSceneTests {
 
         scene.spawnSoldierForTesting()
 
-        for _ in 0..<70 where scene.recentSoldierAttackAnimationCountForTesting == 0 {
+        for _ in 0..<70 where scene.soldierAttackAnimationTriggerCountForTesting == 0 {
             scene.advanceCombatForTesting(deltaTime: 0.1)
         }
 
-        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0)
         #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackBodyFeedback"))
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") == 0)
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") == 0)
@@ -207,11 +207,11 @@ struct BattleSceneTests {
         scene.selectManualSoldierTypeForTesting(.cavalry)
         scene.spawnSoldierForTesting()
 
-        for _ in 0..<70 where scene.recentSoldierAttackAnimationCountForTesting == 0 {
+        for _ in 0..<70 where scene.soldierAttackAnimationTriggerCountForTesting == 0 {
             scene.advanceCombatForTesting(deltaTime: 0.1)
         }
 
-        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0)
         #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackBodyFeedback"))
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackCue") == 0)
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierAttackPose") == 0)
@@ -230,7 +230,7 @@ struct BattleSceneTests {
         // An attack must have fired. The transient attack (or hit) animation
         // replaces the looping walk action — syncSoldierNodes no-ops the walk
         // restart while any transient action key is present.
-        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0)
         #expect(scene.liveSoldierCountForTesting == 1)
         #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
 
@@ -252,7 +252,7 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
         // A transient attack/hit animation must have replaced the walk loop.
-        #expect(scene.recentSoldierAttackAnimationCountForTesting > 0)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0)
         #expect(scene.liveSoldierCountForTesting == 1)
         #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
 
@@ -278,7 +278,7 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
-        #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+        #expect(scene.soldierHitAnimationTriggerCountForTesting > 0)
     }
 
     @Test func towerDamageUsesAuthoredArcherHitWithoutProceduralOverlay() throws {
@@ -296,7 +296,7 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
-        #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+        #expect(scene.soldierHitAnimationTriggerCountForTesting > 0)
         #expect(!scene.anyVisibleSoldierHasActionForTesting("soldierHitBodyFeedback"))
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitExpression") == 0)
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
@@ -315,7 +315,7 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
-        #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+        #expect(scene.soldierHitAnimationTriggerCountForTesting > 0)
         #expect(!scene.anyVisibleSoldierHasActionForTesting("soldierHitBodyFeedback"))
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitExpression") == 0)
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
@@ -336,7 +336,7 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
-        #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+        #expect(scene.soldierHitAnimationTriggerCountForTesting > 0)
         #expect(!scene.anyVisibleSoldierHasActionForTesting("soldierHitBodyFeedback"))
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitExpression") == 0)
         #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
@@ -356,11 +356,11 @@ struct BattleSceneTests {
 
             scene.selectManualSoldierTypeForTesting(soldierType)
             scene.spawnSoldierForTesting()
-            for _ in 0..<40 where scene.recentSoldierHitAnimationCountForTesting == 0 {
+            for _ in 0..<40 where scene.soldierHitAnimationTriggerCountForTesting == 0 {
                 scene.advanceCombatForTesting(deltaTime: 0.1)
             }
 
-            #expect(scene.recentSoldierHitAnimationCountForTesting > 0)
+            #expect(scene.soldierHitAnimationTriggerCountForTesting > 0)
             #expect(!scene.anyVisibleSoldierHasActionForTesting("soldierHitBodyFeedback"))
             #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitExpression") == 0)
             #expect(visibleNodeCount(in: scene, namePrefix: "soldierHitPosture") == 0)
@@ -460,8 +460,8 @@ struct BattleSceneTests {
         scene.triggerFirstLiveSoldierAnimationForTesting("hit")
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
 
-        let hitCountBefore = scene.recentSoldierHitAnimationCountForTesting
-        let attackCountBefore = scene.recentSoldierAttackAnimationCountForTesting
+        let hitCountBefore = scene.soldierHitAnimationTriggerCountForTesting
+        let attackCountBefore = scene.soldierAttackAnimationTriggerCountForTesting
 
         scene.triggerFirstLiveSoldierAnimationForTesting("attack")
 
@@ -469,9 +469,37 @@ struct BattleSceneTests {
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
         #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
         // The attack trigger was suppressed (counter unchanged).
-        #expect(scene.recentSoldierAttackAnimationCountForTesting == attackCountBefore)
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting == attackCountBefore)
         // The hit counter is also unchanged (we did not re-trigger hit).
-        #expect(scene.recentSoldierHitAnimationCountForTesting == hitCountBefore)
+        #expect(scene.soldierHitAnimationTriggerCountForTesting == hitCountBefore)
+    }
+
+    @Test("Attack trigger while a hit reaction is in flight is NOT suppressed for types where hit < attack interval")
+    func attackTriggerWhileHitInFlightIsNotSuppressedForInfantry() throws {
+        // Symmetric counterpart to `attackTriggerWhileHitInFlightIsDeferred`.
+        // Infantry's hit duration (0.9s) is shorter than its attack interval
+        // (1.0s), so `hitDurationExceedsAttackInterval` is false and the
+        // suppression guard must NOT fire — an attack trigger replaces the
+        // in-flight hit animation rather than deferring to it. This guards the
+        // type discrimination in the guard: if the gate were accidentally
+        // widened to all types, infantry would stop visually attacking
+        // (~72% of the time, per the CLAUDE.md cadence note).
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.triggerFirstLiveSoldierAnimationForTesting("hit")
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
+
+        let attackCountBefore = scene.soldierAttackAnimationTriggerCountForTesting
+
+        scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+
+        // The attack replaced the hit — hit is no longer playing.
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+        // The attack counter incremented (not suppressed).
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > attackCountBefore)
     }
 
     @Test("Tower-generated hit arms the full 0.9s countdown and stays suppressed past the cavalry attack interval")
@@ -519,7 +547,7 @@ struct BattleSceneTests {
         var stepsSinceSpawn = 0
         while hitCount == 0 && stepsSinceSpawn < 30 {
             scene.advanceCombatForTesting(deltaTime: 0.1)
-            hitCount = scene.recentSoldierHitAnimationCountForTesting
+            hitCount = scene.soldierHitAnimationTriggerCountForTesting
             stepsSinceSpawn += 1
         }
         #expect(hitCount > 0, "Tower should have hit the cavalry soldier within 3.0s")
@@ -548,6 +576,87 @@ struct BattleSceneTests {
         // suppression ends.
         scene.advanceCombatForTesting(deltaTime: 0.1)
         #expect(scene.firstLiveSoldierHitAnimationRemainingForTesting == nil)
+    }
+
+    @Test("Combat-tick-driven cavalry attack during a tower-hit reaction is suppressed end-to-end")
+    func cavalryAttackTickDuringTowerHitReactionIsSuppressed() throws {
+        // End-to-end integration test closing the gap between
+        // `attackTriggerWhileHitInFlightIsDeferred` (guard tested via direct
+        // trigger) and `towerGeneratedHitArmsFullDurationAndStaysSuppressedPastAttackInterval`
+        // (countdown timing tested but not attack suppression). This test
+        // verifies the full path: `BattleCombatState.tick` produces attack IDs
+        // for a cavalry soldier while its hit-reaction countdown is armed by a
+        // real tower hit, `applyCombatResult` routes them through
+        // `playSoldierAttackFeedback` → `playSoldierAnimation`, and the guard
+        // defers them — the attack animation counter must not increment while
+        // the countdown is positive, even though the combat tick is still
+        // dealing city damage (proving attack IDs are being produced).
+        //
+        // City 1: tower damage 2, cavalry takes 1 damage per shot (survives
+        // 9 hits). cityRemainingPower 500 keeps the city alive across the
+        // test window so stageStatus stays .battleActive. The tower re-fires
+        // every 1.25s, continuously re-arming the 0.9s hit timer — since
+        // cavalry's attack interval (~0.87s) < hit duration (0.9s), every
+        // attack during sustained tower fire is suppressed. This is the
+        // real-world cavalry scenario: the soldier keeps dealing damage
+        // (combat tick) but visually stays in the hit reaction.
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                [.stable],
+                gold: 100,
+                cityRemainingPower: 500,
+                cityNumberInCountry: 1,
+                completedCityCount: 0
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnSoldierForTesting()
+
+        // Advance until the cavalry has reached attack range and landed at
+        // least one attack tick. This proves the cavalry CAN attack (the
+        // counter increments), so a flat counter later is meaningful — it
+        // means suppression, not "never could attack."
+        var steps = 0
+        while scene.soldierAttackAnimationTriggerCountForTesting == 0 && steps < 40 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            steps += 1
+        }
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting > 0,
+                "Cavalry should reach attack range and attack within 4.0s")
+
+        // Advance until the next tower hit lands. The tower interval is 1.25s,
+        // so this completes within one tower cycle. The cavalry is now in
+        // attack range AND in a hit reaction (countdown armed at 0.9s).
+        let hitCountBefore = scene.soldierHitAnimationTriggerCountForTesting
+        steps = 0
+        while scene.soldierHitAnimationTriggerCountForTesting == hitCountBefore && steps < 20 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            steps += 1
+        }
+        #expect(scene.soldierHitAnimationTriggerCountForTesting > hitCountBefore,
+                "Tower should hit the cavalry within 2.0s")
+        #expect(scene.firstLiveSoldierHitAnimationRemainingForTesting != nil,
+                "Hit-reaction countdown must be armed after the tower hit")
+
+        // During sustained tower fire, the hit-reaction countdown is
+        // continuously armed. The combat tick still produces attack IDs
+        // (city power must decrease — the soldier is in range and dealing
+        // damage), but the animation guard suppresses every attack trigger.
+        // Advance 1.5s (spanning one full tower cycle + extra) to verify
+        // the attack counter stays flat while city damage accumulates.
+        let attackCountAtHit = scene.soldierAttackAnimationTriggerCountForTesting
+        let cityPowerAtHit = scene.cityRemainingPowerForTesting
+        for _ in 0..<15 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+        }
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting == attackCountAtHit,
+                "Combat-tick attack triggers during sustained hit reactions must be suppressed")
+        #expect(scene.cityRemainingPowerForTesting < cityPowerAtHit,
+                "Combat tick must still deal city damage (attack IDs are produced, only the animation is suppressed)")
+        #expect(scene.firstLiveSoldierHitAnimationRemainingForTesting != nil,
+                "Hit-reaction countdown must still be armed (tower re-hit within the window)")
     }
 
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
