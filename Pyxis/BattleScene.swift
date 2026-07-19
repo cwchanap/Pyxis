@@ -1531,7 +1531,7 @@ final class BattleScene: SKScene {
         // letting the next attack animation interrupt the authored hit
         // reaction. Building spawn resolution still uses the raw `deltaTime`
         // so production reflects real elapsed time during stalls.
-        let combatDeltaTime = combat.clampedDeltaTimeForExternalUse(deltaTime)
+        let combatDeltaTime = combat.clampedDeltaTime(deltaTime)
         decrementSoldierHitAnimationRemaining(deltaTime: combatDeltaTime)
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
         applyCombatResult(result)

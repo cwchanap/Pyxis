@@ -475,31 +475,38 @@ struct BattleSceneTests {
     }
 
     @Test("Attack trigger while a hit reaction is in flight is NOT suppressed for types where hit < attack interval")
-    func attackTriggerWhileHitInFlightIsNotSuppressedForInfantry() throws {
+    func attackTriggerWhileHitInFlightIsNotSuppressedForNonCavalryTypes() throws {
         // Symmetric counterpart to `attackTriggerWhileHitInFlightIsDeferred`.
-        // Infantry's hit duration (0.9s) is shorter than its attack interval
-        // (1.0s), so `hitDurationExceedsAttackInterval` is false and the
-        // suppression guard must NOT fire — an attack trigger replaces the
-        // in-flight hit animation rather than deferring to it. This guards the
-        // type discrimination in the guard: if the gate were accidentally
-        // widened to all types, infantry would stop visually attacking
-        // (~72% of the time, per the CLAUDE.md cadence note).
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
-        let scene = makeScene(store: store)
+        // For every non-cavalry type, hit duration (0.9s) is shorter than the
+        // per-type attack interval, so `hitDurationExceedsAttackInterval` is
+        // false and the suppression guard must NOT fire — an attack trigger
+        // replaces the in-flight hit animation rather than deferring to it.
+        // This guards the type discrimination in the guard across all four
+        // non-cavalry types: if the gate were accidentally widened to all
+        // types, every type below would stop visually attacking (infantry
+        // ~72% of the time, per the CLAUDE.md cadence note). Parameterized
+        // over all four non-cavalry types as cheap insurance against a future
+        // comparison inversion that only breaks one type's branch.
+        for soldierType in [SoldierType.infantry, .archer, .mage, .siege] {
+            let buildingType = buildingTypeForSoldier(soldierType)
+            let store = try makeStore(initialState: stateWithBuildings([buildingType], cityRemainingPower: 50))
+            let scene = makeScene(store: store)
 
-        scene.spawnSoldierForTesting()
-        scene.triggerFirstLiveSoldierAnimationForTesting("hit")
-        #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
+            scene.selectManualSoldierTypeForTesting(soldierType)
+            scene.spawnSoldierForTesting()
+            scene.triggerFirstLiveSoldierAnimationForTesting("hit")
+            #expect(scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
 
-        let attackCountBefore = scene.soldierAttackAnimationTriggerCountForTesting
+            let attackCountBefore = scene.soldierAttackAnimationTriggerCountForTesting
 
-        scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+            scene.triggerFirstLiveSoldierAnimationForTesting("attack")
 
-        // The attack replaced the hit — hit is no longer playing.
-        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
-        #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
-        // The attack counter incremented (not suppressed).
-        #expect(scene.soldierAttackAnimationTriggerCountForTesting > attackCountBefore)
+            // The attack replaced the hit — hit is no longer playing.
+            #expect(!scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
+            #expect(scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+            // The attack counter incremented (not suppressed).
+            #expect(scene.soldierAttackAnimationTriggerCountForTesting > attackCountBefore)
+        }
     }
 
     @Test("Tower-generated hit arms the full 0.9s countdown and stays suppressed past the cavalry attack interval")
