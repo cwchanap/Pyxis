@@ -31,13 +31,17 @@ VERTICAL_CORE_HIGH_QUANTILE = 0.95
 MAX_VERTICAL_CORE_HEIGHT_DELTA = 2
 MAX_VERTICAL_CORE_CENTROID_DELTA = 4.0
 
+DEFAULT_SOLDIER_KEY: RGBAColor = (0, 255, 0, 255)
+# Per-type chroma key overrides. Types not listed here use DEFAULT_SOLDIER_KEY.
+# Only archer needs a distinct key (magenta) to avoid colliding with green
+# foliage/armor elements in its storyboard.
 SOLDIER_KEYS: dict[str, RGBAColor] = {
-    "infantry": (0, 255, 0, 255),
     "archer": (255, 0, 255, 255),
-    "cavalry": (0, 255, 0, 255),
-    "mage": (0, 255, 0, 255),
-    "siege": (0, 255, 0, 255),
 }
+
+
+def soldier_key(soldier: str) -> RGBAColor:
+    return SOLDIER_KEYS.get(soldier, DEFAULT_SOLDIER_KEY)
 
 # Assets are always written under the repo root (the current working directory
 # when the script is invoked). Paths supplied via CLI are resolved and clamped
@@ -270,7 +274,7 @@ def prepare_storyboard_frames(
     image: Image.Image, soldier: str, frame_size: int = 128
 ) -> list[Image.Image]:
     _validate_storyboard_frame_size(frame_size)
-    key = SOLDIER_KEYS[soldier]
+    key = soldier_key(soldier)
     normalized, cell_size, grid_top = _storyboard_geometry(image, key)
     _validate_source_gutters(normalized, cell_size, grid_top, key)
     frames = [
