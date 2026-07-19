@@ -118,6 +118,41 @@ struct BattleSceneTests {
         #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
     }
 
+    @Test("A static-fallback soldier (partial catalog) does not play transient animations on its fallback sprite")
+    func staticFallbackSoldierSkipsTransientPlayback() throws {
+        // Simulates the release-build failure mode where the catalog is
+        // partially installed: `isAnimatedCanvas` is false (so the soldier is
+        // built on the static-fallback path and sized to the static sprite's
+        // intrinsic dimensions), but `soldierAnimationTextures(for:action:)`
+        // still returns the real textures for whichever actions ARE complete.
+        // Without gating `playSoldierAnimation` on `isAnimatedCanvas`, the
+        // complete action's full-canvas textures would be installed on the
+        // differently-sized static sprite, mixing fallback and animated
+        // rendering. The gate must apply to transient playback (attack/hit),
+        // not just walk.
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
+        let scene = makeScene(store: store)
+
+        scene.forceStaticFallbackCanvasForTesting(soldierType: .infantry)
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.firstLiveSoldierIsAnimatedCanvasForTesting == false)
+        // Walk is already gated — this anchors the existing behavior.
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+        // Attack textures are still available (the texture cache is untouched
+        // by the hook), so without the gate this would install the attack
+        // animation on the static sprite.
+        #expect(!scene.cachedSoldierAnimationTexturesForTesting(soldierType: .infantry, action: "attack").isEmpty)
+
+        scene.triggerFirstLiveSoldierAnimationForTesting("attack")
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierAttackAnimation"))
+        #expect(scene.soldierAttackAnimationTriggerCountForTesting == 0)
+
+        scene.triggerFirstLiveSoldierAnimationForTesting("hit")
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierHitAnimation"))
+        #expect(scene.soldierHitAnimationTriggerCountForTesting == 0)
+    }
+
     @Test func cityDamageStartsAttackAnimation() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 50))
         let scene = makeScene(store: store)
