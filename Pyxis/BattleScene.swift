@@ -1521,7 +1521,18 @@ final class BattleScene: SKScene {
         // deltaTime in the same tick would shorten every hit animation by one
         // frame; decrementing first means timers armed this tick keep their
         // full authored duration and are first reduced on the next tick.
-        decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
+        //
+        // The countdown is decremented by the SAME clamped delta that
+        // `combat.tick` will consume internally (it clamps `rawDeltaTime` to
+        // `configuration.maxDeltaTime`, 0.25s for `.live`). Without this
+        // clamp, a render frame stall longer than the hit duration (e.g.
+        // cavalry's 0.9s) would lift the countdown — and end attack
+        // suppression — while the combat tick has only advanced 0.25s,
+        // letting the next attack animation interrupt the authored hit
+        // reaction. Building spawn resolution still uses the raw `deltaTime`
+        // so production reflects real elapsed time during stalls.
+        let combatDeltaTime = combat.clampedDeltaTimeForExternalUse(deltaTime)
+        decrementSoldierHitAnimationRemaining(deltaTime: combatDeltaTime)
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
         applyCombatResult(result)
         syncSoldierNodes()
@@ -3256,6 +3267,16 @@ extension BattleScene {
             advanceCombat(deltaTime: step)
             remaining -= step
         }
+    }
+
+    /// Drives a single `advanceCombat` call with the raw `deltaTime` (no
+    /// chunking), exposing the production frame-stall path where
+    /// `deltaTime` can exceed `combat.configuration.maxDeltaTime`. Used to
+    /// verify the hit-reaction countdown is clamped to the same maxDeltaTime
+    /// the combat tick uses, so a stall cannot lift suppression before the
+    /// combat tick has caught up.
+    func advanceCombatSingleStepForTesting(deltaTime: TimeInterval) {
+        advanceCombat(deltaTime: deltaTime)
     }
 
     func closeConquestPopupForTesting() {
