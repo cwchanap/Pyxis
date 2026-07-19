@@ -659,6 +659,64 @@ struct BattleSceneTests {
                 "Hit-reaction countdown must still be armed (tower re-hit within the window)")
     }
 
+    @Test("Hit-reaction countdown is clamped to the combat tick's maxDeltaTime during frame stalls")
+    func hitReactionCountdownClampsToCombatMaxDeltaTimeDuringFrameStalls() throws {
+        // `BattleCombatState.tick` clamps `rawDeltaTime` to
+        // `configuration.maxDeltaTime` (0.25s for `.live`), so a render frame
+        // stall longer than 0.25s advances combat by only 0.25s. The
+        // per-soldier hit-reaction countdown in `BattleScene` is the attack
+        // suppression gate for cavalry (hit duration 0.9s > attack interval
+        // ~0.87s), so it must advance at the SAME clamped rate as the combat
+        // tick — otherwise a stall >0.9s would lift the countdown (and end
+        // suppression) while the combat tick has only advanced 0.25s, letting
+        // an attack animation interrupt the authored hit reaction.
+        //
+        // This test arms the countdown with a real tower hit, then drives a
+        // single 1.0s `advanceCombat` step (exceeding both maxDeltaTime and
+        // the 0.9s hit duration) via `advanceCombatSingleStepForTesting`.
+        // The countdown must read `0.9 - 0.25 = 0.65` (clamped), not lift.
+        // Without the clamp it would read `0.9 - 1.0 = -0.1` and be removed,
+        // prematurely ending suppression.
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                [.stable],
+                gold: 100,
+                cityRemainingPower: 500,
+                cityNumberInCountry: 1,
+                completedCityCount: 0
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnSoldierForTesting()
+
+        // Step in 0.1s chunks (under maxDeltaTime) until the tower lands a
+        // hit and arms the 0.9s countdown.
+        var hitCount = 0
+        var stepsSinceSpawn = 0
+        while hitCount == 0 && stepsSinceSpawn < 30 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            hitCount = scene.soldierHitAnimationTriggerCountForTesting
+            stepsSinceSpawn += 1
+        }
+        #expect(hitCount > 0, "Tower should have hit the cavalry soldier within 3.0s")
+
+        let remainingBeforeStall = try #require(scene.firstLiveSoldierHitAnimationRemainingForTesting)
+        #expect(abs(remainingBeforeStall - 0.9) < 0.001)
+
+        // Single 1.0s step — exceeds maxDeltaTime (0.25s) AND the hit
+        // duration (0.9s). The countdown must decrement by only 0.25s.
+        scene.advanceCombatSingleStepForTesting(deltaTime: 1.0)
+
+        let remainingAfterStall = try #require(
+            scene.firstLiveSoldierHitAnimationRemainingForTesting,
+            "Hit-reaction countdown must not lift during a frame stall (combat tick only advanced 0.25s)"
+        )
+        #expect(abs(remainingAfterStall - 0.65) < 0.001,
+                "Countdown must decrement by the clamped 0.25s, not the raw 1.0s")
+    }
+
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
     func soldierAnimationTexturesAreCachedAndReusedAcrossCalls() throws {
         let store = try makeStore(initialState: stateWithBuildings([.mageTower], cityRemainingPower: 20))

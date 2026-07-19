@@ -232,6 +232,17 @@ struct BattleCombatState: Equatable {
         min(max(0, rawDeltaTime), max(0.01, configuration.maxDeltaTime))
     }
 
+    /// Clamps `rawDeltaTime` to the same bounds `tick` uses internally
+    /// (`[0, max(0.01, configuration.maxDeltaTime)]`). Exposed so callers
+    /// that advance side-channel timers in lockstep with the combat tick
+    /// (e.g. `BattleScene.decrementSoldierHitAnimationRemaining`) can
+    /// advance at the same clamped rate during render frame stalls, instead
+    /// of subtracting the raw frame delta and lifting suppression before
+    /// the combat tick has caught up.
+    func clampedDeltaTimeForExternalUse(_ rawDeltaTime: Double) -> Double {
+        clampedDeltaTime(rawDeltaTime)
+    }
+
     private func maxHP(for type: SoldierType, level: Int) -> Int {
         let baseConfigurationHP = Double(max(1, configuration.soldierMaxHP))
         let multiplier: Double
