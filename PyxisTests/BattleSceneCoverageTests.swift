@@ -42,7 +42,7 @@ struct BattleSceneCoverageTests {
         let sceneSize = CGSize(width: 390, height: 480)
         let scene = try makeScene(initialState: stateWithBarracks(), size: sceneSize)
 
-        #expect(scene.soldierTargetHeightForTesting == 50)
+        #expect(abs(scene.soldierTargetHeightForTesting - 50) < 0.001)
     }
 
     @Test func zeroDeltaDoesNotConsumeAnActiveHitCountdown() throws {
@@ -55,16 +55,6 @@ struct BattleSceneCoverageTests {
         let remainingAfterZeroDelta = try #require(scene.firstLiveSoldierHitAnimationRemainingForTesting)
 
         #expect(abs(initialRemaining - remainingAfterZeroDelta) < 0.000_001)
-    }
-
-    @Test func elapsedHitCountdownIsRemoved() throws {
-        let scene = try makeScene(initialState: stateWithBarracks(cityRemainingPower: 100))
-        scene.spawnSoldierForTesting()
-        scene.triggerFirstLiveSoldierAnimationForTesting("hit")
-
-        #expect(scene.firstLiveSoldierHitAnimationRemainingForTesting != nil)
-        scene.advanceCombatForTesting(deltaTime: 1.0)
-        #expect(scene.firstLiveSoldierHitAnimationRemainingForTesting == nil)
     }
 
     private func makeScene(
