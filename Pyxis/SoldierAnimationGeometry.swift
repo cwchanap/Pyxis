@@ -17,9 +17,12 @@ struct SoldierAnimationGeometry: Equatable {
         // transparent margin below the feet (8px = 0.0625 for every type);
         // `height` is the visible silhouette height; `maxY = minY + height`
         // is the silhouette top, where `layoutSoldierHPBar` anchors the bar.
-        // Horizontally the region is centered on the canvas (midX = 0.5) so the
-        // soldier stands centered on its lane; `width` is the union opaque
-        // width, which leaves room for weapons/bows without clipping.
+        // Vertically `minY` is the union opaque margin (feet resting on the
+        // lane baseline). Horizontally the region is NOT placed at the union
+        // opaque `minX` — it is canvas-centered: `midX` is pinned to 0.5 so
+        // the soldier stands centered on its lane, and `minX = 0.5 - width/2`
+        // is derived from that centering. `width` is the union opaque width,
+        // which leaves room for weapons/bows without clipping.
         switch type {
         case .infantry:
             bodyRegion = CGRect(x: 0.1875, y: 0.0625, width: 0.625, height: 0.734375)
