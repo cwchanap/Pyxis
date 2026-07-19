@@ -135,6 +135,17 @@ final class BattleScene: SKScene {
     /// Textures are keyed by static asset names, so they never need invalidation.
     private var soldierAnimationTextureCache: [SoldierType: [SoldierAnimationAction: [SKTexture]]] = [:]
 
+    /// Memoized result of `firstAvailableSoldierAnimationFrameName` per
+    /// `SoldierType`. The probe validates all 30 trio frames (10 walk + 10
+    /// attack + 10 hit) and is called from both `createSoldierNode` and
+    /// `makeSoldierNode` for every spawn, so without this cache a single
+    /// soldier costs 60 `UIImage(named:)` lookups. The value is the walk-01
+    /// frame name when the full trio is installed, or `nil` when any frame is
+    /// missing (caching the negative result too, so a missing-asset scenario
+    /// doesn't re-probe on every spawn). Asset names are static, so the cache
+    /// never needs invalidation — mirrors `soldierAnimationTextureCache`.
+    private var soldierAnimatedCanvasFrameNameCache: [SoldierType: String?] = [:]
+
     /// Memoized per-type HUD icon textures. `updateHUDIcons` runs on every
     /// combat-damage tick via `redraw` → `applyCombatResult`; without this cache
     /// it reallocated ~16 `SKTexture` objects per tick even though the resolved
@@ -2041,37 +2052,50 @@ final class BattleScene: SKScene {
     }
 
     /// Probes whether the animated-canvas sprite path is available for `type`
-    /// by checking the first frame of each action (`<type>-walk-01`,
-    /// `<type>-attack-01`, `<type>-hit-01`). Returns the walk-01 frame name
-    /// only when all three actions have at least their first frame installed,
-    /// so `isAnimatedCanvas` is true only for a complete first-frame set — a
-    /// partial set (e.g. walk + attack but no hit) falls through to the static
-    /// sprite path instead of leaving `playSoldierAnimation` to silently no-op
-    /// the missing action while the soldier keeps walking.
+    /// by checking every frame of every action in the trio (10 walk + 10
+    /// attack + 10 hit = 30 frames). Returns the walk-01 frame name only when
+    /// the complete trio is installed, so `isAnimatedCanvas` is true only for
+    /// a fully authored set — a partial set (e.g. walk + attack but no hit, or
+    /// a hand-edited mid-sequence drop like `cavalry-walk-07` removed while
+    /// `cavalry-walk-01` is kept) falls through to the static sprite path
+    /// instead of leaving `playSoldierAnimation` to silently no-op the
+    /// missing action while the soldier keeps walking.
     ///
-    /// This probe only checks `*-01` of each action, not all 30 frames. A
-    /// hand-edited mid-sequence drop (e.g. `cavalry-walk-07` removed but
-    /// `cavalry-walk-01` kept) leaves `isAnimatedCanvas == true`; in that case
-    /// `soldierAnimationTextures(for:action:)` returns an empty array for the
+    /// This is stricter than the previous first-frame-only probe, which left a
+    /// gap: a mid-sequence drop kept `isAnimatedCanvas == true`, then
+    /// `soldierAnimationTextures(for:action:)` returned an empty array for the
     /// incomplete action (firing `assertionFailure` in DEBUG) and
-    /// `playSoldierAnimation` silently no-ops in release. The full 30-frame
-    /// trio is guarded synchronously at test time by
+    /// `playSoldierAnimation` silently no-oped in release, leaving a frozen or
+    /// partially animated soldier instead of using the static fallback.
+    /// Requiring all 30 frames here closes that gap at the gate.
+    ///
+    /// The full 30-frame trio is also guarded synchronously at test time by
     /// `PyxisTests.allSoldierAnimationFramesAreInstalled`, and the all-or-nothing
     /// storyboard validation in `tools/slice_soldier_animation_strips.py` makes
-    /// a partial trio unlikely in practice — this probe is only the runtime
-    /// safety net for first-frame presence.
+    /// a partial trio unlikely in practice — this probe is the runtime safety
+    /// net. Results are memoized in `soldierAnimatedCanvasFrameNameCache`
+    /// because the probe is called twice per soldier (once in
+    /// `createSoldierNode`, once in `makeSoldierNode`) and 30 `UIImage(named:)`
+    /// lookups per call would otherwise dominate spawn cost.
     private func firstAvailableSoldierAnimationFrameName(for type: SoldierType) -> String? {
+        if let cached = soldierAnimatedCanvasFrameNameCache[type] {
+            return cached
+        }
         let walkFrameNames = soldierAnimationFrameNames(for: type, action: .walk)
         guard let firstWalkFrameName = walkFrameNames.first,
-              UIImage(named: firstWalkFrameName) != nil else {
+              walkFrameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
+            soldierAnimatedCanvasFrameNameCache[type] = .some(nil)
             return nil
         }
         for action in SoldierAnimationAction.allCases where action != .walk {
-            guard let firstActionFrameName = soldierAnimationFrameNames(for: type, action: action).first,
-                  UIImage(named: firstActionFrameName) != nil else {
+            let actionFrameNames = soldierAnimationFrameNames(for: type, action: action)
+            guard !actionFrameNames.isEmpty,
+                  actionFrameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
+                soldierAnimatedCanvasFrameNameCache[type] = .some(nil)
                 return nil
             }
         }
+        soldierAnimatedCanvasFrameNameCache[type] = firstWalkFrameName
         return firstWalkFrameName
     }
 
