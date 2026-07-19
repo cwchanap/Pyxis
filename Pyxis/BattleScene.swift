@@ -1522,17 +1522,20 @@ final class BattleScene: SKScene {
         // frame; decrementing first means timers armed this tick keep their
         // full authored duration and are first reduced on the next tick.
         //
-        // The countdown is decremented by the SAME clamped delta that
-        // `combat.tick` will consume internally (it clamps `rawDeltaTime` to
-        // `configuration.maxDeltaTime`, 0.25s for `.live`). Without this
-        // clamp, a render frame stall longer than the hit duration (e.g.
-        // cavalry's 0.9s) would lift the countdown — and end attack
-        // suppression — while the combat tick has only advanced 0.25s,
-        // letting the next attack animation interrupt the authored hit
-        // reaction. Building spawn resolution still uses the raw `deltaTime`
-        // so production reflects real elapsed time during stalls.
-        let combatDeltaTime = combat.clampedDeltaTime(deltaTime)
-        decrementSoldierHitAnimationRemaining(deltaTime: combatDeltaTime)
+        // The countdown is decremented by the RAW frame delta, not the clamped
+        // combat delta. The hit SKAction advances by real frame time (SpriteKit
+        // does not clamp SKAction deltas), so the countdown must track the same
+        // clock to stay in sync with the visual pose. Clamping the countdown to
+        // `maxDeltaTime` would make it lag behind the SKAction during a stall
+        // longer than the hit duration: the SKAction would finish and remove
+        // itself while the countdown still reported time remaining, falsely
+        // suppressing the next attack trigger even though no hit pose is
+        // playing. The combat tick's attack cooldown is still clamped, so
+        // attack IDs cannot fire faster than the clamped combat clock — the
+        // countdown lifting early cannot produce an attack that the combat
+        // tick hasn't authorized. Building spawn resolution also uses the raw
+        // `deltaTime` so production reflects real elapsed time during stalls.
+        decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
         applyCombatResult(result)
         syncSoldierNodes()
@@ -1839,9 +1842,19 @@ final class BattleScene: SKScene {
             // by that margin. Shift the root down by the scaled margin so the
             // feet land on the lane baseline.
             let footMargin = animatedSoldierFootMargin(for: bundle)
+            // Formation rows extend downward without bound (there is no global
+            // live-soldier cap for building-driven spawns). During a long battle
+            // enough same-lane soldiers would push the back rows below the
+            // battlefield frame, where they keep dealing combat damage with
+            // invisible bodies and HP bars. Clamp the root y to the battlefield
+            // floor so overflow soldiers stack at the bottom edge instead of
+            // disappearing — the front-row soldier stays at the attack position
+            // and only the overflow tail is pulled in.
+            let unclampedY = lanePoint.y + formationOffset.y - footMargin
+            let battlefieldFloorY = battlefieldLayout.frame.minY
             bundle.root.position = CGPoint(
                 x: lanePoint.x + formationOffset.x,
-                y: lanePoint.y + formationOffset.y - footMargin
+                y: max(battlefieldFloorY, unclampedY)
             )
             bundle.root.setScale(1)
             fitSoldierBodyNode(
@@ -2250,6 +2263,7 @@ final class BattleScene: SKScene {
 
     private func startSoldierWalkAnimation(for soldierID: BattleCombatState.SoldierID, type: SoldierType) {
         guard let bundle = soldierNodes[soldierID],
+              bundle.isAnimatedCanvas,
               let sprite = bundle.body as? SKSpriteNode,
               sprite.action(forKey: SoldierAnimationKey.walk) == nil,
               sprite.action(forKey: SoldierAnimationKey.attack) == nil,
@@ -2257,6 +2271,15 @@ final class BattleScene: SKScene {
             return
         }
 
+        // `isAnimatedCanvas` is false when the catalog is missing an
+        // action's first frame (see `firstAvailableSoldierAnimationFrameName`).
+        // In that case the node was built on the static-fallback path and sized
+        // via `fitBattleNode` to the static sprite's intrinsic dimensions, not
+        // the animation canvas geometry. Starting full-canvas walk textures on
+        // it would display the 128×128 canvas at the wrong size, and any later
+        // attack/hit trigger would silently no-op (missing first frame →
+        // `soldierAnimationTextures` returns []). Gating here keeps the
+        // fallback soldier on its static texture.
         let textures = soldierAnimationTextures(for: type, action: .walk)
         guard !textures.isEmpty else {
             return
@@ -3272,9 +3295,8 @@ extension BattleScene {
     /// Drives a single `advanceCombat` call with the raw `deltaTime` (no
     /// chunking), exposing the production frame-stall path where
     /// `deltaTime` can exceed `combat.configuration.maxDeltaTime`. Used to
-    /// verify the hit-reaction countdown is clamped to the same maxDeltaTime
-    /// the combat tick uses, so a stall cannot lift suppression before the
-    /// combat tick has caught up.
+    /// verify the hit-reaction countdown tracks real frame time (matching
+    /// the SKAction clock) rather than the combat tick's clamped delta.
     func advanceCombatSingleStepForTesting(deltaTime: TimeInterval) {
         advanceCombat(deltaTime: deltaTime)
     }

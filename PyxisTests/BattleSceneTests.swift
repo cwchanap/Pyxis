@@ -666,24 +666,28 @@ struct BattleSceneTests {
                 "Hit-reaction countdown must still be armed (tower re-hit within the window)")
     }
 
-    @Test("Hit-reaction countdown is clamped to the combat tick's maxDeltaTime during frame stalls")
-    func hitReactionCountdownClampsToCombatMaxDeltaTimeDuringFrameStalls() throws {
+    @Test("Hit-reaction countdown tracks real frame time during stalls, matching the SKAction clock")
+    func hitReactionCountdownTracksRealFrameTimeDuringStalls() throws {
+        // The per-soldier hit-reaction countdown is the attack suppression gate
+        // for cavalry (hit duration 0.9s > attack interval ~0.87s). It must
+        // track the SAME clock as the hit SKAction — real frame time — so that
+        // the countdown lifts exactly when the visual hit pose finishes.
+        //
         // `BattleCombatState.tick` clamps `rawDeltaTime` to
-        // `configuration.maxDeltaTime` (0.25s for `.live`), so a render frame
-        // stall longer than 0.25s advances combat by only 0.25s. The
-        // per-soldier hit-reaction countdown in `BattleScene` is the attack
-        // suppression gate for cavalry (hit duration 0.9s > attack interval
-        // ~0.87s), so it must advance at the SAME clamped rate as the combat
-        // tick — otherwise a stall >0.9s would lift the countdown (and end
-        // suppression) while the combat tick has only advanced 0.25s, letting
-        // an attack animation interrupt the authored hit reaction.
+        // `configuration.maxDeltaTime` (0.25s for `.live`), but SpriteKit does
+        // NOT clamp SKAction deltas: during a render stall longer than the hit
+        // duration, the hit SKAction advances by the full frame interval and
+        // completes, while a clamped countdown would still report time
+        // remaining and falsely suppress the next attack trigger even though no
+        // hit pose is playing. The combat tick's attack cooldown is also
+        // clamped, so lifting the countdown early cannot produce an attack ID
+        // the combat tick hasn't authorized.
         //
         // This test arms the countdown with a real tower hit, then drives a
-        // single 1.0s `advanceCombat` step (exceeding both maxDeltaTime and
-        // the 0.9s hit duration) via `advanceCombatSingleStepForTesting`.
-        // The countdown must read `0.9 - 0.25 = 0.65` (clamped), not lift.
-        // Without the clamp it would read `0.9 - 1.0 = -0.1` and be removed,
-        // prematurely ending suppression.
+        // single 1.0s step (exceeding both maxDeltaTime and the 0.9s hit
+        // duration) via `advanceCombatSingleStepForTesting`. The countdown must
+        // decrement by the full 1.0s and lift (be removed), matching the
+        // SKAction completing — not cling to 0.65s as a clamped countdown would.
         let store = try makeStore(
             initialState: stateWithBuildings(
                 [.stable],
@@ -712,16 +716,68 @@ struct BattleSceneTests {
         let remainingBeforeStall = try #require(scene.firstLiveSoldierHitAnimationRemainingForTesting)
         #expect(abs(remainingBeforeStall - 0.9) < 0.001)
 
-        // Single 1.0s step — exceeds maxDeltaTime (0.25s) AND the hit
-        // duration (0.9s). The countdown must decrement by only 0.25s.
+        // Single 1.0s step — exceeds maxDeltaTime (0.25s) AND the hit duration
+        // (0.9s). The countdown must decrement by the full 1.0s and lift.
         scene.advanceCombatSingleStepForTesting(deltaTime: 1.0)
 
-        let remainingAfterStall = try #require(
-            scene.firstLiveSoldierHitAnimationRemainingForTesting,
-            "Hit-reaction countdown must not lift during a frame stall (combat tick only advanced 0.25s)"
+        #expect(scene.firstLiveSoldierHitAnimationRemainingForTesting == nil,
+                "Hit-reaction countdown must lift after a stall exceeding the hit duration (SKAction has finished)")
+    }
+
+    @Test("Formation rows are clamped to the battlefield floor during long battles")
+    func formationRowsClampToBattlefieldFloorDuringLongBattles() throws {
+        // Building-driven spawns have no global live-soldier cap, so formation
+        // slots and row offsets grow without bound. Without a clamp, enough
+        // same-lane soldiers at the attack position would push back rows below
+        // the battlefield frame, where they keep dealing combat damage with
+        // invisible bodies and HP bars. `syncSoldierNodes` clamps each root's
+        // y to `battlefieldLayout.frame.minY` so overflow soldiers stack at the
+        // bottom edge instead of disappearing.
+        //
+        // This test fills the roster with 25 buildings (5 of each type) and
+        // drives ~200s of building spawns via single-step stalls (each call
+        // advances 10s of building production but only 0.25s of clamped combat,
+        // so soldiers reach the attack position and accumulate). With enough
+        // soldiers, unclamped formation rows would extend past the floor.
+        let buildingTypes: [BuildingType] = [
+            .barracks, .barracks, .barracks, .barracks, .barracks,
+            .archeryRange, .archeryRange, .archeryRange, .archeryRange, .archeryRange,
+            .stable, .stable, .stable, .stable, .stable,
+            .mageTower, .mageTower, .mageTower, .mageTower, .mageTower,
+            .siegeWorkshop, .siegeWorkshop, .siegeWorkshop, .siegeWorkshop, .siegeWorkshop
+        ]
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                buildingTypes,
+                gold: 100,
+                cityRemainingPower: 1_000_000,
+                cityNumberInCountry: 1,
+                completedCityCount: 0
+            )
         )
-        #expect(abs(remainingAfterStall - 0.65) < 0.001,
-                "Countdown must decrement by the clamped 0.25s, not the raw 1.0s")
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        // 20 single-step stalls of 10s each: 200s of building spawns, 5s of
+        // clamped combat — enough for soldiers to reach the attack position
+        // and for the roster to grow well past the formation's visible depth.
+        for _ in 0..<20 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 10.0)
+        }
+
+        guard let battlefieldFrame = scene.battleLayoutFramesForTesting?.battlefield else {
+            Issue.record("Battlefield layout must be visible")
+            return
+        }
+
+        let placements = scene.soldierLanePlacementsForTesting
+        #expect(placements.count > 50,
+                "Test must produce enough soldiers to overflow unclamped formation rows")
+
+        let floorY = battlefieldFrame.minY
+        for placement in placements {
+            #expect(placement.nodePosition.y >= floorY,
+                    "Soldier y (\(placement.nodePosition.y)) below floor (\(floorY)), lane \(placement.lane)")
+        }
     }
 
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
