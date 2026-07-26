@@ -78,4 +78,27 @@ struct Country1CityCatalogTests {
             #expect(roles.filter { $0 == .standard }.count == 1)
         }
     }
+
+    @Test func kingdomGameStateCompatibilityAccessorsProjectAuthoredDefinitions() {
+        for expected in Self.expectedDefinitions {
+            let state = KingdomGameState(
+                cityNumberInCountry: expected.cityNumber,
+                completedCityCount: expected.cityNumber - 1
+            )
+
+            #expect(
+                KingdomGameState.defenseTrait(forCityNumber: expected.cityNumber)
+                    == expected.defenseTrait
+            )
+            #expect(state.currentCityDefinition == expected.definition)
+            #expect(state.currentCityDefenseTrait == expected.defenseTrait)
+            #expect(
+                state.currentCityLaneDefenseProfile
+                    == expected.definition.laneDefenseProfile
+            )
+        }
+
+        #expect(KingdomGameState.defenseTrait(forCityNumber: -4) == .standardWatch)
+        #expect(KingdomGameState.defenseTrait(forCityNumber: 18) == .reinforcedKeep)
+    }
 }
