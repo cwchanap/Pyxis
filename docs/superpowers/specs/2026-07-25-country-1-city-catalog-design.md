@@ -24,8 +24,11 @@ combat metadata without changing any valid Country 1 battle behavior.
 - Make `Country1CityCatalog` the single runtime source of truth for authored
   per-city combat metadata.
 - Preserve every valid city's current defense trait and lane profile.
-- Preserve the existing `KingdomGameState` and `LaneDefenseProfile`
-  compatibility APIs by making them project catalog fields.
+- Preserve the existing `KingdomGameState` compatibility APIs by making them
+  project catalog fields.
+- Remove the obsolete country-agnostic
+  `LaneDefenseProfile.profile(forCityNumber:)` lookup once its production
+  caller resolves through the catalog.
 - Provide one non-optional lookup contract that clamps all inputs to `1...15`.
 - Expose favorable and disadvantaged soldier types as read-only semantics
   derived from `CityDefenseTrait`.
@@ -142,15 +145,13 @@ Specifically:
   `currentCityDefinition.defenseTrait`.
 - `KingdomGameState.currentCityLaneDefenseProfile` projects
   `currentCityDefinition.laneDefenseProfile`.
-- The existing `LaneDefenseProfile.profile(forCityNumber:)` remains a
-  `static func` returning `LaneDefenseProfile` and projects the matching
-  definition's `laneDefenseProfile`.
 
-Document `LaneDefenseProfile.profile(forCityNumber:)` as a Country 1
-compatibility projection that clamps to `1...15`. It is not a universal
-multi-country lookup contract. A later country must add explicit catalog
-routing or a country-aware API rather than extending this helper's meaning
-implicitly.
+Remove `LaneDefenseProfile.profile(forCityNumber:)`. After
+`currentCityLaneDefenseProfile` projects `currentCityDefinition`, the static
+lookup has no production callers. Keeping it would make the generic
+`LaneDefenseProfile` value type depend on the Country 1-specific catalog and
+would leave an ambiguous API for future countries. A later country must add
+explicit catalog routing or a country-aware API.
 
 The old defense-trait switch and lane rotation formula are removed. Map, battle,
 live damage, and idle damage consumers continue using their existing
@@ -193,17 +194,23 @@ indexing:
 - Values from 1 through 15 resolve to themselves.
 - Values above 15 resolve to City 15.
 
-All compatibility helpers inherit that exact contract by delegating to the
-catalog. This intentionally gives `LaneDefenseProfile.profile(forCityNumber:)`
-an upper clamp it did not previously apply when called directly. Valid Country
-1 inputs are unchanged, and normalized campaign state already stays within
-`1...15`.
+The city-number compatibility helper inherits that exact contract by
+delegating to the catalog.
+`KingdomGameState.defenseTrait(forCityNumber:)` drops its existing local clamp
+along with its switch and delegates directly to
+`Country1CityCatalog.definition(for:)`. Valid Country 1 inputs are unchanged,
+and normalized campaign state already stays within `1...15`.
 
-Existing lane-profile tests that assert cycling above City 15 describe the old
-contract and must be replaced with upper-bound clamping assertions.
+Existing lane-profile lookup tests describe the removed rotation helper. Move
+their authored-value and bounds coverage to `Country1CityCatalogTests`.
 
 Catalog construction is static and immutable. It introduces no decoding,
-runtime fallback definition, or recoverable error state.
+runtime fallback definition, or recoverable error state. Each explicit entry
+constructs `LaneDefenseProfile` through its existing invariant-enforcing
+initializer. If an authored entry gives the same lane both roles, the existing
+precondition fails during the catalog's lazy static initialization. That is a
+deliberate fail-fast response to a programmer authoring error, not a recoverable
+runtime condition.
 
 ## Persistence And Runtime Behavior
 
@@ -240,14 +247,14 @@ The tests:
   `definitions.map(\.cityNumber) == Array(1...15)`.
 - Compare all 15 definitions with an independent expected table containing the
   exact trait and lane roles listed in this spec.
-- Assert negative, zero, and above-range lookup clamping.
+- Assert negative and zero inputs resolve to City 1, and Cities 16 and 18
+  resolve to City 15.
 
 ### Compatibility tests
 
 For all 15 cities and representative out-of-range values:
 
 - Compare `KingdomGameState.defenseTrait(forCityNumber:)` with the catalog.
-- Compare `LaneDefenseProfile.profile(forCityNumber:)` with the catalog.
 - Verify `currentCityDefinition`, `currentCityDefenseTrait`, and
   `currentCityLaneDefenseProfile` from `KingdomGameState`.
 
@@ -260,17 +267,23 @@ Retain
 independent 15-city trait table. Do not replace that historical behavior anchor
 with an assertion that only compares the helper with the new catalog.
 
-Update `LaneDefenseProfileTests` for the new compatibility contract:
+Rewrite
+`KingdomGameStateTests.currentCityLaneDefenseProfileFollowsCityNumber` to
+compare representative state values with explicit expected
+`LaneDefenseProfile` values. Do not compare it with another API that projects
+the same catalog.
 
-- Replace `highCityNumbersCycleRatherThanClamp` with an upper-bound clamping
-  test that asserts Cities 16 and 18 both resolve to City 15's profile.
-- Restrict `everyCityGetsExactlyOneOfEachRole` to `1...15` and rename or
-  reword it so it verifies the authored Country 1 catalog rather than cycling
-  beyond the country.
-- Preserve the valid-city role assertions that lock the pre-migration lane
-  assignments.
-- Keep within-range shared-profile checks only as authored-value anchors, not
-  as proof that a runtime rotation formula still exists.
+Update `LaneDefenseProfileTests` for the removal of the static lookup:
+
+- Move the full 15-city authored assignment table and bounds behavior into
+  `Country1CityCatalogTests`.
+- Remove `everyCityGetsExactlyOneOfEachRole`,
+  `assignmentFollowsCityNumberRotation`, `sameCityNumberAlwaysYieldsSameProfile`,
+  `outOfRangeCityNumbersClampToLowerBound`, and
+  `highCityNumbersCycleRatherThanClamp`; each tests behavior owned by the
+  removed lookup.
+- Preserve `LaneDefenseProfile`'s value-type invariants, role lookup, equality,
+  and tower-multiplier coverage using directly initialized profiles.
 - Update the trait-balance test comment from
   "advantaged/disadvantaged" to "favorable/disadvantaged."
 
