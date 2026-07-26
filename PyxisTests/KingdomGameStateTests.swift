@@ -331,9 +331,12 @@ struct KingdomGameStateTests {
         #expect(state.currentCityDefenseTrait == .reinforcedKeep)
     }
 
-    @Test func currentCityLaneDefenseProfileFollowsCityNumber() {
+    @Test func currentCityLaneDefenseProfileUsesAuthoredProgression() {
         let cityOne = KingdomGameState(gold: 0, cityRemainingPower: 10)
-        #expect(cityOne.currentCityLaneDefenseProfile == LaneDefenseProfile.profile(forCityNumber: 1))
+        #expect(
+            cityOne.currentCityLaneDefenseProfile
+                == LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right)
+        )
 
         let cityFive = KingdomGameState(
             gold: 0,
@@ -341,7 +344,10 @@ struct KingdomGameStateTests {
             cityNumberInCountry: 5,
             completedCityCount: 4
         )
-        #expect(cityFive.currentCityLaneDefenseProfile == LaneDefenseProfile.profile(forCityNumber: 5))
+        #expect(
+            cityFive.currentCityLaneDefenseProfile
+                == LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left)
+        )
     }
 
     @Test func formulasClampInvalidLevelsToOne() {
