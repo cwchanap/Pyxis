@@ -8,6 +8,12 @@ import Testing
 @testable import Pyxis
 
 struct KingdomGameStateTests {
+    private struct ExpectedCounterList {
+        let trait: CityDefenseTrait
+        let favorable: [SoldierType]
+        let disadvantaged: [SoldierType]
+    }
+
     @Test func formulasMatchMVPBalanceCurve() {
         #expect(KingdomGameState.cityMaxPower(for: 1) == 20)
         #expect(KingdomGameState.cityMaxPower(for: 2) == 43)
@@ -117,33 +123,60 @@ struct KingdomGameStateTests {
             }
         }
 
-        let expectedCounterLists: [
-            (trait: CityDefenseTrait, favorable: [SoldierType], disadvantaged: [SoldierType])
-        ] = [
-            (.standardWatch, [], []),
-            (.arrowTower, [.infantry, .cavalry], [.archer, .mage]),
-            (.spikedGate, [.archer, .mage], [.infantry, .cavalry]),
-            (.stoneWall, [.mage, .siege], [.archer]),
-            (.arcaneWard, [.infantry, .cavalry, .siege], [.mage]),
-            (.burningOil, [.archer, .mage, .cavalry], [.infantry, .siege]),
-            (.reinforcedKeep, [.siege], [.archer, .infantry])
+        let expectedCounterLists: [ExpectedCounterList] = [
+            ExpectedCounterList(trait: .standardWatch, favorable: [], disadvantaged: []),
+            ExpectedCounterList(
+                trait: .arrowTower,
+                favorable: [.infantry, .cavalry],
+                disadvantaged: [.archer, .mage]
+            ),
+            ExpectedCounterList(
+                trait: .spikedGate,
+                favorable: [.archer, .mage],
+                disadvantaged: [.infantry, .cavalry]
+            ),
+            ExpectedCounterList(
+                trait: .stoneWall,
+                favorable: [.mage, .siege],
+                disadvantaged: [.archer]
+            ),
+            ExpectedCounterList(
+                trait: .arcaneWard,
+                favorable: [.infantry, .cavalry, .siege],
+                disadvantaged: [.mage]
+            ),
+            ExpectedCounterList(
+                trait: .burningOil,
+                favorable: [.archer, .mage, .cavalry],
+                disadvantaged: [.infantry, .siege]
+            ),
+            ExpectedCounterList(
+                trait: .reinforcedKeep,
+                favorable: [.siege],
+                disadvantaged: [.archer, .infantry]
+            )
         ]
 
         #expect(expectedCounterLists.map(\.trait) == CityDefenseTrait.allCases)
-        for (trait, favorable, disadvantaged) in expectedCounterLists {
-            #expect(trait.favorableSoldierTypes == favorable)
-            #expect(trait.disadvantagedSoldierTypes == disadvantaged)
+        for expectedCounterList in expectedCounterLists {
+            #expect(expectedCounterList.trait.favorableSoldierTypes == expectedCounterList.favorable)
+            #expect(
+                expectedCounterList.trait.disadvantagedSoldierTypes
+                    == expectedCounterList.disadvantaged
+            )
 
             for soldierType in SoldierType.allCases {
                 let expectedMultiplier: Double
-                if favorable.contains(soldierType) {
+                if expectedCounterList.favorable.contains(soldierType) {
                     expectedMultiplier = 1.25
-                } else if disadvantaged.contains(soldierType) {
+                } else if expectedCounterList.disadvantaged.contains(soldierType) {
                     expectedMultiplier = 0.80
                 } else {
                     expectedMultiplier = 1.0
                 }
-                #expect(trait.damageMultiplier(for: soldierType) == expectedMultiplier)
+                #expect(
+                    expectedCounterList.trait.damageMultiplier(for: soldierType) == expectedMultiplier
+                )
             }
         }
     }
