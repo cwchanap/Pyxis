@@ -9,7 +9,7 @@ struct KingdomGameState: Codable, Equatable {
     static let maxIdleCatchUpSeconds = 8 * 60 * 60
     static let maxActiveBuildingSpawnDeltaSeconds = 60.0
     static let idleBuildingProductionScale = 10.0
-    static let firstCountryCityCount = 15
+    static let firstCountryCityCount = Country1CityCatalog.cityRange.count
     static let manualSoldierCap = 10
 
     enum StageStatus: String, Codable, Equatable {
@@ -663,32 +663,19 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     static func defenseTrait(forCityNumber cityNumber: Int) -> CityDefenseTrait {
-        switch min(max(1, cityNumber), firstCountryCityCount) {
-        case 1, 2:
-            return .standardWatch
-        case 3, 5:
-            return .arrowTower
-        case 4, 10:
-            return .spikedGate
-        case 6, 8, 14:
-            return .stoneWall
-        case 7, 12:
-            return .burningOil
-        case 9, 13:
-            return .arcaneWard
-        case 11, 15:
-            return .reinforcedKeep
-        default:
-            return .standardWatch
-        }
+        Country1CityCatalog.definition(for: cityNumber).defenseTrait
+    }
+
+    var currentCityDefinition: CityDefinition {
+        Country1CityCatalog.definition(for: cityNumberInCountry)
     }
 
     var currentCityDefenseTrait: CityDefenseTrait {
-        Self.defenseTrait(forCityNumber: cityNumberInCountry)
+        currentCityDefinition.defenseTrait
     }
 
     var currentCityLaneDefenseProfile: LaneDefenseProfile {
-        LaneDefenseProfile.profile(forCityNumber: cityNumberInCountry)
+        currentCityDefinition.laneDefenseProfile
     }
 
     func manualSoldierLevel(for soldierType: SoldierType) -> Int? {

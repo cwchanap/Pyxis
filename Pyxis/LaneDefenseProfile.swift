@@ -25,12 +25,11 @@ enum LaneDefenseRole: String, CaseIterable, Equatable {
     }
 }
 
-/// Per-city deterministic assignment of one role per battle lane.
+/// An authored assignment of one defense role per battle lane.
 ///
 /// Stores only the two non-standard lanes; the remaining lane is implicitly
 /// `.standard`. This makes the "exactly one fortified / one exposed / one
-/// standard" invariant unbreakable by construction — there is no dictionary
-/// that can be missing keys or hold duplicate roles.
+/// standard" invariant unbreakable by construction.
 struct LaneDefenseProfile: Equatable {
     let fortifiedLane: BattleLane
     let exposedLane: BattleLane
@@ -63,16 +62,5 @@ struct LaneDefenseProfile: Equatable {
             multipliers[lane] = role(for: lane).towerDamageMultiplier
         }
         return multipliers
-    }
-
-    static func profile(forCityNumber cityNumber: Int) -> LaneDefenseProfile {
-        let safe = max(1, cityNumber)
-        let fortifiedIndex = (safe - 1) % 3
-        let exposedIndex = (safe + 1) % 3
-
-        let fortified = BattleLane.allCases.first { $0.rawValue == fortifiedIndex }!
-        let exposed = BattleLane.allCases.first { $0.rawValue == exposedIndex }!
-
-        return LaneDefenseProfile(fortifiedLane: fortified, exposedLane: exposed)
     }
 }
