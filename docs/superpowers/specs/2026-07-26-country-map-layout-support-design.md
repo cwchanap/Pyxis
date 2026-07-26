@@ -1,0 +1,365 @@
+# Country Map Layout Support Design
+
+**Date:** 2026-07-26  
+**Issue:** HPA-117  
+**Status:** Approved for implementation planning
+
+## Summary
+
+Pyxis will use **Option A: portrait-only support for the current Country 1 map art**.
+
+The app will declare an app-wide portrait orientation contract. The existing
+1024×1536 Country 1 backdrop will continue to aspect-fill the scene, and all 15
+city anchors will remain normalized against that displayed backdrop frame so
+they stay aligned with the illustrated pads.
+
+Landscape, wide, undersized, or otherwise invalid window geometries will not
+receive a remapped or partially clamped map. They will show a blocking
+resize/portrait gate. This preserves one authored map contract for the future
+Scout and Chronicle interfaces.
+
+## Context
+
+`CountryMapScene` currently has two different positioning behaviors:
+
+- Portrait layouts map city anchors into the cover-scaled backdrop frame and
+  preserve exact art alignment.
+- Wide layouts may fall back to the visible illustrated region when backdrop
+  mapping would place cities behind the title or feedback panels.
+
+The fallback makes the cities visible, but it silently changes the canonical
+anchor frame. Scout and Chronicle UI cannot reserve stable information space
+while the map switches between two positioning contracts.
+
+The project targets iPhone and iPad with iOS/iPadOS 26.4. Current build settings
+declare portrait and landscape orientations, and `GameViewController` returns
+all-but-upside-down on iPhone and all orientations on iPad. The map asset is a
+portrait 1024×1536 illustration with 15 authored city pads.
+
+## Product Decision
+
+### Chosen: Option A — portrait only
+
+Country 1 keeps its existing portrait art, full-scene aspect-fill backdrop, and
+exact pad-aligned anchors. Unsupported layouts are prevented from presenting
+interactive gameplay through a deterministic gate.
+
+This option was chosen because:
+
+- The current art and anchors were authored as one portrait composition.
+- Pixel alignment is already an intentional, tested behavior.
+- Landscape is not a product requirement for Pyxis.
+- Scout and Chronicle need one stable information-region contract.
+- It avoids new art-production scope and avoids weakening the portrait result.
+
+### Rejected: Option B — shared visible-region mapping
+
+Mapping all anchors into a shared visible region would make wide layouts
+playable with one algorithm, but portrait cities would no longer align with the
+illustrated pads. It would intentionally discard a current product behavior and
+make the artwork read less coherently.
+
+### Rejected: Option C — dedicated wide art and anchors
+
+A dedicated wide asset and authored anchor set could provide a high-quality
+landscape experience, but landscape is not required. The additional art,
+layout data, review, asset selection, and matrix testing are disproportionate
+to the current product need.
+
+### Rejected: current hybrid fallback
+
+The current runtime fallback is not a fourth supported option. It creates two
+anchor frames and makes downstream card placement depend on layout-specific
+workarounds. The implementation will remove this fallback rather than rename it
+as a supported contract.
+
+## Supported Device and Orientation Matrix
+
+### Hardware orientations
+
+| Device family | Supported | Unsupported |
+| --- | --- | --- |
+| iPhone | Portrait upright | Portrait upside-down, landscape left, landscape right |
+| iPad | Portrait upright, portrait upside-down | Landscape left, landscape right |
+
+The matrix applies app-wide, not only while `CountryMapScene` is visible.
+
+### Window geometries
+
+Full-screen portrait iPhone and iPad layouts are supported. A resizable iPad
+window is supported only when:
+
+1. its scene size is at least 375×667 points;
+2. the complete map layout can be computed;
+3. every city render and interaction frame is inside the scene;
+4. every city frame clears the title/control and information exclusion regions
+   by at least 8 points; and
+5. all route geometry remains inside the illustrated map region.
+
+Representative supported fixtures are:
+
+| Class | Scene size |
+| --- | --- |
+| Smallest supported phone | 375×667 |
+| Modern phone | 393×852 |
+| Large phone | 440×956 |
+| iPad mini portrait | 744×1133 |
+| 11-inch iPad portrait | 834×1194 |
+| 13-inch iPad portrait | 1032×1376 |
+| Portrait resizable iPad window | 600×940 |
+
+Representative unsupported fixtures are:
+
+| Class | Scene size |
+| --- | --- |
+| Phone landscape | 667×375 |
+| iPad landscape | 1194×834 |
+| Wide iPad layout | 1024×768 |
+| Square window | 700×700 |
+| Undersized portrait window | 320×568 |
+
+The fixture list is test coverage, while the five validation rules are the
+runtime authority. Unexpected safe-area or window configurations fail closed
+to the unsupported-layout gate.
+
+## Canonical Map Geometry
+
+### Authored coordinate space
+
+The canonical authored frame is the complete 1024×1536
+`country-map-backdrop` image.
+
+The 15 normalized `authoredCityPadAnchors` remain defined against that complete
+source frame. At runtime:
+
+1. Center the backdrop in the scene.
+2. Uniformly scale it by
+   `max(sceneWidth / 1024, sceneHeight / 1536)`.
+3. Treat the resulting displayed backdrop frame as the city-anchor frame.
+4. Map each normalized anchor directly into that frame.
+
+There is no alternate anchor frame, per-city clamp, or non-uniform scale.
+
+### Backdrop behavior
+
+The backdrop aspect-fills the complete scene and extends behind the title and
+information chrome. Cropping is centered. Letterboxing is not used.
+
+The backdrop must cover all four scene edges on every supported layout.
+
+### City and route behavior
+
+All city positions are computed together from the canonical frame. Route lines
+are then derived from those positions. A layout is either wholly supported or
+wholly gated; individual cities and route segments are never moved to repair a
+failed layout.
+
+## Reserved Interface Regions
+
+### Title and control region
+
+The top region keeps the current 66-point title panel. It contains:
+
+- the country title; and
+- the current-city return control when a battle is active.
+
+It is positioned below the effective top safe-area inset. City render and
+interaction frames, including City 15, must clear the region by at least
+8 points.
+
+### Map information region
+
+A persistent bottom information region is reserved for current and future map
+information:
+
+- 76 points high on iPhone;
+- 112 points high on iPad; and
+- positioned above the effective bottom safe-area inset.
+
+The region is always present even before the Scout or Chronicle feature is
+implemented. Until then, the existing feedback presentation occupies it.
+
+HPA-387 will populate it with the unlocked-city Scout Card. HPA-367 may
+temporarily replace the Scout content with a completed-city Chronicle card.
+Transient locked/completed feedback appears within or immediately above this
+region without moving the map, title, or city anchors.
+
+City render and interaction frames, including City 1, must clear the region by
+at least 8 points. If the reserved region does not fit without violating this
+invariant, the geometry is unsupported and the gate appears.
+
+## Architecture
+
+### `CountryMapLayout`
+
+Add a pure `CountryMapLayout` value type that imports only CoreGraphics,
+following the established `BattlefieldLayout` pattern.
+
+Its input constraints include:
+
+- scene size;
+- effective safe-area insets;
+- phone or iPad layout class;
+- canonical backdrop size;
+- all 15 normalized anchors;
+- city render and interaction bounds;
+- title-region dimensions; and
+- information-region dimensions.
+
+Its output includes:
+
+- support status and failure reason;
+- scene frame;
+- displayed backdrop frame;
+- title/control region frame;
+- illustrated map region frame;
+- information region frame;
+- all 15 city positions; and
+- route geometry.
+
+The type performs the complete invariant check. `CountryMapScene` does not
+choose a fallback when the result is unsupported.
+
+### `CountryMapScene`
+
+`CountryMapScene` requests a layout whenever it moves to a view or its size
+changes. For a supported result it applies all frames and positions together.
+It removes the current compact/wide anchor-frame fallback.
+
+The scene exposes the production information-region frame to the later Scout
+and Chronicle work. Testing accessors should project production layout output
+rather than reconstructing layout rules in test-only code.
+
+### App-wide orientation and layout gate
+
+The project orientation declarations become:
+
+- iPhone: `UIInterfaceOrientationPortrait`;
+- iPad: `UIInterfaceOrientationPortrait` and
+  `UIInterfaceOrientationPortraitUpsideDown`.
+
+`GameViewController.supportedInterfaceOrientations` returns the matching mask.
+It prefers portrait for initial presentation. It does not request a persistent
+interface-orientation lock because iPad must remain free to rotate between its
+two supported portrait directions.
+
+`GameViewController` owns a UIKit overlay above the `SKView` for unsupported
+geometry. The overlay:
+
+- says that Pyxis requires portrait or a taller window;
+- intercepts all input;
+- pauses SpriteKit gameplay while visible;
+- contains no gameplay actions; and
+- disappears automatically when geometry becomes supported.
+
+The controller uses the Country 1 map layout policy as the app-wide geometry
+floor because the map is the most restrictive scene and the product decision
+applies app-wide.
+
+`SceneDelegate` may request a 375×667 minimum window size when
+`UISceneSizeRestrictions` is available. That request is advisory; the runtime
+layout gate remains authoritative.
+
+The implementation does not add `UIRequiresFullScreen`. Its compatibility mode
+is deprecated on iPadOS 26 and cannot serve as the durable layout contract.
+
+## Resize and Rotation Flow
+
+For initial presentation, rotation, split-view changes, Stage Manager changes,
+or interactive window resize:
+
+1. Observe the new scene geometry and safe-area values.
+2. Compute the complete `CountryMapLayout`.
+3. If supported, hide the gate, apply the layout atomically, enable input, and
+   resume SpriteKit.
+4. If unsupported, pause SpriteKit, disable scene input, and show the gate.
+
+The currently presented scene remains mounted. Returning from unsupported to
+supported geometry recomputes from authoritative state and anchors; it does not
+reuse transformed positions from the unsupported size.
+
+Showing or hiding the gate never loads, saves, or mutates
+`KingdomGameState`. Time spent behind the gate is an explicit gameplay pause,
+not offline/background production.
+
+## Failure Handling
+
+- Unsupported geometry shows the resize/portrait gate.
+- Unexpected safe-area values that violate layout invariants also show the
+  gate.
+- A missing backdrop or malformed authored anchor set triggers an assertion in
+  development and tests.
+- In release builds, missing or inconsistent authored layout data shows a
+  noninteractive `Map unavailable` gate.
+- No failure path clamps individual cities, awards resources, enters a city, or
+  changes campaign progression.
+
+## Testing
+
+### Pure layout tests
+
+For every supported fixture:
+
+- the backdrop uniformly aspect-fills all scene edges;
+- all 15 positions match the canonical displayed-backdrop mapping within
+  1 point;
+- all city render and interaction frames remain inside the scene;
+- all city frames clear the title/control and information regions by at least
+  8 points;
+- route geometry remains inside the illustrated map region; and
+- title, controls, and information regions remain inside safe bounds.
+
+For every unsupported fixture, the result is unsupported and no partial
+position set is returned.
+
+Tests cover both iPad portrait directions with swapped safe-area inputs.
+
+### Scene and controller tests
+
+- `CountryMapScene` applies production layout output without a wide fallback.
+- City centers remain tappable for Cities 1 through 15.
+- The information-region frame is stable and available to future card work.
+- Supported → unsupported → supported resizing toggles the gate atomically.
+- Gate input never reaches SpriteKit nodes.
+- SpriteKit pauses while gated and resumes afterward.
+- Game state and persisted state do not change during a gate cycle.
+- The backdrop asset is installed at 1024×1536.
+- Exactly 15 authored anchors are installed.
+- Project and controller orientation masks match the approved matrix.
+
+Run unit and UI tests with parallel testing disabled.
+
+### Manual smoke
+
+On the 375×667 phone fixture and the 1032×1376 iPad fixture:
+
+- verify Cities 1, 8, and 15 are visible and tappable;
+- verify every city is centered on its illustrated pad;
+- verify title and information regions do not overlap the route;
+- verify iPad upside-down rotation preserves the layout;
+- verify a wide resize shows the gate and blocks interaction; and
+- verify returning to supported portrait geometry restores the same state.
+
+## Linear Completion Evidence
+
+Before HPA-117 is closed, add a Linear update that records:
+
+- Option A as chosen;
+- Options B, C, and the current hybrid fallback as rejected;
+- the supported device, orientation, and window matrix;
+- this specification and the implementation plan;
+- automated test results; and
+- manual-smoke evidence.
+
+HPA-387 and the map-UI portion of HPA-367 may proceed only after the
+implementation and verification for this contract are complete.
+
+## Non-Goals
+
+- Implementing the Scout Card.
+- Implementing Chronicle records or the completed-city card.
+- Redesigning campaign progression or route topology.
+- Adding a landscape map asset.
+- Supporting landscape gameplay.
+- Per-city runtime clamping.
+- Changing city unlock rules or adding multiple unlocked cities.
