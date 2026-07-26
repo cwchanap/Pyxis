@@ -66,11 +66,11 @@ that already have a deterministic owner:
 
 ### `Country1CityCatalog`
 
-Add a framework-free namespace with:
-
-- `cityRange = 1...15`.
-- An immutable ordered `[CityDefinition]` containing exactly 15 entries.
-- `definition(for cityNumber: Int) -> CityDefinition`.
+Declare `Country1CityCatalog` as a framework-free caseless enum namespace
+rather than an instantiable type. The namespace owns
+`static let cityRange = 1...15`, an immutable ordered
+`static let definitions: [CityDefinition]` containing the 15 explicit entries,
+and `static func definition(for cityNumber: Int) -> CityDefinition`.
 
 An ordered array is preferred over a dictionary because clamped lookup maps
 directly to `definitions[clampedCityNumber - 1]`, while completeness, ordering,
@@ -81,8 +81,18 @@ case-by-case computed-property switches.
 Every lane profile is explicit in the catalog. The current three-city rotation
 formula is not retained as a second runtime source.
 
-`KingdomGameState.firstCountryCityCount` derives from the catalog range so the
-campaign and catalog cannot acquire independent Country 1 counts.
+`KingdomGameState.firstCountryCityCount` remains a static stored constant and
+derives from the catalog range:
+
+```swift
+static let firstCountryCityCount = Country1CityCatalog.cityRange.count
+```
+
+This preserves its existing call sites and initialization behavior while
+preventing the campaign and catalog from acquiring independent Country 1
+counts. Referencing the catalog's static range from this static constant does
+not create an initialization cycle because the catalog does not depend on
+`KingdomGameState`.
 
 ## Authored Country 1 Combat Definitions
 
@@ -109,11 +119,8 @@ Lane roles repeat the current three-city rotation, but are stored explicitly:
 
 ## Compatibility APIs And Data Flow
 
-Add:
-
-```swift
-var currentCityDefinition: CityDefinition
-```
+Add the instance property alongside the existing current-city projections on
+`KingdomGameState`: `var currentCityDefinition: CityDefinition`.
 
 The compatibility APIs become catalog projections:
 
@@ -126,7 +133,8 @@ city number
 
 Specifically:
 
-- `KingdomGameState.defenseTrait(forCityNumber:)` returns the matching
+- The existing `KingdomGameState.defenseTrait(forCityNumber:)` remains a
+  `static func` returning `CityDefenseTrait` and projects the matching
   definition's `defenseTrait`.
 - `KingdomGameState.currentCityDefinition` resolves the current city through
   the catalog.
@@ -134,8 +142,9 @@ Specifically:
   `currentCityDefinition.defenseTrait`.
 - `KingdomGameState.currentCityLaneDefenseProfile` projects
   `currentCityDefinition.laneDefenseProfile`.
-- `LaneDefenseProfile.profile(forCityNumber:)` remains available and returns
-  the matching definition's `laneDefenseProfile`.
+- The existing `LaneDefenseProfile.profile(forCityNumber:)` remains a
+  `static func` returning `LaneDefenseProfile` and projects the matching
+  definition's `laneDefenseProfile`.
 
 The old defense-trait switch and lane rotation formula are removed. Map, battle,
 live damage, and idle damage consumers continue using their existing
@@ -148,14 +157,19 @@ Rename and expose the existing private trait lists as non-private, read-only
 properties:
 
 ```swift
+// Rename advantagedSoldierTypes to:
 var favorableSoldierTypes: [SoldierType]
+
+// Retain the existing name while changing its access from private:
 var disadvantagedSoldierTypes: [SoldierType]
 ```
 
 These properties remain computed from `CityDefenseTrait`. They are not copied
 into any `CityDefinition`.
 
-`damageMultiplier(for:)` continues to use those properties:
+Update `damageMultiplier(for:)` to call `favorableSoldierTypes` instead of the
+old `advantagedSoldierTypes` name. It continues to use
+`disadvantagedSoldierTypes` unchanged:
 
 - Favorable types receive `1.25`.
 - Disadvantaged types receive `0.80`.
@@ -178,6 +192,9 @@ catalog. This intentionally gives `LaneDefenseProfile.profile(forCityNumber:)`
 an upper clamp it did not previously apply when called directly. Valid Country
 1 inputs are unchanged, and normalized campaign state already stays within
 `1...15`.
+
+Existing lane-profile tests that assert cycling above City 15 describe the old
+contract and must be replaced with upper-bound clamping assertions.
 
 Catalog construction is static and immutable. It introduces no decoding,
 runtime fallback definition, or recoverable error state.
@@ -225,6 +242,16 @@ These behavioral comparisons make any divergence between a compatibility API
 and the catalog fail. The implementation also removes the old switch and
 formula rather than preserving redundant lookup logic.
 
+Update `LaneDefenseProfileTests` for the new compatibility contract:
+
+- Replace `highCityNumbersCycleRatherThanClamp` with an upper-bound clamping
+  test that asserts Cities 16 and 18 both resolve to City 15's profile.
+- Restrict `everyCityGetsExactlyOneOfEachRole` to `1...15` and rename or
+  reword it so it verifies the authored Country 1 catalog rather than cycling
+  beyond the country.
+- Preserve the valid-city role assertions that lock the pre-migration lane
+  assignments.
+
 ### Trait-semantic tests
 
 For every `CityDefenseTrait`:
@@ -233,6 +260,11 @@ For every `CityDefenseTrait`:
 - Assert the exact disadvantaged soldier list.
 - Assert favorable, disadvantaged, and neutral damage multipliers remain
   derived from those lists.
+
+Extend
+`KingdomGameStateTests.cityDefenseTraitsExposeDisplayAndCounterMetadata` with
+these assertions. It is the existing test home for exact trait display and
+counter semantics, so a separate `CityDefenseTraitTests` file is unnecessary.
 
 ### Regression verification
 
@@ -248,8 +280,8 @@ does not change presentation or interaction.
 - Modify `Pyxis/LaneDefenseProfile.swift`.
 - Modify `Pyxis/KingdomGameState.swift`.
 - Create `PyxisTests/Country1CityCatalogTests.swift`.
-- Extend existing trait tests only where retaining their current test location
-  is clearer than duplicating them in the catalog suite.
+- Modify `PyxisTests/KingdomGameStateTests.swift`.
+- Modify `PyxisTests/LaneDefenseProfileTests.swift`.
 
 The Xcode project uses a synchronized root group, so new Swift files are
 discovered automatically and `project.pbxproj` must not be edited.
