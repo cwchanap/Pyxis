@@ -146,6 +146,12 @@ Specifically:
   `static func` returning `LaneDefenseProfile` and projects the matching
   definition's `laneDefenseProfile`.
 
+Document `LaneDefenseProfile.profile(forCityNumber:)` as a Country 1
+compatibility projection that clamps to `1...15`. It is not a universal
+multi-country lookup contract. A later country must add explicit catalog
+routing or a country-aware API rather than extending this helper's meaning
+implicitly.
+
 The old defense-trait switch and lane rotation formula are removed. Map, battle,
 live damage, and idle damage consumers continue using their existing
 `KingdomGameState` APIs; those calls now converge on the catalog without
@@ -153,8 +159,8 @@ requiring scene changes.
 
 ## Trait-Derived Soldier Semantics
 
-Rename and expose the existing private trait lists as non-private, read-only
-properties:
+Rename and expose the existing private trait lists as internal, computed,
+get-only properties:
 
 ```swift
 // Rename advantagedSoldierTypes to:
@@ -220,11 +226,18 @@ Follow the repository's TDD convention.
 
 ### Catalog tests
 
-Add focused `Country1CityCatalogTests` that:
+Add focused `Country1CityCatalogTests` with one independent expected table for
+the 15 authored rows. Derive the catalog's completeness, ordering, uniqueness,
+and per-city parity assertions from that single fixture rather than introducing
+multiple test-side copies.
+
+The tests:
 
 - Assert the catalog has exactly 15 definitions.
 - Assert city numbers are unique and cover every value in `1...15` without
   gaps.
+- Assert the catalog is in lookup order:
+  `definitions.map(\.cityNumber) == Array(1...15)`.
 - Compare all 15 definitions with an independent expected table containing the
   exact trait and lane roles listed in this spec.
 - Assert negative, zero, and above-range lookup clamping.
@@ -242,6 +255,11 @@ These behavioral comparisons make any divergence between a compatibility API
 and the catalog fail. The implementation also removes the old switch and
 formula rather than preserving redundant lookup logic.
 
+Retain
+`KingdomGameStateTests.currentCityDefenseTraitUsesAuthoredProgression` with its
+independent 15-city trait table. Do not replace that historical behavior anchor
+with an assertion that only compares the helper with the new catalog.
+
 Update `LaneDefenseProfileTests` for the new compatibility contract:
 
 - Replace `highCityNumbersCycleRatherThanClamp` with an upper-bound clamping
@@ -251,6 +269,10 @@ Update `LaneDefenseProfileTests` for the new compatibility contract:
   beyond the country.
 - Preserve the valid-city role assertions that lock the pre-migration lane
   assignments.
+- Keep within-range shared-profile checks only as authored-value anchors, not
+  as proof that a runtime rotation formula still exists.
+- Update the trait-balance test comment from
+  "advantaged/disadvantaged" to "favorable/disadvantaged."
 
 ### Trait-semantic tests
 
@@ -272,8 +294,14 @@ Run the focused new tests first, then the complete unit-test target with
 parallel testing disabled. No new UI test is required because this feature
 does not change presentation or interaction.
 
+After implementation, update `CLAUDE.md` to describe
+`Country1CityCatalog` as the source of authored lane profiles. Historical
+design specs and implementation plans remain unchanged because they document
+the architecture at the time they were written.
+
 ## Expected File Boundaries
 
+- Modify `CLAUDE.md`.
 - Create `Pyxis/CityDefinition.swift`.
 - Create `Pyxis/Country1CityCatalog.swift`.
 - Modify `Pyxis/CityDefenseTrait.swift`.
