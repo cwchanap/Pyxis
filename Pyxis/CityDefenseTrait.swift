@@ -57,7 +57,7 @@ enum CityDefenseTrait: String, CaseIterable, Equatable {
     }
 
     func damageMultiplier(for soldierType: SoldierType) -> Double {
-        if advantagedSoldierTypes.contains(soldierType) {
+        if favorableSoldierTypes.contains(soldierType) {
             return 1.25
         }
 
@@ -68,7 +68,7 @@ enum CityDefenseTrait: String, CaseIterable, Equatable {
         return 1.0
     }
 
-    private var advantagedSoldierTypes: [SoldierType] {
+    var favorableSoldierTypes: [SoldierType] {
         switch self {
         case .standardWatch:
             return []
@@ -87,7 +87,7 @@ enum CityDefenseTrait: String, CaseIterable, Equatable {
         }
     }
 
-    private var disadvantagedSoldierTypes: [SoldierType] {
+    var disadvantagedSoldierTypes: [SoldierType] {
         switch self {
         case .standardWatch:
             return []

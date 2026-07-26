@@ -116,6 +116,36 @@ struct KingdomGameStateTests {
                 #expect(trait.damageMultiplier(for: soldierType) == expectedMultiplier)
             }
         }
+
+        let expectedCounterLists: [
+            (trait: CityDefenseTrait, favorable: [SoldierType], disadvantaged: [SoldierType])
+        ] = [
+            (.standardWatch, [], []),
+            (.arrowTower, [.infantry, .cavalry], [.archer, .mage]),
+            (.spikedGate, [.archer, .mage], [.infantry, .cavalry]),
+            (.stoneWall, [.mage, .siege], [.archer]),
+            (.arcaneWard, [.infantry, .cavalry, .siege], [.mage]),
+            (.burningOil, [.archer, .mage, .cavalry], [.infantry, .siege]),
+            (.reinforcedKeep, [.siege], [.archer, .infantry])
+        ]
+
+        #expect(expectedCounterLists.map(\.trait) == CityDefenseTrait.allCases)
+        for (trait, favorable, disadvantaged) in expectedCounterLists {
+            #expect(trait.favorableSoldierTypes == favorable)
+            #expect(trait.disadvantagedSoldierTypes == disadvantaged)
+
+            for soldierType in SoldierType.allCases {
+                let expectedMultiplier: Double
+                if favorable.contains(soldierType) {
+                    expectedMultiplier = 1.25
+                } else if disadvantaged.contains(soldierType) {
+                    expectedMultiplier = 0.80
+                } else {
+                    expectedMultiplier = 1.0
+                }
+                #expect(trait.damageMultiplier(for: soldierType) == expectedMultiplier)
+            }
+        }
     }
 
     @Test func buildingUnlocksProgressAcrossCountryOne() {
