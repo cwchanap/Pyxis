@@ -600,6 +600,58 @@ struct BuildingViewSceneTests {
             == origin.addingTimeInterval(30))
     }
 
+    @Test func backgroundThenBuildingGateResumeWhileBackgroundedPreservesEveryInterval() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 7_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store)
+
+        scene.sceneDidEnterBackgroundForTesting(
+            at: origin.addingTimeInterval(10)
+        )
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(15))
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 15)
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(15))
+
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(20))
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(15))
+
+        scene.sceneWillEnterForegroundForTesting(
+            at: origin.addingTimeInterval(25)
+        )
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(25))
+    }
+
+    @Test func buildingGateThenBackgroundResumeWhileBackgroundedExcludesForegroundGateTime() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 8_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+        scene.sceneDidEnterBackgroundForTesting(
+            at: origin.addingTimeInterval(15)
+        )
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(20))
+
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(15))
+
+        scene.sceneWillEnterForegroundForTesting(
+            at: origin.addingTimeInterval(25)
+        )
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(25))
+    }
+
     private func makeScene(
         size: CGSize = CGSize(width: 390, height: 844),
         store: KingdomGameStore,

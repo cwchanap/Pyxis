@@ -15,6 +15,7 @@
 - The Country 1 canonical backdrop is 1024×1536 points with 15 normalized anchors.
 - The backdrop uniformly aspect-fills the scene; no alternate anchor frame, clamping, or non-uniform scale is allowed.
 - Supported geometry has a 375×667 base floor and must pass all computed chrome, city-frame, and route bounds.
+- Supported geometry requires `sceneHeight > sceneWidth`, the recorded human ruling from the Task 1 review.
 - Every city has a centered 44×44-point interaction and clearance frame.
 - The information region is 64 points high on phone and 112 points high on iPad.
 - The illustrated map region is the full-width corridor from `informationRegion.maxY + 8` through `titleControlRegion.minY - 8`.
@@ -356,11 +357,16 @@ let sceneFrame = CGRect(origin: .zero, size: constraints.sceneSize)
 guard constraints.sceneSize.width >= 375,
       constraints.sceneSize.height >= 667,
       constraints.sceneSize.width.isFinite,
-      constraints.sceneSize.height.isFinite
+      constraints.sceneSize.height.isFinite,
+      constraints.sceneSize.height > constraints.sceneSize.width
 else {
     return .unsupported(.unsupportedGeometry)
 }
 ```
+
+The strict `sceneHeight > sceneWidth` guard is the recorded human ruling from
+the Task 1 review; fixture membership and orientation semantics are otherwise
+unchanged.
 
 Before calculating the aspect-fill scale, reject non-finite/non-positive
 canonical dimensions, any anchor outside `0...1`, a city count other than 15,

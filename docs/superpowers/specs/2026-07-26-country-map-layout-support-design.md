@@ -91,13 +91,18 @@ Full-screen portrait iPhone and iPad layouts are supported. A resizable iPad
 window is supported only when:
 
 1. its scene size is at least 375×667 points;
-2. the title/control region, its current-city control, and the information
+2. its scene height is strictly greater than its scene width;
+3. the title/control region, its current-city control, and the information
    region are contained inside the scene after applying semantic safe-area
    insets;
-3. every 44×44-point city render and interaction frame is contained inside the
+4. every 44×44-point city render and interaction frame is contained inside the
    illustrated map region; and
-4. every route segment's stroke-expanded bounds are contained inside the
+5. every route segment's stroke-expanded bounds are contained inside the
    illustrated map region.
+
+The strict `sceneHeight > sceneWidth` rule records the human ruling from the
+Task 1 review. Fixture membership and the approved hardware-orientation matrix
+remain otherwise unchanged.
 
 Representative supported fixtures are:
 
@@ -126,7 +131,7 @@ Representative unsupported fixtures are:
 | Over-cropped narrow iPad window | 375×1194 |
 
 The safe-area values above are deterministic test inputs, not promises about
-every system configuration. The fixture list is test coverage, while the four
+every system configuration. The fixture list is test coverage, while the five
 validation rules are the runtime authority. Unexpected safe-area or window
 configurations fail closed to the unsupported-layout gate.
 
