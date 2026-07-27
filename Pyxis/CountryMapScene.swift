@@ -41,28 +41,14 @@ final class CountryMapScene: SKScene {
         static let unlockedPulse = "countryMapUnlockedPulse"
     }
 
-    private static let authoredCityPadAnchors = [
-        CGPoint(x: 0.4000, y: 0.1696),
-        CGPoint(x: 0.7528, y: 0.2020),
-        CGPoint(x: 0.6846, y: 0.2874),
-        CGPoint(x: 0.6904, y: 0.3721),
-        CGPoint(x: 0.2776, y: 0.2517),
-        CGPoint(x: 0.3518, y: 0.3386),
-        CGPoint(x: 0.4171, y: 0.4171),
-        CGPoint(x: 0.7078, y: 0.4598),
-        CGPoint(x: 0.7200, y: 0.6160),
-        CGPoint(x: 0.5894, y: 0.6473),
-        CGPoint(x: 0.3468, y: 0.5793),
-        CGPoint(x: 0.4225, y: 0.6725),
-        CGPoint(x: 0.3452, y: 0.7280),
-        CGPoint(x: 0.4865, y: 0.7651),
-        CGPoint(x: 0.6807, y: 0.7931)
-    ]
-
     private let store: KingdomGameStore
     private weak var router: CountryMapSceneRouting?
     private var state: KingdomGameState
+    private let layoutEnvironmentOverride: CountryMapLayoutEnvironment?
     private var didBuildInterface = false
+
+    private(set) var lastLayoutResult: CountryMapLayoutResult?
+    private(set) var countryMapLayout: CountryMapLayout?
 
     private let backdropLayer = SKNode()
     private let routeLayer = SKNode()
@@ -76,6 +62,7 @@ final class CountryMapScene: SKScene {
     private let currentCityButtonLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private var backdropNode: SKSpriteNode?
     private var cityNodes: [Int: SKShapeNode] = [:]
+    private var cityHitTargets: [Int: SKShapeNode] = [:]
     private var cityLabels: [Int: SKLabelNode] = [:]
     private var conqueredMarkers: [Int: SKSpriteNode] = [:]
     private var cityVisualStates: [Int: CountryMapCityVisualState] = [:]
@@ -88,10 +75,16 @@ final class CountryMapScene: SKScene {
     )
     private var feedbackText = "Select the unlocked city."
 
-    init(size: CGSize, store: KingdomGameStore = .shared, router: CountryMapSceneRouting? = nil) {
+    init(
+        size: CGSize,
+        store: KingdomGameStore = .shared,
+        router: CountryMapSceneRouting? = nil,
+        layoutEnvironmentOverride: CountryMapLayoutEnvironment? = nil
+    ) {
         self.store = store
         self.router = router
         self.state = store.load()
+        self.layoutEnvironmentOverride = layoutEnvironmentOverride
         super.init(size: size)
     }
 
@@ -99,6 +92,7 @@ final class CountryMapScene: SKScene {
         self.store = .shared
         self.router = nil
         self.state = KingdomGameStore.shared.load()
+        self.layoutEnvironmentOverride = nil
         super.init(coder: aDecoder)
     }
 
@@ -176,11 +170,18 @@ final class CountryMapScene: SKScene {
         let hasConqueredMarkerAsset = UIImage(named: MapAssetName.conqueredMarker) != nil
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
-            let cityNode = SKShapeNode(circleOfRadius: 18)
+            let cityNode = SKShapeNode(circleOfRadius: 15)
             cityNode.name = "\(NodeName.cityPrefix)\(cityNumber)"
             cityNode.lineWidth = 3
             cityLayer.addChild(cityNode)
             cityNodes[cityNumber] = cityNode
+
+            let cityHitTarget = SKShapeNode(rectOf: CGSize(width: 44, height: 44))
+            cityHitTarget.name = cityNode.name
+            cityHitTarget.fillColor = .clear
+            cityHitTarget.strokeColor = .clear
+            cityLayer.addChild(cityHitTarget)
+            cityHitTargets[cityNumber] = cityHitTarget
 
             let cityLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
             configureLabel(cityLabel, fontSize: 13, color: .white)
@@ -233,131 +234,109 @@ final class CountryMapScene: SKScene {
     }
 
     private func layoutInterface() {
-        guard didBuildInterface else {
+        guard didBuildInterface else { return }
+
+        guard let environment = layoutEnvironmentOverride
+            ?? view.flatMap({ CountryMapLayoutUIKitAdapter.environment(for: $0) })
+        else {
+            lastLayoutResult = .unsupported(.unsupportedGeometry)
+            countryMapLayout = nil
+            routeLayer.removeAllChildren()
             return
         }
 
-        let isCompactHeight = size.height < 500
-        let horizontalMargin: CGFloat = isCompactHeight ? 14 : 20
-        let topInset = max(
-            isCompactHeight ? 10 : 42,
-            GameUITheme.topUnsafeInset(sceneSize: size, view: view) + (isCompactHeight ? 8 : 10)
+        let result = CountryMapLayout.compute(.init(
+            sceneSize: size,
+            environment: environment,
+            definition: .country1
+        ))
+        lastLayoutResult = result
+
+        guard case .supported(let layout) = result else {
+            countryMapLayout = nil
+            routeLayer.removeAllChildren()
+            return
+        }
+
+        countryMapLayout = layout
+        apply(layout)
+        redraw()
+    }
+
+    func refreshLayoutForCurrentEnvironment() {
+        layoutInterface()
+    }
+
+    private func apply(_ layout: CountryMapLayout) {
+        if let backdropNode {
+            backdropNode.setScale(1)
+            backdropNode.size = layout.displayedBackdropFrame.size
+            backdropNode.position = CGPoint(
+                x: layout.displayedBackdropFrame.midX,
+                y: layout.displayedBackdropFrame.midY
+            )
+        }
+
+        titlePanel.update(size: layout.titleControlRegionFrame.size)
+        titlePanel.position = CGPoint(
+            x: layout.titleControlRegionFrame.midX,
+            y: layout.titleControlRegionFrame.midY
         )
-        let bottomInset = max(
-            isCompactHeight ? 10 : 24,
-            GameUITheme.bottomUnsafeInset(sceneSize: size, view: view) + (isCompactHeight ? 8 : 12)
+        feedbackPanel.update(size: CGSize(width: layout.informationRegionFrame.width, height: 56))
+        feedbackPanel.position = CGPoint(
+            x: layout.informationRegionFrame.midX,
+            y: layout.informationRegionFrame.midY
         )
-        let nodeRadius: CGFloat = isCompactHeight ? 8 : 15
-        let labelFontSize: CGFloat = isCompactHeight ? 9 : 12
-        let panelWidth = max(220, min(size.width - horizontalMargin * 2, 520))
-        let titlePanelSize = CGSize(width: panelWidth, height: isCompactHeight ? 46 : 66)
-        let feedbackPanelSize = CGSize(width: panelWidth, height: isCompactHeight ? 42 : 56)
-        let currentCityButtonSize = CGSize(width: isCompactHeight ? 70 : 82, height: isCompactHeight ? 30 : 36)
+        layoutFrames = (
+            scene: layout.sceneFrame,
+            titlePanel: layout.titleControlRegionFrame,
+            illustratedRegion: layout.illustratedMapRegionFrame,
+            feedbackPanel: CGRect(
+                x: feedbackPanel.position.x - layout.informationRegionFrame.width / 2,
+                y: feedbackPanel.position.y - 28,
+                width: layout.informationRegionFrame.width,
+                height: 56
+            )
+        )
+
         let showsCurrentCityButton = state.stageStatus == .battleActive
-
-        titlePanel.update(size: titlePanelSize)
-        feedbackPanel.update(size: feedbackPanelSize)
-        titlePanel.position = CGPoint(x: size.width / 2, y: size.height - topInset - titlePanelSize.height / 2)
-        feedbackPanel.position = CGPoint(x: size.width / 2, y: bottomInset + feedbackPanelSize.height / 2)
-
-        titleLabel.position = CGPoint(x: showsCurrentCityButton ? -currentCityButtonSize.width * 0.34 : 0, y: 0)
+        titleLabel.position = CGPoint(x: showsCurrentCityButton ? -27.88 : 0, y: 0)
         feedbackLabel.position = .zero
-        titleLabel.fontSize = isCompactHeight ? 21 : 28
-        feedbackLabel.fontSize = isCompactHeight ? 12 : 15
-        currentCityButtonLabel.fontSize = isCompactHeight ? 13 : 15
+        titleLabel.fontSize = 28
+        feedbackLabel.fontSize = 15
+        currentCityButtonLabel.fontSize = 15
         currentCityButton.isHidden = !showsCurrentCityButton
         layoutButton(
             currentCityButton,
             background: currentCityButtonBackground,
-            size: currentCityButtonSize,
+            size: layout.currentCityControlFrame.size,
             position: CGPoint(
-                x: titlePanel.position.x + titlePanelSize.width / 2 - currentCityButtonSize.width / 2 - 10,
-                y: titlePanel.position.y
+                x: layout.currentCityControlFrame.midX,
+                y: layout.currentCityControlFrame.midY
             )
         )
-        let titleLabelMaxWidth = titlePanelSize.width
-            - (showsCurrentCityButton ? currentCityButtonSize.width + 34 : 24)
+        let titleLabelMaxWidth = layout.titleControlRegionFrame.width
+            - (showsCurrentCityButton ? layout.currentCityControlFrame.width + 34 : 24)
         titleLabel.text = "Country \(state.countryNumber)"
         fitLabel(titleLabel, maxWidth: titleLabelMaxWidth)
-        fitLabel(currentCityButtonLabel, maxWidth: currentCityButtonSize.width - 18)
+        fitLabel(currentCityButtonLabel, maxWidth: layout.currentCityControlFrame.width - 18)
 
-        let illustratedTop = titlePanel.position.y - titlePanelSize.height / 2 - (isCompactHeight ? 8 : 18)
-        let illustratedBottom = feedbackPanel.position.y + feedbackPanelSize.height / 2 + (isCompactHeight ? 8 : 18)
-        let illustratedRegionFrame = CGRect(
-            x: horizontalMargin,
-            y: illustratedBottom,
-            width: max(1, size.width - horizontalMargin * 2),
-            height: max(1, illustratedTop - illustratedBottom)
-        )
+        drawRoutes(layout.routes)
 
-        layoutFrames = (
-            scene: CGRect(origin: .zero, size: size),
-            titlePanel: frame(centeredAt: titlePanel.position, size: titlePanelSize),
-            illustratedRegion: illustratedRegionFrame,
-            feedbackPanel: frame(centeredAt: feedbackPanel.position, size: feedbackPanelSize)
-        )
-
-        if let backdropNode {
-            layoutBackdrop(backdropNode)
-        }
-
-        let backdropFrame = backdropNode?.calculateAccumulatedFrame() ?? illustratedRegionFrame
-        let cityPositionFrame: CGRect
-        if isCompactHeight {
-            cityPositionFrame = illustratedRegionFrame
-        } else {
-            // On wide layouts (e.g. iPad landscape / split view) the cover-scaled
-            // portrait backdrop overflows far above and below the screen, so
-            // mapping the authored anchors across the full backdrop frame would
-            // place lower cities behind the feedback panel and upper cities
-            // behind the title panel. When the backdrop-aligned positions would
-            // not stay within the visible map area, fall back to the illustrated
-            // region (the same frame the compact path uses). On portrait phones
-            // the backdrop fits, so the anchors keep their authored alignment
-            // with the backdrop art.
-            let fitsVisibleRegion = cityPositions(in: backdropFrame).values.allSatisfy {
-                illustratedRegionFrame.contains($0)
-            }
-            cityPositionFrame = fitsVisibleRegion ? backdropFrame : illustratedRegionFrame
-        }
-        let positions = cityPositions(in: cityPositionFrame)
-        drawRoutes(positions: positions)
-
-        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
-            guard let position = positions[cityNumber] else {
-                continue
-            }
-
-            let baseScale = nodeRadius / 18
-            cityBaseScales[cityNumber] = baseScale
-            cityNodes[cityNumber]?.setScale(baseScale)
-            cityNodes[cityNumber]?.lineWidth = isCompactHeight ? 2 : 3
+        for (cityNumber, position) in layout.cityPositions {
+            cityBaseScales[cityNumber] = 1
+            cityNodes[cityNumber]?.setScale(1)
+            cityNodes[cityNumber]?.lineWidth = 3
             cityNodes[cityNumber]?.position = position
-            cityLabels[cityNumber]?.fontSize = labelFontSize
+            cityHitTargets[cityNumber]?.position = position
+            cityLabels[cityNumber]?.fontSize = 12
             cityLabels[cityNumber]?.position = position
             conqueredMarkers[cityNumber]?.position = CGPoint(
-                x: position.x + nodeRadius * 0.74,
-                y: position.y + nodeRadius * 0.62
+                x: position.x + 0.74 * 15,
+                y: position.y + 0.62 * 15
             )
-            conqueredMarkers[cityNumber]?.size = CGSize(width: nodeRadius * 1.35, height: nodeRadius * 1.35)
+            conqueredMarkers[cityNumber]?.size = CGSize(width: 1.35 * 15, height: 1.35 * 15)
         }
-
-        redraw()
-    }
-
-    private func layoutBackdrop(_ backdropNode: SKSpriteNode) {
-        backdropNode.setScale(1)
-        backdropNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
-
-        let scale = max(
-            size.width / max(1, backdropNode.size.width),
-            size.height / max(1, backdropNode.size.height)
-        )
-        backdropNode.setScale(scale)
-    }
-
-    private func frame(centeredAt center: CGPoint, size: CGSize) -> CGRect {
-        CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
     }
 
     private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
@@ -380,48 +359,17 @@ final class CountryMapScene: SKScene {
         }
     }
 
-    private func cityPositions(in mapFrame: CGRect) -> [Int: CGPoint] {
-        // Tie the authored anchor literal to the model's city count so a
-        // mismatch fails fast instead of producing an out-of-bounds crash on
-        // `authoredCityPadAnchors[cityNumber - 1]`. Runs in release builds too.
-        precondition(
-            Self.authoredCityPadAnchors.count == KingdomGameState.firstCountryCityCount,
-            "authoredCityPadAnchors has \(Self.authoredCityPadAnchors.count) entries but "
-                + "firstCountryCityCount is \(KingdomGameState.firstCountryCityCount)"
-        )
-        var positions: [Int: CGPoint] = [:]
-        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
-            let normalized = Self.authoredCityPadAnchors[cityNumber - 1]
-            positions[cityNumber] = CGPoint(
-                x: mapFrame.minX + normalized.x * mapFrame.width,
-                y: mapFrame.minY + normalized.y * mapFrame.height
-            )
-        }
-
-        return positions
-    }
-
-    private func drawRoutes(positions: [Int: CGPoint]) {
+    private func drawRoutes(_ routes: [CountryMapRouteLayout]) {
         routeLayer.removeAllChildren()
 
-        for cityNumber in 1..<KingdomGameState.firstCountryCityCount {
-            guard let start = positions[cityNumber], let end = positions[cityNumber + 1] else {
-                continue
-            }
-
-            routeLayer.addChild(routeLine(from: start, to: end, alpha: 0.9, width: 6))
-        }
-
-        for cityNumber in [3, 6, 9, 12] {
-            guard let origin = positions[cityNumber] else {
-                continue
-            }
-
-            let branchEnd = CGPoint(
-                x: origin.x + (cityNumber.isMultiple(of: 2) ? 44 : -44),
-                y: origin.y + 34
-            )
-            routeLayer.addChild(routeLine(from: origin, to: branchEnd, alpha: 0.38, width: 4))
+        for route in routes {
+            let alpha: CGFloat = route.lineWidth >= 6 ? 0.9 : 0.38
+            routeLayer.addChild(routeLine(
+                from: route.start,
+                to: route.end,
+                alpha: alpha,
+                width: route.lineWidth
+            ))
         }
     }
 
@@ -608,6 +556,18 @@ final class CountryMapScene: SKScene {
 
 #if DEBUG
 extension CountryMapScene {
+    var lastLayoutResultForTesting: CountryMapLayoutResult? {
+        lastLayoutResult
+    }
+
+    var countryMapLayoutForTesting: CountryMapLayout? {
+        countryMapLayout
+    }
+
+    var routeLayoutCountForTesting: Int {
+        routeLayer.children.count
+    }
+
     var mapLayoutFramesForTesting: CountryMapLayoutFrames {
         CountryMapLayoutFrames(
             sceneFrame: layoutFrames.scene,
@@ -641,6 +601,14 @@ extension CountryMapScene {
         cityLabels[cityNumber]?.position
     }
 
+    func cityHitFrameForTesting(_ cityNumber: Int) -> CGRect? {
+        cityHitTargets[cityNumber]?.frame
+    }
+
+    func conqueredMarkerFrameForTesting(_ cityNumber: Int) -> CGRect? {
+        conqueredMarkers[cityNumber]?.frame
+    }
+
     func cityVisualStateForTesting(_ cityNumber: Int) -> CountryMapCityVisualState? {
         cityVisualStates[cityNumber]
     }
@@ -665,15 +633,18 @@ extension CountryMapScene {
         currentCityButton.position
     }
 
+    var currentCityButtonFrameForTesting: CGRect {
+        CGRect(
+            x: currentCityButton.position.x - 41,
+            y: currentCityButton.position.y - 22,
+            width: 82,
+            height: 44
+        )
+    }
+
     func fitLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) {
         fitLabel(label, maxWidth: maxWidth)
     }
 
-    /// Number of authored city pad anchors. Exposed so tests can verify the
-    /// literal stays in sync with `KingdomGameState.firstCountryCityCount` —
-    /// a mismatch would trap in `cityPositions` via its `precondition`.
-    var authoredCityPadAnchorCountForTesting: Int {
-        Self.authoredCityPadAnchors.count
-    }
 }
 #endif

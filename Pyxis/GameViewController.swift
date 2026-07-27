@@ -44,6 +44,13 @@ final class GameViewController: UIViewController {
         true
     }
 
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        if let scene = (view as? SKView)?.scene as? CountryMapScene {
+            scene.refreshLayoutForCurrentEnvironment()
+        }
+    }
+
     private func configure(_ view: SKView) {
         view.ignoresSiblingOrder = true
         view.showsFPS = true
