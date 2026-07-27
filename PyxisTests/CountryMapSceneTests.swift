@@ -332,26 +332,40 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackTextForTesting == "Cannot enter city yet.")
     }
 
-    @Test func compactLandscapeLayoutKeepsCityNodesInsideMapArea() throws {
-        let size = CGSize(width: 667, height: 375)
-        let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
-            cityNumberInCountry: 1,
-            completedCityCount: 1,
-            stageStatus: .cityConqueredPendingMap
-        ))
-        let scene = makeScene(size: size, store: store, router: RouteSpy())
-        let topMapLimit = size.height - 64
+    @Test func unsupportedLandscapeDoesNotApplyPartialMapGeometry() throws {
+        let scene = makeScene(
+            size: CGSize(width: 667, height: 375),
+            store: try makeStore(initialState: .init()),
+            router: RouteSpy(),
+            environment: .init(safeAreaInsets: .zero, layoutClass: .phone)
+        )
 
-        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
-            let cityNode = try #require(scene.childNode(withName: "//countryMapCity-\(cityNumber)"))
-            let frame = cityNode.calculateAccumulatedFrame()
+        #expect(scene.lastLayoutResultForTesting == .unsupported(.unsupportedGeometry))
+        #expect(scene.routeLayoutCountForTesting == 0)
+    }
 
-            #expect(frame.minX >= 0)
-            #expect(frame.maxX <= size.width)
-            #expect(frame.minY >= 0)
-            #expect(frame.maxY <= topMapLimit)
-        }
+    @Test func supportedSceneProjectsTheProductionLayout() throws {
+        let scene = makeScene(
+            size: CGSize(width: 393, height: 852),
+            store: try makeStore(initialState: .init(
+                cityRemainingPower: 0,
+                cityNumberInCountry: 1,
+                completedCityCount: 1,
+                stageStatus: .cityConqueredPendingMap
+            )),
+            router: RouteSpy(),
+            environment: .init(
+                safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            )
+        )
+        let layout = try #require(scene.countryMapLayoutForTesting)
+
+        #expect(scene.mapLayoutFramesForTesting.sceneFrame == layout.sceneFrame)
+        #expect(scene.mapLayoutFramesForTesting.titlePanelFrame == layout.titleControlRegionFrame)
+        #expect(scene.mapLayoutFramesForTesting.illustratedRegionFrame == layout.illustratedMapRegionFrame)
+        #expect(scene.mapLayoutFramesForTesting.feedbackPanelFrame.midX == layout.informationRegionFrame.midX)
+        #expect(scene.mapLayoutFramesForTesting.feedbackPanelFrame.midY == layout.informationRegionFrame.midY)
     }
 
     @Test func fullBackdropMapLayoutKeepsTitleFeedbackAndAllCitiesVisible() throws {
@@ -363,17 +377,20 @@ struct CountryMapSceneTests {
             stageStatus: .cityConqueredPendingMap
         ))
         let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let layout = try #require(scene.countryMapLayoutForTesting)
         let frames = scene.mapLayoutFramesForTesting
 
-        #expect(frames.sceneFrame.contains(frames.titlePanelFrame))
-        #expect(frames.sceneFrame.contains(frames.feedbackPanelFrame))
-        #expect(frames.sceneFrame.contains(frames.illustratedRegionFrame))
+        #expect(frames.sceneFrame == layout.sceneFrame)
+        #expect(frames.titlePanelFrame == layout.titleControlRegionFrame)
+        #expect(frames.illustratedRegionFrame == layout.illustratedMapRegionFrame)
+        #expect(frames.feedbackPanelFrame.midX == layout.informationRegionFrame.midX)
+        #expect(frames.feedbackPanelFrame.midY == layout.informationRegionFrame.midY)
         #expect(frames.titlePanelFrame.minY > frames.illustratedRegionFrame.maxY)
         #expect(frames.feedbackPanelFrame.maxY < frames.illustratedRegionFrame.minY)
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
-            let cityNode = try #require(scene.childNode(withName: "//countryMapCity-\(cityNumber)"))
-            let frame = cityNode.calculateAccumulatedFrame()
+            let position = try #require(scene.cityNodePositionForTesting(cityNumber))
+            let frame = CGRect(x: position.x - 22, y: position.y - 22, width: 44, height: 44)
 
             #expect(frames.sceneFrame.contains(frame))
             #expect(!frames.titlePanelFrame.intersects(frame))
@@ -390,16 +407,16 @@ struct CountryMapSceneTests {
             stageStatus: .cityConqueredPendingMap
         ))
         let scene = makeScene(size: size, store: store, router: RouteSpy())
-        let frames = scene.mapLayoutFramesForTesting
+        let layout = try #require(scene.countryMapLayoutForTesting)
         let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
         let backdropFrame = backdrop.calculateAccumulatedFrame()
 
-        #expect(backdropFrame.minX <= 0)
-        #expect(backdropFrame.maxX >= size.width)
-        #expect(backdropFrame.minY <= 0)
-        #expect(backdropFrame.maxY >= size.height)
-        #expect(backdropFrame.contains(frames.titlePanelFrame))
-        #expect(backdropFrame.contains(frames.feedbackPanelFrame))
+        #expect(abs(backdropFrame.minX - layout.displayedBackdropFrame.minX) <= 0.001)
+        #expect(abs(backdropFrame.minY - layout.displayedBackdropFrame.minY) <= 0.001)
+        #expect(abs(backdropFrame.width - layout.displayedBackdropFrame.width) <= 0.001)
+        #expect(abs(backdropFrame.height - layout.displayedBackdropFrame.height) <= 0.001)
+        #expect(backdropFrame.contains(layout.titleControlRegionFrame))
+        #expect(backdropFrame.contains(layout.informationRegionFrame))
     }
 
     @Test func cityNodesAlignToAuthoredBackdropPads() throws {
@@ -411,31 +428,14 @@ struct CountryMapSceneTests {
             stageStatus: .cityConqueredPendingMap
         ))
         let scene = makeScene(size: size, store: store, router: RouteSpy())
-        let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
-        let backdropFrame = backdrop.calculateAccumulatedFrame()
-        let authoredPadAnchors = [
-            1: CGPoint(x: 0.4000, y: 0.1696),
-            2: CGPoint(x: 0.7528, y: 0.2020),
-            3: CGPoint(x: 0.6846, y: 0.2874),
-            4: CGPoint(x: 0.6904, y: 0.3721),
-            5: CGPoint(x: 0.2776, y: 0.2517),
-            6: CGPoint(x: 0.3518, y: 0.3386),
-            7: CGPoint(x: 0.4171, y: 0.4171),
-            8: CGPoint(x: 0.7078, y: 0.4598),
-            9: CGPoint(x: 0.7200, y: 0.6160),
-            10: CGPoint(x: 0.5894, y: 0.6473),
-            11: CGPoint(x: 0.3468, y: 0.5793),
-            12: CGPoint(x: 0.4225, y: 0.6725),
-            13: CGPoint(x: 0.3452, y: 0.7280),
-            14: CGPoint(x: 0.4865, y: 0.7651),
-            15: CGPoint(x: 0.6807, y: 0.7931)
-        ]
+        let layout = try #require(scene.countryMapLayoutForTesting)
 
-        for (cityNumber, anchor) in authoredPadAnchors {
+        for (index, anchor) in CountryMapLayoutDefinition.country1.cityAnchors.enumerated() {
+            let cityNumber = index + 1
             let cityPosition = try #require(scene.cityNodePositionForTesting(cityNumber))
             let expectedPosition = CGPoint(
-                x: backdropFrame.minX + backdropFrame.width * anchor.x,
-                y: backdropFrame.minY + backdropFrame.height * anchor.y
+                x: layout.displayedBackdropFrame.minX + layout.displayedBackdropFrame.width * anchor.x,
+                y: layout.displayedBackdropFrame.minY + layout.displayedBackdropFrame.height * anchor.y
             )
 
             #expect(abs(cityPosition.x - expectedPosition.x) <= 1.0)
@@ -443,58 +443,7 @@ struct CountryMapSceneTests {
         }
     }
 
-    @Test func wideLayoutClampsCityAnchorsToVisibleMapRegion() throws {
-        // Regression on iPad landscape / split view: the 1024×1536 portrait
-        // backdrop is cover-scaled by width, so its accumulated frame extends
-        // far above and below the screen. Positioning cities across that
-        // offscreen frame placed lower cities behind the feedback panel (or
-        // below the screen) and upper cities behind the title panel (or above
-        // it). The anchor frame must fall back to the visible map area on wide
-        // layouts instead of using the overflowing backdrop frame.
-        let size = CGSize(width: 1366, height: 1024)
-        let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
-            cityNumberInCountry: 1,
-            completedCityCount: 1,
-            stageStatus: .cityConqueredPendingMap
-        ))
-        let scene = makeScene(size: size, store: store, router: RouteSpy())
-        let frames = scene.mapLayoutFramesForTesting
-
-        // Sanity: this size actually triggers the overflow regime the fix
-        // targets — cover-scaling the portrait backdrop taller than the screen.
-        let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
-        let backdropFrame = backdrop.calculateAccumulatedFrame()
-        #expect(backdropFrame.height > size.height)
-
-        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
-            let cityNode = try #require(scene.childNode(withName: "//countryMapCity-\(cityNumber)"))
-            let frame = cityNode.calculateAccumulatedFrame()
-
-            #expect(frames.sceneFrame.contains(frame), "City \(cityNumber) escaped the scene on a wide layout")
-            #expect(!frames.titlePanelFrame.intersects(frame), "City \(cityNumber) overlapped the title panel")
-            #expect(!frames.feedbackPanelFrame.intersects(frame), "City \(cityNumber) overlapped the feedback panel")
-        }
-    }
-
-    @Test func authoredCityPadAnchorCountMatchesFirstCountryCityCount() throws {
-        // The `authoredCityPadAnchors` literal is indexed by `cityNumber - 1`
-        // where `cityNumber` ranges over `1...firstCountryCityCount`. A count
-        // mismatch would trap in `cityPositions` via its `precondition`; this
-        // test makes the coupling explicit so a future change to either side
-        // surfaces here rather than as a runtime crash.
-        let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
-            cityNumberInCountry: 1,
-            completedCityCount: 1,
-            stageStatus: .cityConqueredPendingMap
-        ))
-        let scene = makeScene(size: CGSize(width: 390, height: 844), store: store, router: RouteSpy())
-
-        #expect(scene.authoredCityPadAnchorCountForTesting == KingdomGameState.firstCountryCityCount)
-    }
-
-    @Test func illustratedRegionMapAvoidsTallPhoneSensorArea() throws {
+    @Test func semanticSafeAreaInsetsPositionMapChrome() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -502,13 +451,17 @@ struct CountryMapSceneTests {
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
         ))
-        let scene = makeScene(size: size, store: store, router: RouteSpy())
-        let frames = scene.mapLayoutFramesForTesting
+        let environment = CountryMapLayoutEnvironment(
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        )
+        let scene = makeScene(size: size, store: store, router: RouteSpy(), environment: environment)
+        let layout = try #require(scene.countryMapLayoutForTesting)
 
-        #expect(frames.titlePanelFrame.maxY <= size.height - 58)
-        #expect(frames.feedbackPanelFrame.minY >= 26)
-        #expect(frames.illustratedRegionFrame.maxY < frames.titlePanelFrame.minY)
-        #expect(frames.illustratedRegionFrame.minY > frames.feedbackPanelFrame.maxY)
+        #expect(layout.titleControlRegionFrame.maxY == size.height - 59 - 10)
+        #expect(layout.informationRegionFrame.minY == 34)
+        #expect(layout.illustratedMapRegionFrame.maxY < layout.titleControlRegionFrame.minY)
+        #expect(layout.illustratedMapRegionFrame.minY > layout.informationRegionFrame.maxY)
     }
 
     @Test func cityStateStylingDistinguishesCompletedUnlockedAndLocked() throws {
@@ -541,6 +494,63 @@ struct CountryMapSceneTests {
         #expect(scene.cityNumberAtPointForTesting(cityPoint) == 2)
     }
 
+    @Test func allCityCentersHave44PointHitTargets() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: .init(
+                cityRemainingPower: 0,
+                completedCityCount: 1,
+                stageStatus: .cityConqueredPendingMap
+            )),
+            router: RouteSpy()
+        )
+        for cityNumber in 1...15 {
+            let center = try #require(scene.cityNodePositionForTesting(cityNumber))
+            #expect(scene.cityNumberAtPointForTesting(center) == cityNumber)
+            #expect(scene.cityHitFrameForTesting(cityNumber)?.size == CGSize(width: 44, height: 44))
+            let clearanceFrame = CGRect(
+                x: center.x - 22,
+                y: center.y - 22,
+                width: 44,
+                height: 44
+            )
+            let markerFrame = try #require(
+                scene.conqueredMarkerFrameForTesting(cityNumber)
+            )
+            #expect(clearanceFrame.contains(markerFrame))
+        }
+    }
+
+    @Test func currentCityControlFrameIsInsideTitlePanel() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: .init(stageStatus: .battleActive)),
+            router: RouteSpy()
+        )
+        let layout = try #require(scene.countryMapLayoutForTesting)
+        #expect(layout.titleControlRegionFrame.contains(layout.currentCityControlFrame))
+        #expect(scene.currentCityButtonFrameForTesting == layout.currentCityControlFrame)
+    }
+
+    @Test func UIKitAdapterUsesIdiomAndPreservesSemanticInsets() throws {
+        let phone = try #require(CountryMapLayoutUIKitAdapter.environment(
+            safeAreaInsets: .init(top: 59, left: 3, bottom: 34, right: 5),
+            idiom: .phone
+        ))
+        #expect(phone.layoutClass == .phone)
+        #expect(phone.safeAreaInsets == .init(top: 59, left: 3, bottom: 34, right: 5))
+
+        let narrowPad = try #require(CountryMapLayoutUIKitAdapter.environment(
+            safeAreaInsets: .init(top: 24, left: 11, bottom: 20, right: 7),
+            idiom: .pad
+        ))
+        #expect(narrowPad.layoutClass == .pad)
+        #expect(narrowPad.safeAreaInsets == .init(top: 24, left: 11, bottom: 20, right: 7))
+
+        #expect(CountryMapLayoutUIKitAdapter.environment(
+            safeAreaInsets: .zero,
+            idiom: .unspecified
+        ) == nil)
+    }
+
     @Test func cityLabelCenterResolvesToCityNumber() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -555,14 +565,19 @@ struct CountryMapSceneTests {
     }
 
     @Test func titleLabelFitsWithinPanelOnFirstLayout() throws {
-        let size = CGSize(width: 320, height: 568)
+        let size = CGSize(width: 375, height: 667)
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
             cityNumberInCountry: 5,
             completedCityCount: 4,
             stageStatus: .cityConqueredPendingMap
         ))
-        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let scene = makeScene(
+            size: size,
+            store: store,
+            router: RouteSpy(),
+            environment: .init(safeAreaInsets: .zero, layoutClass: .phone)
+        )
         let frames = scene.mapLayoutFramesForTesting
 
         #expect(scene.titleLabelFrameWidthForTesting <= frames.titlePanelFrame.width)
@@ -570,7 +585,7 @@ struct CountryMapSceneTests {
     }
 
     @Test func titleLabelFitsWithCurrentCityButtonVisible() throws {
-        let size = CGSize(width: 320, height: 568)
+        let size = CGSize(width: 375, height: 667)
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 3,
             cityRemainingPower: 50,
@@ -578,7 +593,12 @@ struct CountryMapSceneTests {
             completedCityCount: 2,
             stageStatus: .battleActive
         ))
-        let scene = makeScene(size: size, store: store, router: RouteSpy())
+        let scene = makeScene(
+            size: size,
+            store: store,
+            router: RouteSpy(),
+            environment: .init(safeAreaInsets: .zero, layoutClass: .phone)
+        )
         let frames = scene.mapLayoutFramesForTesting
 
         // With the button visible, available title width is smaller — verify fitting works
@@ -734,16 +754,21 @@ struct CountryMapSceneTests {
         }
     }
 
-    private func makeScene(store: KingdomGameStore, router: CountryMapSceneRouting?) -> CountryMapScene {
-        makeScene(size: CGSize(width: 390, height: 844), store: store, router: router)
-    }
-
     private func makeScene(
-        size: CGSize,
+        size: CGSize = CGSize(width: 393, height: 852),
         store: KingdomGameStore,
-        router: CountryMapSceneRouting?
+        router: CountryMapSceneRouting?,
+        environment: CountryMapLayoutEnvironment = .init(
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        )
     ) -> CountryMapScene {
-        let scene = CountryMapScene(size: size, store: store, router: router)
+        let scene = CountryMapScene(
+            size: size,
+            store: store,
+            router: router,
+            layoutEnvironmentOverride: environment
+        )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene
