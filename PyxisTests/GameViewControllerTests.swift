@@ -1,3 +1,4 @@
+import Foundation
 import SpriteKit
 import Testing
 import UIKit
@@ -5,6 +6,42 @@ import UIKit
 
 @MainActor
 struct GameViewControllerTests {
+    @Test func controllerOrientationPolicyMatchesApprovedMatrix() {
+        #expect(GameViewController.interfaceOrientations(for: .phone) == .portrait)
+        #expect(GameViewController.interfaceOrientations(for: .pad)
+            == [.portrait, .portraitUpsideDown])
+        #expect(GameViewController.interfaceOrientations(for: .unspecified) == .portrait)
+        #expect(GameViewController().preferredInterfaceOrientationForPresentation == .portrait)
+    }
+
+    @Test func generatedInfoPlistMatchesApprovedOrientationMatrix() throws {
+        let appBundle = try #require(Bundle.allBundles.first {
+            $0.bundleIdentifier == "cwchanap.Pyxis"
+        })
+        let infoURL = try #require(
+            appBundle.url(forResource: "Info", withExtension: "plist")
+        )
+        let infoData = try Data(contentsOf: infoURL)
+        let info = try #require(
+            try PropertyListSerialization.propertyList(
+                from: infoData,
+                format: nil
+            ) as? [String: Any]
+        )
+        let phone = Set(try #require(
+            info["UISupportedInterfaceOrientations~iphone"] as? [String]
+        ))
+        let pad = Set(try #require(
+            info["UISupportedInterfaceOrientations~ipad"] as? [String]
+        ))
+
+        #expect(phone == ["UIInterfaceOrientationPortrait"])
+        #expect(pad == [
+            "UIInterfaceOrientationPortrait",
+            "UIInterfaceOrientationPortraitUpsideDown"
+        ])
+    }
+
     @Test func unsupportedGeometryPausesAndBlocksThenResumesWithoutBattleStateMutation() throws {
         let initialState = KingdomGameState(gold: 37)
         let store = try makeStore(initialState: initialState)
