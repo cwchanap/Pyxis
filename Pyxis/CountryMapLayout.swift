@@ -69,7 +69,8 @@ struct CountryMapLayout: Equatable {
         guard constraints.sceneSize.width >= 375,
               constraints.sceneSize.height >= 667,
               constraints.sceneSize.width.isFinite,
-              constraints.sceneSize.height.isFinite
+              constraints.sceneSize.height.isFinite,
+              constraints.sceneSize.height > constraints.sceneSize.width
         else {
             return .unsupported(.unsupportedGeometry)
         }
