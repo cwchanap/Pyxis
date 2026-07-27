@@ -46,12 +46,23 @@ final class GameViewController: UIViewController {
         refreshLayoutSupport()
     }
 
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            return .allButUpsideDown
-        } else {
-            return .all
+    static func interfaceOrientations(
+        for idiom: UIUserInterfaceIdiom
+    ) -> UIInterfaceOrientationMask {
+        switch idiom {
+        case .pad:
+            return [.portrait, .portraitUpsideDown]
+        default:
+            return .portrait
         }
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        Self.interfaceOrientations(for: view.traitCollection.userInterfaceIdiom)
+    }
+
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        .portrait
     }
 
     override var prefersStatusBarHidden: Bool {
