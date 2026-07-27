@@ -87,6 +87,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
     private var didBuildInterface = false
     private var isObservingLifecycle = false
     private var isLayoutGatePaused = false
+    private var isSystemBackgrounded = false
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
     private var selectedSlot: Int?
     private var feedbackText = "Select a city lot."
@@ -760,6 +761,9 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
 
         let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result
+        if isSystemBackgrounded {
+            state.enterBackground(at: date)
+        }
         store.save(state)
         applyIdleProgressFeedback(result)
         redraw()
@@ -769,7 +773,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
         guard isLayoutGatePaused else { return }
         isLayoutGatePaused = false
 
-        if state.stageStatus == .battleActive {
+        if state.stageStatus == .battleActive && !isSystemBackgrounded {
             state.markCurrentCityBuildingProgressInactive(at: date)
         }
         store.save(state)
@@ -805,6 +809,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
     }
 
     private func handleSceneDidEnterBackground(at date: Date) {
+        isSystemBackgrounded = true
         if isLayoutGatePaused {
             state.enterBackground(at: date)
         }
@@ -812,6 +817,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
     }
 
     private func handleSceneWillEnterForeground(at date: Date) {
+        isSystemBackgrounded = false
         let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result
         if state.stageStatus == .battleActive && !isLayoutGatePaused {

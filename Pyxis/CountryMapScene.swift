@@ -52,6 +52,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     private var didBuildInterface = false
     private var isObservingLifecycle = false
     private var isLayoutGatePaused = false
+    private var isSystemBackgrounded = false
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
 
     private(set) var lastLayoutResult: CountryMapLayoutResult?
@@ -306,6 +307,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
 
         let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result
+        if isSystemBackgrounded {
+            state.enterBackground(at: date)
+        }
         store.save(state)
         applyIdleProgressFeedback(result)
         redraw()
@@ -315,7 +319,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
         guard isLayoutGatePaused else { return }
         isLayoutGatePaused = false
 
-        if state.stageStatus == .battleActive {
+        if state.stageStatus == .battleActive && !isSystemBackgrounded {
             state.markCurrentCityBuildingProgressInactive(at: date)
         }
         store.save(state)
@@ -485,8 +489,16 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     private func redraw() {
         titleLabel.text = "Country \(state.countryNumber)"
         feedbackLabel.text = feedbackText
-        currentCityButton.isHidden = (state.stageStatus != .battleActive)
 
+        guard countryMapLayout != nil else {
+            currentCityButton.isHidden = true
+            for marker in conqueredMarkers.values {
+                marker.isHidden = true
+            }
+            return
+        }
+
+        currentCityButton.isHidden = (state.stageStatus != .battleActive)
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             applyVisualState(visualState(for: cityNumber), to: cityNumber)
         }
@@ -636,6 +648,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     }
 
     private func handleSceneDidEnterBackground(at date: Date) {
+        isSystemBackgrounded = true
         if isLayoutGatePaused {
             state.enterBackground(at: date)
         }
@@ -643,6 +656,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     }
 
     private func handleSceneWillEnterForeground(at date: Date) {
+        isSystemBackgrounded = false
         let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result
         if state.stageStatus == .battleActive && !isLayoutGatePaused {

@@ -349,21 +349,29 @@ struct CountryMapSceneTests {
         let scene = makeScene(
             size: supportedSize,
             store: try makeStore(initialState: .init(
-                cityRemainingPower: 0,
-                cityNumberInCountry: 1,
+                cityNumberInCountry: 2,
                 completedCityCount: 1,
-                stageStatus: .cityConqueredPendingMap
+                stageStatus: .battleActive
             )),
             router: RouteSpy()
         )
         let originalCityPoint = try #require(scene.cityNodePositionForTesting(2))
         let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
         let city = try #require(scene.childNode(withName: "//countryMapCity-2"))
+        var conqueredMarker: SKSpriteNode?
+        scene.enumerateChildNodes(withName: "//countryMapCity-1") { node, stop in
+            guard let marker = node as? SKSpriteNode else { return }
+            conqueredMarker = marker
+            stop.pointee = true
+        }
+        let marker = try #require(conqueredMarker)
 
         #expect(scene.lastLayoutResultForTesting != .unsupported(.unsupportedGeometry))
         #expect(scene.routeLayoutCountForTesting == 18)
         #expect(!backdrop.isHidden)
         #expect(!city.isHidden)
+        #expect(!scene.isCurrentCityButtonHiddenForTesting)
+        #expect(!marker.isHidden)
         #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == 2)
 
         scene.size = CGSize(width: 667, height: 375)
@@ -377,16 +385,28 @@ struct CountryMapSceneTests {
         #expect(scene.mapLayoutFramesForTesting.feedbackPanelFrame == .zero)
         #expect(backdrop.isHidden)
         #expect(city.isHidden)
+        #expect(scene.isCurrentCityButtonHiddenForTesting)
+        #expect(marker.isHidden)
+        #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == nil)
+
+        scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 10))
+
+        #expect(scene.routeLayoutCountForTesting == 0)
+        #expect(scene.isCurrentCityButtonHiddenForTesting)
+        #expect(marker.isHidden)
         #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == nil)
 
         scene.size = supportedSize
         scene.refreshLayoutForCurrentEnvironment()
+        scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 20))
 
         let restoredCityPoint = try #require(scene.cityNodePositionForTesting(2))
         #expect(scene.lastLayoutResultForTesting != .unsupported(.unsupportedGeometry))
         #expect(scene.routeLayoutCountForTesting == 18)
         #expect(!backdrop.isHidden)
         #expect(!city.isHidden)
+        #expect(!scene.isCurrentCityButtonHiddenForTesting)
+        #expect(!marker.isHidden)
         #expect(scene.cityNumberAtPointForTesting(restoredCityPoint) == 2)
     }
 
@@ -837,6 +857,58 @@ struct CountryMapSceneTests {
         scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
         #expect(store.load().lastBackgroundedAt
             == origin.addingTimeInterval(30))
+    }
+
+    @Test func backgroundThenMapGateResumeWhileBackgroundedPreservesEveryInterval() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 5_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store, router: nil)
+
+        scene.sceneDidEnterBackgroundForTesting(
+            at: origin.addingTimeInterval(10)
+        )
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(15))
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 15)
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(15))
+
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(20))
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(15))
+
+        scene.sceneWillEnterForegroundForTesting(
+            at: origin.addingTimeInterval(25)
+        )
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(25))
+    }
+
+    @Test func mapGateThenBackgroundResumeWhileBackgroundedExcludesForegroundGateTime() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 6_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store, router: nil)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+        scene.sceneDidEnterBackgroundForTesting(
+            at: origin.addingTimeInterval(15)
+        )
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(20))
+
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(15))
+
+        scene.sceneWillEnterForegroundForTesting(
+            at: origin.addingTimeInterval(25)
+        )
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(25))
     }
 
     private final class RouteSpy: CountryMapSceneRouting {
