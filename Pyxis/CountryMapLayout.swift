@@ -1,0 +1,219 @@
+import CoreGraphics
+
+struct CountryMapSafeAreaInsets: Equatable {
+    let top: CGFloat
+    let left: CGFloat
+    let bottom: CGFloat
+    let right: CGFloat
+
+    static let zero = CountryMapSafeAreaInsets(top: 0, left: 0, bottom: 0, right: 0)
+}
+
+enum CountryMapLayoutClass: Equatable {
+    case phone
+    case pad
+
+    var informationRegionHeight: CGFloat {
+        self == .phone ? 64 : 112
+    }
+}
+
+struct CountryMapLayoutEnvironment: Equatable {
+    let safeAreaInsets: CountryMapSafeAreaInsets
+    let layoutClass: CountryMapLayoutClass
+}
+
+struct CountryMapLayoutConstraints: Equatable {
+    let sceneSize: CGSize
+    let environment: CountryMapLayoutEnvironment
+    let definition: CountryMapLayoutDefinition
+}
+
+struct CountryMapRouteLayout: Equatable {
+    let start: CGPoint
+    let end: CGPoint
+    let lineWidth: CGFloat
+
+    var strokeExpandedBounds: CGRect {
+        CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
+        ).insetBy(dx: -lineWidth / 2, dy: -lineWidth / 2)
+    }
+}
+
+enum CountryMapLayoutFailureReason: Equatable {
+    case unsupportedGeometry
+    case invalidAuthoredData
+}
+
+enum CountryMapLayoutResult: Equatable {
+    case supported(CountryMapLayout)
+    case unsupported(CountryMapLayoutFailureReason)
+}
+
+struct CountryMapLayout: Equatable {
+    let sceneFrame: CGRect
+    let displayedBackdropFrame: CGRect
+    let titleControlRegionFrame: CGRect
+    let currentCityControlFrame: CGRect
+    let informationRegionFrame: CGRect
+    let illustratedMapRegionFrame: CGRect
+    let cityPositions: [Int: CGPoint]
+    let routes: [CountryMapRouteLayout]
+
+    static func compute(_ constraints: CountryMapLayoutConstraints) -> CountryMapLayoutResult {
+        let sceneFrame = CGRect(origin: .zero, size: constraints.sceneSize)
+        guard constraints.sceneSize.width >= 375,
+              constraints.sceneSize.height >= 667,
+              constraints.sceneSize.width.isFinite,
+              constraints.sceneSize.height.isFinite
+        else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        let definition = constraints.definition
+        let source = definition.canonicalBackdropSize
+        guard source.width.isFinite,
+              source.height.isFinite,
+              source.width > 0,
+              source.height > 0,
+              definition.cityAnchors.count == 15,
+              definition.primaryRoutes.count == 14,
+              definition.cityAnchors.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }),
+              definition.primaryRoutes.allSatisfy({
+                  (1...15).contains($0.startCityNumber)
+                      && (1...15).contains($0.endCityNumber)
+                      && $0.lineWidth.isFinite
+                      && $0.lineWidth > 0
+              }),
+              definition.branches.allSatisfy({
+                  (1...15).contains($0.originCityNumber)
+                      && $0.offset.dx.isFinite
+                      && $0.offset.dy.isFinite
+                      && $0.lineWidth.isFinite
+                      && $0.lineWidth > 0
+              })
+        else {
+            return .unsupported(.invalidAuthoredData)
+        }
+
+        let insets = constraints.environment.safeAreaInsets
+        guard [insets.top, insets.left, insets.bottom, insets.right].allSatisfy({ $0.isFinite && $0 >= 0 }) else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        let scale = max(
+            constraints.sceneSize.width / source.width,
+            constraints.sceneSize.height / source.height
+        )
+        let backdropSize = CGSize(width: source.width * scale, height: source.height * scale)
+        let displayedBackdropFrame = CGRect(
+            x: (constraints.sceneSize.width - backdropSize.width) / 2,
+            y: (constraints.sceneSize.height - backdropSize.height) / 2,
+            width: backdropSize.width,
+            height: backdropSize.height
+        )
+
+        let topMargin = max(34, insets.top + 10)
+        let titleWidth = max(220, min(constraints.sceneSize.width - 40, 520))
+        let titleControlRegionFrame = CGRect(
+            x: (constraints.sceneSize.width - titleWidth) / 2,
+            y: constraints.sceneSize.height - topMargin - 66,
+            width: titleWidth,
+            height: 66
+        )
+        let currentCityControlFrame = CGRect(
+            x: titleControlRegionFrame.maxX - 10 - 82,
+            y: titleControlRegionFrame.midY - 22,
+            width: 82,
+            height: 44
+        )
+
+        let informationWidth = min(constraints.sceneSize.width - 32, 600)
+        let informationRegionFrame = CGRect(
+            x: (constraints.sceneSize.width - informationWidth) / 2,
+            y: insets.bottom,
+            width: informationWidth,
+            height: constraints.environment.layoutClass.informationRegionHeight
+        )
+        let illustratedMapRegionFrame = CGRect(
+            x: sceneFrame.minX,
+            y: informationRegionFrame.maxY + 8,
+            width: sceneFrame.width,
+            height: titleControlRegionFrame.minY - informationRegionFrame.maxY - 16
+        )
+
+        guard sceneFrame.contains(titleControlRegionFrame),
+              sceneFrame.contains(currentCityControlFrame),
+              titleControlRegionFrame.contains(currentCityControlFrame),
+              sceneFrame.contains(informationRegionFrame),
+              isFinite(displayedBackdropFrame),
+              isFinite(illustratedMapRegionFrame),
+              !illustratedMapRegionFrame.isNull,
+              !illustratedMapRegionFrame.isEmpty
+        else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        var cityPositions: [Int: CGPoint] = [:]
+        for (index, anchor) in definition.cityAnchors.enumerated() {
+            cityPositions[index + 1] = CGPoint(
+                x: displayedBackdropFrame.minX + anchor.x * displayedBackdropFrame.width,
+                y: displayedBackdropFrame.minY + anchor.y * displayedBackdropFrame.height
+            )
+        }
+
+        guard cityPositions.values.allSatisfy({ position in
+            illustratedMapRegionFrame.contains(CGRect(
+                x: position.x - 22,
+                y: position.y - 22,
+                width: 44,
+                height: 44
+            ))
+        }) else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        let primaryRoutes = definition.primaryRoutes.map { route in
+            CountryMapRouteLayout(
+                start: cityPositions[route.startCityNumber]!,
+                end: cityPositions[route.endCityNumber]!,
+                lineWidth: route.lineWidth
+            )
+        }
+        let branchRoutes = definition.branches.map { branch in
+            let start = cityPositions[branch.originCityNumber]!
+            return CountryMapRouteLayout(
+                start: start,
+                end: CGPoint(x: start.x + branch.offset.dx, y: start.y + branch.offset.dy),
+                lineWidth: branch.lineWidth
+            )
+        }
+        let routes = primaryRoutes + branchRoutes
+
+        guard routes.allSatisfy({ illustratedMapRegionFrame.contains($0.strokeExpandedBounds) }) else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        return .supported(CountryMapLayout(
+            sceneFrame: sceneFrame,
+            displayedBackdropFrame: displayedBackdropFrame,
+            titleControlRegionFrame: titleControlRegionFrame,
+            currentCityControlFrame: currentCityControlFrame,
+            informationRegionFrame: informationRegionFrame,
+            illustratedMapRegionFrame: illustratedMapRegionFrame,
+            cityPositions: cityPositions,
+            routes: routes
+        ))
+    }
+
+    private static func isFinite(_ frame: CGRect) -> Bool {
+        frame.minX.isFinite
+            && frame.minY.isFinite
+            && frame.width.isFinite
+            && frame.height.isFinite
+    }
+}
