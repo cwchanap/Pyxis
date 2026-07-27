@@ -240,8 +240,7 @@ final class CountryMapScene: SKScene {
             ?? view.flatMap({ CountryMapLayoutUIKitAdapter.environment(for: $0) })
         else {
             lastLayoutResult = .unsupported(.unsupportedGeometry)
-            countryMapLayout = nil
-            routeLayer.removeAllChildren()
+            clearLayoutGeometry()
             return
         }
 
@@ -253,8 +252,7 @@ final class CountryMapScene: SKScene {
         lastLayoutResult = result
 
         guard case .supported(let layout) = result else {
-            countryMapLayout = nil
-            routeLayer.removeAllChildren()
+            clearLayoutGeometry()
             return
         }
 
@@ -267,8 +265,44 @@ final class CountryMapScene: SKScene {
         layoutInterface()
     }
 
+    private func clearLayoutGeometry() {
+        countryMapLayout = nil
+        layoutFrames = (.zero, .zero, .zero, .zero)
+        routeLayer.removeAllChildren()
+
+        backdropNode?.isHidden = true
+        backdropNode?.size = .zero
+        backdropNode?.position = .zero
+        titlePanel.isHidden = true
+        titlePanel.update(size: .zero)
+        titlePanel.position = .zero
+        feedbackPanel.isHidden = true
+        feedbackPanel.update(size: .zero)
+        feedbackPanel.position = .zero
+        currentCityButton.isHidden = true
+        currentCityButton.position = .zero
+        currentCityButtonBackground.path = nil
+
+        cityBaseScales.removeAll()
+        cityVisualStates.removeAll()
+        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
+            cityNodes[cityNumber]?.removeAction(forKey: ActionKey.unlockedPulse)
+            cityNodes[cityNumber]?.isHidden = true
+            cityNodes[cityNumber]?.position = .zero
+            cityNodes[cityNumber]?.setScale(1)
+            cityHitTargets[cityNumber]?.isHidden = true
+            cityHitTargets[cityNumber]?.position = .zero
+            cityLabels[cityNumber]?.isHidden = true
+            cityLabels[cityNumber]?.position = .zero
+            conqueredMarkers[cityNumber]?.isHidden = true
+            conqueredMarkers[cityNumber]?.position = .zero
+            conqueredMarkers[cityNumber]?.size = .zero
+        }
+    }
+
     private func apply(_ layout: CountryMapLayout) {
         if let backdropNode {
+            backdropNode.isHidden = false
             backdropNode.setScale(1)
             backdropNode.size = layout.displayedBackdropFrame.size
             backdropNode.position = CGPoint(
@@ -278,11 +312,13 @@ final class CountryMapScene: SKScene {
         }
 
         titlePanel.update(size: layout.titleControlRegionFrame.size)
+        titlePanel.isHidden = false
         titlePanel.position = CGPoint(
             x: layout.titleControlRegionFrame.midX,
             y: layout.titleControlRegionFrame.midY
         )
         feedbackPanel.update(size: CGSize(width: layout.informationRegionFrame.width, height: 56))
+        feedbackPanel.isHidden = false
         feedbackPanel.position = CGPoint(
             x: layout.informationRegionFrame.midX,
             y: layout.informationRegionFrame.midY
@@ -326,11 +362,15 @@ final class CountryMapScene: SKScene {
         for (cityNumber, position) in layout.cityPositions {
             cityBaseScales[cityNumber] = 1
             cityNodes[cityNumber]?.setScale(1)
+            cityNodes[cityNumber]?.isHidden = false
             cityNodes[cityNumber]?.lineWidth = 3
             cityNodes[cityNumber]?.position = position
+            cityHitTargets[cityNumber]?.isHidden = false
             cityHitTargets[cityNumber]?.position = position
+            cityLabels[cityNumber]?.isHidden = false
             cityLabels[cityNumber]?.fontSize = 12
             cityLabels[cityNumber]?.position = position
+            conqueredMarkers[cityNumber]?.isHidden = false
             conqueredMarkers[cityNumber]?.position = CGPoint(
                 x: position.x + 0.74 * 15,
                 y: position.y + 0.62 * 15

@@ -344,6 +344,52 @@ struct CountryMapSceneTests {
         #expect(scene.routeLayoutCountForTesting == 0)
     }
 
+    @Test func unsupportedTransitionClearsAndSupportedTransitionRestoresMapGeometry() throws {
+        let supportedSize = CGSize(width: 393, height: 852)
+        let scene = makeScene(
+            size: supportedSize,
+            store: try makeStore(initialState: .init(
+                cityRemainingPower: 0,
+                cityNumberInCountry: 1,
+                completedCityCount: 1,
+                stageStatus: .cityConqueredPendingMap
+            )),
+            router: RouteSpy()
+        )
+        let originalCityPoint = try #require(scene.cityNodePositionForTesting(2))
+        let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
+        let city = try #require(scene.childNode(withName: "//countryMapCity-2"))
+
+        #expect(scene.lastLayoutResultForTesting != .unsupported(.unsupportedGeometry))
+        #expect(scene.routeLayoutCountForTesting == 18)
+        #expect(!backdrop.isHidden)
+        #expect(!city.isHidden)
+        #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == 2)
+
+        scene.size = CGSize(width: 667, height: 375)
+        scene.refreshLayoutForCurrentEnvironment()
+
+        #expect(scene.lastLayoutResultForTesting == .unsupported(.unsupportedGeometry))
+        #expect(scene.routeLayoutCountForTesting == 0)
+        #expect(scene.mapLayoutFramesForTesting.sceneFrame == .zero)
+        #expect(scene.mapLayoutFramesForTesting.titlePanelFrame == .zero)
+        #expect(scene.mapLayoutFramesForTesting.illustratedRegionFrame == .zero)
+        #expect(scene.mapLayoutFramesForTesting.feedbackPanelFrame == .zero)
+        #expect(backdrop.isHidden)
+        #expect(city.isHidden)
+        #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == nil)
+
+        scene.size = supportedSize
+        scene.refreshLayoutForCurrentEnvironment()
+
+        let restoredCityPoint = try #require(scene.cityNodePositionForTesting(2))
+        #expect(scene.lastLayoutResultForTesting != .unsupported(.unsupportedGeometry))
+        #expect(scene.routeLayoutCountForTesting == 18)
+        #expect(!backdrop.isHidden)
+        #expect(!city.isHidden)
+        #expect(scene.cityNumberAtPointForTesting(restoredCityPoint) == 2)
+    }
+
     @Test func supportedSceneProjectsTheProductionLayout() throws {
         let scene = makeScene(
             size: CGSize(width: 393, height: 852),
