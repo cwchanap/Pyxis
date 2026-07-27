@@ -91,6 +91,22 @@ struct CountryMapLayoutTests {
         ) == .unsupported(.unsupportedGeometry))
     }
 
+    @Test func largeWidthAtLeastHeightIsRejectedIndependentOfAuthoredPlacement() {
+        let source = CountryMapLayoutDefinition.country1
+        let centeredDefinition = CountryMapLayoutDefinition(
+            canonicalBackdropSize: source.canonicalBackdropSize,
+            cityAnchors: Array(repeating: CGPoint(x: 0.5, y: 0.5), count: 15),
+            primaryRoutes: source.primaryRoutes,
+            branches: source.branches
+        )
+
+        #expect(CountryMapLayout.compute(.init(
+            sceneSize: CGSize(width: 2_000, height: 1_000),
+            environment: .init(safeAreaInsets: .zero, layoutClass: .phone),
+            definition: centeredDefinition
+        )) == .unsupported(.unsupportedGeometry))
+    }
+
     @Test func semanticInsetsAreNotSwappedOrSynthesized() throws {
         let upright = try supportedLayout(
             size: CGSize(width: 834, height: 1194),
