@@ -83,7 +83,12 @@ struct CountryMapLayout: Equatable {
               source.height > 0,
               definition.cityAnchors.count == 15,
               definition.primaryRoutes.count == 14,
-              definition.cityAnchors.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }),
+              definition.cityAnchors.allSatisfy({
+                  $0.x.isFinite
+                      && $0.y.isFinite
+                      && (0...1).contains($0.x)
+                      && (0...1).contains($0.y)
+              }),
               definition.primaryRoutes.allSatisfy({
                   (1...15).contains($0.startCityNumber)
                       && (1...15).contains($0.endCityNumber)
