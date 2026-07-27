@@ -4,7 +4,7 @@
 
 **Goal:** Replace the Country 1 map's compact/wide fallback with one tested portrait layout contract and an app-wide blocking gate for unsupported geometry.
 
-**Architecture:** A CoreGraphics-only layout engine owns canonical Country 1 data, computes every map frame and route atomically, and rejects invalid definitions or unsupported windows without partial output. `CountryMapScene` renders only supported output, while `GameViewController` applies the same policy app-wide through a UIKit overlay and resets `BattleScene`'s frame clock before resuming.
+**Architecture:** A CoreGraphics-only layout engine owns canonical Country 1 data, computes every map frame and route atomically, and rejects invalid definitions or unsupported windows without partial output. `CountryMapScene` renders only supported output, while `GameViewController` applies the same policy app-wide through a UIKit overlay and invokes dated scene hooks so gate-only time advances neither Battle combat nor inactive building production.
 
 **Tech Stack:** Swift 5, CoreGraphics, SpriteKit, UIKit, Swift Testing, Xcode project build settings
 
@@ -16,8 +16,9 @@
 - The backdrop uniformly aspect-fills the scene; no alternate anchor frame, clamping, or non-uniform scale is allowed.
 - Supported geometry has a 375×667 base floor and must pass all computed chrome, city-frame, and route bounds.
 - Every city has a centered 44×44-point interaction and clearance frame.
-- The information region is 76 points high on phone and 112 points high on iPad.
+- The information region is 64 points high on phone and 112 points high on iPad.
 - The illustrated map region is the full-width corridor from `informationRegion.maxY + 8` through `titleControlRegion.minY - 8`.
+- Every representative supported fixture retains at least 8 additional points of city-frame headroom inside the illustrated map region.
 - Safe-area inputs are live semantic UIKit edge distances with no synthetic tall-phone substitution or upside-down swap.
 - Unsupported geometry copy is “Pyxis needs a supported portrait window. Rotate or resize to continue.”
 - Tests and verification run with parallel testing disabled.
@@ -35,7 +36,8 @@
 - Modify `Pyxis/CountryMapScene.swift` to apply `CountryMapLayout` output and report map unavailability.
 - Modify `PyxisTests/CountryMapSceneTests.swift` to consume production layout output and remove fallback expectations.
 - Modify `Pyxis/GameViewController.swift` to own orientation policy, overlay state, and pause/resume sequencing.
-- Modify `Pyxis/BattleScene.swift` and `PyxisTests/BattleSceneTests.swift` for the gate-resume clock hook.
+- Modify `Pyxis/BattleScene.swift`, `Pyxis/CountryMapScene.swift`, and `Pyxis/BuildingViewScene.swift` for dated gate lifecycle hooks.
+- Modify `PyxisTests/BattleSceneTests.swift`, `PyxisTests/CountryMapSceneTests.swift`, and `PyxisTests/BuildingViewSceneTests.swift` for gate-time exclusion.
 - Modify `Pyxis.xcodeproj/project.pbxproj` to narrow the generated Info.plist orientation declarations.
 
 ### Task 1: Build the pure Country 1 layout engine
@@ -184,12 +186,13 @@ private struct Fixture {
 
 private let supportedFixtures = [
     Fixture(name: "small phone", size: .init(width: 375, height: 667), insets: .zero, layoutClass: .phone),
+    Fixture(name: "iPhone 12/13 mini", size: .init(width: 375, height: 812), insets: .init(top: 50, left: 0, bottom: 34, right: 0), layoutClass: .phone),
     Fixture(name: "modern phone", size: .init(width: 393, height: 852), insets: .init(top: 59, left: 0, bottom: 34, right: 0), layoutClass: .phone),
     Fixture(name: "large phone", size: .init(width: 440, height: 956), insets: .init(top: 62, left: 0, bottom: 34, right: 0), layoutClass: .phone),
     Fixture(name: "iPad mini", size: .init(width: 744, height: 1133), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
     Fixture(name: "11-inch iPad", size: .init(width: 834, height: 1194), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
     Fixture(name: "13-inch iPad", size: .init(width: 1032, height: 1376), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "Stage Manager", size: .init(width: 600, height: 1000), insets: .init(top: 28, left: 0, bottom: 20, right: 0), layoutClass: .pad),
+    Fixture(name: "Stage Manager", size: .init(width: 600, height: 1008), insets: .init(top: 28, left: 0, bottom: 20, right: 0), layoutClass: .pad),
     Fixture(name: "narrow iPad", size: .init(width: 480, height: 1194), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad)
 ]
 
@@ -242,6 +245,7 @@ For every supported fixture, require `.supported`, then assert:
 #expect(layout.cityPositions.count == 15)
 #expect(layout.routes.count == 18)
 
+var minimumCityHeadroom = CGFloat.greatestFiniteMagnitude
 for position in layout.cityPositions.values {
     let cityFrame = CGRect(
         x: position.x - 22,
@@ -250,7 +254,15 @@ for position in layout.cityPositions.values {
         height: 44
     )
     #expect(layout.illustratedMapRegionFrame.contains(cityFrame))
+    let headroom = [
+        cityFrame.minX - layout.illustratedMapRegionFrame.minX,
+        layout.illustratedMapRegionFrame.maxX - cityFrame.maxX,
+        cityFrame.minY - layout.illustratedMapRegionFrame.minY,
+        layout.illustratedMapRegionFrame.maxY - cityFrame.maxY
+    ].min() ?? -.greatestFiniteMagnitude
+    minimumCityHeadroom = min(minimumCityHeadroom, headroom)
 }
+#expect(minimumCityHeadroom >= 8)
 
 for route in layout.routes {
     #expect(layout.illustratedMapRegionFrame.contains(route.strokeExpandedBounds))
@@ -283,7 +295,7 @@ enum CountryMapLayoutClass: Equatable {
     case pad
 
     var informationRegionHeight: CGFloat {
-        self == .phone ? 76 : 112
+        self == .phone ? 64 : 112
     }
 }
 
@@ -387,7 +399,7 @@ let currentCityControlFrame = CGRect(
     height: 44
 )
 
-let informationWidth = max(0, min(constraints.sceneSize.width - 32, 600))
+let informationWidth = min(constraints.sceneSize.width - 32, 600)
 let informationRegionFrame = CGRect(
     x: (constraints.sceneSize.width - informationWidth) / 2,
     y: constraints.environment.safeAreaInsets.bottom,
@@ -401,6 +413,11 @@ let illustratedMapRegionFrame = CGRect(
     height: titleControlRegionFrame.minY - informationRegionFrame.maxY - 16
 )
 ```
+
+Keep 34 as the intentional non-notched title baseline. Raising it back to the
+current scene's 42-point value consumes the 375×667 fixture's top headroom.
+The 16-point information-region side margins are likewise intentional and
+separate from the title panel's 20-point margins.
 
 Map anchors into `displayedBackdropFrame`, create 14 primary routes plus four
 fixed-offset branches, and reject as `.unsupportedGeometry` when:
@@ -452,6 +469,24 @@ Add tests proving:
         Issue.record("480×1194 must satisfy the complete invariant set")
         return
     }
+}
+
+@Test func iPhoneMiniRetainsEightPointsOfFixtureHeadroom() throws {
+    let layout = try supportedLayout(
+        size: CGSize(width: 375, height: 812),
+        insets: .init(top: 50, left: 0, bottom: 34, right: 0),
+        layoutClass: .phone
+    )
+    let city1 = try #require(layout.cityPositions[1])
+    let city1Frame = CGRect(
+        x: city1.x - 22,
+        y: city1.y - 22,
+        width: 44,
+        height: 44
+    )
+
+    #expect(layout.informationRegionFrame.height == 64)
+    #expect(city1Frame.minY - layout.illustratedMapRegionFrame.minY >= 8)
 }
 ```
 
@@ -779,6 +814,16 @@ the title panel. Add assertions:
         let center = try #require(scene.cityNodePositionForTesting(cityNumber))
         #expect(scene.cityNumberAtPointForTesting(center) == cityNumber)
         #expect(scene.cityHitFrameForTesting(cityNumber)?.size == CGSize(width: 44, height: 44))
+        let clearanceFrame = CGRect(
+            x: center.x - 22,
+            y: center.y - 22,
+            width: 44,
+            height: 44
+        )
+        let markerFrame = try #require(
+            scene.conqueredMarkerFrameForTesting(cityNumber)
+        )
+        #expect(clearanceFrame.contains(markerFrame))
     }
 }
 
@@ -792,6 +837,25 @@ the title panel. Add assertions:
     #expect(scene.currentCityButtonFrameForTesting == layout.currentCityControlFrame)
 }
 ```
+
+Because conquered markers remain direct children of the untransformed
+`cityLayer`, expose their parent-coordinate frame directly:
+
+```swift
+func conqueredMarkerFrameForTesting(_ cityNumber: Int) -> CGRect? {
+    conqueredMarkers[cityNumber]?.frame
+}
+```
+
+Keep the production marker calculation at 15-point radius:
+
+```swift
+let markerCenter = CGPoint(x: position.x + 0.74 * 15, y: position.y + 0.62 * 15)
+let markerSize = CGSize(width: 1.35 * 15, height: 1.35 * 15)
+```
+
+The resulting farthest extents are 21.225 points horizontally and 19.425
+points vertically, which must remain inside the 22-point half-frame.
 
 - [ ] **Step 6: Run pure and scene suites and commit**
 
@@ -817,7 +881,7 @@ git add Pyxis/CountryMapLayoutUIKitAdapter.swift Pyxis/CountryMapScene.swift Pyx
 git commit -m "refactor: render country map from canonical layout"
 ```
 
-### Task 3: Add the app-wide layout gate and safe resume hook
+### Task 3: Add the app-wide layout gate and dated scene lifecycle hooks
 
 **Files:**
 - Create: `Pyxis/AppLayoutGateView.swift`
@@ -825,13 +889,16 @@ git commit -m "refactor: render country map from canonical layout"
 - Modify: `Pyxis/GameViewController.swift:11-123`
 - Modify: `Pyxis/CountryMapScene.swift:10-202`
 - Modify: `PyxisTests/CountryMapSceneTests.swift:700-770`
+- Modify: `Pyxis/BuildingViewScene.swift:747-792`
+- Modify: `PyxisTests/BuildingViewSceneTests.swift`
 - Modify: `Pyxis/BattleScene.swift:90-110,283-299,2778-3355`
 - Modify: `PyxisTests/BattleSceneTests.swift`
 
 **Interfaces:**
 - Consumes: `CountryMapLayout.compute(_:)` and `CountryMapLayoutUIKitAdapter`
 - Produces: `AppLayoutGateReason`
-- Produces: `LayoutGateResumable.prepareForLayoutGateResume()`
+- Produces: `LayoutGateLifecycleHandling.layoutGateWillPause(at:)`
+- Produces: `LayoutGateLifecycleHandling.layoutGateWillResume(at:)`
 - Produces: `CountryMapSceneRouting.countryMapScene(_:didRequestLayoutGate:)`
 - Produces: app-wide pause, input interception, and automatic supported-geometry restoration
 
@@ -847,7 +914,7 @@ import UIKit
 
 @MainActor
 struct GameViewControllerTests {
-    @Test func unsupportedGeometryPausesAndBlocksThenResumesWithoutStateMutation() throws {
+    @Test func unsupportedGeometryPausesAndBlocksThenResumesWithoutBattleStateMutation() throws {
         let initialState = KingdomGameState(gold: 37)
         let store = try makeStore(initialState: initialState)
         let controller = GameViewController(store: store)
@@ -978,8 +1045,9 @@ enum AppLayoutGateReason: Equatable {
     }
 }
 
-protocol LayoutGateResumable: AnyObject {
-    func prepareForLayoutGateResume()
+protocol LayoutGateLifecycleHandling: AnyObject {
+    func layoutGateWillPause(at date: Date)
+    func layoutGateWillResume(at date: Date)
 }
 
 final class AppLayoutGateView: UIView {
@@ -1025,6 +1093,22 @@ In `GameViewController`, add:
 private let layoutGateView = AppLayoutGateView()
 private var requestedMapGateReason: AppLayoutGateReason?
 private var activeLayoutGateReason: AppLayoutGateReason?
+private let now: () -> Date
+
+init(
+    store: KingdomGameStore = .shared,
+    now: @escaping () -> Date = Date.init
+) {
+    self.store = store
+    self.now = now
+    super.init(nibName: nil, bundle: nil)
+}
+
+required init?(coder: NSCoder) {
+    self.store = .shared
+    self.now = Date.init
+    super.init(coder: coder)
+}
 
 override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
@@ -1074,6 +1158,10 @@ private func refreshLayoutSupport(
 
 ```swift
 if let reason {
+    if activeLayoutGateReason == nil {
+        (skView.scene as? LayoutGateLifecycleHandling)?
+            .layoutGateWillPause(at: now())
+    }
     skView.isPaused = true
     skView.scene?.isUserInteractionEnabled = false
     activeLayoutGateReason = reason
@@ -1087,7 +1175,8 @@ if let reason {
 }
 
 if activeLayoutGateReason != nil {
-    (skView.scene as? LayoutGateResumable)?.prepareForLayoutGateResume()
+    (skView.scene as? LayoutGateLifecycleHandling)?
+        .layoutGateWillResume(at: now())
 }
 layoutGateView.removeFromSuperview()
 activeLayoutGateReason = nil
@@ -1216,7 +1305,7 @@ Add this test to `BattleSceneTests`:
     scene.update(10)
     #expect(scene.lastUpdateTimeForTesting == 10)
 
-    scene.prepareForLayoutGateResume()
+    scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 20))
     #expect(scene.lastUpdateTimeForTesting == nil)
 
     scene.update(10_000)
@@ -1230,7 +1319,9 @@ Track the last raw delta only for the DEBUG test projection:
 ```swift
 private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
 
-func prepareForLayoutGateResume() {
+func layoutGateWillPause(at date: Date) {}
+
+func layoutGateWillResume(at date: Date) {
     lastUpdateTime = nil
 }
 ```
@@ -1238,10 +1329,259 @@ func prepareForLayoutGateResume() {
 Set `lastAdvanceCombatDeltaForTestingStorage = deltaTime` at the start of
 `advanceCombat(deltaTime:)` under `#if DEBUG`, expose it with
 `lastUpdateTimeForTesting`, and clear it in
-`prepareForLayoutGateResume()`. Conform `BattleScene` to
-`LayoutGateResumable`; no other scene needs a resume hook.
+`layoutGateWillResume(at:)`. Conform `BattleScene` to
+`LayoutGateLifecycleHandling`.
 
-- [ ] **Step 7: Run gate, map, and battle regression suites**
+- [ ] **Step 7: Exclude gate-only time from Country Map and Building View production**
+
+Both non-battle scenes intentionally count ordinary time away from battle as
+inactive building production. A layout gate is different: settle the
+already-earned interval when the gate appears, exclude the gate-only interval,
+then re-arm inactive progress at the instant the gate disappears. Repeated
+layout callbacks must be idempotent.
+
+Add this helper and these tests to `CountryMapSceneTests`:
+
+```swift
+private func makeIdleAccruingState(since date: Date) -> KingdomGameState {
+    var state = KingdomGameState()
+    state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
+        slots: [1: CityBuilding(type: .barracks)],
+        lastBuildingProgressResolvedAt: date
+    )
+    state.markCurrentCityBuildingProgressInactive(at: date)
+    return state
+}
+
+@Test func layoutGateSettlesThenExcludesMapGateOnlyTime() throws {
+    let origin = Date(timeIntervalSinceReferenceDate: 1_000)
+    let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+    let scene = makeScene(store: store, router: nil)
+
+    scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+    #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+    scene.layoutGateWillPause(at: origin.addingTimeInterval(20))
+    #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+    scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+    scene.layoutGateWillResume(at: origin.addingTimeInterval(35))
+
+    var resumed = store.load()
+    #expect(resumed.lastBackgroundedAt == origin.addingTimeInterval(30))
+    let postGate = resumed.returnFromBackground(
+        at: origin.addingTimeInterval(40)
+    )
+    #expect(postGate.elapsedSeconds == 10)
+}
+
+@Test func realBackgroundNestedInsideMapGateCountsOnlySystemBackgroundTime() throws {
+    let origin = Date(timeIntervalSinceReferenceDate: 2_000)
+    let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+    let scene = makeScene(store: store, router: nil)
+
+    scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+    scene.sceneDidEnterBackgroundForTesting(
+        at: origin.addingTimeInterval(15)
+    )
+    scene.sceneWillEnterForegroundForTesting(
+        at: origin.addingTimeInterval(25)
+    )
+
+    #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+    #expect(store.load().lastBackgroundedAt == nil)
+
+    scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+    #expect(store.load().lastBackgroundedAt
+        == origin.addingTimeInterval(30))
+}
+```
+
+Add the same helper and equivalent tests to `BuildingViewSceneTests`; only the
+scene construction differs:
+
+```swift
+@Test func layoutGateSettlesThenExcludesBuildingViewGateOnlyTime() throws {
+    let origin = Date(timeIntervalSinceReferenceDate: 3_000)
+    let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+    let scene = makeScene(store: store)
+
+    scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+    #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+    scene.layoutGateWillPause(at: origin.addingTimeInterval(20))
+    #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+    scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+    scene.layoutGateWillResume(at: origin.addingTimeInterval(35))
+
+    var resumed = store.load()
+    #expect(resumed.lastBackgroundedAt == origin.addingTimeInterval(30))
+    let postGate = resumed.returnFromBackground(
+        at: origin.addingTimeInterval(40)
+    )
+    #expect(postGate.elapsedSeconds == 10)
+}
+
+@Test func realBackgroundNestedInsideBuildingGateCountsOnlySystemBackgroundTime() throws {
+    let origin = Date(timeIntervalSinceReferenceDate: 4_000)
+    let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+    let scene = makeScene(store: store)
+
+    scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+    scene.sceneDidEnterBackgroundForTesting(
+        at: origin.addingTimeInterval(15)
+    )
+    scene.sceneWillEnterForegroundForTesting(
+        at: origin.addingTimeInterval(25)
+    )
+
+    #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+    #expect(store.load().lastBackgroundedAt == nil)
+
+    scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+    #expect(store.load().lastBackgroundedAt
+        == origin.addingTimeInterval(30))
+}
+```
+
+Add this storage to both scenes, then implement the protocol:
+
+```swift
+private var isLayoutGatePaused = false
+private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
+```
+
+```swift
+func layoutGateWillPause(at date: Date) {
+    guard !isLayoutGatePaused else { return }
+    isLayoutGatePaused = true
+
+    let result = state.returnFromBackground(at: date)
+    lastIdleProgressResult = result
+    store.save(state)
+    applyIdleProgressFeedback(result)
+    redraw()
+}
+
+func layoutGateWillResume(at date: Date) {
+    guard isLayoutGatePaused else { return }
+    isLayoutGatePaused = false
+
+    if state.stageStatus == .battleActive {
+        state.markCurrentCityBuildingProgressInactive(at: date)
+    }
+    store.save(state)
+    redraw()
+}
+```
+
+`BuildingViewScene` already has `applyIdleProgressFeedback`. Add the equivalent
+helper to `CountryMapScene`:
+
+```swift
+private func applyIdleProgressFeedback(
+    _ result: KingdomGameState.IdleProgressResult
+) {
+    guard result.elapsedSeconds > 0 else { return }
+
+    if result.conqueredCities > 0 {
+        feedbackText = defaultFeedbackText(for: state)
+    } else if result.damageDealt > 0 {
+        feedbackText = "Buildings dealt \(result.damageDealt) idle damage."
+    } else {
+        feedbackText = "No building damage while away."
+    }
+}
+```
+
+Refactor the notification selectors in both scenes through dated handlers:
+
+```swift
+@objc private func sceneDidEnterBackground(_ notification: Notification) {
+    handleSceneDidEnterBackground(at: Date())
+}
+
+@objc private func sceneWillEnterForeground(_ notification: Notification) {
+    handleSceneWillEnterForeground(at: Date())
+}
+
+private func handleSceneDidEnterBackground(at date: Date) {
+    if isLayoutGatePaused {
+        state.enterBackground(at: date)
+    }
+    store.save(state)
+}
+
+private func handleSceneWillEnterForeground(at date: Date) {
+    let result = state.returnFromBackground(at: date)
+    lastIdleProgressResult = result
+    if state.stageStatus == .battleActive && !isLayoutGatePaused {
+        state.markCurrentCityBuildingProgressInactive(at: date)
+    }
+    store.save(state)
+    applyIdleProgressFeedback(result)
+    redraw()
+}
+```
+
+The conditional `enterBackground` preserves the existing ordinary map/building
+contract: when no layout gate is active, foreground resolution still covers the
+whole interval away from battle. When a gate is active, its entry settlement
+has cleared the old marker, so the real system-background notification starts a
+new marker at the actual background time. Foreground resolves that real
+interval but does not re-arm while the gate remains active; gate resume does so
+later.
+
+`CountryMapScene` must add the same guarded lifecycle observer registration
+already used by `BuildingViewScene`, call it from `didMove(to:)`, and remove
+observers on deinit:
+
+```swift
+private var isObservingLifecycle = false
+
+deinit {
+    NotificationCenter.default.removeObserver(self)
+}
+
+private func observeLifecycleNotificationsIfNeeded() {
+    guard !isObservingLifecycle else { return }
+    NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(sceneDidEnterBackground),
+        name: .pyxisSceneDidEnterBackground,
+        object: nil
+    )
+    NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(sceneWillEnterForeground),
+        name: .pyxisSceneWillEnterForeground,
+        object: nil
+    )
+    isObservingLifecycle = true
+}
+```
+
+Expose only these DEBUG seams in each scene:
+
+```swift
+var lastIdleProgressResultForTesting: KingdomGameState.IdleProgressResult {
+    lastIdleProgressResult
+}
+
+func sceneDidEnterBackgroundForTesting(at date: Date) {
+    handleSceneDidEnterBackground(at: date)
+}
+
+func sceneWillEnterForegroundForTesting(at date: Date) {
+    handleSceneWillEnterForeground(at: date)
+}
+```
+
+Conform `CountryMapScene` and `BuildingViewScene` to
+`LayoutGateLifecycleHandling`.
+
+- [ ] **Step 8: Run gate, map, building, and battle regression suites**
 
 Run:
 
@@ -1253,17 +1593,19 @@ xcodebuild test \
   -parallel-testing-enabled NO \
   -only-testing:PyxisTests/GameViewControllerTests \
   -only-testing:PyxisTests/CountryMapSceneTests \
+  -only-testing:PyxisTests/BuildingViewSceneTests \
   -only-testing:PyxisTests/BattleSceneTests
 ```
 
-Expected: all three suites pass, including supported → unsupported → supported,
-map-unavailable separation, state preservation, and zero paused-time combat
-delta.
+Expected: all four suites pass, including supported → unsupported → supported,
+map-unavailable separation, Battle state preservation, zero paused-time combat
+delta, gate-only production exclusion, and exact nested system-background
+accounting in both non-battle scenes.
 
-- [ ] **Step 8: Commit the app-wide gate**
+- [ ] **Step 9: Commit the app-wide gate**
 
 ```bash
-git add Pyxis/AppLayoutGateView.swift Pyxis/GameViewController.swift Pyxis/CountryMapScene.swift Pyxis/BattleScene.swift PyxisTests/GameViewControllerTests.swift PyxisTests/CountryMapSceneTests.swift PyxisTests/BattleSceneTests.swift
+git add Pyxis/AppLayoutGateView.swift Pyxis/GameViewController.swift Pyxis/CountryMapScene.swift Pyxis/BuildingViewScene.swift Pyxis/BattleScene.swift PyxisTests/GameViewControllerTests.swift PyxisTests/CountryMapSceneTests.swift PyxisTests/BuildingViewSceneTests.swift PyxisTests/BattleSceneTests.swift
 git commit -m "feat: gate unsupported app layouts"
 ```
 
@@ -1445,12 +1787,14 @@ Expected: the complete UI-test target passes.
 
 - [ ] **Step 4: Perform the supported-layout smoke matrix**
 
-Check 375×667 phone and 1032×1376 iPad portrait:
+Check 375×667 phone, 375×812 iPhone 12/13 mini, and 1032×1376 iPad
+portrait:
 
 ```text
 - Cities 1, 8, and 15 are visible and tappable.
 - Every city remains centered on its illustrated pad.
 - The title/current-city control and information region do not overlap the route.
+- Every city frame retains at least 8 points of headroom inside the illustrated region.
 - iPad upside-down portrait preserves semantic top and bottom placement.
 - Returning from a gate preserves gold, city HP, buildings, and campaign status.
 ```
@@ -1459,10 +1803,12 @@ On iPad windowing, additionally check:
 
 ```text
 - 480×1194 is interactive.
-- 600×1000 is interactive.
+- 600×1008 is interactive.
 - 375×1194 shows the blocking resize gate.
 - 678×834 shows the blocking resize gate.
 - While gated, taps do not reach SpriteKit and combat does not advance.
+- Map/building production earned before the gate settles once; gate-only time earns nothing.
+- A real background interval nested inside the gate still receives normal idle credit.
 ```
 
 - [ ] **Step 5: Review the complete branch against the specification**
@@ -1478,18 +1824,21 @@ git diff origin/main...HEAD -- \
   Pyxis/CountryMapScene.swift \
   Pyxis/AppLayoutGateView.swift \
   Pyxis/GameViewController.swift \
+  Pyxis/BuildingViewScene.swift \
   Pyxis/BattleScene.swift \
   Pyxis.xcodeproj/project.pbxproj \
   PyxisTests/CountryMapLayoutTests.swift \
   PyxisTests/CountryMapSceneTests.swift \
   PyxisTests/GameViewControllerTests.swift \
+  PyxisTests/BuildingViewSceneTests.swift \
   PyxisTests/BattleSceneTests.swift
 ```
 
 Confirm each specification section has a corresponding implementation and
 test: orientation matrix, canonical backdrop mapping, explicit illustrated
 region, safe-area adapter, persistent information region, invalid-data path,
-app-wide gate, resume hook, and fixture matrix.
+app-wide gate, dated scene hooks, gate-only production exclusion, real
+background overlap, and fixture matrix.
 
 - [ ] **Step 6: Post the completion evidence to Linear**
 
@@ -1510,13 +1859,14 @@ Implementation:
 - Pure fixture-tested layout computation
 - Persistent phone/iPad information region
 - App-wide blocking gate for unsupported geometry
-- Battle clock reset before gate resume
+- Dated scene hooks that exclude gate-only combat and building production
+- Real system-background accounting preserved while the gate is visible
 
 Verification:
 - SwiftLint: [result]
 - Unit tests: [result]
 - UI tests: [result]
-- Manual smoke: [devices and window sizes]
+- Manual smoke: [devices and window sizes, including 375×812 and 600×1008]
 
 Spec: docs/superpowers/specs/2026-07-26-country-map-layout-support-design.md
 Plan: docs/superpowers/plans/2026-07-27-country-map-layout-support.md

@@ -104,12 +104,13 @@ Representative supported fixtures are:
 | Class | Scene size | Test safe insets (top/bottom) |
 | --- | --- | --- |
 | Smallest supported phone | 375×667 | 0/0 |
+| iPhone 12/13 mini | 375×812 | 50/34 |
 | Modern phone | 393×852 | 59/34 |
 | Large phone | 440×956 | 62/34 |
 | iPad mini portrait | 744×1133 | 24/20 |
 | 11-inch iPad portrait | 834×1194 | 24/20 |
 | 13-inch iPad portrait | 1032×1376 | 24/20 |
-| Stage Manager/resizable iPad window | 600×1000 | 28/20 |
+| Stage Manager/resizable iPad window | 600×1008 | 28/20 |
 | Narrow portrait iPad window | 480×1194 | 24/20 |
 
 Representative unsupported fixtures are:
@@ -129,11 +130,28 @@ every system configuration. The fixture list is test coverage, while the four
 validation rules are the runtime authority. Unexpected safe-area or window
 configurations fail closed to the unsupported-layout gate.
 
+Every representative supported fixture must retain at least 8 points of
+additional city-frame headroom inside the illustrated map region after the
+runtime containment rules pass. This is a regression budget for authored
+constants, not an additional runtime rejection rule for intermediate window
+sizes.
+
 The 375×667 dimension floor is necessary but not sufficient. For a
 height-driven aspect-fill window, City 2 is the horizontally limiting city.
 Keeping its complete 44-point frame inside the scene requires approximately
 `sceneWidth >= 44 + 0.33707 * sceneHeight`. The invariant computation remains
 the authority instead of reducing support to a fixed minimum width.
+
+City 1 supplies the corresponding bottom constraint:
+
+```text
+0.1696 * sceneHeight - 22
+    >= semanticBottomInset + informationRegionHeight + 8
+```
+
+For the 375×812 mini fixture with a 34-point bottom inset, a 76-point phone
+information region misses this bound by 2.285 points. The 64-point phone region
+passes it with 9.715 points of additional fixture headroom.
 
 ## Canonical Map Geometry
 
@@ -216,8 +234,9 @@ The top region keeps the current 66-point title panel. It contains:
 
 Its width is `max(220, min(sceneWidth - 40, 520))`, centered horizontally.
 Its top margin is `max(34, semanticTopInset + 10)`, so its bottom edge is
-`sceneHeight - topMargin - 66`. City render and interaction frames, including
-City 15, must clear the region by at least 8 points.
+`sceneHeight - topMargin - 66`. The 34-point non-notched baseline intentionally
+moves the current 42-point baseline upward; it is load-bearing on the 375×667
+fixture and is not a cosmetic constant to restore independently.
 
 The current-city control receives an interaction frame of at least 44×44
 points. Its complete interaction frame must remain inside the title panel, so
@@ -228,12 +247,15 @@ the panel is the single title/control exclusion region.
 A persistent bottom information region is reserved for current and future map
 information:
 
-- 76 points high on iPhone;
+- 64 points high on iPhone;
 - 112 points high on iPad; and
 - positioned above the effective bottom safe-area inset.
 
-Its width is `max(0, min(sceneWidth - 32, 600))`, centered horizontally, and
-its bottom edge is the semantic bottom safe-area inset.
+Its width is `min(sceneWidth - 32, 600)`, centered horizontally, and its bottom
+edge is the semantic bottom safe-area inset. The 16-point side margins are an
+intentional expansion from the current title-matched 20-point margins, not a
+fallback calculation. The 375-point width floor makes this width positive
+before the region is computed.
 
 The region is always present even before the Scout or Chronicle feature is
 implemented. Until then, the existing feedback panel is horizontally and
@@ -245,9 +267,8 @@ Transient locked/completed feedback uses an overlay layer centered inside this
 region, above the unchanged underlying card in z order. It does not move the
 map, title, city anchors, or underlying card.
 
-City render and interaction frames, including City 1, must clear the region by
-at least 8 points. If the reserved region does not fit without violating this
-invariant, the geometry is unsupported and the gate appears.
+If the reserved region does not leave a valid illustrated map region, the
+geometry is unsupported and the gate appears.
 
 ### Illustrated map region
 
@@ -263,8 +284,11 @@ width = sceneFrame.width
 
 The region is invalid when `maxY < minY`. Every complete city interaction
 frame and every route segment's stroke-expanded bounds must be contained
-inside this rectangle. Because the backdrop aspect-fills the scene, this
-region is also fully covered by the displayed backdrop.
+inside this rectangle. This full-width rectangle is the sole clearance
+authority; separate distance checks against the narrower title and information
+panel rectangles are not equivalent and are not used. Because the backdrop
+aspect-fills the scene, this region is also fully covered by the displayed
+backdrop.
 
 ### Supported city chrome
 
@@ -273,12 +297,19 @@ Supported layouts use one non-compact map chrome:
 - 15-point city-node radius;
 - 12-point city-number labels;
 - 66-point title panel;
-- 76-point iPhone information region; and
+- 64-point iPhone information region; and
 - 112-point iPad information region.
 
 Each city receives a centered 44×44-point interaction/clearance frame. That
 frame includes the rendered node, label, and conquered marker for exclusion
 validation and provides a stable minimum tap target.
+
+At the 15-point city radius, the conquered marker's center offset is
+`(0.74 * 15, 0.62 * 15)` and its square side is `1.35 * 15`. Its farthest
+extent is therefore 21.225 points horizontally and 19.425 points vertically,
+leaving 0.775 and 2.575 points inside the 22-point half-frame. Scene tests lock
+that derived containment so a later radius or marker-size change cannot
+silently invalidate the pure layout contract.
 
 The current `isCompactHeight` branch and its alternate node, font, panel, and
 anchor-frame rules are removed. Heights below the supported layout floor show
@@ -361,9 +392,11 @@ The project orientation declarations become:
 
 `GameViewController.supportedInterfaceOrientations` returns the matching mask.
 `GameViewController.preferredInterfaceOrientationForPresentation` returns
-`.portrait` for full-screen initial presentation. It does not request a
-persistent interface-orientation lock because iPad must remain free to rotate
-between its two supported portrait directions.
+`.portrait` as an advisory preference for presentation contexts that consult
+it. The generated Info.plist declarations and
+`supportedInterfaceOrientations` mask are authoritative for the root window.
+The controller does not request a persistent interface-orientation lock because
+iPad must remain free to rotate between its two supported portrait directions.
 
 The UIKit adapter maps `view.traitCollection.userInterfaceIdiom` directly:
 `.phone` produces the phone layout class, `.pad` produces the iPad layout
@@ -377,13 +410,21 @@ geometry. The overlay:
 - says “Pyxis needs a supported portrait window. Rotate or resize to
   continue.”;
 - intercepts all input;
-- pauses SpriteKit gameplay while visible;
+- sets `SKView.isPaused = true` while visible, suppressing SpriteKit
+  `update(_:)` delivery;
 - contains no gameplay actions; and
 - disappears automatically when geometry becomes supported.
 
-The controller uses the Country 1 map layout policy as the app-wide geometry
-floor because the map is the most restrictive scene and the product decision
-applies app-wide.
+The controller intentionally uses the Country 1 map layout policy as the
+app-wide product floor. This is a chosen support contract, not a minimum
+derived from the defensive Battle or Building layouts. Those scenes may render
+at smaller sizes in isolated tests while the normally mounted app still gates
+them.
+
+HPA-117 covers the only implemented country map. A future country must define
+and review its own authored layout policy and update the app-wide support
+contract and fixture matrix before shipping; it does not implicitly inherit
+Country 1's anchors, nor does this work pre-build a multi-country union policy.
 
 `BattleScene` and `BuildingViewScene` may retain their defensive compact-layout
 math for direct scene tests and unexpected isolated use. The controller gate is
@@ -406,30 +447,41 @@ or interactive window resize:
    latest `SKView.bounds.size`, live safe-area values, and interface idiom.
 2. Compute the complete Country 1 `CountryMapLayout` policy regardless of which
    gameplay scene is mounted.
-3. If unsupported, pause SpriteKit, disable scene input, and show the blocking
-   overlay.
+3. On the supported-to-unsupported transition, call the mounted scene's dated
+   gate-pause hook, set `SKView.isPaused = true`, disable scene input, and show
+   the blocking overlay.
 4. If supported, apply any scene layout while the overlay still intercepts
-   input, invoke the narrow gate-resume hook, hide the overlay, enable scene
-   input, and then resume SpriteKit.
+   input, invoke the dated gate-resume hook, hide the overlay, enable scene
+   input, and finally set `SKView.isPaused = false`.
 
 The currently presented scene remains mounted. Returning from unsupported to
 supported geometry recomputes from authoritative state and anchors; it does not
 reuse transformed positions from the unsupported size.
 
-Showing or hiding the gate never loads, saves, or mutates
-`KingdomGameState`. Time spent behind the gate is an explicit gameplay pause,
-not offline/background production.
+The gated wall-clock interval itself never awards resources, applies damage, or
+advances campaign state. Entering the gate from `CountryMapScene` or
+`BuildingViewScene` may settle building production already earned before the
+gate appeared, and leaving it re-arms inactive building progress from the
+resume time. Those dated bookkeeping mutations are required to exclude the
+gated interval rather than accidentally treating it as offline production.
 
-Before unpausing, `GameViewController` calls a narrow gate-resume hook on the
-presented scene when it supports one. `BattleScene` implements that hook by
-setting `lastUpdateTime` to `nil`. Its first resumed `update(_:)` call then
-primes the timestamp and applies no combat delta, preventing the foreground
-pause interval from becoming one giant combat tick.
+`LayoutGateLifecycleHandling` provides
+`layoutGateWillPause(at:)` and `layoutGateWillResume(at:)`:
 
-If the app actually enters the system background while the layout gate is
-visible, the existing scene lifecycle notifications still run. Normal
-background and foreground idle-production rules, including the eight-hour cap,
-remain authoritative for that system-background interval.
+- `BattleScene` performs no pause mutation and sets `lastUpdateTime = nil` on
+  resume. Its first resumed `update(_:)` primes the timestamp and applies no
+  combat delta.
+- `CountryMapScene` and `BuildingViewScene` settle their legitimate pre-gate
+  inactive-building interval at gate entry, save the result, and re-arm
+  inactive progress at gate exit only when battle remains active.
+- Repeated layout callbacks while already gated do not settle or re-arm again.
+
+If the app actually enters the system background while the gate is visible,
+the mounted scene starts inactive progress at the real background timestamp,
+resolves it at the real foreground timestamp, and does not re-arm until the
+layout gate later resumes. Existing idle-production rules, including the
+eight-hour cap, remain authoritative for that true system-background interval;
+the gate-only intervals before and after it remain excluded.
 
 ## Failure Handling
 
@@ -455,12 +507,16 @@ For every supported fixture:
 - the backdrop uniformly aspect-fills all scene edges;
 - all 15 positions match the canonical displayed-backdrop mapping within
   1 point;
-- all city render and interaction frames remain inside the scene;
-- all city frames clear the title/control and information regions by at least
-  8 points;
+- every complete city render and interaction frame is contained inside the
+  illustrated map region;
 - route geometry remains inside the illustrated map region; and
 - title, the complete current-city interaction frame, and the information
   region remain inside safe bounds.
+
+Each representative supported fixture also asserts at least 8 points of
+additional city-frame headroom inside the illustrated map region. The
+375×812 mini fixture specifically guards the bottom constraint that the prior
+76-point information region violated.
 
 For every unsupported fixture, the result is unsupported and no partial
 position set is returned.
@@ -480,10 +536,16 @@ pure layout computation without producing partial geometry.
 - The existing feedback panel is centered inside the information region.
 - Supported → unsupported → supported resizing toggles the gate atomically.
 - Gate input never reaches SpriteKit nodes.
-- SpriteKit pauses while gated and resumes afterward.
+- `SKView.isPaused` is true while gated and false after resuming.
 - The first resumed `BattleScene.update(_:)` primes its clock and applies zero
   paused-time combat delta.
-- Game state and persisted state do not change during a gate cycle.
+- Country Map and Building View tests prove pre-gate building progress is
+  settled, gate-only time is excluded, post-gate progress is re-armed, and a
+  true system-background interval nested inside the gate still resolves.
+- No damage, resources, or campaign progression is caused by the gate-only
+  interval.
+- Every conquered-marker frame remains inside its city's 44×44 clearance
+  frame.
 - The backdrop asset is installed at 1024×1536.
 - Exactly 15 authored anchors are installed.
 - Project and controller orientation masks match the approved matrix.
@@ -505,7 +567,7 @@ Run unit and UI tests with parallel testing disabled.
 
 ### Manual smoke
 
-On the 375×667 phone fixture and the 1032×1376 iPad fixture:
+On the 375×667 phone, 375×812 mini, and 1032×1376 iPad fixtures:
 
 - verify Cities 1, 8, and 15 are visible and tappable;
 - verify every city is centered on its illustrated pad;
@@ -516,7 +578,7 @@ On the 375×667 phone fixture and the 1032×1376 iPad fixture:
 
 Manual iPad coverage includes the supported 480×1194 narrow portrait window,
 the over-cropped 375×1194 narrow window that must gate, one wide window that
-must gate, and the supported 600×1000 Stage Manager fixture.
+must gate, and the supported 600×1008 Stage Manager fixture.
 
 ## Linear Completion Evidence
 
