@@ -32,7 +32,10 @@ struct CountryMapLayoutTests {
         #expect(result == .unsupported(.invalidAuthoredData))
     }
 
-    @Test(arguments: supportedFixtures) private func supportedFixturesSatisfyCompleteLayoutInvariants(fixture: Fixture) throws {
+    @Test(arguments: supportedFixtures)
+    private func supportedFixturesSatisfyCompleteLayoutInvariants(
+        fixture: Fixture
+    ) throws {
         let layout = try supportedLayout(
             size: fixture.size,
             insets: fixture.insets,
@@ -169,25 +172,105 @@ private struct Fixture: Sendable {
 }
 
 private let supportedFixtures = [
-    Fixture(name: "small phone", size: .init(width: 375, height: 667), insets: .zero, layoutClass: .phone),
-    Fixture(name: "iPhone 12/13 mini", size: .init(width: 375, height: 812), insets: .init(top: 50, left: 0, bottom: 34, right: 0), layoutClass: .phone),
-    Fixture(name: "modern phone", size: .init(width: 393, height: 852), insets: .init(top: 59, left: 0, bottom: 34, right: 0), layoutClass: .phone),
-    Fixture(name: "large phone", size: .init(width: 440, height: 956), insets: .init(top: 62, left: 0, bottom: 34, right: 0), layoutClass: .phone),
-    Fixture(name: "iPad mini", size: .init(width: 744, height: 1133), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "11-inch iPad", size: .init(width: 834, height: 1194), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "13-inch iPad", size: .init(width: 1032, height: 1376), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "Stage Manager", size: .init(width: 600, height: 1008), insets: .init(top: 28, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "narrow iPad", size: .init(width: 480, height: 1194), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad)
+    Fixture(
+        name: "small phone",
+        size: .init(width: 375, height: 667),
+        insets: .zero,
+        layoutClass: .phone
+    ),
+    Fixture(
+        name: "iPhone 12/13 mini",
+        size: .init(width: 375, height: 812),
+        insets: .init(top: 50, left: 0, bottom: 34, right: 0),
+        layoutClass: .phone
+    ),
+    Fixture(
+        name: "modern phone",
+        size: .init(width: 393, height: 852),
+        insets: .init(top: 59, left: 0, bottom: 34, right: 0),
+        layoutClass: .phone
+    ),
+    Fixture(
+        name: "large phone",
+        size: .init(width: 440, height: 956),
+        insets: .init(top: 62, left: 0, bottom: 34, right: 0),
+        layoutClass: .phone
+    ),
+    Fixture(
+        name: "iPad mini",
+        size: .init(width: 744, height: 1133),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "11-inch iPad",
+        size: .init(width: 834, height: 1194),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "13-inch iPad",
+        size: .init(width: 1032, height: 1376),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "Stage Manager",
+        size: .init(width: 600, height: 1008),
+        insets: .init(top: 28, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "narrow iPad",
+        size: .init(width: 480, height: 1194),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    )
 ]
 
 private let unsupportedFixtures = [
-    Fixture(name: "phone landscape", size: .init(width: 667, height: 375), insets: .zero, layoutClass: .phone),
-    Fixture(name: "iPad landscape", size: .init(width: 1194, height: 834), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "wide split", size: .init(width: 678, height: 834), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "wide iPad", size: .init(width: 1024, height: 768), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "square", size: .init(width: 700, height: 700), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad),
-    Fixture(name: "undersized", size: .init(width: 320, height: 568), insets: .zero, layoutClass: .phone),
-    Fixture(name: "over-cropped narrow iPad", size: .init(width: 375, height: 1194), insets: .init(top: 24, left: 0, bottom: 20, right: 0), layoutClass: .pad)
+    Fixture(
+        name: "phone landscape",
+        size: .init(width: 667, height: 375),
+        insets: .zero,
+        layoutClass: .phone
+    ),
+    Fixture(
+        name: "iPad landscape",
+        size: .init(width: 1194, height: 834),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "wide split",
+        size: .init(width: 678, height: 834),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "wide iPad",
+        size: .init(width: 1024, height: 768),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "square",
+        size: .init(width: 700, height: 700),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "undersized",
+        size: .init(width: 320, height: 568),
+        insets: .zero,
+        layoutClass: .phone
+    ),
+    Fixture(
+        name: "over-cropped narrow iPad",
+        size: .init(width: 375, height: 1194),
+        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    )
 ]
 
 private func result(
