@@ -91,11 +91,13 @@ Full-screen portrait iPhone and iPad layouts are supported. A resizable iPad
 window is supported only when:
 
 1. its scene size is at least 375×667 points;
-2. the complete map layout can be computed;
-3. every city render and interaction frame is inside the scene;
-4. every city frame clears the title/control and information exclusion regions
-   by at least 8 points; and
-5. all route geometry remains inside the illustrated map region.
+2. the title/control region, its current-city control, and the information
+   region are contained inside the scene after applying semantic safe-area
+   insets;
+3. every 44×44-point city render and interaction frame is contained inside the
+   illustrated map region; and
+4. every route segment's stroke-expanded bounds are contained inside the
+   illustrated map region.
 
 Representative supported fixtures are:
 
@@ -107,8 +109,8 @@ Representative supported fixtures are:
 | iPad mini portrait | 744×1133 | 24/20 |
 | 11-inch iPad portrait | 834×1194 | 24/20 |
 | 13-inch iPad portrait | 1032×1376 | 24/20 |
-| Stage Manager/resizable iPad window | 600×960 | 28/20 |
-| Narrow iPad Split View | 375×1194 | 24/20 |
+| Stage Manager/resizable iPad window | 600×1000 | 28/20 |
+| Narrow portrait iPad window | 480×1194 | 24/20 |
 
 Representative unsupported fixtures are:
 
@@ -120,11 +122,18 @@ Representative unsupported fixtures are:
 | Wide iPad layout | 1024×768 |
 | Square window | 700×700 |
 | Undersized portrait window | 320×568 |
+| Over-cropped narrow iPad window | 375×1194 |
 
 The safe-area values above are deterministic test inputs, not promises about
-every system configuration. The fixture list is test coverage, while the five
+every system configuration. The fixture list is test coverage, while the four
 validation rules are the runtime authority. Unexpected safe-area or window
 configurations fail closed to the unsupported-layout gate.
+
+The 375×667 dimension floor is necessary but not sufficient. For a
+height-driven aspect-fill window, City 2 is the horizontally limiting city.
+Keeping its complete 44-point frame inside the scene requires approximately
+`sceneWidth >= 44 + 0.33707 * sceneHeight`. The invariant computation remains
+the authority instead of reducing support to a fixed minimum width.
 
 ## Canonical Map Geometry
 
@@ -165,6 +174,11 @@ size use the same point dimensions. The adapter therefore maps
 `view.safeAreaInsets.bottom` to semantic `bottom`; it does not manually swap
 them for upside-down portrait.
 
+The adapter supplies the live UIKit values directly. `CountryMapLayout` does
+not use `GameUITheme`'s synthetic tall-phone inset fallback; its explicit title
+margin and information-region dimensions provide the baseline spacing when a
+system inset is zero.
+
 `GameViewController.viewSafeAreaInsetsDidChange()` asks the presented scene to
 recompute its layout so an inset-only change cannot leave stale geometry.
 
@@ -183,6 +197,11 @@ then derived from the production layout definition. Their endpoints,
 stroke-expanded bounds, and line widths are production `CountryMapLayout`
 output and participate in the illustrated-region validation.
 
+The existing branch offsets and line widths remain fixed scene-point values
+applied after mapping their origin city. They do not scale with the backdrop.
+Normalizing or visually re-authoring those decorative stubs is known visual
+debt outside HPA-117.
+
 A layout is either wholly supported or wholly gated; individual cities and
 route segments are never moved to repair a failed layout.
 
@@ -196,9 +215,13 @@ The top region keeps the current 66-point title panel. It contains:
 - the current-city return control when a battle is active.
 
 Its width is `max(220, min(sceneWidth - 40, 520))`, centered horizontally.
-Its top margin is `max(42, semanticTopInset + 10)`, so its bottom edge is
+Its top margin is `max(34, semanticTopInset + 10)`, so its bottom edge is
 `sceneHeight - topMargin - 66`. City render and interaction frames, including
 City 15, must clear the region by at least 8 points.
+
+The current-city control receives an interaction frame of at least 44×44
+points. Its complete interaction frame must remain inside the title panel, so
+the panel is the single title/control exclusion region.
 
 ### Map information region
 
@@ -225,6 +248,23 @@ map, title, city anchors, or underlying card.
 City render and interaction frames, including City 1, must clear the region by
 at least 8 points. If the reserved region does not fit without violating this
 invariant, the geometry is unsupported and the gate appears.
+
+### Illustrated map region
+
+The illustrated map region is the full-width vertical corridor between the two
+reserved interface regions:
+
+```text
+minY = informationRegion.maxY + 8
+maxY = titleControlRegion.minY - 8
+x = sceneFrame.minX
+width = sceneFrame.width
+```
+
+The region is invalid when `maxY < minY`. Every complete city interaction
+frame and every route segment's stroke-expanded bounds must be contained
+inside this rectangle. Because the backdrop aspect-fills the scene, this
+region is also fully covered by the displayed backdrop.
 
 ### Supported city chrome
 
@@ -269,8 +309,8 @@ following the established `BattlefieldLayout` pattern.
 Its input constraints include:
 
 - scene size;
-- effective safe-area insets;
-- phone or iPad layout class;
+- live semantic safe-area insets;
+- a phone or iPad layout class supplied by the UIKit adapter;
 - a `CountryMapLayoutDefinition`;
 - city render and interaction bounds;
 - title-region dimensions; and
@@ -282,6 +322,7 @@ Its output includes:
 - scene frame;
 - displayed backdrop frame;
 - title/control region frame;
+- current-city control interaction frame;
 - illustrated map region frame;
 - information region frame;
 - all 15 city positions; and
@@ -293,6 +334,10 @@ guarded failure path that returns `.unsupported(.invalidAuthoredData)`.
 development build; with assertions disabled, it continues into the production
 `Map unavailable` gate. It does not use the current release-trapping
 `precondition`.
+
+Texture availability is not an input to the pure layout computation. A missing
+backdrop is detected separately by `CountryMapScene` and requests the
+`Map unavailable` gate without changing a valid layout result.
 
 `CountryMapScene` does not choose a fallback when the result is unsupported.
 
@@ -320,10 +365,17 @@ The project orientation declarations become:
 persistent interface-orientation lock because iPad must remain free to rotate
 between its two supported portrait directions.
 
+The UIKit adapter maps `view.traitCollection.userInterfaceIdiom` directly:
+`.phone` produces the phone layout class, `.pad` produces the iPad layout
+class, and any other idiom is unsupported. It never infers the device family
+from horizontal size class or window width, so a narrow iPad window continues
+to use iPad information-region dimensions.
+
 `GameViewController` owns a UIKit overlay above the `SKView` for unsupported
 geometry. The overlay:
 
-- says that Pyxis requires portrait or a taller window;
+- says “Pyxis needs a supported portrait window. Rotate or resize to
+  continue.”;
 - intercepts all input;
 - pauses SpriteKit gameplay while visible;
 - contains no gameplay actions; and
@@ -333,9 +385,14 @@ The controller uses the Country 1 map layout policy as the app-wide geometry
 floor because the map is the most restrictive scene and the product decision
 applies app-wide.
 
-`SceneDelegate` may request a 375×667 minimum window size when
-`UISceneSizeRestrictions` is available for a resizable iPad scene. The request
-is iPad-only and advisory; the runtime layout gate remains authoritative.
+`BattleScene` and `BuildingViewScene` may retain their defensive compact-layout
+math for direct scene tests and unexpected isolated use. The controller gate is
+the only production unsupported-geometry experience; it prevents interactive
+gameplay from reaching those branches when the app is mounted normally.
+
+The implementation does not set `UISceneSizeRestrictions`. A fixed minimum
+size cannot represent the aspect-dependent cropping boundary, so the runtime
+layout policy remains the sole geometry authority.
 
 The implementation does not add `UIRequiresFullScreen`. Its compatibility mode
 is deprecated on iPadOS 26 and cannot serve as the durable layout contract.
@@ -345,11 +402,15 @@ is deprecated on iPadOS 26 and cannot serve as the durable layout contract.
 For initial presentation, rotation, split-view changes, Stage Manager changes,
 or interactive window resize:
 
-1. Observe the new scene geometry and safe-area values.
-2. Compute the complete `CountryMapLayout`.
-3. If supported, hide the gate, apply the layout atomically, enable input, and
-   prepare the scene clock, then resume SpriteKit.
-4. If unsupported, pause SpriteKit, disable scene input, and show the gate.
+1. From `viewDidLayoutSubviews()` or `viewSafeAreaInsetsDidChange()`, read the
+   latest `SKView.bounds.size`, live safe-area values, and interface idiom.
+2. Compute the complete Country 1 `CountryMapLayout` policy regardless of which
+   gameplay scene is mounted.
+3. If unsupported, pause SpriteKit, disable scene input, and show the blocking
+   overlay.
+4. If supported, apply any scene layout while the overlay still intercepts
+   input, invoke the narrow gate-resume hook, hide the overlay, enable scene
+   input, and then resume SpriteKit.
 
 The currently presented scene remains mounted. Returning from unsupported to
 supported geometry recomputes from authoritative state and anchors; it does not
@@ -372,14 +433,16 @@ remain authoritative for that system-background interval.
 
 ## Failure Handling
 
-- Unsupported geometry shows the resize/portrait gate.
+- Unsupported geometry shows the resize/portrait gate with an
+  `.unsupportedGeometry` reason.
 - Unexpected safe-area values that violate layout invariants also show the
   gate.
 - A missing backdrop or malformed authored anchor set triggers an assertion in
   development.
 - In release builds, a missing backdrop or
-  `.unsupported(.invalidAuthoredData)` result shows a noninteractive
-  `Map unavailable` gate.
+  `.unsupported(.invalidAuthoredData)` result is translated by the scene into
+  a separate `.mapUnavailable` gate with “Map unavailable” copy. Missing
+  textures never become a pure `CountryMapLayout` failure reason.
 - No failure path clamps individual cities, awards resources, enters a city, or
   changes campaign progression.
 
@@ -396,14 +459,15 @@ For every supported fixture:
 - all city frames clear the title/control and information regions by at least
   8 points;
 - route geometry remains inside the illustrated map region; and
-- title, controls, and information regions remain inside safe bounds.
+- title, the complete current-city interaction frame, and the information
+  region remain inside safe bounds.
 
 For every unsupported fixture, the result is unsupported and no partial
 position set is returned.
 
 Tests cover both iPad portrait directions with asymmetric semantic scene-edge
 insets as UIKit reports them. They verify that no orientation-specific manual
-swap is applied.
+swap or synthetic tall-phone override is applied.
 
 Malformed definitions return `.unsupported(.invalidAuthoredData)` from the
 pure layout computation without producing partial geometry.
@@ -423,6 +487,11 @@ pure layout computation without producing partial geometry.
 - The backdrop asset is installed at 1024×1536.
 - Exactly 15 authored anchors are installed.
 - Project and controller orientation masks match the approved matrix.
+- A normally mounted `BattleScene` or `BuildingViewScene` is gated at
+  unsupported geometry even though its defensive compact calculations remain
+  independently testable.
+- A malformed definition and a missing backdrop exercise distinct
+  `.invalidAuthoredData` and `.mapUnavailable` paths.
 
 The existing
 `compactLandscapeLayoutKeepsCityNodesInsideMapArea` and
@@ -445,8 +514,9 @@ On the 375×667 phone fixture and the 1032×1376 iPad fixture:
 - verify a wide resize shows the gate and blocks interaction; and
 - verify returning to supported portrait geometry restores the same state.
 
-Manual iPad coverage includes one narrow Split View geometry, one wide Split
-View geometry that must gate, and one arbitrary Stage Manager resize.
+Manual iPad coverage includes the supported 480×1194 narrow portrait window,
+the over-cropped 375×1194 narrow window that must gate, one wide window that
+must gate, and the supported 600×1000 Stage Manager fixture.
 
 ## Linear Completion Evidence
 
@@ -470,6 +540,7 @@ implementation and verification for this contract are complete.
 - Adding a landscape map asset.
 - Supporting landscape gameplay.
 - Per-city runtime clamping.
+- Re-authoring or normalizing the fixed decorative branch offsets.
 - Changing city unlock rules or adding multiple unlocked cities.
 - Removing `BattlefieldLayout`'s defensive collapsed-layout behavior; the
   app-wide gate normally keeps production scenes above that threshold, but the
