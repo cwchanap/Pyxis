@@ -2331,6 +2331,20 @@ struct BattleSceneTests {
         #expect(abs(bodyFrame.height - expectedFrameSize.height) < 0.001)
     }
 
+    @Test func layoutGateResumePrimesBattleClockWithoutPausedDelta() throws {
+        let scene = try makeScene()
+
+        scene.update(10)
+        #expect(scene.lastUpdateTimeForTesting == 10)
+
+        scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 20))
+        #expect(scene.lastUpdateTimeForTesting == nil)
+
+        scene.update(10_000)
+        #expect(scene.lastUpdateTimeForTesting == 10_000)
+        #expect(scene.lastAdvanceCombatDeltaForTesting == nil)
+    }
+
     @Test func laneIndicatorsMarkFortifiedAndExposedLanesOnly() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -2387,6 +2401,10 @@ struct BattleSceneTests {
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene
+    }
+
+    private func makeScene() throws -> BattleScene {
+        makeScene(store: try makeStore(initialState: .init()))
     }
 
     private func makeStore(initialState: KingdomGameState) throws -> KingdomGameStore {

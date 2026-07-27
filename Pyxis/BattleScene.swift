@@ -14,7 +14,7 @@ protocol BattleSceneRouting: AnyObject {
     func battleSceneDidRequestBuildingView(_ scene: BattleScene)
 }
 
-final class BattleScene: SKScene {
+final class BattleScene: SKScene, LayoutGateLifecycleHandling {
     private enum BattleAssetName {
         static let playerCastle = "player-castle"
         static let enemyCity = "enemy-city"
@@ -98,6 +98,9 @@ final class BattleScene: SKScene {
     private var state: KingdomGameState
     private var combat: BattleCombatState
     private var lastUpdateTime: TimeInterval?
+    #if DEBUG
+    private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
+    #endif
     private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
     private var didBuildInterface = false
     private var isObservingLifecycle = false
@@ -296,6 +299,15 @@ final class BattleScene: SKScene {
         }
 
         advanceCombat(deltaTime: currentTime - lastUpdateTime)
+    }
+
+    func layoutGateWillPause(at date: Date) {}
+
+    func layoutGateWillResume(at date: Date) {
+        lastUpdateTime = nil
+        #if DEBUG
+        lastAdvanceCombatDeltaForTestingStorage = nil
+        #endif
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -1497,6 +1509,9 @@ final class BattleScene: SKScene {
     }
 
     private func advanceCombat(deltaTime: TimeInterval) {
+        #if DEBUG
+        lastAdvanceCombatDeltaForTestingStorage = deltaTime
+        #endif
         guard state.stageStatus == .battleActive, !isConquestPopupVisible else {
             return
         }
@@ -2779,6 +2794,14 @@ final class BattleScene: SKScene {
 
 #if DEBUG
 extension BattleScene {
+    var lastUpdateTimeForTesting: TimeInterval? {
+        lastUpdateTime
+    }
+
+    var lastAdvanceCombatDeltaForTesting: TimeInterval? {
+        lastAdvanceCombatDeltaForTestingStorage
+    }
+
     struct BattleLayoutFrames {
         let leftHUD: CGRect
         let rightHUD: CGRect

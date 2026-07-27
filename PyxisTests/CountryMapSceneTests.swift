@@ -597,6 +597,21 @@ struct CountryMapSceneTests {
         ) == nil)
     }
 
+    @Test func missingBackdropIsDetectedSeparatelyFromLayout() {
+        #expect(!CountryMapScene.isBackdropAvailable(
+            named: "country-map-backdrop",
+            imageLoader: { _ in nil }
+        ))
+        #expect(CountryMapLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            environment: .init(
+                safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            ),
+            definition: .country1
+        )) != .unsupported(.invalidAuthoredData))
+    }
+
     @Test func cityLabelCenterResolvesToCityNumber() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -781,11 +796,62 @@ struct CountryMapSceneTests {
         #expect(label.fontSize >= 8)
     }
 
+    @Test func layoutGateSettlesThenExcludesMapGateOnlyTime() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 1_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store, router: nil)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(20))
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(35))
+
+        var resumed = store.load()
+        #expect(resumed.lastBackgroundedAt == origin.addingTimeInterval(30))
+        let postGate = resumed.returnFromBackground(
+            at: origin.addingTimeInterval(40)
+        )
+        #expect(postGate.elapsedSeconds == 10)
+    }
+
+    @Test func realBackgroundNestedInsideMapGateCountsOnlySystemBackgroundTime() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 2_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store, router: nil)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+        scene.sceneDidEnterBackgroundForTesting(
+            at: origin.addingTimeInterval(15)
+        )
+        scene.sceneWillEnterForegroundForTesting(
+            at: origin.addingTimeInterval(25)
+        )
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+        #expect(store.load().lastBackgroundedAt == nil)
+
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(30))
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         private(set) var didRequestBattle = false
+        private(set) var requestedGateReason: AppLayoutGateReason?
 
         func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) {
             didRequestBattle = true
+        }
+
+        func countryMapScene(
+            _ scene: CountryMapScene,
+            didRequestLayoutGate reason: AppLayoutGateReason
+        ) {
+            requestedGateReason = reason
         }
     }
 
@@ -818,6 +884,16 @@ struct CountryMapSceneTests {
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene
+    }
+
+    private func makeIdleAccruingState(since date: Date) -> KingdomGameState {
+        var state = KingdomGameState()
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks)],
+            lastBuildingProgressResolvedAt: date
+        )
+        state.markCurrentCityBuildingProgressInactive(at: date)
+        return state
     }
 
     private func makeStore(initialState: KingdomGameState) throws -> KingdomGameStore {

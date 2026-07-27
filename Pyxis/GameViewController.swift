@@ -10,14 +10,23 @@ import SpriteKit
 
 final class GameViewController: UIViewController {
     private let store: KingdomGameStore
+    private let layoutGateView = AppLayoutGateView()
+    private var requestedMapGateReason: AppLayoutGateReason?
+    private var activeLayoutGateReason: AppLayoutGateReason?
+    private let now: () -> Date
 
-    init(store: KingdomGameStore = .shared) {
+    init(
+        store: KingdomGameStore = .shared,
+        now: @escaping () -> Date = Date.init
+    ) {
         self.store = store
+        self.now = now
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
         self.store = .shared
+        self.now = Date.init
         super.init(coder: coder)
     }
 
@@ -30,6 +39,11 @@ final class GameViewController: UIViewController {
 
         configure(view)
         presentInitialScene(in: view)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        refreshLayoutSupport()
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
@@ -49,6 +63,7 @@ final class GameViewController: UIViewController {
         if let scene = (view as? SKView)?.scene as? CountryMapScene {
             scene.refreshLayoutForCurrentEnvironment()
         }
+        refreshLayoutSupport()
     }
 
     private func configure(_ view: SKView) {
@@ -76,18 +91,83 @@ final class GameViewController: UIViewController {
         let scene = BattleScene(size: view.bounds.size, store: store, router: self)
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
+        refreshLayoutSupport()
     }
 
     private func presentCountryMapScene(in view: SKView) {
+        requestedMapGateReason = nil
         let scene = CountryMapScene(size: view.bounds.size, store: store, router: self)
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
+        refreshLayoutSupport()
     }
 
     private func presentBuildingViewScene(in view: SKView) {
         let scene = BuildingViewScene(size: view.bounds.size, store: store, router: self)
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
+        refreshLayoutSupport()
+    }
+
+    private func refreshLayoutSupport(
+        environment override: CountryMapLayoutEnvironment? = nil
+    ) {
+        guard let skView = view as? SKView else { return }
+        let environment = override ?? CountryMapLayoutUIKitAdapter.environment(for: skView)
+        let layoutResult = environment.map {
+            CountryMapLayout.compute(.init(
+                sceneSize: skView.bounds.size,
+                environment: $0,
+                definition: .country1
+            ))
+        } ?? .unsupported(.unsupportedGeometry)
+
+        let reason: AppLayoutGateReason?
+        if requestedMapGateReason == .mapUnavailable {
+            reason = .mapUnavailable
+        } else {
+            switch layoutResult {
+            case .supported:
+                reason = nil
+            case .unsupported(.invalidAuthoredData):
+                reason = .mapUnavailable
+            case .unsupported(.unsupportedGeometry):
+                reason = .unsupportedGeometry
+            }
+        }
+
+        applyLayoutGate(reason, in: skView)
+    }
+
+    private func applyLayoutGate(
+        _ reason: AppLayoutGateReason?,
+        in skView: SKView
+    ) {
+        if let reason {
+            if activeLayoutGateReason == nil {
+                (skView.scene as? LayoutGateLifecycleHandling)?
+                    .layoutGateWillPause(at: now())
+            }
+            skView.isPaused = true
+            skView.scene?.isUserInteractionEnabled = false
+            activeLayoutGateReason = reason
+            layoutGateView.apply(reason)
+            if layoutGateView.superview == nil {
+                layoutGateView.frame = view.bounds
+                layoutGateView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                view.addSubview(layoutGateView)
+            }
+            return
+        }
+
+        if activeLayoutGateReason != nil {
+            (skView.scene as? LayoutGateLifecycleHandling)?
+                .layoutGateWillResume(at: now())
+        }
+        layoutGateView.removeFromSuperview()
+        activeLayoutGateReason = nil
+        skView.scene?.isUserInteractionEnabled = true
+        skView.isPaused = false
     }
 }
 
@@ -117,6 +197,14 @@ extension GameViewController: CountryMapSceneRouting {
 
         presentBattleScene(in: view)
     }
+
+    func countryMapScene(
+        _ scene: CountryMapScene,
+        didRequestLayoutGate reason: AppLayoutGateReason
+    ) {
+        requestedMapGateReason = reason
+        refreshLayoutSupport()
+    }
 }
 
 extension GameViewController: BuildingViewSceneRouting {
@@ -128,3 +216,25 @@ extension GameViewController: BuildingViewSceneRouting {
         presentSceneForCurrentStage(in: view)
     }
 }
+
+#if DEBUG
+extension GameViewController {
+    func refreshLayoutSupportForTesting(
+        environment: CountryMapLayoutEnvironment
+    ) {
+        refreshLayoutSupport(environment: environment)
+    }
+
+    var isLayoutGateVisibleForTesting: Bool {
+        layoutGateView.superview != nil
+    }
+
+    var layoutGateReasonForTesting: AppLayoutGateReason? {
+        activeLayoutGateReason
+    }
+
+    var layoutGateTextForTesting: String? {
+        layoutGateView.messageLabel.text
+    }
+}
+#endif

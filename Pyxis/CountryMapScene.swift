@@ -9,6 +9,10 @@ import UIKit
 
 protocol CountryMapSceneRouting: AnyObject {
     func countryMapSceneDidRequestBattle(_ scene: CountryMapScene)
+    func countryMapScene(
+        _ scene: CountryMapScene,
+        didRequestLayoutGate reason: AppLayoutGateReason
+    )
 }
 
 enum CountryMapCityVisualState: Equatable {
@@ -26,7 +30,7 @@ struct CountryMapLayoutFrames {
 }
 #endif
 
-final class CountryMapScene: SKScene {
+final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     private enum NodeName {
         static let cityPrefix = "countryMapCity-"
         static let currentCityButton = "countryMapCurrentCityButton"
@@ -46,6 +50,9 @@ final class CountryMapScene: SKScene {
     private var state: KingdomGameState
     private let layoutEnvironmentOverride: CountryMapLayoutEnvironment?
     private var didBuildInterface = false
+    private var isObservingLifecycle = false
+    private var isLayoutGatePaused = false
+    private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
 
     private(set) var lastLayoutResult: CountryMapLayoutResult?
     private(set) var countryMapLayout: CountryMapLayout?
@@ -96,6 +103,17 @@ final class CountryMapScene: SKScene {
         super.init(coder: aDecoder)
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    static func isBackdropAvailable(
+        named name: String,
+        imageLoader: (String) -> UIImage?
+    ) -> Bool {
+        imageLoader(name) != nil
+    }
+
     override func didMove(to view: SKView) {
         backgroundColor = SKColor(red: 0.07, green: 0.12, blue: 0.14, alpha: 1.0)
         state = store.load()
@@ -106,6 +124,7 @@ final class CountryMapScene: SKScene {
             didBuildInterface = true
         }
 
+        observeLifecycleNotificationsIfNeeded()
         layoutInterface()
     }
 
@@ -144,14 +163,21 @@ final class CountryMapScene: SKScene {
         addChild(titlePanel)
         addChild(feedbackPanel)
 
-        if UIImage(named: MapAssetName.countryMapBackdrop) != nil {
-            let backdrop = SKSpriteNode(imageNamed: MapAssetName.countryMapBackdrop)
-            backdrop.name = MapAssetName.countryMapBackdrop
-            backdrop.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-            backdrop.zPosition = 0
-            backdropLayer.addChild(backdrop)
-            backdropNode = backdrop
+        guard Self.isBackdropAvailable(
+            named: MapAssetName.countryMapBackdrop,
+            imageLoader: { UIImage(named: $0) }
+        ) else {
+            assertionFailure("Missing country-map-backdrop asset")
+            router?.countryMapScene(self, didRequestLayoutGate: .mapUnavailable)
+            return
         }
+
+        let backdrop = SKSpriteNode(imageNamed: MapAssetName.countryMapBackdrop)
+        backdrop.name = MapAssetName.countryMapBackdrop
+        backdrop.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        backdrop.zPosition = 0
+        backdropLayer.addChild(backdrop)
+        backdropNode = backdrop
 
         configureLabel(titleLabel, fontSize: 30, color: GameUITheme.Color.textPrimary)
         configureLabel(feedbackLabel, fontSize: 16, color: GameUITheme.Color.gold)
@@ -251,7 +277,16 @@ final class CountryMapScene: SKScene {
         ))
         lastLayoutResult = result
 
-        guard case .supported(let layout) = result else {
+        let layout: CountryMapLayout
+        switch result {
+        case .supported(let supportedLayout):
+            layout = supportedLayout
+        case .unsupported(.invalidAuthoredData):
+            clearLayoutGeometry()
+            assertionFailure("Invalid authored country map data")
+            router?.countryMapScene(self, didRequestLayoutGate: .mapUnavailable)
+            return
+        case .unsupported(.unsupportedGeometry):
             clearLayoutGeometry()
             return
         }
@@ -263,6 +298,28 @@ final class CountryMapScene: SKScene {
 
     func refreshLayoutForCurrentEnvironment() {
         layoutInterface()
+    }
+
+    func layoutGateWillPause(at date: Date) {
+        guard !isLayoutGatePaused else { return }
+        isLayoutGatePaused = true
+
+        let result = state.returnFromBackground(at: date)
+        lastIdleProgressResult = result
+        store.save(state)
+        applyIdleProgressFeedback(result)
+        redraw()
+    }
+
+    func layoutGateWillResume(at date: Date) {
+        guard isLayoutGatePaused else { return }
+        isLayoutGatePaused = false
+
+        if state.stageStatus == .battleActive {
+            state.markCurrentCityBuildingProgressInactive(at: date)
+        }
+        store.save(state)
+        redraw()
     }
 
     private func clearLayoutGeometry() {
@@ -553,6 +610,63 @@ final class CountryMapScene: SKScene {
         router.countryMapSceneDidRequestBattle(self)
     }
 
+    private func observeLifecycleNotificationsIfNeeded() {
+        guard !isObservingLifecycle else { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sceneDidEnterBackground),
+            name: .pyxisSceneDidEnterBackground,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(sceneWillEnterForeground),
+            name: .pyxisSceneWillEnterForeground,
+            object: nil
+        )
+        isObservingLifecycle = true
+    }
+
+    @objc private func sceneDidEnterBackground(_ notification: Notification) {
+        handleSceneDidEnterBackground(at: Date())
+    }
+
+    @objc private func sceneWillEnterForeground(_ notification: Notification) {
+        handleSceneWillEnterForeground(at: Date())
+    }
+
+    private func handleSceneDidEnterBackground(at date: Date) {
+        if isLayoutGatePaused {
+            state.enterBackground(at: date)
+        }
+        store.save(state)
+    }
+
+    private func handleSceneWillEnterForeground(at date: Date) {
+        let result = state.returnFromBackground(at: date)
+        lastIdleProgressResult = result
+        if state.stageStatus == .battleActive && !isLayoutGatePaused {
+            state.markCurrentCityBuildingProgressInactive(at: date)
+        }
+        store.save(state)
+        applyIdleProgressFeedback(result)
+        redraw()
+    }
+
+    private func applyIdleProgressFeedback(
+        _ result: KingdomGameState.IdleProgressResult
+    ) {
+        guard result.elapsedSeconds > 0 else { return }
+
+        if result.conqueredCities > 0 {
+            feedbackText = defaultFeedbackText(for: state)
+        } else if result.damageDealt > 0 {
+            feedbackText = "Buildings dealt \(result.damageDealt) idle damage."
+        } else {
+            feedbackText = "No building damage while away."
+        }
+    }
+
     private func enterCity(_ cityNumber: Int) {
         var latestState = store.load()
 
@@ -596,6 +710,18 @@ final class CountryMapScene: SKScene {
 
 #if DEBUG
 extension CountryMapScene {
+    var lastIdleProgressResultForTesting: KingdomGameState.IdleProgressResult {
+        lastIdleProgressResult
+    }
+
+    func sceneDidEnterBackgroundForTesting(at date: Date) {
+        handleSceneDidEnterBackground(at: date)
+    }
+
+    func sceneWillEnterForegroundForTesting(at date: Date) {
+        handleSceneWillEnterForeground(at: date)
+    }
+
     var lastLayoutResultForTesting: CountryMapLayoutResult? {
         lastLayoutResult
     }
