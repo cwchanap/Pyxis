@@ -557,6 +557,49 @@ struct BuildingViewSceneTests {
         #expect(saved.gold > 85)
     }
 
+    @Test func layoutGateSettlesThenExcludesBuildingViewGateOnlyTime() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 3_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(20))
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(35))
+
+        var resumed = store.load()
+        #expect(resumed.lastBackgroundedAt == origin.addingTimeInterval(30))
+        let postGate = resumed.returnFromBackground(
+            at: origin.addingTimeInterval(40)
+        )
+        #expect(postGate.elapsedSeconds == 10)
+    }
+
+    @Test func realBackgroundNestedInsideBuildingGateCountsOnlySystemBackgroundTime() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 4_000)
+        let store = try makeStore(initialState: makeIdleAccruingState(since: origin))
+        let scene = makeScene(store: store)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+        scene.sceneDidEnterBackgroundForTesting(
+            at: origin.addingTimeInterval(15)
+        )
+        scene.sceneWillEnterForegroundForTesting(
+            at: origin.addingTimeInterval(25)
+        )
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
+        #expect(store.load().lastBackgroundedAt == nil)
+
+        scene.layoutGateWillResume(at: origin.addingTimeInterval(30))
+        #expect(store.load().lastBackgroundedAt
+            == origin.addingTimeInterval(30))
+    }
+
     private func makeScene(
         size: CGSize = CGSize(width: 390, height: 844),
         store: KingdomGameStore,
@@ -566,6 +609,16 @@ struct BuildingViewSceneTests {
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene
+    }
+
+    private func makeIdleAccruingState(since date: Date) -> KingdomGameState {
+        var state = KingdomGameState()
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks)],
+            lastBuildingProgressResolvedAt: date
+        )
+        state.markCurrentCityBuildingProgressInactive(at: date)
+        return state
     }
 
     private func makeStore(initialState: KingdomGameState) throws -> KingdomGameStore {

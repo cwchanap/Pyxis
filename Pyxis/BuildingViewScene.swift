@@ -10,7 +10,7 @@ protocol BuildingViewSceneRouting: AnyObject {
     func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene)
 }
 
-final class BuildingViewScene: SKScene {
+final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
     private enum ButtonName {
         static let upgrade = "upgradeBuildingButton"
         static let battle = "buildingViewBattleButton"
@@ -86,6 +86,8 @@ final class BuildingViewScene: SKScene {
     private var state: KingdomGameState
     private var didBuildInterface = false
     private var isObservingLifecycle = false
+    private var isLayoutGatePaused = false
+    private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
     private var selectedSlot: Int?
     private var feedbackText = "Select a city lot."
 
@@ -752,6 +754,28 @@ final class BuildingViewScene: SKScene {
         router?.buildingViewSceneDidRequestBattle(self)
     }
 
+    func layoutGateWillPause(at date: Date) {
+        guard !isLayoutGatePaused else { return }
+        isLayoutGatePaused = true
+
+        let result = state.returnFromBackground(at: date)
+        lastIdleProgressResult = result
+        store.save(state)
+        applyIdleProgressFeedback(result)
+        redraw()
+    }
+
+    func layoutGateWillResume(at date: Date) {
+        guard isLayoutGatePaused else { return }
+        isLayoutGatePaused = false
+
+        if state.stageStatus == .battleActive {
+            state.markCurrentCityBuildingProgressInactive(at: date)
+        }
+        store.save(state)
+        redraw()
+    }
+
     private func observeLifecycleNotificationsIfNeeded() {
         guard !isObservingLifecycle else {
             return
@@ -773,33 +797,40 @@ final class BuildingViewScene: SKScene {
     }
 
     @objc private func sceneDidEnterBackground(_ notification: Notification) {
-        // Do NOT call state.enterBackground(at:) here. The building view already
-        // counts time as idle progress (via markCurrentCityBuildingProgressInactive).
-        // Calling enterBackground would overwrite lastBackgroundedAt and shorten the
-        // idle window — see idleCatchUpFromBuildingViewPreservesEntireIdlePeriod.
-        store.save(state)
+        handleSceneDidEnterBackground(at: Date())
     }
 
     @objc private func sceneWillEnterForeground(_ notification: Notification) {
-        let result = state.returnFromBackground(at: Date())
-        if state.stageStatus == .battleActive {
-            state.markCurrentCityBuildingProgressInactive(at: Date())
+        handleSceneWillEnterForeground(at: Date())
+    }
+
+    private func handleSceneDidEnterBackground(at date: Date) {
+        if isLayoutGatePaused {
+            state.enterBackground(at: date)
         }
         store.save(state)
+    }
 
+    private func handleSceneWillEnterForeground(at date: Date) {
+        let result = state.returnFromBackground(at: date)
+        lastIdleProgressResult = result
+        if state.stageStatus == .battleActive && !isLayoutGatePaused {
+            state.markCurrentCityBuildingProgressInactive(at: date)
+        }
+        store.save(state)
         applyIdleProgressFeedback(result)
         redraw()
     }
 
     private func applyIdleProgressFeedback(_ result: KingdomGameState.IdleProgressResult) {
-        if result.elapsedSeconds > 0 {
-            if result.conqueredCities > 0 {
-                feedbackText = "Buildings conquered \(state.displayCityTitle)."
-            } else if result.damageDealt > 0 {
-                feedbackText = "Buildings dealt \(result.damageDealt) idle damage."
-            } else {
-                feedbackText = "No building damage while away."
-            }
+        guard result.elapsedSeconds > 0 else { return }
+
+        if result.conqueredCities > 0 {
+            feedbackText = "Buildings conquered \(state.displayCityTitle)."
+        } else if result.damageDealt > 0 {
+            feedbackText = "Buildings dealt \(result.damageDealt) idle damage."
+        } else {
+            feedbackText = "No building damage while away."
         }
     }
 
@@ -915,6 +946,18 @@ final class BuildingViewScene: SKScene {
 
 #if DEBUG
 extension BuildingViewScene {
+    var lastIdleProgressResultForTesting: KingdomGameState.IdleProgressResult {
+        lastIdleProgressResult
+    }
+
+    func sceneDidEnterBackgroundForTesting(at date: Date) {
+        handleSceneDidEnterBackground(at: date)
+    }
+
+    func sceneWillEnterForegroundForTesting(at date: Date) {
+        handleSceneWillEnterForeground(at: date)
+    }
+
     struct BuildingLayoutFrames {
         let scene: CGRect
         let titlePanel: CGRect
