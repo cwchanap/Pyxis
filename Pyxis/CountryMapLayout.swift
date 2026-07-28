@@ -164,6 +164,26 @@ struct CountryMapLayout: Equatable {
             return .unsupported(.unsupportedGeometry)
         }
 
+        // The title, current-city control, and information region are centred
+        // against the full scene width with fixed side margins. Horizontal
+        // safe-area insets (e.g. Stage Manager or split-view side insets) can
+        // therefore push that centred chrome into horizontally unsafe content
+        // even when it still fits inside the scene frame. Require all three
+        // chrome regions to stay within the horizontal safe-content rect so a
+        // window with meaningful side insets fails closed instead of rendering
+        // controls under system chrome.
+        let safeContentMinX = sceneFrame.minX + insets.left
+        let safeContentMaxX = sceneFrame.maxX - insets.right
+        guard titleControlRegionFrame.minX >= safeContentMinX,
+              titleControlRegionFrame.maxX <= safeContentMaxX,
+              currentCityControlFrame.minX >= safeContentMinX,
+              currentCityControlFrame.maxX <= safeContentMaxX,
+              informationRegionFrame.minX >= safeContentMinX,
+              informationRegionFrame.maxX <= safeContentMaxX
+        else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
         var cityPositions: [Int: CGPoint] = [:]
         for (index, anchor) in definition.cityAnchors.enumerated() {
             cityPositions[index + 1] = CGPoint(

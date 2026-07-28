@@ -14,7 +14,7 @@ protocol BattleSceneRouting: AnyObject {
     func battleSceneDidRequestBuildingView(_ scene: BattleScene)
 }
 
-final class BattleScene: SKScene, LayoutGateLifecycleHandling {
+final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
     private enum BattleAssetName {
         static let playerCastle = "player-castle"
         static let enemyCity = "enemy-city"
@@ -308,6 +308,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling {
         #if DEBUG
         lastAdvanceCombatDeltaForTestingStorage = nil
         #endif
+    }
+
+    func refreshLayoutForCurrentEnvironment() {
+        layoutInterface()
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {

@@ -19,6 +19,17 @@ protocol LayoutGateLifecycleHandling: AnyObject {
     func layoutGateWillResume(at date: Date)
 }
 
+/// Scenes whose layout depends on the live safe-area insets adopt this so
+/// `GameViewController.viewSafeAreaInsetsDidChange()` can refresh every
+/// mounted scene uniformly. An inset-only transition (e.g. rotating an iPad
+/// between the two supported portrait orientations) can preserve scene
+/// dimensions, so `didChangeSize` is not a reliable relayout path; this hook
+/// guarantees the scene re-derives its layout from the current insets before
+/// the controller updates or dismisses the layout gate.
+protocol SceneLayoutRefreshable: AnyObject {
+    func refreshLayoutForCurrentEnvironment()
+}
+
 final class AppLayoutGateView: UIView {
     let messageLabel = UILabel()
 

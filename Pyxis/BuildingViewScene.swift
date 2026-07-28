@@ -10,7 +10,7 @@ protocol BuildingViewSceneRouting: AnyObject {
     func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene)
 }
 
-final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
+final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
     private enum ButtonName {
         static let upgrade = "upgradeBuildingButton"
         static let battle = "buildingViewBattleButton"
@@ -109,6 +109,9 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
     private var buildButtonBundles: [BuildingType: BuildButtonBundle] = [:]
     private var slotNodes: [Int: SlotNodeBundle] = [:]
     private var layoutFrames = LayoutFrames()
+    #if DEBUG
+    private var layoutInterfaceCallCount = 0
+    #endif
 
     init(size: CGSize, store: KingdomGameStore = .shared, router: BuildingViewSceneRouting? = nil) {
         self.store = store
@@ -372,6 +375,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
         guard didBuildInterface else {
             return
         }
+
+        #if DEBUG
+        layoutInterfaceCallCount += 1
+        #endif
 
         resetFontSizes()
 
@@ -780,6 +787,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling {
         redraw()
     }
 
+    func refreshLayoutForCurrentEnvironment() {
+        layoutInterface()
+    }
+
     private func observeLifecycleNotificationsIfNeeded() {
         guard !isObservingLifecycle else {
             return
@@ -984,6 +995,14 @@ extension BuildingViewScene {
             upgradeButton: layoutFrames.upgradeButton,
             battleButton: layoutFrames.battleButton
         )
+    }
+
+    /// Number of times `layoutInterface` has run since scene creation. Tests
+    /// use this to verify `viewSafeAreaInsetsDidChange()` refreshes the
+    /// building scene's layout on inset-only transitions. DEBUG-only like the
+    /// sibling `battlefieldLayoutCountForTesting` on `BattleScene`.
+    var layoutInterfaceCallCountForTesting: Int {
+        layoutInterfaceCallCount
     }
 
     var buildingSlotCountForTesting: Int {

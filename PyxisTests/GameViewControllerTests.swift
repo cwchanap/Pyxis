@@ -143,6 +143,40 @@ struct GameViewControllerTests {
         #expect(view.scene?.isUserInteractionEnabled == true)
     }
 
+    @Test func safeAreaInsetsDidChangeRefreshesBattleSceneLayout() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        // `presentScene` does not reliably invoke `didMove(to:)` synchronously
+        // in a headless test environment, so drive it explicitly to build the
+        // interface before sampling the layout counter.
+        battle.didMove(to: view)
+
+        let countBefore = battle.battlefieldLayoutCountForTesting
+        controller.viewSafeAreaInsetsDidChange()
+        #expect(battle.battlefieldLayoutCountForTesting > countBefore)
+    }
+
+    @Test func safeAreaInsetsDidChangeRefreshesBuildingViewSceneLayout() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        controller.battleSceneDidRequestBuildingView(battle)
+        let building = try #require(view.scene as? BuildingViewScene)
+        building.didMove(to: view)
+
+        let countBefore = building.layoutInterfaceCallCountForTesting
+        controller.viewSafeAreaInsetsDidChange()
+        #expect(building.layoutInterfaceCallCountForTesting > countBefore)
+    }
+
     private func makeStore(
         initialState: KingdomGameState
     ) throws -> KingdomGameStore {
