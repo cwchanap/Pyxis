@@ -30,7 +30,7 @@ struct CountryMapLayoutFrames {
 }
 #endif
 
-final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
+final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
     private enum NodeName {
         static let cityPrefix = "countryMapCity-"
         static let currentCityButton = "countryMapCurrentCityButton"

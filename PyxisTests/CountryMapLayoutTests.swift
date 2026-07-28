@@ -162,6 +162,38 @@ struct CountryMapLayoutTests {
         #expect(layout.informationRegionFrame.height == 64)
         #expect(city1Frame.minY - layout.illustratedMapRegionFrame.minY >= 8)
     }
+
+    @Test func horizontalSafeBoundsContainChromeOnSideInsetFixture() throws {
+        // A supported layout with meaningful side insets must keep the title,
+        // current-city control, and information region inside the horizontal
+        // safe-content rect (scene frame inset by left/right).
+        let layout = try supportedLayout(
+            size: CGSize(width: 834, height: 1194),
+            insets: .init(top: 24, left: 50, bottom: 20, right: 50),
+            layoutClass: .pad
+        )
+        let safeMinX = layout.sceneFrame.minX + 50
+        let safeMaxX = layout.sceneFrame.maxX - 50
+
+        #expect(layout.titleControlRegionFrame.minX >= safeMinX)
+        #expect(layout.titleControlRegionFrame.maxX <= safeMaxX)
+        #expect(layout.currentCityControlFrame.minX >= safeMinX)
+        #expect(layout.currentCityControlFrame.maxX <= safeMaxX)
+        #expect(layout.informationRegionFrame.minX >= safeMinX)
+        #expect(layout.informationRegionFrame.maxX <= safeMaxX)
+    }
+
+    @Test func sideInsetsThatPushChromeBeyondSafeBoundsAreRejected() {
+        // The narrow iPad (480×1194) is supported with zero side insets, but
+        // side insets large enough to push the centered title or information
+        // region into horizontally unsafe content must fail closed.
+        let insets = CountryMapSafeAreaInsets(top: 24, left: 80, bottom: 20, right: 80)
+        #expect(result(
+            size: .init(width: 480, height: 1194),
+            insets: insets,
+            layoutClass: .pad
+        ) == .unsupported(.unsupportedGeometry))
+    }
 }
 
 private struct Fixture: Sendable {
@@ -224,6 +256,12 @@ private let supportedFixtures = [
         name: "narrow iPad",
         size: .init(width: 480, height: 1194),
         insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+        layoutClass: .pad
+    ),
+    Fixture(
+        name: "iPad with side insets",
+        size: .init(width: 834, height: 1194),
+        insets: .init(top: 24, left: 50, bottom: 20, right: 50),
         layoutClass: .pad
     )
 ]
