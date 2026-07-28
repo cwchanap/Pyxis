@@ -17,6 +17,8 @@ final class CountryMapScoutCardNode: SKNode {
         let traitSize: CGFloat
         let footerSize: CGFloat
         let attackSize: CGFloat
+        let feedbackSize: CGFloat
+        let feedbackHorizontalInset: CGFloat
         let iconSize: CGFloat
         let prefixGap: CGFloat
         let iconLabelGap: CGFloat
@@ -33,10 +35,9 @@ final class CountryMapScoutCardNode: SKNode {
 
     private struct RenderedFooterItem {
         let type: SoldierType?
-        let label: String
         let requestedImageName: String?
-        let textureRect: CGRect?
-        let iconSize: CGSize
+        let labelNode: SKLabelNode
+        let iconNode: SKSpriteNode?
         let targetFrame: CGRect
     }
 
@@ -98,6 +99,10 @@ final class CountryMapScoutCardNode: SKNode {
         let textureRect: CGRect?
         let iconSize: CGSize
         let targetFrame: CGRect
+        let labelIsInstalled: Bool
+        let iconIsInstalled: Bool
+        let labelFontName: String?
+        let labelFontSize: CGFloat
     }
 
     struct BaseContentReadback: Equatable {
@@ -127,10 +132,18 @@ final class CountryMapScoutCardNode: SKNode {
         let trait: CGFloat
         let footer: CGFloat
         let attack: CGFloat
+        let titleIsInstalled: Bool
+        let badgeIsInstalled: Bool
+        let rewardIsInstalled: Bool
+        let traitIsInstalled: Bool
+        let footerIsInstalled: Bool
+        let attackIsInstalled: Bool
     }
 
-    private var favorableItemReadbacks = [FooterItemReadback]()
-    private var disadvantagedItemReadbacks = [FooterItemReadback]()
+    private var favorableRenderedItems = [RenderedFooterItem]()
+    private var disadvantagedRenderedItems = [RenderedFooterItem]()
+    private weak var favorablePrefixLabel: SKLabelNode?
+    private weak var disadvantagedPrefixLabel: SKLabelNode?
     #endif
 
     private(set) var cardHitFrame: CGRect?
@@ -153,6 +166,9 @@ final class CountryMapScoutCardNode: SKNode {
         isEntryEnabled: Bool
     ) -> ApplyResult {
         guard let prepared = prepare(content: content, layout: layout) else {
+            currentLayout = nil
+            currentPresentationIsScout = false
+            currentEntryIsEnabled = false
             clearHitFrames()
             return .requiredContentDoesNotFit
         }
@@ -162,7 +178,19 @@ final class CountryMapScoutCardNode: SKNode {
     }
 
     func applyFeedback(text: String?, alpha: CGFloat) {
-        guard let text, !text.isEmpty, let layout = currentLayout else {
+        guard let text,
+              !text.isEmpty,
+              let layout = currentLayout,
+              let metrics = currentMetrics,
+              let fontSize = fittedFontSize(
+                  text,
+                  startingAt: metrics.feedbackSize,
+                  frameWidth: layout.overlayFrame.insetBy(
+                      dx: metrics.feedbackHorizontalInset,
+                      dy: 0
+                  ).width
+              )
+        else {
             feedbackIsVisible = false
             feedbackLabel.text = nil
             overlayLayer.isHidden = true
@@ -177,6 +205,7 @@ final class CountryMapScoutCardNode: SKNode {
         overlayLayer.isHidden = false
         feedbackPanel.update(size: layout.overlayFrame.size)
         feedbackPanel.position = CGPoint(x: layout.overlayFrame.midX, y: layout.overlayFrame.midY)
+        feedbackLabel.fontSize = fontSize
         feedbackLabel.position = CGPoint(x: layout.overlayFrame.midX, y: layout.overlayFrame.midY)
         overlayHitFrame = layout.overlayFrame
         attackHitFrame = nil
@@ -479,20 +508,22 @@ final class CountryMapScoutCardNode: SKNode {
         )
 
         #if DEBUG
-        favorableItemReadbacks = footerReadbacks(from: renderFooter(
+        favorableRenderedItems = renderFooter(
             items: prepared.favorableItems,
             prefix: "+",
             frame: layout.favorableFrame,
             metrics: prepared.metrics,
             container: favorableContainer
-        ))
-        disadvantagedItemReadbacks = footerReadbacks(from: renderFooter(
+        )
+        favorablePrefixLabel = favorableContainer.children.first as? SKLabelNode
+        disadvantagedRenderedItems = renderFooter(
             items: prepared.disadvantagedItems,
             prefix: "-",
             frame: layout.disadvantagedFrame,
             metrics: prepared.metrics,
             container: disadvantagedContainer
-        ))
+        )
+        disadvantagedPrefixLabel = disadvantagedContainer.children.first as? SKLabelNode
         #else
         renderFooter(
             items: prepared.favorableItems,
@@ -595,9 +626,8 @@ final class CountryMapScoutCardNode: SKNode {
                 cursorX += metrics.itemGap
             }
 
-            var iconSize = CGSize.zero
             var targetFrame = CGRect.zero
-            var textureRect: CGRect?
+            var iconNode: SKSpriteNode?
             if let type = item.type, let image = item.image {
                 targetFrame = CGRect(
                     x: cursorX,
@@ -614,8 +644,7 @@ final class CountryMapScoutCardNode: SKNode {
                 icon.size = aspectFit(body.size(), in: targetFrame.size)
                 icon.position = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
                 container.addChild(icon)
-                iconSize = icon.size
-                textureRect = body.textureRect()
+                iconNode = icon
                 cursorX = targetFrame.maxX + metrics.iconLabelGap
             }
 
@@ -632,10 +661,9 @@ final class CountryMapScoutCardNode: SKNode {
             cursorX += labelWidth
             renderedItems.append(RenderedFooterItem(
                 type: item.type,
-                label: item.label,
                 requestedImageName: item.requestedImageName,
-                textureRect: textureRect,
-                iconSize: iconSize,
+                labelNode: label,
+                iconNode: iconNode,
                 targetFrame: targetFrame
             ))
         }
@@ -644,16 +672,21 @@ final class CountryMapScoutCardNode: SKNode {
 
     #if DEBUG
     private func footerReadbacks(
-        from renderedItems: [RenderedFooterItem]
+        from renderedItems: [RenderedFooterItem],
+        container: SKNode
     ) -> [FooterItemReadback] {
         renderedItems.map {
             FooterItemReadback(
                 type: $0.type,
-                label: $0.label,
+                label: $0.labelNode.text ?? "",
                 requestedImageName: $0.requestedImageName,
-                textureRect: $0.textureRect,
-                iconSize: $0.iconSize,
-                targetFrame: $0.targetFrame
+                textureRect: $0.iconNode?.texture?.textureRect(),
+                iconSize: $0.iconNode?.size ?? .zero,
+                targetFrame: $0.targetFrame,
+                labelIsInstalled: $0.labelNode.parent === container,
+                iconIsInstalled: $0.iconNode?.parent === container,
+                labelFontName: $0.labelNode.fontName,
+                labelFontSize: $0.labelNode.fontSize
             )
         }
     }
@@ -675,8 +708,10 @@ final class CountryMapScoutCardNode: SKNode {
         attackLabel.text = nil
         feedbackLabel.text = nil
         #if DEBUG
-        favorableItemReadbacks = []
-        disadvantagedItemReadbacks = []
+        favorableRenderedItems = []
+        disadvantagedRenderedItems = []
+        favorablePrefixLabel = nil
+        disadvantagedPrefixLabel = nil
         #endif
     }
 
@@ -773,6 +808,8 @@ final class CountryMapScoutCardNode: SKNode {
                 traitSize: 9,
                 footerSize: 9,
                 attackSize: 13,
+                feedbackSize: 13,
+                feedbackHorizontalInset: 6,
                 iconSize: 10,
                 prefixGap: 2,
                 iconLabelGap: 2,
@@ -788,6 +825,8 @@ final class CountryMapScoutCardNode: SKNode {
                 traitSize: 12,
                 footerSize: 11,
                 attackSize: 16,
+                feedbackSize: 16,
+                feedbackHorizontalInset: 12,
                 iconSize: 14,
                 prefixGap: 4,
                 iconLabelGap: 4,
@@ -819,19 +858,35 @@ extension CountryMapScoutCardNode {
     }
 
     var favorableItemsForTesting: [FooterItemReadback] {
-        favorableItemReadbacks
+        footerReadbacks(from: favorableRenderedItems, container: favorableContainer)
     }
 
     var disadvantagedItemsForTesting: [FooterItemReadback] {
-        disadvantagedItemReadbacks
+        footerReadbacks(from: disadvantagedRenderedItems, container: disadvantagedContainer)
     }
 
     var favorableTextForTesting: String? {
-        visibleFooterText(prefix: "+", items: favorableItemReadbacks)
+        visibleFooterText(prefix: "+", items: favorableItemsForTesting)
     }
 
     var disadvantagedTextForTesting: String? {
-        visibleFooterText(prefix: "-", items: disadvantagedItemReadbacks)
+        visibleFooterText(prefix: "-", items: disadvantagedItemsForTesting)
+    }
+
+    var favorablePrefixTextForTesting: String? {
+        favorablePrefixLabel?.text
+    }
+
+    var disadvantagedPrefixTextForTesting: String? {
+        disadvantagedPrefixLabel?.text
+    }
+
+    var favorablePrefixIsInstalledForTesting: Bool {
+        favorablePrefixLabel?.parent === favorableContainer
+    }
+
+    var disadvantagedPrefixIsInstalledForTesting: Bool {
+        disadvantagedPrefixLabel?.parent === disadvantagedContainer
     }
 
     var laneTextForTesting: String? {
@@ -860,6 +915,26 @@ extension CountryMapScoutCardNode {
 
     var feedbackAlphaForTesting: CGFloat {
         overlayLayer.alpha
+    }
+
+    var feedbackLabelFrameForTesting: CGRect? {
+        feedbackIsVisible ? feedbackLabel.frame : nil
+    }
+
+    var feedbackLabelIsInstalledForTesting: Bool {
+        feedbackLabel.parent === overlayLayer
+    }
+
+    var feedbackLabelNumberOfLinesForTesting: Int {
+        feedbackLabel.numberOfLines
+    }
+
+    var feedbackFontNameForTesting: String? {
+        feedbackLabel.fontName
+    }
+
+    var feedbackFontSizeForTesting: CGFloat {
+        feedbackLabel.fontSize
     }
 
     var goldIconIsVisibleForTesting: Bool {
@@ -891,18 +966,27 @@ extension CountryMapScoutCardNode {
     }
 
     var fontsForTesting: FontsReadback? {
-        guard let metrics = currentMetrics else {
+        guard currentMetrics != nil,
+              let traitLabel = traitLabels.first,
+              let footerLabel = favorableRenderedItems.first?.labelNode
+        else {
             return nil
         }
         return .init(
-            boldName: GameUITheme.Font.bold,
-            mediumName: GameUITheme.Font.medium,
+            boldName: titleLabel.fontName ?? "",
+            mediumName: traitLabel.fontName ?? "",
             title: titleLabel.fontSize,
             badge: badgeLabel.fontSize,
             reward: rewardLabel.fontSize,
-            trait: metrics.traitSize,
-            footer: metrics.footerSize,
-            attack: metrics.attackSize
+            trait: traitLabel.fontSize,
+            footer: footerLabel.fontSize,
+            attack: attackLabel.fontSize,
+            titleIsInstalled: titleLabel.parent === contentLayer,
+            badgeIsInstalled: badgeLabel.parent === contentLayer,
+            rewardIsInstalled: rewardLabel.parent === contentLayer,
+            traitIsInstalled: traitLabel.parent === contentLayer,
+            footerIsInstalled: footerLabel.parent === favorableContainer,
+            attackIsInstalled: attackLabel.parent === attackContainer
         )
     }
 
