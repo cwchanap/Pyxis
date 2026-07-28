@@ -1052,6 +1052,9 @@ struct CountryMapSceneTests {
         let store = countingStore.store
         let router = RouteSpy()
         router.acceptsBattleRequest = false
+        router.onBattleRequest = { requestCount in
+            #expect(countingStore.defaults.stateSaveCount == requestCount)
+        }
         let scene = makeScene(store: store, router: router)
         let attackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
         let attackPoint = CGPoint(x: attackFrame.midX, y: attackFrame.midY)
@@ -1435,11 +1438,13 @@ struct CountryMapSceneTests {
 
     private final class RouteSpy: CountryMapSceneRouting {
         var acceptsBattleRequest = true
+        var onBattleRequest: ((Int) -> Void)?
         private(set) var battleRequestCount = 0
         private(set) var requestedGateReason: AppLayoutGateReason?
 
         func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) -> Bool {
             battleRequestCount += 1
+            onBattleRequest?(battleRequestCount)
             return acceptsBattleRequest
         }
 
