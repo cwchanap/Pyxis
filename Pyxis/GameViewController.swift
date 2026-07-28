@@ -202,12 +202,14 @@ extension GameViewController: BattleSceneRouting {
 }
 
 extension GameViewController: CountryMapSceneRouting {
-    func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) {
+    @discardableResult
+    func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) -> Bool {
         guard let view = self.view as? SKView else {
-            return
+            return false
         }
 
         presentBattleScene(in: view)
+        return true
     }
 
     func countryMapScene(
