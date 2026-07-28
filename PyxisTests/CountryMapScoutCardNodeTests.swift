@@ -106,14 +106,22 @@ struct CountryMapScoutCardNodeTests {
         ) == .presented)
         #expect(node.favorableTextForTesting == "+ None")
         #expect(node.disadvantagedTextForTesting == "- None")
-        #expect(node.favorableItemsForTesting == [
-            .init(type: nil, label: "None", requestedImageName: nil, textureRect: nil,
-                  iconSize: .zero, targetFrame: .zero)
-        ])
-        #expect(node.disadvantagedItemsForTesting == [
-            .init(type: nil, label: "None", requestedImageName: nil, textureRect: nil,
-                  iconSize: .zero, targetFrame: .zero)
-        ])
+        let favorableNone = try #require(node.favorableItemsForTesting.first)
+        let disadvantagedNone = try #require(node.disadvantagedItemsForTesting.first)
+        #expect(node.favorableItemsForTesting.count == 1)
+        #expect(node.disadvantagedItemsForTesting.count == 1)
+        #expect(favorableNone.label == "None")
+        #expect(disadvantagedNone.label == "None")
+        #expect(favorableNone.labelIsInstalled)
+        #expect(disadvantagedNone.labelIsInstalled)
+        #expect(!favorableNone.iconIsInstalled)
+        #expect(!disadvantagedNone.iconIsInstalled)
+        #expect(favorableNone.textureRect == nil)
+        #expect(disadvantagedNone.textureRect == nil)
+        #expect(node.favorablePrefixTextForTesting == "+")
+        #expect(node.disadvantagedPrefixTextForTesting == "-")
+        #expect(node.favorablePrefixIsInstalledForTesting)
+        #expect(node.disadvantagedPrefixIsInstalledForTesting)
         #expect(spy.requestedNames == ["gold-burst"])
     }
 
@@ -133,6 +141,16 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.rewardTextForTesting == "81")
         #expect(node.rewardFontSizeForTesting == 10)
         #expect(node.goldIconSizeForTesting == CGSize(width: 12, height: 6))
+
+        let padLayout = try scoutCardLayout(named: "narrow iPad")
+        #expect(node.apply(
+            content: .scout(testScout(goldReward: 81)),
+            layout: padLayout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.rewardTextForTesting == "81")
+        #expect(node.rewardFontSizeForTesting == 14)
+        #expect(node.fontsForTesting?.reward == 14)
     }
 
     @Test func missingGoldUsesExactFallbackCopyInUnionFrame() throws {
@@ -195,6 +213,10 @@ struct CountryMapScoutCardNodeTests {
             #expect(abs(item.iconSize.width - bodySize.width * scale) < 0.001)
             #expect(abs(item.iconSize.height - bodySize.height * scale) < 0.001)
             #expect(item.targetFrame.size == CGSize(width: 14, height: 14))
+            #expect(item.labelIsInstalled)
+            #expect(item.iconIsInstalled)
+            #expect(item.labelFontName == GameUITheme.Font.medium)
+            #expect(item.labelFontSize == 11)
             #expect(spy.requestedNames.contains(expectedName))
         }
         let allowedNames = Set(["gold-burst"] + SoldierType.allCases.map {
@@ -217,6 +239,42 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.disadvantagedTextForTesting == "- Arc Mag")
         #expect(node.favorableItemsForTesting.allSatisfy { $0.textureRect == nil && $0.iconSize == .zero })
         #expect(node.disadvantagedItemsForTesting.allSatisfy { $0.textureRect == nil && $0.iconSize == .zero })
+        #expect(node.favorableItemsForTesting.allSatisfy { $0.labelIsInstalled && !$0.iconIsInstalled })
+        #expect(node.disadvantagedItemsForTesting.allSatisfy { $0.labelIsInstalled && !$0.iconIsInstalled })
+    }
+
+    @Test func missingIconsReduceFooterWidthAtTheBoundaryWithoutHidingText() throws {
+        let layout = try scoutCardLayout(named: "small phone")
+        let boundaryLayout = replacing(
+            layout,
+            favorableFrame: CGRect(
+                x: layout.favorableFrame.minX,
+                y: layout.favorableFrame.minY,
+                width: 50,
+                height: layout.favorableFrame.height
+            )
+        )
+        let installedNode = CountryMapScoutCardNode(imageLoader: {
+            completeImageSet()[$0]
+        })
+        let missingNode = CountryMapScoutCardNode(imageLoader: { name in
+            name == "gold-burst" ? testImage() : nil
+        })
+
+        #expect(installedNode.apply(
+            content: .scout(testScout(trait: .arrowTower)),
+            layout: boundaryLayout,
+            isEntryEnabled: true
+        ) == .requiredContentDoesNotFit)
+        #expect(missingNode.apply(
+            content: .scout(testScout(trait: .arrowTower)),
+            layout: boundaryLayout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(missingNode.favorableTextForTesting == "+ Inf Cav")
+        #expect(missingNode.favorableItemsForTesting.allSatisfy {
+            $0.labelIsInstalled && !$0.iconIsInstalled
+        })
     }
 
     @Test func disabledEntryPreservesCardConsumptionAndDimsOnlyAttack() throws {
@@ -262,6 +320,100 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.baseContentReadbackForTesting == base)
     }
 
+    @Test func everyFeedbackCopyFamilyFitsTheActualLabelOnMinimumPhoneAndPad() throws {
+        let messages = [
+            "City 15 is locked",
+            "City 15 complete",
+            "Country 1 conquered.",
+            "City 15: Reinforced Keep",
+            "Buildings dealt 999999 idle damage.",
+            "No building damage while away.",
+            "Cannot enter city yet."
+        ]
+        let fixtures = [
+            (name: "small phone", startingSize: CGFloat(13)),
+            (name: "narrow iPad", startingSize: CGFloat(16))
+        ]
+
+        for fixture in fixtures {
+            let layout = try scoutCardLayout(named: fixture.name)
+            let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+            #expect(node.apply(
+                content: .scout(testScout()),
+                layout: layout,
+                isEntryEnabled: true
+            ) == .presented)
+
+            for message in messages {
+                node.applyFeedback(text: message, alpha: 1)
+                let labelFrame = try #require(node.feedbackLabelFrameForTesting)
+
+                #expect(node.feedbackTextForTesting == message)
+                #expect(layout.overlayFrame.contains(labelFrame), "\(fixture.name): \(message)")
+                #expect(node.feedbackLabelIsInstalledForTesting)
+                #expect(node.feedbackLabelNumberOfLinesForTesting == 1)
+                #expect(node.feedbackFontNameForTesting == GameUITheme.Font.bold)
+                #expect(node.feedbackFontSizeForTesting >= 8)
+                #expect(node.feedbackFontSizeForTesting <= fixture.startingSize)
+            }
+        }
+    }
+
+    @Test func failedApplyInvalidatesStaleAttackEligibilityBeforeFeedbackClears() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = try scoutCardLayout(named: "small phone")
+        #expect(node.apply(
+            content: .scout(testScout()),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        let visibleBase = node.baseContentReadbackForTesting
+        let invalidTitleLayout = replacing(
+            layout,
+            titleFrame: CGRect(
+                x: layout.titleFrame.minX,
+                y: layout.titleFrame.minY,
+                width: 1,
+                height: layout.titleFrame.height
+            )
+        )
+
+        #expect(node.apply(
+            content: .scout(testScout(displayTitle: "Replacement City")),
+            layout: invalidTitleLayout,
+            isEntryEnabled: true
+        ) == .requiredContentDoesNotFit)
+        node.applyFeedback(text: nil, alpha: 0)
+
+        #expect(node.baseContentReadbackForTesting == visibleBase)
+        #expect(node.cardHitFrame == nil)
+        #expect(node.attackHitFrame == nil)
+        #expect(node.overlayHitFrame == nil)
+    }
+
+    @Test func feedbackClearNeverCreatesAttackForDisabledOrCountryCompleteContent() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = try scoutCardLayout(named: "small phone")
+
+        #expect(node.apply(
+            content: .scout(testScout()),
+            layout: layout,
+            isEntryEnabled: false
+        ) == .presented)
+        node.applyFeedback(text: "Cannot enter city yet.", alpha: 1)
+        node.applyFeedback(text: nil, alpha: 0)
+        #expect(node.attackHitFrame == nil)
+
+        #expect(node.apply(
+            content: .countryComplete(countryNumber: 1),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        node.applyFeedback(text: "City 1 complete", alpha: 1)
+        node.applyFeedback(text: nil, alpha: 0)
+        #expect(node.attackHitFrame == nil)
+    }
+
     @Test func clearLayoutClearsAllConsumptionFrames() throws {
         let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
         let layout = try scoutCardLayout(named: "small phone")
@@ -297,7 +449,13 @@ struct CountryMapScoutCardNodeTests {
             reward: 9,
             trait: 9,
             footer: 9,
-            attack: 13
+            attack: 13,
+            titleIsInstalled: true,
+            badgeIsInstalled: true,
+            rewardIsInstalled: true,
+            traitIsInstalled: true,
+            footerIsInstalled: true,
+            attackIsInstalled: true
         ))
 
         #expect(node.apply(
@@ -313,7 +471,13 @@ struct CountryMapScoutCardNodeTests {
             reward: 13,
             trait: 12,
             footer: 11,
-            attack: 16
+            attack: 16,
+            titleIsInstalled: true,
+            badgeIsInstalled: true,
+            rewardIsInstalled: true,
+            traitIsInstalled: true,
+            footerIsInstalled: true,
+            attackIsInstalled: true
         ))
     }
 
@@ -368,6 +532,10 @@ struct CountryMapScoutCardNodeTests {
         invalidLayouts.append(replacing(goodLayout, favorableFrame: CGRect(
             x: goodLayout.favorableFrame.minX, y: goodLayout.favorableFrame.minY,
             width: 1, height: goodLayout.favorableFrame.height
+        )))
+        invalidLayouts.append(replacing(goodLayout, exposedLaneFrame: CGRect(
+            x: goodLayout.exposedLaneFrame.minX, y: goodLayout.exposedLaneFrame.minY,
+            width: 1, height: goodLayout.exposedLaneFrame.height
         )))
         invalidLayouts.append(replacing(goodLayout, rewardFrame: CGRect(
             x: goodLayout.rewardFrame.minX, y: goodLayout.rewardFrame.minY,
@@ -539,7 +707,8 @@ private func replacing(
     goldIconFrame: CGRect? = nil,
     rewardFrame: CGRect? = nil,
     traitLineFrames: [CGRect]? = nil,
-    favorableFrame: CGRect? = nil
+    favorableFrame: CGRect? = nil,
+    exposedLaneFrame: CGRect? = nil
 ) -> CountryMapScoutCardLayout {
     .init(
         layoutClass: layout.layoutClass,
@@ -551,7 +720,7 @@ private func replacing(
         traitLineFrames: traitLineFrames ?? layout.traitLineFrames,
         favorableFrame: favorableFrame ?? layout.favorableFrame,
         disadvantagedFrame: layout.disadvantagedFrame,
-        exposedLaneFrame: layout.exposedLaneFrame,
+        exposedLaneFrame: exposedLaneFrame ?? layout.exposedLaneFrame,
         attackFrame: layout.attackFrame,
         overlayFrame: layout.overlayFrame
     )
