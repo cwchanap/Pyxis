@@ -11,4 +11,15 @@ enum BattleLane: Int, CaseIterable, Equatable {
     case left = 0
     case center = 1
     case right = 2
+
+    var displayName: String {
+        switch self {
+        case .left:
+            return "Left"
+        case .center:
+            return "Center"
+        case .right:
+            return "Right"
+        }
+    }
 }
