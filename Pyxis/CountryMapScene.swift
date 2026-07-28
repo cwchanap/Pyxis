@@ -340,6 +340,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     func layoutGateWillPause(at date: Date) {
         guard !isLayoutGatePaused else { return }
         isLayoutGatePaused = true
+        previousUpdateTime = nil
 
         let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result
@@ -354,6 +355,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     func layoutGateWillResume(at date: Date) {
         guard isLayoutGatePaused else { return }
         isLayoutGatePaused = false
+        previousUpdateTime = nil
 
         if state.stageStatus == .battleActive && !isSystemBackgrounded {
             state.markCurrentCityBuildingProgressInactive(at: date)
@@ -607,6 +609,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func showFeedback(_ feedback: CountryMapTransientFeedback) {
         transientFeedback = feedback
+        previousUpdateTime = nil
         applyFeedbackPresentation()
     }
 
@@ -693,6 +696,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func handleSceneDidEnterBackground(at date: Date) {
         isSystemBackgrounded = true
+        previousUpdateTime = nil
         if isLayoutGatePaused {
             state.enterBackground(at: date)
         }
@@ -701,6 +705,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func handleSceneWillEnterForeground(at date: Date) {
         isSystemBackgrounded = false
+        previousUpdateTime = nil
         let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result
         if state.stageStatus == .battleActive && !isLayoutGatePaused {
@@ -781,12 +786,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                 return
             }
         case .locked:
+            state = latestState
             showFeedback(.locked(cityNumber: cityNumber))
             redraw()
         case .alreadyCompleted:
+            state = latestState
             showFeedback(.completed(cityNumber: cityNumber))
             redraw()
         case .countryComplete:
+            state = latestState
             redraw()
         }
     }
