@@ -89,22 +89,22 @@ struct CountryMapScoutCardContentTests {
 
     @Test
     func eachUnlockedCityProjectsItsAuthoredScoutDetails() {
-        let expected: [(cityNumber: Int, trait: CityDefenseTrait, favorable: [SoldierType], disadvantaged: [SoldierType], exposedLane: BattleLane)] = [
-            (1, .standardWatch, [], [], .right),
-            (2, .standardWatch, [], [], .left),
-            (3, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .center),
-            (4, .spikedGate, [.archer, .mage], [.infantry, .cavalry], .right),
-            (5, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .left),
-            (6, .stoneWall, [.mage, .siege], [.archer], .center),
-            (7, .burningOil, [.archer, .mage, .cavalry], [.infantry, .siege], .right),
-            (8, .stoneWall, [.mage, .siege], [.archer], .left),
-            (9, .arcaneWard, [.infantry, .cavalry, .siege], [.mage], .center),
-            (10, .spikedGate, [.archer, .mage], [.infantry, .cavalry], .right),
-            (11, .reinforcedKeep, [.siege], [.archer, .infantry], .left),
-            (12, .burningOil, [.archer, .mage, .cavalry], [.infantry, .siege], .center),
-            (13, .arcaneWard, [.infantry, .cavalry, .siege], [.mage], .right),
-            (14, .stoneWall, [.mage, .siege], [.archer], .left),
-            (15, .reinforcedKeep, [.siege], [.archer, .infantry], .center)
+        let expected: [ExpectedScoutDetails] = [
+            .init(1, .standardWatch, [], [], .right),
+            .init(2, .standardWatch, [], [], .left),
+            .init(3, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .center),
+            .init(4, .spikedGate, [.archer, .mage], [.infantry, .cavalry], .right),
+            .init(5, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .left),
+            .init(6, .stoneWall, [.mage, .siege], [.archer], .center),
+            .init(7, .burningOil, [.archer, .mage, .cavalry], [.infantry, .siege], .right),
+            .init(8, .stoneWall, [.mage, .siege], [.archer], .left),
+            .init(9, .arcaneWard, [.infantry, .cavalry, .siege], [.mage], .center),
+            .init(10, .spikedGate, [.archer, .mage], [.infantry, .cavalry], .right),
+            .init(11, .reinforcedKeep, [.siege], [.archer, .infantry], .left),
+            .init(12, .burningOil, [.archer, .mage, .cavalry], [.infantry, .siege], .center),
+            .init(13, .arcaneWard, [.infantry, .cavalry, .siege], [.mage], .right),
+            .init(14, .stoneWall, [.mage, .siege], [.archer], .left),
+            .init(15, .reinforcedKeep, [.siege], [.archer, .infantry], .center)
         ]
 
         for item in expected {
@@ -157,5 +157,27 @@ struct CountryMapScoutCardContentTests {
         #expect(BattleLane.left.displayName == "Left")
         #expect(BattleLane.center.displayName == "Center")
         #expect(BattleLane.right.displayName == "Right")
+    }
+}
+
+private struct ExpectedScoutDetails {
+    let cityNumber: Int
+    let trait: CityDefenseTrait
+    let favorable: [SoldierType]
+    let disadvantaged: [SoldierType]
+    let exposedLane: BattleLane
+
+    init(
+        _ cityNumber: Int,
+        _ trait: CityDefenseTrait,
+        _ favorable: [SoldierType],
+        _ disadvantaged: [SoldierType],
+        _ exposedLane: BattleLane
+    ) {
+        self.cityNumber = cityNumber
+        self.trait = trait
+        self.favorable = favorable
+        self.disadvantaged = disadvantaged
+        self.exposedLane = exposedLane
     }
 }
