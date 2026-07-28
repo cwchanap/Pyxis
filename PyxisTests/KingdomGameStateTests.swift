@@ -846,6 +846,39 @@ struct KingdomGameStateTests {
         #expect(state.mapStatus(for: 2) == .locked)
     }
 
+    @Test func unlockedMapCityNumberTracksTheSingleUnlockedCityAcrossTheCountry() {
+        let fresh = KingdomGameState()
+        #expect(fresh.unlockedMapCityNumber == 1)
+
+        for completedCityCount in 0..<KingdomGameState.firstCountryCityCount {
+            let pending = KingdomGameState(
+                cityLevel: max(completedCityCount, 1),
+                cityRemainingPower: 0,
+                cityNumberInCountry: max(completedCityCount, 1),
+                completedCityCount: completedCityCount,
+                stageStatus: completedCityCount == 0 ? .battleActive : .cityConqueredPendingMap
+            )
+            #expect(pending.unlockedMapCityNumber == completedCityCount + 1)
+        }
+
+        let countryComplete = KingdomGameState(
+            cityLevel: 15,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 15,
+            completedCityCount: 15,
+            stageStatus: .countryComplete
+        )
+        #expect(countryComplete.unlockedMapCityNumber == nil)
+    }
+
+    @Test func displayCityTitleForSpecificCityNumberIgnoresTheCurrentBattleCity() {
+        let state = KingdomGameState(cityNumberInCountry: 9, completedCityCount: 8)
+
+        #expect(state.displayCityTitle(for: 1) == "Country 1 - City 1")
+        #expect(state.displayCityTitle(for: 15) == "Country 1 - City 15")
+        #expect(state.displayCityTitle(for: 9) == state.displayCityTitle)
+    }
+
     @Test func firstLaunchCanAffordStarterBarracks() {
         let state = KingdomGameState()
         let barracksCost = KingdomGameState.buildingBuildCost(for: .barracks)
