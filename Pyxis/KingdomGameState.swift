@@ -280,8 +280,18 @@ struct KingdomGameState: Codable, Equatable {
         cityBattleStates[key.storageKey] ?? CityBattleState()
     }
 
+    var unlockedMapCityNumber: Int? {
+        Country1CityCatalog.cityRange.first {
+            mapStatus(for: $0) == .unlocked
+        }
+    }
+
+    func displayCityTitle(for cityNumber: Int) -> String {
+        "Country \(countryNumber) - City \(cityNumber)"
+    }
+
     var displayCityTitle: String {
-        "Country \(countryNumber) - City \(cityNumberInCountry)"
+        displayCityTitle(for: cityNumberInCountry)
     }
 
     var hasNextCityInCountry: Bool {
