@@ -55,6 +55,39 @@ struct CountryMapScoutCardContentTests {
     }
 
     @Test
+    func everyIncompletePendingMapStateProjectsOnlyTheFollowingCity() {
+        for completedCityCount in 1..<KingdomGameState.firstCountryCityCount {
+            let nextCityNumber = completedCityCount + 1
+            let state = KingdomGameState(
+                cityLevel: completedCityCount,
+                cityRemainingPower: 0,
+                cityNumberInCountry: completedCityCount,
+                completedCityCount: completedCityCount,
+                stageStatus: .cityConqueredPendingMap
+            )
+            let definition = Country1CityCatalog.definition(for: nextCityNumber)
+
+            #expect(state.unlockedMapCityNumber == nextCityNumber)
+            #expect(
+                Country1CityCatalog.cityRange.filter { state.mapStatus(for: $0) == .unlocked }
+                    == [nextCityNumber]
+            )
+            #expect(
+                CountryMapScoutCardContent.project(from: state)
+                    == .scout(
+                        .init(
+                            cityNumber: nextCityNumber,
+                            displayTitle: "Country 1 - City \(nextCityNumber)",
+                            defenseTrait: definition.defenseTrait,
+                            exposedLane: definition.laneDefenseProfile.exposedLane,
+                            goldReward: KingdomGameState.goldReward(for: nextCityNumber)
+                        )
+                    )
+            )
+        }
+    }
+
+    @Test
     func eachUnlockedCityProjectsItsAuthoredScoutDetails() {
         let expected: [(cityNumber: Int, trait: CityDefenseTrait, favorable: [SoldierType], disadvantaged: [SoldierType], exposedLane: BattleLane)] = [
             (1, .standardWatch, [], [], .right),
