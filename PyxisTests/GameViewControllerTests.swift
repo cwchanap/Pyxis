@@ -135,12 +135,59 @@ struct GameViewControllerTests {
 
         // Transitioning to battle must clear the map-scoped reason so the
         // battle scene is not gated as map-unavailable.
-        controller.countryMapSceneDidRequestBattle(map)
+        let accepted = controller.countryMapSceneDidRequestBattle(map)
 
+        #expect(accepted)
         #expect(view.scene is BattleScene)
         #expect(controller.layoutGateReasonForTesting == nil)
         #expect(!view.isPaused)
         #expect(view.scene?.isUserInteractionEnabled == true)
+    }
+
+    @Test func battleRequestWithoutSKViewReturnsFalse() throws {
+        let store = try makeStore(initialState: .init(
+            cityRemainingPower: 0,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let controller = GameViewController(store: store)
+        let map = CountryMapScene(
+            size: CGSize(width: 393, height: 852),
+            store: store,
+            router: controller
+        )
+
+        let accepted = controller.countryMapSceneDidRequestBattle(map)
+
+        #expect(!accepted)
+        #expect(!(controller.view is SKView))
+    }
+
+    @Test func battleRequestReturnsTrueAfterPresentingSavedState() throws {
+        let savedState = KingdomGameState(
+            gold: 77,
+            cityLevel: 4,
+            cityRemainingPower: 321,
+            cityNumberInCountry: 4,
+            completedCityCount: 3,
+            stageStatus: .battleActive
+        )
+        let store = try makeStore(initialState: savedState)
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        let map = CountryMapScene(
+            size: view.bounds.size,
+            store: store,
+            router: controller
+        )
+
+        let accepted = controller.countryMapSceneDidRequestBattle(map)
+
+        #expect(accepted)
+        let battle = try #require(view.scene as? BattleScene)
+        #expect(battle.goldForTesting == savedState.gold)
+        #expect(battle.cityLevelForTesting == savedState.cityLevel)
+        #expect(battle.cityRemainingPowerForTesting == savedState.cityRemainingPower)
     }
 
     @Test func safeAreaInsetsDidChangeRefreshesBattleSceneLayout() throws {

@@ -8,7 +8,8 @@ import SpriteKit
 import UIKit
 
 protocol CountryMapSceneRouting: AnyObject {
-    func countryMapSceneDidRequestBattle(_ scene: CountryMapScene)
+    @discardableResult
+    func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) -> Bool
     func countryMapScene(
         _ scene: CountryMapScene,
         didRequestLayoutGate reason: AppLayoutGateReason
@@ -55,6 +56,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private var isObservingLifecycle = false
     private var isLayoutGatePaused = false
     private var isSystemBackgrounded = false
+    private var isRoutingToBattle = false
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
 
     private(set) var lastLayoutResult: CountryMapLayoutResult?
@@ -158,27 +160,30 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return
         }
 
-        guard !isMapUnavailable,
-              countryMapLayout != nil,
-              scoutCardLayout != nil else {
+        let point = touch.location(in: self)
+        if isMapUnavailable || countryMapLayout == nil || scoutCardLayout == nil {
             return
         }
-
-        let point = touch.location(in: self)
+        if isRoutingToBattle {
+            return
+        }
         if scoutCardNode.overlayHitFrame?.contains(point) == true {
             return
         }
-
-        if buttonName(at: point) == NodeName.currentCityButton {
-            requestCurrentCityBattle()
+        if scoutCardNode.attackHitFrame?.contains(point) == true {
+            requestProjectedScoutEntry()
             return
         }
-
-        guard let cityNumber = cityNumber(at: point) else {
+        if scoutCardNode.cardHitFrame?.contains(point) == true {
             return
         }
-
-        enterCity(cityNumber)
+        if currentCityControlFrame?.contains(point) == true {
+            requestEntry(for: state.cityNumberInCountry)
+            return
+        }
+        if let cityNumber = cityNumber(at: point) {
+            handleCityNodeTouch(cityNumber)
+        }
     }
 
     private func buildInterface() {
@@ -523,6 +528,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             content: content,
             layout: scoutCardLayout,
             isEntryEnabled: state.stageStatus != .countryComplete
+                && !isRoutingToBattle
+                && transientFeedback == nil
         )
         guard result == .presented else {
             isMapUnavailable = true
@@ -618,7 +625,11 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
         feedback.advance(by: deltaTime)
         transientFeedback = feedback.isFinished ? nil : feedback
-        applyFeedbackPresentation()
+        if feedback.isFinished {
+            redraw()
+        } else {
+            applyFeedbackPresentation()
+        }
     }
 
     private func cityNumber(at point: CGPoint) -> Int? {
@@ -633,39 +644,26 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         return nil
     }
 
-    private func buttonName(at point: CGPoint) -> String? {
-        let touchedNames = Set(nodes(at: point).compactMap(\.name))
-        if touchedNames.contains(NodeName.currentCityButton) {
-            return NodeName.currentCityButton
+    private var currentCityControlFrame: CGRect? {
+        guard !currentCityButton.isHidden,
+              let bounds = currentCityButtonBackground.path?.boundingBox else {
+            return nil
         }
 
-        return nil
+        return CGRect(
+            x: currentCityButton.position.x + bounds.minX,
+            y: currentCityButton.position.y + bounds.minY,
+            width: bounds.width,
+            height: bounds.height
+        )
     }
 
-    private func requestCurrentCityBattle() {
-        state = store.load()
-        guard state.stageStatus == .battleActive else {
-            redraw()
+    private func requestProjectedScoutEntry() {
+        guard case .scout(let scout) = CountryMapScoutCardContent.project(from: state) else {
             return
         }
 
-        guard let router else {
-            showFeedback(.cannotEnterCityYet())
-            redraw()
-            return
-        }
-
-        let idleResult = state.returnFromBackground(at: Date())
-
-        guard state.stageStatus == .battleActive else {
-            applyIdleProgressFeedback(idleResult)
-            store.save(state)
-            redraw()
-            return
-        }
-
-        store.save(state)
-        router.countryMapSceneDidRequestBattle(self)
+        requestEntry(for: scout.cityNumber)
     }
 
     private func observeLifecycleNotificationsIfNeeded() {
@@ -724,7 +722,29 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
     }
 
-    private func enterCity(_ cityNumber: Int) {
+    private func handleCityNodeTouch(_ cityNumber: Int) {
+        let latestState = store.load()
+        state = latestState
+
+        switch latestState.mapStatus(for: cityNumber) {
+        case .unlocked:
+            requestEntry(for: cityNumber)
+        case .locked:
+            showFeedback(.locked(cityNumber: cityNumber))
+            redraw()
+        case .completed:
+            showFeedback(.completed(cityNumber: cityNumber))
+            redraw()
+        }
+    }
+
+    private func requestEntry(for cityNumber: Int) {
+        guard !isRoutingToBattle,
+              countryMapLayout != nil,
+              scoutCardLayout != nil else {
+            return
+        }
+
         var latestState = store.load()
 
         switch latestState.startCityFromMap(cityNumber) {
@@ -738,27 +758,35 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
             let idleResult = latestState.returnFromBackground(at: Date())
             state = latestState
+            store.save(state)
 
             guard state.stageStatus == .battleActive else {
-                applyIdleProgressFeedback(idleResult)
-                store.save(state)
+                if let feedback = CountryMapTransientFeedback.idle(
+                    result: idleResult,
+                    state: state
+                ) {
+                    showFeedback(feedback)
+                }
                 redraw()
                 return
             }
 
-            store.save(state)
-            router.countryMapSceneDidRequestBattle(self)
+            isRoutingToBattle = true
+            redraw()
+
+            guard router.countryMapSceneDidRequestBattle(self) else {
+                isRoutingToBattle = false
+                showFeedback(.cannotEnterCityYet())
+                redraw()
+                return
+            }
         case .locked:
-            state = latestState
             showFeedback(.locked(cityNumber: cityNumber))
             redraw()
         case .alreadyCompleted:
-            state = latestState
             showFeedback(.completed(cityNumber: cityNumber))
             redraw()
         case .countryComplete:
-            state = latestState
-            showFeedback(.completed(cityNumber: cityNumber))
             redraw()
         }
     }
@@ -852,11 +880,11 @@ extension CountryMapScene {
     }
 
     func enterCityForTesting(_ cityNumber: Int) {
-        enterCity(cityNumber)
+        requestEntry(for: cityNumber)
     }
 
     func requestCurrentCityBattleForTesting() {
-        requestCurrentCityBattle()
+        requestEntry(for: state.cityNumberInCountry)
     }
 
     func cityNumberAtPointForTesting(_ point: CGPoint) -> Int? {
@@ -897,6 +925,10 @@ extension CountryMapScene {
 
     var isCurrentCityButtonHiddenForTesting: Bool {
         currentCityButton.isHidden
+    }
+
+    var isRoutingToBattleForTesting: Bool {
+        isRoutingToBattle
     }
 
     var currentCityButtonPositionForTesting: CGPoint? {
