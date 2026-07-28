@@ -2,7 +2,7 @@
 
 **Issue:** HPA-387  
 **Date:** 2026-07-27  
-**Status:** Approved in design discussion; pending written-spec review
+**Status:** Approved in design discussion; pending revised-spec approval
 
 ## Goal
 
@@ -91,6 +91,12 @@ enum CountryMapScoutCardContent: Equatable {
 }
 ```
 
+`CountryMapScoutCardContent` owns the named projection entry point:
+
+```swift
+static func project(from state: KingdomGameState) -> Self
+```
+
 `Scout` deliberately stores the trait rather than copied presentation arrays.
 Its favorable and disadvantaged soldiers and its concise explanation remain
 computed semantics on `CityDefenseTrait`.
@@ -126,8 +132,10 @@ Refactor the existing `displayCityTitle` property to delegate to:
 func displayCityTitle(for cityNumber: Int) -> String
 ```
 
-The battle title and Scout title therefore share one current naming API, and a
-later HPA-366 change can extend that API without rewriting this scene.
+The helper uses the same state's `countryNumber`; it does not hard-code
+Country 1. The battle title and Scout title therefore share one current
+naming API, and a later HPA-366 change can extend that API without rewriting
+this scene.
 
 Add `BattleLane.displayName` as framework-free model semantics for `Left`,
 `Center`, and `Right`. The scene does not switch on lane values.
@@ -146,6 +154,7 @@ It returns scene-coordinate frames for:
 - the card panel;
 - city-number badge;
 - title;
+- gold icon;
 - reward;
 - trait name and explanation;
 - favorable soldiers;
@@ -164,34 +173,85 @@ Phone layout constants:
 - 70×44-point Attack frame, right-aligned and vertically centered;
 - 6-point gap between Attack and informational content;
 - 22×22-point city-number badge;
-- a 22-point header row containing the 22-point badge and one centered
-  14-point text slot, with 11-point title type and 10-point reward type;
+- a 22-point header row containing explicit badge, title, gold-icon, and
+  reward frames;
+- the badge is leading-aligned, followed by a 4-point badge/title gap;
+- the reward group is trailing-aligned in the informational column and
+  contains a 12×12-point gold-icon frame, a 2-point gap, and a 34-point
+  right-aligned reward frame;
+- the title frame fills the remaining horizontal space between the badge and
+  reward group, with a 4-point minimum gap on each side of the title;
+- 11-point `AvenirNext-DemiBold` title and badge type, 10-point
+  `AvenirNext-DemiBold` reward type, and 13-point
+  `AvenirNext-DemiBold` Attack type;
 - a 1-point header/trait gap;
 - a 24-point trait row made from two fixed 12-point line slots at 9-point
-  type;
+  `AvenirNext-Medium` type;
 - a 1-point trait/footer gap; and
 - a 12-point matchup/lane footer made from one 12-point line slot at 9-point
-  type.
+  `AvenirNext-Medium` type.
 
 The two 2-point vertical insets plus `22 + 1 + 24 + 1 + 12` exactly consume
 the 64-point phone region. Rows never expand based on content and the outer
 information region never grows.
 
-Trait copy word-wraps at spaces into the two fixed line slots. Every current
-Country 1 trait name plus exact `shortDescription` must fit those slots at
-9 points on the 375×667 fixture. Scene-level font measurement tests cover all
-seven traits. If future copy fails that contract, the tests fail and the copy
-or layout must be reviewed; the runtime does not silently truncate text,
-overlap rows, or change HPA-117 geometry.
+Trait copy uses exactly
+`"\(defenseTrait.displayName) · \(defenseTrait.shortDescription)"` and
+word-wraps at spaces into the two fixed line slots. Every current Country 1
+trait string must fit those slots in `AvenirNext-Medium` at 9 points on the
+375×667 fixture. Scene-level font measurement tests cover all seven traits.
+If future copy fails that contract, the tests fail and the copy or layout
+must be reviewed; the runtime does not silently truncate text, overlap rows,
+or change HPA-117 geometry.
+
+The phone footer uses fixed compact packing:
+
+- favorable, disadvantaged, and exposed-lane groups appear in that
+  leading-to-trailing order;
+- favorable receives a 102-point frame, disadvantaged a 70-point frame, and
+  the lane receives the remaining width after two 6-point group gaps;
+- soldier icons are 10×10 points, with a 2-point icon/label gap,
+  intrinsic-width abbreviation labels measured in the specified production
+  font, and 4 points between soldier entries;
+- `+` and `-` remain leading within their group;
+- an empty matchup group renders its prefix followed by literal `None`,
+  without an icon; and
+- the lane is trailing-aligned within its frame.
+
+Those constants fit the densest current trait, Burning Oil with three
+favorable and two disadvantaged soldiers, in the minimum 255-point
+informational width on the 375×667 fixture.
 
 iPad layout constants:
 
 - card frame equals the complete 112-point information region;
-- 12-point outer inset;
+- 12-point horizontal outer inset and 8-point vertical outer inset;
 - 96×52-point Attack frame, right-aligned and vertically centered;
 - 12-point gap between Attack and informational content;
-- 32×32-point city-number badge; and
-- the same information hierarchy with larger fonts, icons, and spacing.
+- 32×32-point city-number badge;
+- a 32-point header row with an 8-point badge/title gap;
+- the trailing reward group contains an 18×18-point gold-icon frame, a
+  4-point gap, and a 48-point right-aligned reward frame; the title fills the
+  remaining width with an 8-point minimum gap on each side;
+- 16-point `AvenirNext-DemiBold` title and badge type, 14-point
+  `AvenirNext-DemiBold` reward type, and 16-point
+  `AvenirNext-DemiBold` Attack type;
+- a 4-point header/trait gap;
+- a 28-point trait row made from two fixed 14-point line slots at 12-point
+  `AvenirNext-Medium` type;
+- a 4-point trait/footer gap; and
+- a 28-point footer made from two fixed 14-point line slots at 11-point
+  `AvenirNext-Medium` type.
+
+The two 8-point vertical insets plus `32 + 4 + 28 + 4 + 28` exactly consume
+the 112-point iPad region. The iPad footer places favorable soldiers on its
+first line and disadvantaged soldiers followed by the trailing exposed lane
+on its second line. Soldier icons are 14×14 points, the icon/label gap is
+4 points, the fixed full-name label frame is 52 points, the soldier-entry gap
+is 8 points, and the second-line disadvantaged/lane group gap is 12 points.
+Empty groups use the same literal-`None` rule as phone. This two-line footer
+keeps full soldier names viable on the supported 480-point narrow-iPad
+fixture.
 
 For both classes:
 
@@ -251,9 +311,10 @@ The city-number badge and display title satisfy the separate city-number and
 current-title requirements. The header also contains a `gold-burst` icon and
 the formula-derived reward.
 
-The trait row displays `CityDefenseTrait.displayName` and the exact
-`shortDescription`. On phone it wraps to at most two lines when one line does
-not fit; it is never truncated.
+The trait row displays the exact string
+`"\(displayName) · \(shortDescription)"`. It uses
+`AvenirNext-Medium` and wraps to at most two fixed line slots when one line
+does not fit; it is never truncated.
 
 The final row contains:
 
@@ -262,13 +323,17 @@ The final row contains:
 - `Open: <lane>`.
 
 Phone soldier entries use each type's installed `<rawValue>-walk-01` frame and
-the first three characters of `SoldierType.displayName` (`Inf`, `Arc`, `Cav`,
-`Mag`, and `Sie`). iPad uses the same icon with the full display name. Empty
-favorable or disadvantaged arrays display `None`.
+the fixed abbreviations `Inf`, `Arc`, `Cav`, `Mag`, and `Sie`. iPad uses the
+same icon with the full `SoldierType.displayName`. Empty favorable or
+disadvantaged arrays display `None`.
 
-The gold icon falls back to `Gold` if unavailable. A missing soldier icon
-leaves its short or full text visible. Missing optional card icons never hide
-model information and never trigger the map-unavailable gate.
+The node first attempts the installed `gold-burst` asset. If it is
+unavailable, it omits the sprite and uses the union of the gold-icon, gap, and
+reward frames for one right-aligned `Gold <reward>` label; `Gold` is not a
+fallback asset name. The fallback uses 9-point phone or 13-point iPad
+`AvenirNext-DemiBold` type. A missing soldier icon leaves its short or full
+text visible. Missing optional card icons never hide model information and
+never trigger the map-unavailable gate.
 
 The Attack action is labeled `Attack`. While routing is locked, it is dimmed
 and non-interactive.
@@ -283,6 +348,8 @@ No new art is required.
 
 `CountryMapScene` handles a completed touch in this order:
 
+0. If the map is unavailable or the supported outer/inner layout is absent,
+   ignore the touch.
 1. If battle routing is already in progress, consume the touch.
 2. If a visible feedback overlay contains the point, consume the touch.
 3. If the Scout Card contains the point:
@@ -341,12 +408,14 @@ The routing flag remains set for the lifetime of the departing map scene.
 There is no completion callback to reset: successful routing replaces the
 scene.
 
-If the router is absent, the locally entered state is not saved,
-`isRoutingToBattle` remains false, entry visuals remain enabled for retry, and
-`Cannot enter city yet.` is shown. If a race changes the entry result,
-`.locked` shows `City N is locked`, `.alreadyCompleted` shows
-`City N complete`, and `.countryComplete` refreshes the country-complete panel
-without an additional transient. None of these outcomes route.
+If the router is absent after `.entered`, the scene immediately reloads
+`state` from the store to discard the local `startCityFromMap` mutation before
+redrawing. The locally entered state is not saved, `isRoutingToBattle` remains
+false, entry visuals remain enabled for retry, and `Cannot enter city yet.` is
+shown. If a race changes the entry result, `.locked` shows
+`City N is locked`, `.alreadyCompleted` shows `City N complete`, and
+`.countryComplete` refreshes the country-complete panel without an additional
+transient. None of these outcomes route.
 
 The behavioral guard is authoritative even if a disabled node remains in the
 SpriteKit tree during the short routing transition.
@@ -389,6 +458,12 @@ The replacement overlay-message projection produces:
 
 A new message replaces the current message and restarts its timer. It never
 changes the underlying card content.
+
+The overlay intentionally suppresses Attack and consumes every card-area
+touch for its complete lifetime: 1.5 seconds for locked/completed feedback and
+2.5 seconds for idle/recoverable-error feedback. City nodes outside the card
+remain governed by the normal city-node priority and may replace the current
+message.
 
 `CountryMapScene.update(_:)` advances the timer through a small shared private
 advance function. A DEBUG test hook calls that same function with an explicit
@@ -469,6 +544,10 @@ Additional tests cover:
 - battle-active state projects the current unlocked city;
 - city-conquered-pending-map state projects `completedCityCount + 1` rather
   than the stored completed-city number or level;
+- a pending-map fixture where `cityLevel` still names the conquered city
+  asserts that the projected reward equals
+  `goldReward(for: unlockedMapCityNumber)` and differs from
+  `goldReward(for: cityLevel)`;
 - Standard Watch retains empty favorable and disadvantaged arrays;
 - country completion projects no Scout data; and
 - the projection never includes a locked future city.
@@ -489,6 +568,14 @@ The phone fixture also asserts the exact vertical partition:
 2-point inset, 22-point header, 1-point gap, 24-point trait block, 1-point gap,
 12-point footer, and 2-point inset.
 
+Pad fixtures assert the exact vertical partition: 8-point inset, 32-point
+header, 4-point gap, 28-point trait block, 4-point gap, 28-point two-line
+footer, and 8-point inset. Header assertions cover separate badge, title,
+gold-icon, and reward frames plus trailing reward alignment. Footer assertions
+cover the group-frame allocation and inter-group gaps. Scene font measurement
+assertions cover icon/text/item packing and verify the densest current trait
+stays disjoint from Attack.
+
 ### Scene tests
 
 Scene coverage includes:
@@ -498,27 +585,39 @@ Scene coverage includes:
 - Attack enters and routes;
 - the current-city control uses the unified entry path;
 - rapid node/Attack/current-control combinations produce one router call;
-- accepted routing disables all three entry visuals;
+- accepted routing sets `isRoutingToBattle` and disables all three entry
+  visuals after the first accepted request;
+- an `.entered` result with no router reloads the stored state, does not save
+  the local mutation, and leaves entry visuals enabled;
 - locked and completed copy is exact;
 - locked/completed input leaves in-memory and stored progress unchanged;
 - the underlying Scout or country-complete content does not change while a
   message is visible;
 - Standard Watch presents both empty matchup groups as `None`;
-- every current trait name plus exact description fits the two 12-point trait
-  line slots at 9-point type on the 375×667 fixture;
+- every exact `displayName · shortDescription` string fits the two 12-point
+  trait line slots in `AvenirNext-Medium` at 9 points on the 375×667 fixture;
+- Burning Oil, the three-favorable/two-disadvantaged worst case, fits the
+  phone footer without clipping or intersecting Attack;
+- the same dense matchup uses full names without clipping on the 480-point
+  narrow-iPad two-line footer;
 - alpha is 1 through 1.2 seconds, fades during the final 0.3 seconds, and is
   hidden at 1.5 seconds;
 - country completion presents exactly `Country N conquered.`;
 - country completion creates no Attack target;
 - card background taps are consumed;
 - overlay taps at the Attack point are consumed;
+- Attack remains suppressed through the full 1.5-second locked/completed
+  lifetime and full 2.5-second idle/error lifetime;
 - a synthetic lower-z city node beneath the card cannot receive a card touch;
 - every shared supported fixture keeps the card visible and Attack tappable;
 - missing soldier/gold icons leave text fallbacks; and
 - existing missing-backdrop and unsupported-layout paths remain unchanged.
 
 Update the route spy from a Boolean to a call count for exact duplicate-route
-assertions.
+assertions. Migrate existing `feedbackPanelFrame` hooks to the card frame and
+replace initial `feedbackTextForTesting` default-content assertions with Scout
+content assertions. Existing completed-city expectations such as
+`City 3 complete. Arrow Tower.` become the ticket-exact `City 3 complete`.
 
 ### Verification
 
