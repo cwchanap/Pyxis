@@ -1509,12 +1509,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling {
     }
 
     private func advanceCombat(deltaTime: TimeInterval) {
-        #if DEBUG
-        lastAdvanceCombatDeltaForTestingStorage = deltaTime
-        #endif
         guard state.stageStatus == .battleActive, !isConquestPopupVisible else {
             return
         }
+
+        #if DEBUG
+        lastAdvanceCombatDeltaForTestingStorage = deltaTime
+        #endif
 
         let shouldSaveBuildingProgress = deltaTime > 0 && state.cityBattleStateForCurrentCity.occupiedSlotCount > 0
         let buildingSpawns = state.resolveActiveBuildingSpawns(deltaTime: deltaTime)

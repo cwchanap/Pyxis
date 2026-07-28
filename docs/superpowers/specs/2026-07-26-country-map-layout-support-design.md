@@ -287,7 +287,7 @@ x = sceneFrame.minX
 width = sceneFrame.width
 ```
 
-The region is invalid when `maxY < minY`. Every complete city interaction
+The region is invalid when `maxY <= minY`. Every complete city interaction
 frame and every route segment's stroke-expanded bounds must be contained
 inside this rectangle. This full-width rectangle is the sole clearance
 authority; separate distance checks against the narrower title and information

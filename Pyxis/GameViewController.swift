@@ -58,7 +58,7 @@ final class GameViewController: UIViewController {
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        Self.interfaceOrientations(for: view.traitCollection.userInterfaceIdiom)
+        Self.interfaceOrientations(for: traitCollection.userInterfaceIdiom)
     }
 
     override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
@@ -99,6 +99,7 @@ final class GameViewController: UIViewController {
     }
 
     private func presentBattleScene(in view: SKView) {
+        requestedMapGateReason = nil
         let scene = BattleScene(size: view.bounds.size, store: store, router: self)
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
@@ -114,6 +115,7 @@ final class GameViewController: UIViewController {
     }
 
     private func presentBuildingViewScene(in view: SKView) {
+        requestedMapGateReason = nil
         let scene = BuildingViewScene(size: view.bounds.size, store: store, router: self)
         scene.scaleMode = .resizeFill
         view.presentScene(scene)

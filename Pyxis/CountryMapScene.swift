@@ -49,7 +49,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     private weak var router: CountryMapSceneRouting?
     private var state: KingdomGameState
     private let layoutEnvironmentOverride: CountryMapLayoutEnvironment?
+    private let imageLoaderOverride: ((String) -> UIImage?)?
     private var didBuildInterface = false
+    private var isMapUnavailable = false
     private var isObservingLifecycle = false
     private var isLayoutGatePaused = false
     private var isSystemBackgrounded = false
@@ -87,12 +89,14 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
         size: CGSize,
         store: KingdomGameStore = .shared,
         router: CountryMapSceneRouting? = nil,
-        layoutEnvironmentOverride: CountryMapLayoutEnvironment? = nil
+        layoutEnvironmentOverride: CountryMapLayoutEnvironment? = nil,
+        imageLoaderOverride: ((String) -> UIImage?)? = nil
     ) {
         self.store = store
         self.router = router
         self.state = store.load()
         self.layoutEnvironmentOverride = layoutEnvironmentOverride
+        self.imageLoaderOverride = imageLoaderOverride
         super.init(size: size)
     }
 
@@ -101,6 +105,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
         self.router = nil
         self.state = KingdomGameStore.shared.load()
         self.layoutEnvironmentOverride = nil
+        self.imageLoaderOverride = nil
         super.init(coder: aDecoder)
     }
 
@@ -139,6 +144,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
             return
         }
 
+        guard !isMapUnavailable else {
+            return
+        }
+
         let point = touch.location(in: self)
         if buttonName(at: point) == NodeName.currentCityButton {
             requestCurrentCityBattle()
@@ -166,9 +175,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
 
         guard Self.isBackdropAvailable(
             named: MapAssetName.countryMapBackdrop,
-            imageLoader: { UIImage(named: $0) }
+            imageLoader: imageLoaderOverride ?? { UIImage(named: $0) }
         ) else {
-            assertionFailure("Missing country-map-backdrop asset")
+            isMapUnavailable = true
+            clearLayoutGeometry()
             router?.countryMapScene(self, didRequestLayoutGate: .mapUnavailable)
             return
         }
@@ -261,7 +271,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     }
 
     private func layoutInterface() {
-        guard didBuildInterface else { return }
+        guard didBuildInterface, !isMapUnavailable else { return }
 
         guard let environment = layoutEnvironmentOverride
             ?? view.flatMap({ CountryMapLayoutUIKitAdapter.environment(for: $0) })
@@ -362,6 +372,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling {
     }
 
     private func apply(_ layout: CountryMapLayout) {
+        guard !isMapUnavailable else { return }
+
         if let backdropNode {
             backdropNode.isHidden = false
             backdropNode.setScale(1)
@@ -744,6 +756,10 @@ extension CountryMapScene {
         countryMapLayout
     }
 
+    var isMapUnavailableForTesting: Bool {
+        isMapUnavailable
+    }
+
     var routeLayoutCountForTesting: Int {
         routeLayer.children.count
     }
@@ -814,11 +830,13 @@ extension CountryMapScene {
     }
 
     var currentCityButtonFrameForTesting: CGRect {
-        CGRect(
-            x: currentCityButton.position.x - 41,
-            y: currentCityButton.position.y - 22,
-            width: 82,
-            height: 44
+        let backgroundBounds = currentCityButtonBackground.path?.boundingBox
+            ?? CGRect(x: -41, y: -22, width: 82, height: 44)
+        return CGRect(
+            x: currentCityButton.position.x + backgroundBounds.minX,
+            y: currentCityButton.position.y + backgroundBounds.minY,
+            width: backgroundBounds.width,
+            height: backgroundBounds.height
         )
     }
 

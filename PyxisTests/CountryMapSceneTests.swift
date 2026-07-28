@@ -632,6 +632,28 @@ struct CountryMapSceneTests {
         )) != .unsupported(.invalidAuthoredData))
     }
 
+    @Test func missingBackdropMarksSceneUnavailableAndRefusesLayout() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(
+            store: store,
+            router: router,
+            imageLoader: { _ in nil }
+        )
+
+        #expect(scene.isMapUnavailableForTesting)
+        #expect(router.requestedGateReason == .mapUnavailable)
+        #expect(scene.countryMapLayoutForTesting == nil)
+        #expect(scene.routeLayoutCountForTesting == 0)
+
+        // A resize must not promote the half-built interface to a supported layout.
+        scene.didChangeSize(CGSize(width: 414, height: 896))
+        #expect(scene.countryMapLayoutForTesting == nil)
+        #expect(scene.routeLayoutCountForTesting == 0)
+    }
+
     @Test func cityLabelCenterResolvesToCityNumber() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -945,13 +967,15 @@ struct CountryMapSceneTests {
         environment: CountryMapLayoutEnvironment = .init(
             safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
             layoutClass: .phone
-        )
+        ),
+        imageLoader: ((String) -> UIImage?)? = nil
     ) -> CountryMapScene {
         let scene = CountryMapScene(
             size: size,
             store: store,
             router: router,
-            layoutEnvironmentOverride: environment
+            layoutEnvironmentOverride: environment,
+            imageLoaderOverride: imageLoader
         )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)

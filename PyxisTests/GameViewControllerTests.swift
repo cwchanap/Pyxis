@@ -119,6 +119,30 @@ struct GameViewControllerTests {
         #expect(view.isPaused)
     }
 
+    @Test func mapUnavailableReasonDoesNotPersistIntoBattleScene() throws {
+        let store = try makeStore(initialState: .init(
+            cityRemainingPower: 0,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let map = try #require(view.scene as? CountryMapScene)
+
+        controller.countryMapScene(map, didRequestLayoutGate: .mapUnavailable)
+        #expect(controller.layoutGateReasonForTesting == .mapUnavailable)
+
+        // Transitioning to battle must clear the map-scoped reason so the
+        // battle scene is not gated as map-unavailable.
+        controller.countryMapSceneDidRequestBattle(map)
+
+        #expect(view.scene is BattleScene)
+        #expect(controller.layoutGateReasonForTesting == nil)
+        #expect(!view.isPaused)
+        #expect(view.scene?.isUserInteractionEnabled == true)
+    }
+
     private func makeStore(
         initialState: KingdomGameState
     ) throws -> KingdomGameStore {
