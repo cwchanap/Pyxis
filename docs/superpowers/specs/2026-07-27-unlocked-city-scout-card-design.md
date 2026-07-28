@@ -2,7 +2,7 @@
 
 **Issue:** HPA-387  
 **Date:** 2026-07-27  
-**Status:** Approved in design discussion; pending revised-spec approval
+**Status:** Approved
 
 ## Goal
 
