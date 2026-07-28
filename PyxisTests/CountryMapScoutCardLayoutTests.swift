@@ -44,6 +44,11 @@ struct CountryMapScoutCardLayoutTests {
         for frame in informationalFrames {
             #expect(!frame.intersects(cardLayout.attackFrame))
         }
+        for (index, frame) in informationalFrames.enumerated() {
+            for otherFrame in informationalFrames.dropFirst(index + 1) {
+                #expect(!frame.intersects(otherFrame))
+            }
+        }
     }
 
     @Test(arguments: CountryMapLayoutTestFixtures.supported.filter(isPhoneFixture))
@@ -52,24 +57,29 @@ struct CountryMapScoutCardLayoutTests {
     ) throws {
         let (outerLayout, cardLayout) = try scoutCardLayout(for: fixture)
         let contentFrame = outerLayout.informationRegionFrame.insetBy(dx: 6, dy: 2)
-        let traitFrame = try #require(cardLayout.traitLineFrames.first)
+        #expect(cardLayout.traitLineFrames.count == 2)
+        let topTraitLine = try #require(cardLayout.traitLineFrames.first)
+        let bottomTraitLine = try #require(cardLayout.traitLineFrames.last)
 
         #expect(cardLayout.badgeFrame.size == CGSize(width: 22, height: 22))
         #expect(cardLayout.goldIconFrame.size == CGSize(width: 12, height: 12))
         #expect(cardLayout.rewardFrame.size == CGSize(width: 34, height: 22))
         #expect(cardLayout.rewardFrame.minX - cardLayout.goldIconFrame.maxX == 2)
-        #expect(traitFrame.height == 24)
+        #expect(topTraitLine.height == 12)
+        #expect(bottomTraitLine.height == 12)
         #expect(cardLayout.favorableFrame.height == 12)
-        #expect(cardLayout.badgeFrame.minY == contentFrame.minY)
-        #expect(traitFrame.minY == cardLayout.badgeFrame.maxY + 1)
-        #expect(cardLayout.favorableFrame.minY == traitFrame.maxY + 1)
+        #expect(cardLayout.badgeFrame.maxY == contentFrame.maxY)
+        #expect(topTraitLine.maxY == cardLayout.badgeFrame.minY - 1)
+        #expect(bottomTraitLine.maxY == topTraitLine.minY)
+        #expect(cardLayout.favorableFrame.maxY == bottomTraitLine.minY - 1)
+        #expect(cardLayout.favorableFrame.minY == contentFrame.minY)
         #expect(cardLayout.favorableFrame.width == 106)
         #expect(cardLayout.disadvantagedFrame.width == 70)
-        #expect(cardLayout.exposedLaneFrame.maxX == traitFrame.maxX)
+        #expect(cardLayout.exposedLaneFrame.maxX == topTraitLine.maxX)
         #expect(cardLayout.attackFrame.size == CGSize(width: 70, height: 44))
         #expect(cardLayout.attackFrame.maxX == contentFrame.maxX)
         #expect(cardLayout.attackFrame.midY == outerLayout.informationRegionFrame.midY)
-        #expect(cardLayout.favorableFrame.maxY == outerLayout.informationRegionFrame.maxY - 2)
+        #expect(cardLayout.favorableFrame.minY == outerLayout.informationRegionFrame.minY + 2)
         #expect(cardLayout.disadvantagedFrame.minX - cardLayout.favorableFrame.maxX == 6)
         #expect(cardLayout.exposedLaneFrame.minX - cardLayout.disadvantagedFrame.maxX == 6)
         #expect(cardLayout.titleFrame.minX == cardLayout.badgeFrame.maxX + 4)
@@ -82,23 +92,25 @@ struct CountryMapScoutCardLayoutTests {
     ) throws {
         let (outerLayout, cardLayout) = try scoutCardLayout(for: fixture)
         let contentFrame = outerLayout.informationRegionFrame.insetBy(dx: 12, dy: 8)
-        let firstTraitLine = try #require(cardLayout.traitLineFrames.first)
-        let secondTraitLine = try #require(cardLayout.traitLineFrames.last)
+        #expect(cardLayout.traitLineFrames.count == 2)
+        let topTraitLine = try #require(cardLayout.traitLineFrames.first)
+        let bottomTraitLine = try #require(cardLayout.traitLineFrames.last)
 
         #expect(cardLayout.badgeFrame.size == CGSize(width: 32, height: 32))
         #expect(cardLayout.goldIconFrame.size == CGSize(width: 18, height: 18))
         #expect(cardLayout.rewardFrame.size == CGSize(width: 48, height: 32))
         #expect(cardLayout.rewardFrame.minX - cardLayout.goldIconFrame.maxX == 4)
-        #expect(firstTraitLine.height == 28)
-        #expect(secondTraitLine.height == 28)
-        #expect(cardLayout.badgeFrame.minY == contentFrame.minY)
-        #expect(firstTraitLine.minY == cardLayout.badgeFrame.maxY + 4)
-        #expect(secondTraitLine.minY == firstTraitLine.maxY + 4)
-        #expect(cardLayout.favorableFrame == firstTraitLine)
-        #expect(cardLayout.disadvantagedFrame.minY == secondTraitLine.minY)
-        #expect(cardLayout.disadvantagedFrame.maxY == secondTraitLine.maxY)
-        #expect(cardLayout.exposedLaneFrame.minY == secondTraitLine.minY)
-        #expect(cardLayout.exposedLaneFrame.maxY == secondTraitLine.maxY)
+        #expect(topTraitLine.height == 14)
+        #expect(bottomTraitLine.height == 14)
+        #expect(cardLayout.badgeFrame.maxY == contentFrame.maxY)
+        #expect(topTraitLine.maxY == cardLayout.badgeFrame.minY - 4)
+        #expect(bottomTraitLine.maxY == topTraitLine.minY)
+        #expect(cardLayout.favorableFrame.height == 14)
+        #expect(cardLayout.favorableFrame.maxY == bottomTraitLine.minY - 4)
+        #expect(cardLayout.disadvantagedFrame.height == 14)
+        #expect(cardLayout.disadvantagedFrame.maxY == cardLayout.favorableFrame.minY)
+        #expect(cardLayout.exposedLaneFrame.minY == cardLayout.disadvantagedFrame.minY)
+        #expect(cardLayout.exposedLaneFrame.maxY == cardLayout.disadvantagedFrame.maxY)
         #expect(cardLayout.exposedLaneFrame.width == 82)
         #expect(
             cardLayout.exposedLaneFrame.minX
@@ -107,7 +119,7 @@ struct CountryMapScoutCardLayoutTests {
         #expect(cardLayout.attackFrame.size == CGSize(width: 96, height: 52))
         #expect(cardLayout.attackFrame.maxX == contentFrame.maxX)
         #expect(cardLayout.attackFrame.midY == outerLayout.informationRegionFrame.midY)
-        #expect(secondTraitLine.maxY == outerLayout.informationRegionFrame.maxY - 8)
+        #expect(cardLayout.disadvantagedFrame.minY == outerLayout.informationRegionFrame.minY + 8)
         #expect(cardLayout.titleFrame.minX == cardLayout.badgeFrame.maxX + 8)
         #expect(cardLayout.titleFrame.maxX == cardLayout.goldIconFrame.minX - 8)
     }

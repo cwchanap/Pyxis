@@ -39,19 +39,25 @@ struct CountryMapScoutCardLayout: Equatable {
         let informationalMaxX = attackFrame.minX - 6
         let headerFrame = CGRect(
             x: contentFrame.minX,
-            y: contentFrame.minY,
+            y: contentFrame.maxY - 22,
             width: informationalMaxX - contentFrame.minX,
             height: 22
         )
-        let traitFrame = CGRect(
+        let topTraitLine = CGRect(
             x: contentFrame.minX,
-            y: headerFrame.maxY + 1,
+            y: headerFrame.minY - 1 - 12,
             width: headerFrame.width,
-            height: 24
+            height: 12
+        )
+        let bottomTraitLine = CGRect(
+            x: contentFrame.minX,
+            y: topTraitLine.minY - 12,
+            width: headerFrame.width,
+            height: 12
         )
         let footerFrame = CGRect(
             x: contentFrame.minX,
-            y: traitFrame.maxY + 1,
+            y: contentFrame.minY,
             width: headerFrame.width,
             height: 12
         )
@@ -95,7 +101,7 @@ struct CountryMapScoutCardLayout: Equatable {
             titleFrame: titleFrame,
             goldIconFrame: goldIconFrame,
             rewardFrame: rewardFrame,
-            traitLineFrames: [traitFrame],
+            traitLineFrames: [topTraitLine, bottomTraitLine],
             favorableFrame: favorableFrame,
             disadvantagedFrame: disadvantagedFrame,
             exposedLaneFrame: exposedLaneFrame,
@@ -115,21 +121,33 @@ struct CountryMapScoutCardLayout: Equatable {
         let informationalMaxX = attackFrame.minX - 12
         let headerFrame = CGRect(
             x: contentFrame.minX,
-            y: contentFrame.minY,
+            y: contentFrame.maxY - 32,
             width: informationalMaxX - contentFrame.minX,
             height: 32
         )
-        let firstTraitLine = CGRect(
+        let topTraitLine = CGRect(
             x: contentFrame.minX,
-            y: headerFrame.maxY + 4,
+            y: headerFrame.minY - 4 - 14,
             width: headerFrame.width,
-            height: 28
+            height: 14
         )
-        let secondTraitLine = CGRect(
+        let bottomTraitLine = CGRect(
             x: contentFrame.minX,
-            y: firstTraitLine.maxY + 4,
+            y: topTraitLine.minY - 14,
             width: headerFrame.width,
-            height: 28
+            height: 14
+        )
+        let favorableFrame = CGRect(
+            x: contentFrame.minX,
+            y: bottomTraitLine.minY - 4 - 14,
+            width: headerFrame.width,
+            height: 14
+        )
+        let secondFooterLine = CGRect(
+            x: contentFrame.minX,
+            y: favorableFrame.minY - 14,
+            width: headerFrame.width,
+            height: 14
         )
         let badgeFrame = CGRect(x: headerFrame.minX, y: headerFrame.minY, width: 32, height: 32)
         let goldIconFrame = CGRect(
@@ -151,16 +169,16 @@ struct CountryMapScoutCardLayout: Equatable {
             height: 32
         )
         let exposedLaneFrame = CGRect(
-            x: secondTraitLine.maxX - 82,
-            y: secondTraitLine.minY,
+            x: secondFooterLine.maxX - 82,
+            y: secondFooterLine.minY,
             width: 82,
-            height: 28
+            height: 14
         )
         let disadvantagedFrame = CGRect(
-            x: secondTraitLine.minX,
-            y: secondTraitLine.minY,
-            width: exposedLaneFrame.minX - 12 - secondTraitLine.minX,
-            height: 28
+            x: secondFooterLine.minX,
+            y: secondFooterLine.minY,
+            width: exposedLaneFrame.minX - 12 - secondFooterLine.minX,
+            height: 14
         )
 
         return Self(
@@ -170,8 +188,8 @@ struct CountryMapScoutCardLayout: Equatable {
             titleFrame: titleFrame,
             goldIconFrame: goldIconFrame,
             rewardFrame: rewardFrame,
-            traitLineFrames: [firstTraitLine, secondTraitLine],
-            favorableFrame: firstTraitLine,
+            traitLineFrames: [topTraitLine, bottomTraitLine],
+            favorableFrame: favorableFrame,
             disadvantagedFrame: disadvantagedFrame,
             exposedLaneFrame: exposedLaneFrame,
             attackFrame: attackFrame,
