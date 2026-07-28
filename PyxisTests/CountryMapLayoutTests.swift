@@ -53,6 +53,9 @@ struct CountryMapLayoutTests {
         #expect(layout.displayedBackdropFrame.minY <= layout.sceneFrame.minY)
         #expect(layout.displayedBackdropFrame.maxY >= layout.sceneFrame.maxY)
 
+        let safeContentMinX = layout.sceneFrame.minX + fixture.insets.left
+        let safeContentMaxX = layout.sceneFrame.maxX - fixture.insets.right
+
         var minimumCityHeadroom = CGFloat.greatestFiniteMagnitude
         for (index, anchor) in CountryMapLayoutDefinition.country1.cityAnchors.enumerated() {
             let cityNumber = index + 1
@@ -71,6 +74,11 @@ struct CountryMapLayoutTests {
                 height: 44
             )
             #expect(layout.illustratedMapRegionFrame.contains(cityFrame))
+            // Interactive city targets must stay clear of horizontal system
+            // chrome (Stage Manager / split-view side insets), not just the
+            // full-width illustrated region.
+            #expect(cityFrame.minX >= safeContentMinX)
+            #expect(cityFrame.maxX <= safeContentMaxX)
             let headroom = [
                 cityFrame.minX - layout.illustratedMapRegionFrame.minX,
                 layout.illustratedMapRegionFrame.maxX - cityFrame.maxX,
@@ -82,7 +90,10 @@ struct CountryMapLayoutTests {
         #expect(minimumCityHeadroom >= 8)
 
         for route in layout.routes {
-            #expect(layout.illustratedMapRegionFrame.contains(route.strokeExpandedBounds))
+            let bounds = route.strokeExpandedBounds
+            #expect(layout.illustratedMapRegionFrame.contains(bounds))
+            #expect(bounds.minX >= safeContentMinX)
+            #expect(bounds.maxX <= safeContentMaxX)
         }
     }
 
@@ -190,6 +201,21 @@ struct CountryMapLayoutTests {
         let insets = CountryMapSafeAreaInsets(top: 24, left: 80, bottom: 20, right: 80)
         #expect(result(
             size: .init(width: 480, height: 1194),
+            insets: insets,
+            layoutClass: .pad
+        ) == .unsupported(.unsupportedGeometry))
+    }
+
+    @Test func sideInsetsThatPushCityInteractionFramesBeyondSafeBoundsAreRejected() {
+        // A 375×956 iPad-class window with narrow side insets (16pt each)
+        // keeps the centred chrome inside the horizontal safe-content rect
+        // (title maxX ≈ 355, information maxX = 359), but City 2's authored
+        // anchor (0.7528) lands its 44×44 interaction frame at maxX ≈ 370.6,
+        // beyond safeContentMaxX = 359. The layout must fail closed so the
+        // interactive city is not rendered under system chrome.
+        let insets = CountryMapSafeAreaInsets(top: 24, left: 16, bottom: 20, right: 16)
+        #expect(result(
+            size: .init(width: 375, height: 956),
             insets: insets,
             layoutClass: .pad
         ) == .unsupported(.unsupportedGeometry))
