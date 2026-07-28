@@ -193,12 +193,20 @@ struct CountryMapLayout: Equatable {
         }
 
         guard cityPositions.values.allSatisfy({ position in
-            illustratedMapRegionFrame.contains(CGRect(
+            let cityFrame = CGRect(
                 x: position.x - 22,
                 y: position.y - 22,
                 width: 44,
                 height: 44
-            ))
+            )
+            // City interaction frames must stay within the illustrated region
+            // AND clear horizontal system chrome (side safe-area insets) so
+            // interactive targets are not rendered under Stage Manager / split
+            // view chrome. Vertical safe content is already enforced by the
+            // illustrated region's title/information bounds.
+            return illustratedMapRegionFrame.contains(cityFrame)
+                && cityFrame.minX >= safeContentMinX
+                && cityFrame.maxX <= safeContentMaxX
         }) else {
             return .unsupported(.unsupportedGeometry)
         }
@@ -220,7 +228,15 @@ struct CountryMapLayout: Equatable {
         }
         let routes = primaryRoutes + branchRoutes
 
-        guard routes.allSatisfy({ illustratedMapRegionFrame.contains($0.strokeExpandedBounds) }) else {
+        guard routes.allSatisfy({ route in
+            let bounds = route.strokeExpandedBounds
+            // Route strokes follow the same horizontal safe-content rule as
+            // city interaction frames so decorative routes do not render under
+            // side system chrome.
+            return illustratedMapRegionFrame.contains(bounds)
+                && bounds.minX >= safeContentMinX
+                && bounds.maxX <= safeContentMaxX
+        }) else {
             return .unsupported(.unsupportedGeometry)
         }
 
