@@ -847,6 +847,27 @@ extension CountryMapScene {
         return scoutCardNode.baseContentReadbackForTesting
     }
 
+    var visibleScoutCardTextsForTesting: [String] {
+        var texts = [String]()
+
+        func collectVisibleTexts(from node: SKNode, ancestorsAreVisible: Bool) {
+            let isVisible = ancestorsAreVisible && !node.isHidden && node.alpha > 0
+            guard isVisible else { return }
+
+            if let label = node as? SKLabelNode,
+               let text = label.text,
+               !text.isEmpty {
+                texts.append(text)
+            }
+            for child in node.children {
+                collectVisibleTexts(from: child, ancestorsAreVisible: isVisible)
+            }
+        }
+
+        collectVisibleTexts(from: scoutCardNode, ancestorsAreVisible: true)
+        return texts.sorted()
+    }
+
     var scoutCardHitFrameForTesting: CGRect? {
         scoutCardNode.cardHitFrame
     }
