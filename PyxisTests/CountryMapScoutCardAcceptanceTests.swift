@@ -5,46 +5,95 @@ import UIKit
 
 @MainActor
 struct CountryMapScoutCardAcceptanceTests {
+    @Test
+    func harnessCleanupRemovesItsPersistentDomainAfterUse() throws {
+        let fixture = try #require(CountryMapLayoutTestFixtures.supported.first)
+        var retainedDefaults: UserDefaults?
+        var suiteName: String?
+
+        try withHarness(
+            state: KingdomGameState(),
+            fixture: fixture
+        ) { harness in
+            retainedDefaults = harness.defaults
+            suiteName = harness.suiteName
+            let persistedDomain = harness.defaults.persistentDomain(
+                forName: harness.suiteName
+            )
+            #expect(persistedDomain?["state"] != nil)
+        }
+
+        let savedDefaults = try #require(retainedDefaults)
+        let savedSuiteName = try #require(suiteName)
+        #expect(
+            savedDefaults.persistentDomain(forName: savedSuiteName) == nil
+        )
+    }
+
     @Test(arguments: CountryMapLayoutTestFixtures.supported)
     func everySupportedFixtureCoversTheCompleteScoutFlow(
         fixture: CountryMapLayoutTestFixture
     ) throws {
-        let fresh = try makeHarness(state: KingdomGameState(), fixture: fixture)
-        let freshLayout = try #require(fresh.scene.countryMapLayoutForTesting)
-        let freshScout = try projectedScout(from: fresh.scene)
-        let freshBase = try #require(fresh.scene.scoutCardBaseContentForTesting)
-        let cardFrame = try #require(fresh.scene.scoutCardHitFrameForTesting)
-        let attackFrame = try #require(fresh.scene.scoutCardAttackHitFrameForTesting)
-
-        #expect(freshScout.cityNumber == 1)
-        assertRequiredScoutContent(
-            freshBase,
-            scout: freshScout,
-            layoutClass: fixture.layoutClass,
-            usesGoldFallback: false
-        )
-        #expect(freshLayout.informationRegionFrame.contains(cardFrame))
-        #expect(freshLayout.informationRegionFrame.contains(attackFrame))
-        for cityNumber in Country1CityCatalog.cityRange {
-            let cityFrame = try #require(
-                fresh.scene.cityHitFrameForTesting(cityNumber)
+        try withHarness(
+            state: KingdomGameState(),
+            fixture: fixture
+        ) { fresh in
+            let freshLayout = try #require(
+                fresh.scene.countryMapLayoutForTesting
             )
-            #expect(!cardFrame.intersects(cityFrame))
-        }
-        #expect(
-            fresh.scene.visibleScoutCardTextsForTesting
-                == expectedVisibleLabelTexts(from: freshBase)
-        )
+            let freshScout = try projectedScout(from: fresh.scene)
+            let freshBase = try #require(
+                fresh.scene.scoutCardBaseContentForTesting
+            )
+            let cardFrame = try #require(
+                fresh.scene.scoutCardHitFrameForTesting
+            )
+            let attackFrame = try #require(
+                fresh.scene.scoutCardAttackHitFrameForTesting
+            )
 
-        let projectedBeforeRelayout = fresh.scene.projectedScoutCardContentForTesting
-        let baseBeforeRelayout = fresh.scene.scoutCardBaseContentForTesting
-        let labelsBeforeRelayout = fresh.scene.visibleScoutCardTextsForTesting
-        fresh.scene.didChangeSize(fresh.scene.size)
-        #expect(fresh.scene.projectedScoutCardContentForTesting == projectedBeforeRelayout)
-        #expect(fresh.scene.scoutCardBaseContentForTesting == baseBeforeRelayout)
-        #expect(fresh.scene.visibleScoutCardTextsForTesting == labelsBeforeRelayout)
-        #expect(fresh.scene.scoutCardAttackHitFrameForTesting != nil)
-        #expect(!fresh.scene.isRoutingToBattleForTesting)
+            #expect(freshScout.cityNumber == 1)
+            assertRequiredScoutContent(
+                freshBase,
+                scout: freshScout,
+                layoutClass: fixture.layoutClass,
+                usesGoldFallback: false
+            )
+            #expect(freshLayout.informationRegionFrame.contains(cardFrame))
+            #expect(freshLayout.informationRegionFrame.contains(attackFrame))
+            for cityNumber in Country1CityCatalog.cityRange {
+                let cityFrame = try #require(
+                    fresh.scene.cityHitFrameForTesting(cityNumber)
+                )
+                #expect(!cardFrame.intersects(cityFrame))
+            }
+            #expect(
+                fresh.scene.visibleScoutCardTextsForTesting
+                    == expectedVisibleLabelTexts(from: freshBase)
+            )
+
+            let projectedBeforeRelayout =
+                fresh.scene.projectedScoutCardContentForTesting
+            let baseBeforeRelayout =
+                fresh.scene.scoutCardBaseContentForTesting
+            let labelsBeforeRelayout =
+                fresh.scene.visibleScoutCardTextsForTesting
+            fresh.scene.didChangeSize(fresh.scene.size)
+            #expect(
+                fresh.scene.projectedScoutCardContentForTesting
+                    == projectedBeforeRelayout
+            )
+            #expect(
+                fresh.scene.scoutCardBaseContentForTesting
+                    == baseBeforeRelayout
+            )
+            #expect(
+                fresh.scene.visibleScoutCardTextsForTesting
+                    == labelsBeforeRelayout
+            )
+            #expect(fresh.scene.scoutCardAttackHitFrameForTesting != nil)
+            #expect(!fresh.scene.isRoutingToBattleForTesting)
+        }
 
         let pendingState = KingdomGameState(
             cityLevel: 4,
@@ -53,22 +102,23 @@ struct CountryMapScoutCardAcceptanceTests {
             completedCityCount: 4,
             stageStatus: .cityConqueredPendingMap
         )
-        let pending = try makeHarness(state: pendingState, fixture: fixture)
-        let pendingScout = try projectedScout(from: pending.scene)
-        let pendingBase = try #require(
-            pending.scene.scoutCardBaseContentForTesting
-        )
-        #expect(pendingScout.cityNumber == 5)
-        assertRequiredScoutContent(
-            pendingBase,
-            scout: pendingScout,
-            layoutClass: fixture.layoutClass,
-            usesGoldFallback: false
-        )
-        #expect(
-            pending.scene.visibleScoutCardTextsForTesting
-                == expectedVisibleLabelTexts(from: pendingBase)
-        )
+        try withHarness(state: pendingState, fixture: fixture) { pending in
+            let pendingScout = try projectedScout(from: pending.scene)
+            let pendingBase = try #require(
+                pending.scene.scoutCardBaseContentForTesting
+            )
+            #expect(pendingScout.cityNumber == 5)
+            assertRequiredScoutContent(
+                pendingBase,
+                scout: pendingScout,
+                layoutClass: fixture.layoutClass,
+                usesGoldFallback: false
+            )
+            #expect(
+                pending.scene.visibleScoutCardTextsForTesting
+                    == expectedVisibleLabelTexts(from: pendingBase)
+            )
+        }
 
         let entryState = KingdomGameState(
             cityRemainingPower: 0,
@@ -76,27 +126,29 @@ struct CountryMapScoutCardAcceptanceTests {
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
         )
-        let attackEntry = try makeHarness(state: entryState, fixture: fixture)
-        let attackTarget = try #require(
-            attackEntry.scene.scoutCardAttackHitFrameForTesting
-        )
-        attackEntry.scene.touchesEnded(
-            [MockTouch(location: attackTarget.center)],
-            with: nil
-        )
-        #expect(attackEntry.store.load().cityNumberInCountry == 2)
-        #expect(attackEntry.router.battleRequestCount == 1)
+        try withHarness(state: entryState, fixture: fixture) { attackEntry in
+            let attackTarget = try #require(
+                attackEntry.scene.scoutCardAttackHitFrameForTesting
+            )
+            attackEntry.scene.touchesEnded(
+                [MockTouch(location: attackTarget.center)],
+                with: nil
+            )
+            #expect(attackEntry.store.load().cityNumberInCountry == 2)
+            #expect(attackEntry.router.battleRequestCount == 1)
+        }
 
-        let nodeEntry = try makeHarness(state: entryState, fixture: fixture)
-        let unlockedCityPoint = try #require(
-            nodeEntry.scene.cityNodePositionForTesting(2)
-        )
-        nodeEntry.scene.touchesEnded(
-            [MockTouch(location: unlockedCityPoint)],
-            with: nil
-        )
-        #expect(nodeEntry.store.load().cityNumberInCountry == 2)
-        #expect(nodeEntry.router.battleRequestCount == 1)
+        try withHarness(state: entryState, fixture: fixture) { nodeEntry in
+            let unlockedCityPoint = try #require(
+                nodeEntry.scene.cityNodePositionForTesting(2)
+            )
+            nodeEntry.scene.touchesEnded(
+                [MockTouch(location: unlockedCityPoint)],
+                with: nil
+            )
+            #expect(nodeEntry.store.load().cityNumberInCountry == 2)
+            #expect(nodeEntry.router.battleRequestCount == 1)
+        }
 
         let feedbackState = KingdomGameState(
             cityRemainingPower: 0,
@@ -104,36 +156,43 @@ struct CountryMapScoutCardAcceptanceTests {
             completedCityCount: 2,
             stageStatus: .cityConqueredPendingMap
         )
-        let feedback = try makeHarness(state: feedbackState, fixture: fixture)
-        let feedbackBase = try #require(
-            feedback.scene.scoutCardBaseContentForTesting
-        )
-        let lockedPoint = try #require(
-            feedback.scene.cityNodePositionForTesting(4)
-        )
-        feedback.scene.touchesEnded(
-            [MockTouch(location: lockedPoint)],
-            with: nil
-        )
-        #expect(feedback.scene.visibleFeedbackTextForTesting == "City 4 is locked")
-        assertSameRequiredStrings(
-            feedback.scene.scoutCardBaseContentForTesting,
-            feedbackBase
-        )
+        try withHarness(state: feedbackState, fixture: fixture) { feedback in
+            let feedbackBase = try #require(
+                feedback.scene.scoutCardBaseContentForTesting
+            )
+            let lockedPoint = try #require(
+                feedback.scene.cityNodePositionForTesting(4)
+            )
+            feedback.scene.touchesEnded(
+                [MockTouch(location: lockedPoint)],
+                with: nil
+            )
+            #expect(
+                feedback.scene.visibleFeedbackTextForTesting
+                    == "City 4 is locked"
+            )
+            assertSameRequiredStrings(
+                feedback.scene.scoutCardBaseContentForTesting,
+                feedbackBase
+            )
 
-        feedback.scene.advanceFeedbackForTesting(by: 1.5)
-        let completedPoint = try #require(
-            feedback.scene.cityNodePositionForTesting(2)
-        )
-        feedback.scene.touchesEnded(
-            [MockTouch(location: completedPoint)],
-            with: nil
-        )
-        #expect(feedback.scene.visibleFeedbackTextForTesting == "City 2 complete")
-        assertSameRequiredStrings(
-            feedback.scene.scoutCardBaseContentForTesting,
-            feedbackBase
-        )
+            feedback.scene.advanceFeedbackForTesting(by: 1.5)
+            let completedPoint = try #require(
+                feedback.scene.cityNodePositionForTesting(2)
+            )
+            feedback.scene.touchesEnded(
+                [MockTouch(location: completedPoint)],
+                with: nil
+            )
+            #expect(
+                feedback.scene.visibleFeedbackTextForTesting
+                    == "City 2 complete"
+            )
+            assertSameRequiredStrings(
+                feedback.scene.scoutCardBaseContentForTesting,
+                feedbackBase
+            )
+        }
 
         let completeState = KingdomGameState(
             cityLevel: 15,
@@ -142,17 +201,18 @@ struct CountryMapScoutCardAcceptanceTests {
             completedCityCount: 15,
             stageStatus: .countryComplete
         )
-        let complete = try makeHarness(state: completeState, fixture: fixture)
-        let completeBase = try #require(
-            complete.scene.scoutCardBaseContentForTesting
-        )
-        #expect(completeBase.title == "Country 1 conquered.")
-        #expect(completeBase.attack == nil)
-        #expect(complete.scene.scoutCardAttackHitFrameForTesting == nil)
-        #expect(
-            complete.scene.visibleScoutCardTextsForTesting
-                == ["Country 1 conquered."]
-        )
+        try withHarness(state: completeState, fixture: fixture) { complete in
+            let completeBase = try #require(
+                complete.scene.scoutCardBaseContentForTesting
+            )
+            #expect(completeBase.title == "Country 1 conquered.")
+            #expect(completeBase.attack == nil)
+            #expect(complete.scene.scoutCardAttackHitFrameForTesting == nil)
+            #expect(
+                complete.scene.visibleScoutCardTextsForTesting
+                    == ["Country 1 conquered."]
+            )
+        }
     }
 
     @Test(arguments: CountryMapLayoutTestFixtures.supported)
@@ -171,37 +231,38 @@ struct CountryMapScoutCardAcceptanceTests {
                 completedCityCount: definition.cityNumber - 1,
                 stageStatus: .battleActive
             )
-            let harness = try makeHarness(state: state, fixture: fixture)
-            let scout = try projectedScout(from: harness.scene)
-            let base = try #require(
-                harness.scene.scoutCardBaseContentForTesting
-            )
+            try withHarness(state: state, fixture: fixture) { harness in
+                let scout = try projectedScout(from: harness.scene)
+                let base = try #require(
+                    harness.scene.scoutCardBaseContentForTesting
+                )
 
-            #expect(scout.cityNumber == definition.cityNumber)
-            #expect(scout.defenseTrait == definition.defenseTrait)
-            #expect(
-                scout.defenseTrait.favorableSoldierTypes
-                    == definition.defenseTrait.favorableSoldierTypes
-            )
-            #expect(
-                scout.defenseTrait.disadvantagedSoldierTypes
-                    == definition.defenseTrait.disadvantagedSoldierTypes
-            )
-            #expect(
-                scout.exposedLane
-                    == definition.laneDefenseProfile.exposedLane
-            )
-            exposedLanes.insert(scout.exposedLane)
-            assertRequiredScoutContent(
-                base,
-                scout: scout,
-                layoutClass: fixture.layoutClass,
-                usesGoldFallback: false
-            )
-            #expect(
-                harness.scene.visibleScoutCardTextsForTesting
-                    == expectedVisibleLabelTexts(from: base)
-            )
+                #expect(scout.cityNumber == definition.cityNumber)
+                #expect(scout.defenseTrait == definition.defenseTrait)
+                #expect(
+                    scout.defenseTrait.favorableSoldierTypes
+                        == definition.defenseTrait.favorableSoldierTypes
+                )
+                #expect(
+                    scout.defenseTrait.disadvantagedSoldierTypes
+                        == definition.defenseTrait.disadvantagedSoldierTypes
+                )
+                #expect(
+                    scout.exposedLane
+                        == definition.laneDefenseProfile.exposedLane
+                )
+                exposedLanes.insert(scout.exposedLane)
+                assertRequiredScoutContent(
+                    base,
+                    scout: scout,
+                    layoutClass: fixture.layoutClass,
+                    usesGoldFallback: false
+                )
+                #expect(
+                    harness.scene.visibleScoutCardTextsForTesting
+                        == expectedVisibleLabelTexts(from: base)
+                )
+            }
         }
 
         #expect(exposedLanes == Set(BattleLane.allCases))
@@ -238,38 +299,61 @@ struct CountryMapScoutCardAcceptanceTests {
         )
 
         for scenario in scenarios {
-            let harness = try makeHarness(
+            try withHarness(
                 state: state,
                 fixture: fixture,
                 imageLoader: { name in
                     scenario.missingNames.contains(name)
                         ? nil
                         : completeImages[name]
-                }
-            )
-            let scout = try projectedScout(from: harness.scene)
-            let base = try #require(
-                harness.scene.scoutCardBaseContentForTesting
-            )
+                },
+                body: { harness in
+                    let scout = try projectedScout(from: harness.scene)
+                    let base = try #require(
+                        harness.scene.scoutCardBaseContentForTesting
+                    )
 
-            #expect(!harness.scene.isMapUnavailableForTesting)
-            assertRequiredScoutContent(
-                base,
-                scout: scout,
-                layoutClass: fixture.layoutClass,
-                usesGoldFallback: scenario.missingNames.contains("gold-burst")
-            )
-            #expect(
-                harness.scene.visibleScoutCardTextsForTesting
-                    == expectedVisibleLabelTexts(from: base)
+                    #expect(!harness.scene.isMapUnavailableForTesting)
+                    assertRequiredScoutContent(
+                        base,
+                        scout: scout,
+                        layoutClass: fixture.layoutClass,
+                        usesGoldFallback:
+                            scenario.missingNames.contains("gold-burst")
+                    )
+                    #expect(
+                        harness.scene.visibleScoutCardTextsForTesting
+                            == expectedVisibleLabelTexts(from: base)
+                    )
+                }
             )
         }
     }
 
-    private struct SceneHarness {
+    private final class SceneHarness {
         let scene: CountryMapScene
         let store: KingdomGameStore
         let router: RouteSpy
+        let defaults: UserDefaults
+        let suiteName: String
+
+        init(
+            scene: CountryMapScene,
+            store: KingdomGameStore,
+            router: RouteSpy,
+            defaults: UserDefaults,
+            suiteName: String
+        ) {
+            self.scene = scene
+            self.store = store
+            self.router = router
+            self.defaults = defaults
+            self.suiteName = suiteName
+        }
+
+        func tearDown() {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
     }
 
     private struct AssetScenario {
@@ -330,7 +414,28 @@ struct CountryMapScoutCardAcceptanceTests {
             frame: CGRect(origin: .zero, size: fixture.size)
         )
         scene.didMove(to: view)
-        return SceneHarness(scene: scene, store: store, router: router)
+        return SceneHarness(
+            scene: scene,
+            store: store,
+            router: router,
+            defaults: defaults,
+            suiteName: suiteName
+        )
+    }
+
+    private func withHarness<Result>(
+        state: KingdomGameState,
+        fixture: CountryMapLayoutTestFixture,
+        imageLoader: ((String) -> UIImage?)? = nil,
+        body: (SceneHarness) throws -> Result
+    ) throws -> Result {
+        let harness = try makeHarness(
+            state: state,
+            fixture: fixture,
+            imageLoader: imageLoader
+        )
+        defer { harness.tearDown() }
+        return try body(harness)
     }
 
     private func projectedScout(
