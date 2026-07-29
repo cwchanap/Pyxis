@@ -1,0 +1,14 @@
+---
+description: Cursor Cloud Linux VM constraints and runnable tooling for Pyxis
+alwaysApply: true
+---
+
+# Cursor Cloud specific instructions
+
+The Cursor Cloud VM runs **Linux**, but Pyxis is an **iOS-only** app. Everything that touches the app itself — `xcodebuild` build, the Swift Testing (`PyxisTests`) + XCTest (`PyxisUITests`) suites, `swiftlint`, and running the game in the iOS Simulator — requires **macOS + Xcode** and **cannot run on this Linux VM** (there is no `Package.swift`; the only build system is the `.xcodeproj`). CI already reflects this: every job in `.github/workflows/ci.yml` runs on `macos-26`. To build/run/lint/test the app, use a macOS host or the macOS CI (see "Build & Test" in `CLAUDE.md`); do not attempt it on the cloud VM.
+
+What **is** runnable on the Linux cloud VM is the Python asset pipeline in `tools/`:
+- `tools/slice_soldier_animation_strips.py` — slices 5×2 chroma-key storyboards into the 30-frame-per-soldier imagesets under `Pyxis/Assets.xcassets` (see the frame-size / trio conventions in `CLAUDE.md`). Depends only on **Pillow** (installed by the update script; there is no requirements file).
+- Its test suite: `python3 -m unittest discover -s tools/tests -p 'test_*.py' -v` (plain `unittest`, not pytest).
+
+Note: the slicer clamps `--assets-dir` to the repo root (`resolve_within_repo`), so to exercise it without touching tracked assets, point `--assets-dir` at a throwaway dir inside the repo (e.g. `.demo_assets.xcassets`) and delete it afterward. Storyboards must be named `<soldier>-<action>.png`; archer uses a **magenta** chroma key while the other four use green (`SOLDIER_KEYS` / `DEFAULT_SOLDIER_KEY`).
