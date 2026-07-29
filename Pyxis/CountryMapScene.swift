@@ -53,6 +53,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private let imageLoaderOverride: ((String) -> UIImage?)?
     private var didBuildInterface = false
     private var isMapUnavailable = false
+    private(set) var isScoutCardFitFailed = false
     private var isObservingLifecycle = false
     private var isLayoutGatePaused = false
     private var isSystemBackgrounded = false
@@ -294,6 +295,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func layoutInterface() {
         guard didBuildInterface, !isMapUnavailable else { return }
+        isScoutCardFitFailed = false
 
         guard let environment = layoutEnvironmentOverride
             ?? view.flatMap({ CountryMapLayoutUIKitAdapter.environment(for: $0) })
@@ -534,9 +536,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                 && transientFeedback == nil
         )
         guard result == .presented else {
-            isMapUnavailable = true
+            isScoutCardFitFailed = true
             clearLayoutGeometry()
-            router?.countryMapScene(self, didRequestLayoutGate: .mapUnavailable)
+            router?.countryMapScene(self, didRequestLayoutGate: .unsupportedGeometry)
             return
         }
         applyFeedbackPresentation()
@@ -823,6 +825,14 @@ extension CountryMapScene {
 
     var isMapUnavailableForTesting: Bool {
         isMapUnavailable
+    }
+
+    var isScoutCardFitFailedForTesting: Bool {
+        isScoutCardFitFailed
+    }
+
+    func setScoutCardFitFailedForTesting(_ value: Bool) {
+        isScoutCardFitFailed = value
     }
 
     var routeLayoutCountForTesting: Int {
