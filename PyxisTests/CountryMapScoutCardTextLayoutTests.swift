@@ -123,10 +123,7 @@ struct CountryMapScoutCardTextLayoutTests {
         let width = CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
             prefix: "+",
             items: items,
-            iconWidth: 10,
-            prefixGap: 2,
-            iconLabelGap: 2,
-            itemGap: 4,
+            spacing: .init(iconWidth: 10, prefixGap: 2, iconLabelGap: 2, itemGap: 4),
             labelWidth: { label in
                 switch label {
                 case "+": 4
@@ -146,10 +143,7 @@ struct CountryMapScoutCardTextLayoutTests {
         let width = CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
             prefix: "-",
             items: items,
-            iconWidth: 10,
-            prefixGap: 2,
-            iconLabelGap: 2,
-            itemGap: 4,
+            spacing: .init(iconWidth: 10, prefixGap: 2, iconLabelGap: 2, itemGap: 4),
             labelWidth: { label in label == "-" ? 4 : 11 }
         )
 
@@ -262,10 +256,7 @@ struct CountryMapScoutCardTextLayoutTests {
         let footerWidth = CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
             prefix: "+",
             items: overflowItems,
-            iconWidth: 10,
-            prefixGap: 2,
-            iconLabelGap: 2,
-            itemGap: 4,
+            spacing: .init(iconWidth: 10, prefixGap: 2, iconLabelGap: 2, itemGap: 4),
             labelWidth: footerMeasure
         )
 
@@ -320,10 +311,12 @@ private func footerRequiredWidth(
     return CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
         prefix: prefix,
         items: items,
-        iconWidth: isPhone ? 10 : 14,
-        prefixGap: isPhone ? 2 : 4,
-        iconLabelGap: isPhone ? 2 : 4,
-        itemGap: isPhone ? 4 : 8,
+        spacing: .init(
+            iconWidth: isPhone ? 10 : 14,
+            prefixGap: isPhone ? 2 : 4,
+            iconLabelGap: isPhone ? 2 : 4,
+            itemGap: isPhone ? 4 : 8
+        ),
         labelWidth: { label in
             isPhone || label == "None" ? measure(label) : 52
         }

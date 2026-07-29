@@ -430,10 +430,12 @@ final class CountryMapScoutCardNode: SKNode {
             items: items.map {
                 .init(label: $0.label, showsIcon: $0.image != nil)
             },
-            iconWidth: metrics.iconSize,
-            prefixGap: metrics.prefixGap,
-            iconLabelGap: metrics.iconLabelGap,
-            itemGap: metrics.itemGap,
+            spacing: .init(
+                iconWidth: metrics.iconSize,
+                prefixGap: metrics.prefixGap,
+                iconLabelGap: metrics.iconLabelGap,
+                itemGap: metrics.itemGap
+            ),
             labelWidth: { label in
                 if let fixedWidth = metrics.fixedPadLabelWidth, label != "None" {
                     return fixedWidth
@@ -507,38 +509,28 @@ final class CountryMapScoutCardNode: SKNode {
             metrics: prepared.metrics
         )
 
-        #if DEBUG
-        favorableRenderedItems = renderFooter(
+        let favorableRendered = renderFooter(
             items: prepared.favorableItems,
             prefix: "+",
             frame: layout.favorableFrame,
             metrics: prepared.metrics,
             container: favorableContainer
         )
-        favorablePrefixLabel = favorableContainer.children.first as? SKLabelNode
-        disadvantagedRenderedItems = renderFooter(
+        let disadvantagedRendered = renderFooter(
             items: prepared.disadvantagedItems,
             prefix: "-",
             frame: layout.disadvantagedFrame,
             metrics: prepared.metrics,
             container: disadvantagedContainer
         )
+        #if DEBUG
+        favorableRenderedItems = favorableRendered
+        favorablePrefixLabel = favorableContainer.children.first as? SKLabelNode
+        disadvantagedRenderedItems = disadvantagedRendered
         disadvantagedPrefixLabel = disadvantagedContainer.children.first as? SKLabelNode
         #else
-        renderFooter(
-            items: prepared.favorableItems,
-            prefix: "+",
-            frame: layout.favorableFrame,
-            metrics: prepared.metrics,
-            container: favorableContainer
-        )
-        renderFooter(
-            items: prepared.disadvantagedItems,
-            prefix: "-",
-            frame: layout.disadvantagedFrame,
-            metrics: prepared.metrics,
-            container: disadvantagedContainer
-        )
+        _ = favorableRendered
+        _ = disadvantagedRendered
         #endif
 
         laneLabel.text = prepared.laneText

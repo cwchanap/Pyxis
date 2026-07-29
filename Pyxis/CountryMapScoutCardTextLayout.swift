@@ -47,22 +47,26 @@ enum CountryMapScoutCardTextLayout {
         return nil
     }
 
+    struct FooterSpacing: Equatable {
+        let iconWidth: CGFloat
+        let prefixGap: CGFloat
+        let iconLabelGap: CGFloat
+        let itemGap: CGFloat
+    }
+
     static func footerGroupRequiredWidth(
         prefix: String,
         items: [FooterItem],
-        iconWidth: CGFloat,
-        prefixGap: CGFloat,
-        iconLabelGap: CGFloat,
-        itemGap: CGFloat,
+        spacing: FooterSpacing,
         labelWidth: (String) -> CGFloat
     ) -> CGFloat {
         guard !items.isEmpty else { return labelWidth(prefix) }
 
         let itemsWidth = items.enumerated().reduce(CGFloat.zero) { total, item in
             let itemWidth = labelWidth(item.element.label)
-                + (item.element.showsIcon ? iconWidth + iconLabelGap : 0)
-            return total + itemWidth + (item.offset == 0 ? 0 : itemGap)
+                + (item.element.showsIcon ? spacing.iconWidth + spacing.iconLabelGap : 0)
+            return total + itemWidth + (item.offset == 0 ? 0 : spacing.itemGap)
         }
-        return labelWidth(prefix) + prefixGap + itemsWidth
+        return labelWidth(prefix) + spacing.prefixGap + itemsWidth
     }
 }

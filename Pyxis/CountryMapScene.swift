@@ -622,7 +622,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func advanceFeedback(by deltaTime: TimeInterval) {
         guard var feedback = transientFeedback else {
-            applyFeedbackPresentation()
             return
         }
 
@@ -965,14 +964,7 @@ extension CountryMapScene {
     }
 
     var currentCityButtonFrameForTesting: CGRect {
-        let backgroundBounds = currentCityButtonBackground.path?.boundingBox
-            ?? CGRect(x: -41, y: -22, width: 82, height: 44)
-        return CGRect(
-            x: currentCityButton.position.x + backgroundBounds.minX,
-            y: currentCityButton.position.y + backgroundBounds.minY,
-            width: backgroundBounds.width,
-            height: backgroundBounds.height
-        )
+        currentCityControlFrame ?? .zero
     }
 
     func fitLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) {

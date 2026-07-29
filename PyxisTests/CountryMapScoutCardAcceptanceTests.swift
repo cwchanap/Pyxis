@@ -284,7 +284,7 @@ struct CountryMapScoutCardAcceptanceTests {
         let scenarios = [
             AssetScenario(missingNames: []),
             AssetScenario(missingNames: ["gold-burst"]),
-            AssetScenario(missingNames: ["archer-walk-01"]),
+            AssetScenario(missingNames: ["\(SoldierType.archer.rawValue)-walk-01"]),
             AssetScenario(missingNames: soldierNames)
         ]
         let definition = Country1CityCatalog.definition(for: 7)
