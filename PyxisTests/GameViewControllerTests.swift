@@ -144,10 +144,20 @@ struct GameViewControllerTests {
         #expect(view.scene?.isUserInteractionEnabled == true)
     }
 
-    @Test func scoutCardFitFailureDoesNotLatchMapUnavailableAndRecoversOnResize() throws {
-        // A scout card fit failure is transient (width-dependent). The VC must
-        // show .unsupportedGeometry (not .mapUnavailable) and must remove the
-        // gate once the scene reports the fit as resolved.
+    @Test func scoutCardFitFailureMapsToUnsupportedGeometryNotMapUnavailableAndClearsWhenFlagResolves() throws {
+        // Verifies the VC's gate-state mapping only: a scout card fit failure
+        // must surface as .unsupportedGeometry (NOT .mapUnavailable), and the
+        // gate must clear once the scene reports the fit as resolved.
+        //
+        // The flag is toggled via setScoutCardFitFailedForTesting rather than
+        // driven by a real resize because the VC-presented scene has no
+        // layoutEnvironmentOverride, so its layoutInterface reads layoutClass
+        // from view.traitCollection.userInterfaceIdiom — .phone in the
+        // simulator (CI runs on iPhone 17) and .unspecified for a bare headless
+        // SKView, never .pad. The .pad scout-card fit failure/recovery on
+        // resize is covered end-to-end by
+        // CountryMapSceneTests.narrowPadScoutCardFitFailureDoesNotLatchAndRecoversOnWiderResize,
+        // which injects a .pad environment override directly into the scene.
         let store = try makeStore(initialState: .init(
             cityRemainingPower: 0,
             cityNumberInCountry: 8,
@@ -163,7 +173,7 @@ struct GameViewControllerTests {
         let map = try #require(view.scene as? CountryMapScene)
         map.didMove(to: view)
 
-        // Simulate a scout card fit failure at a narrow .pad width.
+        // Force the fit-failed flag the scene would set at a narrow .pad width.
         map.setScoutCardFitFailedForTesting(true)
         controller.refreshLayoutSupportForTesting(environment: .init(
             safeAreaInsets: .init(top: 24, left: 0, bottom: 20, right: 0),
@@ -174,7 +184,7 @@ struct GameViewControllerTests {
         #expect(controller.layoutGateReasonForTesting != .mapUnavailable)
         #expect(view.isPaused)
 
-        // Simulate the scene recovering after the window widens.
+        // Simulate the scene reporting the fit as resolved.
         map.setScoutCardFitFailedForTesting(false)
         controller.refreshLayoutSupportForTesting(environment: .init(
             safeAreaInsets: .init(top: 24, left: 0, bottom: 20, right: 0),
