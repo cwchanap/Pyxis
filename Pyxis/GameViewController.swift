@@ -43,6 +43,8 @@ final class GameViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        ((view as? SKView)?.scene as? SceneLayoutRefreshable)?
+            .refreshLayoutForCurrentEnvironment()
         refreshLayoutSupport()
     }
 
@@ -140,7 +142,12 @@ final class GameViewController: UIViewController {
         } else {
             switch layoutResult {
             case .supported:
-                reason = nil
+                if let mapScene = skView.scene as? CountryMapScene,
+                   mapScene.isScoutCardFitFailed {
+                    reason = .unsupportedGeometry
+                } else {
+                    reason = nil
+                }
             case .unsupported(.invalidAuthoredData):
                 reason = .mapUnavailable
             case .unsupported(.unsupportedGeometry):

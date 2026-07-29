@@ -984,6 +984,48 @@ struct CountryMapSceneTests {
         #expect(scene.routeLayoutCountForTesting == 0)
     }
 
+    @Test func narrowPadScoutCardFitFailureDoesNotLatchAndRecoversOnWiderResize() throws {
+        // City 9 has .arcaneWard (3 favorable types: infantry, cavalry, siege).
+        // At 400x955 .pad, the outer layout is supported but favorableFrame.width
+        // = 236pt, while 3 items with icons need ~282pt (fixedPadLabelWidth=52
+        // applies to prefix too), so the scout card footer does not fit. This
+        // must NOT permanently latch isMapUnavailable — widening the window must
+        // let the layout recover.
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 8,
+            completedCityCount: 8,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let narrowPad = CGSize(width: 400, height: 956)
+        let scene = makeScene(
+            size: narrowPad,
+            store: store,
+            router: router,
+            environment: .init(
+                safeAreaInsets: .init(top: 24, left: 0, bottom: 20, right: 0),
+                layoutClass: .pad
+            ),
+            imageLoader: { _ in UIImage() }
+        )
+
+        // Narrow .pad: outer layout supported, scout card footer doesn't fit.
+        #expect(scene.isScoutCardFitFailedForTesting)
+        #expect(!scene.isMapUnavailableForTesting)
+        #expect(router.requestedGateReason == .unsupportedGeometry)
+        #expect(scene.scoutCardFrameForTesting == nil)
+
+        // Resize wider — the layout must re-evaluate and recover.
+        scene.size = CGSize(width: 500, height: 956)
+        scene.didChangeSize(CGSize(width: 400, height: 956))
+
+        #expect(!scene.isScoutCardFitFailedForTesting)
+        #expect(!scene.isMapUnavailableForTesting)
+        #expect(scene.scoutCardFrameForTesting != nil)
+        #expect(scene.scoutCardHitFrameForTesting != nil)
+    }
+
     @Test func cityLabelCenterResolvesToCityNumber() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,

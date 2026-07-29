@@ -144,6 +144,48 @@ struct GameViewControllerTests {
         #expect(view.scene?.isUserInteractionEnabled == true)
     }
 
+    @Test func scoutCardFitFailureDoesNotLatchMapUnavailableAndRecoversOnResize() throws {
+        // A scout card fit failure is transient (width-dependent). The VC must
+        // show .unsupportedGeometry (not .mapUnavailable) and must remove the
+        // gate once the scene reports the fit as resolved.
+        let store = try makeStore(initialState: .init(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 8,
+            completedCityCount: 8,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let controller = GameViewController(store: store)
+        // 400x956 .pad: outer layout supported, scout card footer doesn't fit
+        // for City 9 (.arcaneWard, 3 favorable types).
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 400, height: 956))
+        controller.view = view
+        controller.viewDidLoad()
+        let map = try #require(view.scene as? CountryMapScene)
+        map.didMove(to: view)
+
+        // Simulate a scout card fit failure at a narrow .pad width.
+        map.setScoutCardFitFailedForTesting(true)
+        controller.refreshLayoutSupportForTesting(environment: .init(
+            safeAreaInsets: .init(top: 24, left: 0, bottom: 20, right: 0),
+            layoutClass: .pad
+        ))
+
+        #expect(controller.layoutGateReasonForTesting == .unsupportedGeometry)
+        #expect(controller.layoutGateReasonForTesting != .mapUnavailable)
+        #expect(view.isPaused)
+
+        // Simulate the scene recovering after the window widens.
+        map.setScoutCardFitFailedForTesting(false)
+        controller.refreshLayoutSupportForTesting(environment: .init(
+            safeAreaInsets: .init(top: 24, left: 0, bottom: 20, right: 0),
+            layoutClass: .pad
+        ))
+
+        #expect(controller.layoutGateReasonForTesting == nil)
+        #expect(!view.isPaused)
+        #expect(view.scene?.isUserInteractionEnabled == true)
+    }
+
     @Test func battleRequestWithoutSKViewReturnsFalse() throws {
         let store = try makeStore(initialState: .init(
             cityRemainingPower: 0,
