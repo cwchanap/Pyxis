@@ -490,38 +490,6 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     @discardableResult
-    mutating func applyLiveCombatDamage(_ rawDamage: Int) -> AttackResult {
-        guard stageStatus == .battleActive else {
-            return .blocked
-        }
-
-        let damage = max(0, rawDamage)
-        guard damage > 0 else {
-            return AttackResult(attackApplied: true, damageDealt: 0, conqueredCities: 0, goldEarned: 0)
-        }
-
-        let appliedDamage = min(damage, cityRemainingPower)
-        cityRemainingPower -= appliedDamage
-
-        guard cityRemainingPower <= 0 else {
-            return AttackResult(attackApplied: true, damageDealt: appliedDamage, conqueredCities: 0, goldEarned: 0)
-        }
-
-        let reward = currentGoldReward
-        ensureSession()
-        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
-            .finalized(conquestMode: .live, goldEarned: reward)
-        let completion = completeCurrentCity(with: result)
-
-        return AttackResult(
-            attackApplied: true,
-            damageDealt: appliedDamage,
-            conqueredCities: completion.awarded ? 1 : 0,
-            goldEarned: completion.goldEarned
-        )
-    }
-
-    @discardableResult
     mutating func buildBuilding(
         _ type: BuildingType,
         inSlot slot: Int,

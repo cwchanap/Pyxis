@@ -129,4 +129,54 @@ struct BattleResultModelsTests {
         let laneData = try JSONEncoder().encode(BattleLane.right)
         #expect(try JSONDecoder().decode(BattleLane.self, from: laneData) == .right)
     }
+
+    @Test func decodedActiveBattleSecondsAreClampedNonNegativeAndFinite() throws {
+        let negativeSessionJSON = """
+        {
+          "cityKey": "1-1",
+          "activeBattleSeconds": -12.5,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [],
+          "usedFavorableUnit": false,
+          "usedExposedLane": false
+        }
+        """.data(using: .utf8)!
+        let session = try JSONDecoder().decode(ActiveSiegeSession.self, from: negativeSessionJSON)
+        #expect(session.activeBattleSeconds == 0)
+
+        let nanResult = BattleResult(
+            cityKey: CityKey(countryNumber: 1, cityNumber: 1),
+            conquestMode: .live,
+            activeBattleSeconds: .nan,
+            deployments: [],
+            appliedDamage: [],
+            losses: [],
+            idleDamageByType: [],
+            mvpSoldierType: nil,
+            mvpDamageSharePercent: nil,
+            usedFavorableUnit: false,
+            usedExposedLane: false,
+            goldEarned: 8
+        )
+        #expect(nanResult.activeBattleSeconds == 0)
+
+        let encodedNegativeResult = """
+        {
+          "cityKey": "1-2",
+          "conquestMode": "idle",
+          "activeBattleSeconds": -3,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [],
+          "usedFavorableUnit": false,
+          "usedExposedLane": false,
+          "goldEarned": 8
+        }
+        """.data(using: .utf8)!
+        let decodedResult = try JSONDecoder().decode(BattleResult.self, from: encodedNegativeResult)
+        #expect(decodedResult.activeBattleSeconds == 0)
+    }
 }

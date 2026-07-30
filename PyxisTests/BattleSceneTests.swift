@@ -1544,6 +1544,28 @@ struct BattleSceneTests {
         #expect(savedSession.losses.isEmpty)
     }
 
+    @Test func lossOnlyTickPersistsSiegeSessionWithoutBuildingSavePath() throws {
+        // No buildings → building-progress saves cannot mask a missing loss save.
+        let store = try makeStore(
+            initialState: KingdomGameState(
+                gold: 100,
+                cityRemainingPower: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        #expect(store.load().cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+
+        let scene = makeScene(store: store, combatSeed: 1)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        let savedSession = try #require(store.load().activeSiegeSession)
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(!savedSession.losses.isEmpty)
+        #expect(savedSession.appliedDamage.isEmpty)
+    }
+
     @Test func activeBattleTimeAdvancesOnlyWhileConquestPopupIsHidden() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
         let scene = makeScene(store: store)

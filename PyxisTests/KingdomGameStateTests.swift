@@ -1203,7 +1203,15 @@ struct KingdomGameStateTests {
         var state = KingdomGameState(gold: 200, cityRemainingPower: 1)
         #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 185))
 
-        _ = state.applyLiveCombatDamage(1)
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
 
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 1)).occupiedSlotCount == 0)
@@ -1217,7 +1225,15 @@ struct KingdomGameStateTests {
     @Test func liveCombatDamageReducesCurrentCityHP() {
         var state = KingdomGameState(cityRemainingPower: 20)
 
-        let result = state.applyLiveCombatDamage(6)
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 6
+            )
+        ])
 
         #expect(result.attackApplied)
         #expect(result.damageDealt == 6)
@@ -1225,12 +1241,23 @@ struct KingdomGameStateTests {
         #expect(result.goldEarned == 0)
         #expect(state.cityRemainingPower == 14)
         #expect(state.stageStatus == .battleActive)
+        #expect(state.activeSiegeSession?.appliedDamage == [
+            SiegeDamageAttribution(type: .infantry, source: .manual, lane: .center, damage: 6)
+        ])
     }
 
-    @Test func liveCombatDamageIsCappedAndConquersCurrentCity() {
+    @Test func liveCombatDamageIsCappedAndConquersCurrentCity() throws {
         var state = KingdomGameState(gold: 0, cityRemainingPower: 3)
 
-        let result = state.applyLiveCombatDamage(9)
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 9
+            )
+        ])
 
         #expect(result.attackApplied)
         #expect(result.damageDealt == 3)
@@ -1240,13 +1267,34 @@ struct KingdomGameStateTests {
         #expect(state.cityRemainingPower == 0)
         #expect(state.completedCityCount == 1)
         #expect(state.stageStatus == .cityConqueredPendingMap)
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.mvpSoldierType == .infantry)
+        #expect(pending.appliedDamage == [
+            SiegeDamageAttribution(type: .infantry, source: .manual, lane: .center, damage: 3)
+        ])
     }
 
     @Test func liveCombatDamageIsRejectedWhenBattleIsPaused() {
         var state = KingdomGameState(gold: 0, cityRemainingPower: 1)
-        _ = state.applyLiveCombatDamage(1)
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
 
-        let result = state.applyLiveCombatDamage(5)
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 2,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 5
+            )
+        ])
 
         #expect(!result.attackApplied)
         #expect(result.damageDealt == 0)
@@ -1257,7 +1305,15 @@ struct KingdomGameStateTests {
 
     @Test func startingNextUnlockedCityAdvancesAndRestoresFullHP() {
         var state = KingdomGameState(cityRemainingPower: 1)
-        _ = state.applyLiveCombatDamage(1)
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
 
         let result = state.startCityFromMap(2)
 
@@ -1275,7 +1331,15 @@ struct KingdomGameStateTests {
         var state = KingdomGameState(gold: 15, cityRemainingPower: 1)
         #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 0))
 
-        _ = state.applyLiveCombatDamage(1)
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
         #expect(state.gold == 8)
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
@@ -1304,7 +1368,15 @@ struct KingdomGameStateTests {
 
     @Test func lockedFutureCityEntryIsRejected() {
         var state = KingdomGameState(cityRemainingPower: 1)
-        _ = state.applyLiveCombatDamage(1)
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
 
         let result = state.startCityFromMap(3)
 
@@ -1316,7 +1388,15 @@ struct KingdomGameStateTests {
 
     @Test func completedCityEntryIsRejected() {
         var state = KingdomGameState(cityRemainingPower: 1)
-        _ = state.applyLiveCombatDamage(1)
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
 
         let result = state.startCityFromMap(1)
 
@@ -1333,7 +1413,15 @@ struct KingdomGameStateTests {
             completedCityCount: 14
         )
 
-        let result = state.applyLiveCombatDamage(1)
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
 
         #expect(result.conqueredCities == 1)
         #expect(state.completedCityCount == 15)
@@ -1479,7 +1567,15 @@ struct KingdomGameStateTests {
         let end = start.addingTimeInterval(80)
         var state = KingdomGameState(gold: 0, cityRemainingPower: 1)
 
-        _ = state.applyLiveCombatDamage(1)
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        ])
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: end)
 
