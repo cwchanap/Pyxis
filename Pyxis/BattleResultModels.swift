@@ -191,13 +191,19 @@ struct ActiveSiegeSession: Codable, Equatable {
     func finalized(conquestMode: BattleConquestMode, goldEarned: Int) -> BattleResult {
         var damageByType: [SoldierType: Int64] = [:]
         for row in appliedDamage {
-            damageByType[row.type, default: 0] += Int64(row.damage)
+            damageByType[row.type, default: 0] = saturatingAddInt64(
+                damageByType[row.type, default: 0],
+                Int64(row.damage)
+            )
         }
         for row in idleDamageByType {
-            damageByType[row.type, default: 0] += Int64(row.damage)
+            damageByType[row.type, default: 0] = saturatingAddInt64(
+                damageByType[row.type, default: 0],
+                Int64(row.damage)
+            )
         }
 
-        let totalDamage = damageByType.values.reduce(Int64(0), +)
+        let totalDamage = damageByType.values.reduce(Int64(0), saturatingAddInt64)
         var mvpType: SoldierType?
         var mvpDamage: Int64 = 0
         for type in SoldierType.allCases {
@@ -207,10 +213,7 @@ struct ActiveSiegeSession: Codable, Equatable {
                 mvpDamage = damage
             }
         }
-        let mvpPercent: Int? = {
-            guard mvpType != nil, totalDamage > 0 else { return nil }
-            return Int((mvpDamage * 100) / totalDamage)
-        }()
+        let mvpPercent = mvpDamageSharePercent(mvpDamage: mvpDamage, totalDamage: totalDamage)
 
         return BattleResult(
             cityKey: cityKey,
@@ -395,6 +398,26 @@ private enum SiegeAggregationOverflow: Error {
 private enum SiegeIntOverflowPolicy {
     case throwError
     case saturate
+}
+
+private func saturatingAddInt64(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+    let (sum, didOverflow) = lhs.addingReportingOverflow(rhs)
+    return didOverflow ? Int64.max : sum
+}
+
+private func mvpDamageSharePercent(mvpDamage: Int64, totalDamage: Int64) -> Int? {
+    guard mvpDamage > 0, totalDamage > 0 else {
+        return nil
+    }
+    if mvpDamage >= totalDamage {
+        return 100
+    }
+
+    let (product, didOverflow) = mvpDamage.multipliedReportingOverflow(by: 100)
+    if didOverflow {
+        return Int((Double(mvpDamage) / Double(totalDamage)) * 100.0)
+    }
+    return Int(product / totalDamage)
 }
 
 private func addSiegeInts(
