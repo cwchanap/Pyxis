@@ -45,6 +45,11 @@ struct KingdomGameState: Codable, Equatable {
         )
     }
 
+    struct CompletionResult: Equatable {
+        let awarded: Bool
+        let goldEarned: Int
+    }
+
     struct IdleProgressResult: Equatable {
         let elapsedSeconds: Int
         let damageDealt: Int
@@ -411,6 +416,72 @@ struct KingdomGameState: Codable, Equatable {
         pendingBattleResult = nil
     }
 
+    mutating func recordSoldierLosses(_ events: [SoldierLossEvent]) {
+        guard stageStatus == .battleActive else {
+            return
+        }
+
+        ensureSession()
+        for event in events {
+            activeSiegeSession?.recordLoss(event)
+        }
+    }
+
+    @discardableResult
+    mutating func applyLiveSoldierAttacks(_ events: [SoldierAttackEvent]) -> AttackResult {
+        guard stageStatus == .battleActive else {
+            return .blocked
+        }
+
+        ensureSession()
+        var totalApplied = 0
+
+        for event in events {
+            let applied = min(max(0, event.appliedCityDamage), cityRemainingPower)
+            guard applied > 0 else {
+                continue
+            }
+
+            activeSiegeSession?.recordAttack(
+                SoldierAttackEvent(
+                    soldierID: event.soldierID,
+                    type: event.type,
+                    source: event.source,
+                    lane: event.lane,
+                    appliedCityDamage: applied
+                )
+            )
+            cityRemainingPower -= applied
+            totalApplied += applied
+
+            if cityRemainingPower <= 0 {
+                break
+            }
+        }
+
+        guard cityRemainingPower <= 0 else {
+            return AttackResult(
+                attackApplied: true,
+                damageDealt: totalApplied,
+                conqueredCities: 0,
+                goldEarned: 0
+            )
+        }
+
+        let reward = currentGoldReward
+        ensureSession()
+        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
+            .finalized(conquestMode: .live, goldEarned: reward)
+        let completion = completeCurrentCity(with: result)
+
+        return AttackResult(
+            attackApplied: true,
+            damageDealt: totalApplied,
+            conqueredCities: completion.awarded ? 1 : 0,
+            goldEarned: completion.goldEarned
+        )
+    }
+
     @discardableResult
     mutating func applyLiveCombatDamage(_ rawDamage: Int) -> AttackResult {
         guard stageStatus == .battleActive else {
@@ -429,9 +500,18 @@ struct KingdomGameState: Codable, Equatable {
             return AttackResult(attackApplied: true, damageDealt: appliedDamage, conqueredCities: 0, goldEarned: 0)
         }
 
-        let reward = completeCurrentCity()
+        let reward = currentGoldReward
+        ensureSession()
+        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
+            .finalized(conquestMode: .live, goldEarned: reward)
+        let completion = completeCurrentCity(with: result)
 
-        return AttackResult(attackApplied: true, damageDealt: appliedDamage, conqueredCities: 1, goldEarned: reward)
+        return AttackResult(
+            attackApplied: true,
+            damageDealt: appliedDamage,
+            conqueredCities: completion.awarded ? 1 : 0,
+            goldEarned: completion.goldEarned
+        )
     }
 
     @discardableResult
@@ -609,7 +689,11 @@ struct KingdomGameState: Codable, Equatable {
             cityRemainingPower -= appliedDamage
 
             if cityRemainingPower <= 0 {
-                _ = completeCurrentCity()
+                let reward = currentGoldReward
+                ensureSession()
+                let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
+                    .finalized(conquestMode: .idle, goldEarned: reward)
+                _ = completeCurrentCity(with: result)
                 return
             }
         }
@@ -667,8 +751,17 @@ struct KingdomGameState: Codable, Equatable {
             return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: totalPotentialDamage, conqueredCities: 0, goldEarned: 0)
         }
 
-        let reward = completeCurrentCity()
-        return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: appliedDamage, conqueredCities: 1, goldEarned: reward)
+        let reward = currentGoldReward
+        ensureSession()
+        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
+            .finalized(conquestMode: .idle, goldEarned: reward)
+        let completion = completeCurrentCity(with: result)
+        return IdleProgressResult(
+            elapsedSeconds: elapsedSeconds,
+            damageDealt: appliedDamage,
+            conqueredCities: completion.awarded ? 1 : 0,
+            goldEarned: completion.goldEarned
+        )
     }
 
     mutating func enterBackground(at date: Date) {
@@ -897,11 +990,18 @@ struct KingdomGameState: Codable, Equatable {
         activeSiegeSession = ActiveSiegeSession(cityKey: currentCityKey)
     }
 
-    private mutating func completeCurrentCity() -> Int {
-        let reward = currentGoldReward
-        gold += reward
+    @discardableResult
+    mutating func completeCurrentCity(with result: BattleResult) -> CompletionResult {
+        guard stageStatus == .battleActive,
+              result.cityKey == currentCityKey else {
+            return CompletionResult(awarded: false, goldEarned: 0)
+        }
+
+        gold += result.goldEarned
         cityRemainingPower = 0
         cityBattleStates.removeValue(forKey: currentCityKey.storageKey)
+        activeSiegeSession = nil
+        pendingBattleResult = result
         completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
 
         if completedCityCount >= Self.firstCountryCityCount {
@@ -910,6 +1010,8 @@ struct KingdomGameState: Codable, Equatable {
             stageStatus = .cityConqueredPendingMap
         }
 
-        return reward
+        // HPA-367: Chronicle write hooks here (no-op in HPA-363).
+
+        return CompletionResult(awarded: true, goldEarned: result.goldEarned)
     }
 }
