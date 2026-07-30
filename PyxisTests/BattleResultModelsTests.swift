@@ -208,4 +208,50 @@ struct BattleResultModelsTests {
         }
         #expect(threwDecodingError)
     }
+
+    @Test func finalizedDoesNotTrapOnLargeSameTypeRowsAcrossKeys() {
+        var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 1))
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                appliedCityDamage: Int.max
+            )
+        )
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 2,
+                type: .infantry,
+                source: .building,
+                lane: .right,
+                appliedCityDamage: Int.max
+            )
+        )
+
+        let result = session.finalized(conquestMode: .live, goldEarned: 8)
+
+        #expect(result.mvpSoldierType == .infantry)
+        #expect(result.mvpDamageSharePercent == 100)
+        #expect(result.appliedDamage.count == 2)
+    }
+
+    @Test func finalizedDoesNotTrapOnSingleMaxDamageRowPercent() {
+        var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 2))
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .mage,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: Int.max
+            )
+        )
+
+        let result = session.finalized(conquestMode: .live, goldEarned: 8)
+
+        #expect(result.mvpSoldierType == .mage)
+        #expect(result.mvpDamageSharePercent == 100)
+    }
 }
