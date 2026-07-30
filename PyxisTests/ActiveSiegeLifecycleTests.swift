@@ -191,6 +191,46 @@ struct ActiveSiegeLifecycleTests {
         ])
     }
 
+    @Test func idleConquestAttributesDamageByTypeAndMarksIdle() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 3_000)
+        let end = start.addingTimeInterval(1_000)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 2)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        #expect(state.buildBuilding(.barracks, inSlot: 2, at: start) == .built(cost: 15, remainingGold: 70))
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: end)
+
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .idle)
+        #expect(pending.idleDamageByType.reduce(0) { $0 + $1.damage } == result.damageDealt)
+        #expect(pending.idleDamageByType == [
+            SiegeIdleDamageByType(type: .infantry, damage: 2)
+        ])
+        #expect(pending.activeBattleSeconds == 0)
+        #expect(pending.goldEarned == result.goldEarned)
+        #expect(pending.mvpSoldierType != nil)
+    }
+
+    @Test func settlementConquestAttributesDamageByTypeAndMarksIdle() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let settlement = start.addingTimeInterval(100)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+
+        let result = state.buildBuilding(.barracks, inSlot: 2, at: settlement)
+
+        #expect(result == .cityConqueredDuringSettlement(goldEarned: 8, remainingGold: 93))
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .idle)
+        #expect(pending.idleDamageByType == [
+            SiegeIdleDamageByType(type: .infantry, damage: 1)
+        ])
+        #expect(pending.activeBattleSeconds == 0)
+        #expect(pending.goldEarned == 8)
+        #expect(pending.mvpSoldierType == .infantry)
+    }
+
     private func battleResult(
         cityNumber: Int,
         activeBattleSeconds: TimeInterval = 3,
