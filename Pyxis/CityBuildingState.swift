@@ -38,6 +38,25 @@ struct CityKey: Equatable, Hashable {
     }
 }
 
+extension CityKey: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let storageKey = try container.decode(String.self)
+        guard let key = CityKey(storageKey: storageKey) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid CityKey storageKey \(storageKey)"
+            )
+        }
+        self = key
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(storageKey)
+    }
+}
+
 enum BuildingType: String, Codable, CaseIterable, Equatable {
     case barracks
     case archeryRange
