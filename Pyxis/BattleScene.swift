@@ -1632,6 +1632,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         state.recordSoldierLosses(result.soldierLosses)
 
         guard !result.soldierAttacks.isEmpty else {
+            if !result.soldierLosses.isEmpty {
+                store.save(state)
+            }
             return
         }
 

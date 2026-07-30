@@ -70,10 +70,12 @@ struct ActiveSiegeSession: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         cityKey = try container.decode(CityKey.self, forKey: .cityKey)
-        activeBattleSeconds = try container.decodeIfPresent(
-            TimeInterval.self,
-            forKey: .activeBattleSeconds
-        ) ?? 0
+        activeBattleSeconds = Self.normalizedActiveBattleSeconds(
+            try container.decodeIfPresent(
+                TimeInterval.self,
+                forKey: .activeBattleSeconds
+            ) ?? 0
+        )
         deployments = try container.decodeIfPresent(
             [SiegeDeploymentCount].self,
             forKey: .deployments
@@ -162,7 +164,11 @@ struct ActiveSiegeSession: Codable, Equatable {
         guard delta > 0 else {
             return
         }
-        activeBattleSeconds += delta
+        activeBattleSeconds = Self.normalizedActiveBattleSeconds(activeBattleSeconds + delta)
+    }
+
+    static func normalizedActiveBattleSeconds(_ value: TimeInterval) -> TimeInterval {
+        value.isFinite ? max(0, value) : 0
     }
 
     func finalized(conquestMode: BattleConquestMode, goldEarned: Int) -> BattleResult {
@@ -255,7 +261,7 @@ struct BattleResult: Codable, Equatable {
     ) {
         self.cityKey = cityKey
         self.conquestMode = conquestMode
-        self.activeBattleSeconds = activeBattleSeconds
+        self.activeBattleSeconds = ActiveSiegeSession.normalizedActiveBattleSeconds(activeBattleSeconds)
         self.deployments = normalizedDeployments(deployments)
         self.appliedDamage = normalizedDamageAttribution(appliedDamage)
         self.losses = normalizedLosses(losses)
