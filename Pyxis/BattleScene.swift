@@ -1602,22 +1602,22 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             playTowerShot(at: towerShot.soldierID)
         }
 
-        for soldierID in result.soldierAttackIDs {
-            playSoldierAttackFeedback(for: soldierID)
+        for attack in result.soldierAttacks {
+            playSoldierAttackFeedback(for: attack.soldierID)
         }
 
-        let killedSoldierIDs = Set(result.killedSoldierIDs)
+        let killedIDs = Set(result.soldierLosses.map(\.soldierID))
 
         for soldierID in result.damagedSoldierIDs {
-            playSoldierHitFeedback(for: soldierID, schedulesRemoval: killedSoldierIDs.contains(soldierID))
+            playSoldierHitFeedback(for: soldierID, schedulesRemoval: killedIDs.contains(soldierID))
         }
 
-        // Note: `killedSoldierIDs` is a structural subset of `damagedSoldierIDs`
+        // Note: `killedIDs` is a structural subset of `damagedSoldierIDs`
         // (BattleCombatState appends to both in the same tower-shot block), so
         // every killed soldier is already routed through playSoldierHitFeedback
         // above with schedulesRemoval=true. No separate killed-loop is needed.
 
-        if !result.killedSoldierIDs.isEmpty {
+        if !result.soldierLosses.isEmpty {
             updateLiveCombatStatusLabel()
         }
 
