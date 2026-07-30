@@ -179,6 +179,57 @@ struct KingdomGameStoreTests {
         #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 2) == nil)
     }
 
+    @Test func loadDropsOverflowingActiveSiegeSessionWithoutCrashing() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        // Two matching deployment rows whose counts overflow Int when merged.
+        let nearMax = Int.max - 1
+        let data = """
+        {
+          "gold": 64,
+          "cityLevel": 1,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 3,
+          "lastBackgroundedAt": null,
+          "countryNumber": 1,
+          "cityNumberInCountry": 1,
+          "completedCityCount": 0,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {},
+          "activeSiegeSession": {
+            "cityKey": "1-1",
+            "activeBattleSeconds": 1,
+            "deployments": [
+              {
+                "type": "infantry",
+                "source": "manual",
+                "lane": 1,
+                "count": \(nearMax)
+              },
+              {
+                "type": "infantry",
+                "source": "manual",
+                "lane": 1,
+                "count": 2
+              }
+            ],
+            "appliedDamage": [],
+            "losses": [],
+            "idleDamageByType": [],
+            "usedFavorableUnit": false,
+            "usedExposedLane": false
+          }
+        }
+        """.data(using: .utf8)!
+        defaults.set(data, forKey: "state")
+
+        let loaded = store.load()
+
+        #expect(loaded.gold == 64)
+        #expect(loaded.stageStatus == .battleActive)
+        #expect(loaded.activeSiegeSession == nil)
+    }
+
     @Test func loadDropsMalformedActiveSiegeSessionWithoutDiscardingSave() throws {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")

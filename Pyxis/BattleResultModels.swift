@@ -76,16 +76,19 @@ struct ActiveSiegeSession: Codable, Equatable {
                 forKey: .activeBattleSeconds
             ) ?? 0
         )
-        deployments = try container.decodeIfPresent(
+        let decodedDeployments = try container.decodeIfPresent(
             [SiegeDeploymentCount].self,
             forKey: .deployments
         ) ?? []
-        appliedDamage = try container.decodeIfPresent(
+        let decodedAppliedDamage = try container.decodeIfPresent(
             [SiegeDamageAttribution].self,
             forKey: .appliedDamage
         ) ?? []
-        losses = try container.decodeIfPresent([SiegeLossCount].self, forKey: .losses) ?? []
-        idleDamageByType = try container.decodeIfPresent(
+        let decodedLosses = try container.decodeIfPresent(
+            [SiegeLossCount].self,
+            forKey: .losses
+        ) ?? []
+        let decodedIdleDamage = try container.decodeIfPresent(
             [SiegeIdleDamageByType].self,
             forKey: .idleDamageByType
         ) ?? []
@@ -97,12 +100,26 @@ struct ActiveSiegeSession: Codable, Equatable {
             Bool.self,
             forKey: .usedExposedLane
         ) ?? false
-        normalizeRows()
+
+        do {
+            deployments = try normalizedDeployments(decodedDeployments, overflow: .throwError)
+            appliedDamage = try normalizedDamageAttribution(decodedAppliedDamage, overflow: .throwError)
+            losses = try normalizedLosses(decodedLosses, overflow: .throwError)
+            idleDamageByType = try normalizedIdleDamage(decodedIdleDamage, overflow: .throwError)
+        } catch {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "Siege session row aggregation overflowed",
+                    underlyingError: error
+                )
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var normalized = self
-        normalized.normalizeRows()
+        normalized.normalizeRowsSaturating()
 
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(normalized.cityKey, forKey: .cityKey)
@@ -125,7 +142,7 @@ struct ActiveSiegeSession: Codable, Equatable {
         deployments.append(
             SiegeDeploymentCount(type: type, source: source, lane: lane, count: 1)
         )
-        deployments = normalizedDeployments(deployments)
+        deployments = saturatingNormalizedDeployments(deployments)
         usedFavorableUnit = usedFavorableUnit || favorableTypes.contains(type)
         usedExposedLane = usedExposedLane || lane == exposedLane
     }
@@ -143,12 +160,12 @@ struct ActiveSiegeSession: Codable, Equatable {
                 damage: event.appliedCityDamage
             )
         )
-        appliedDamage = normalizedDamageAttribution(appliedDamage)
+        appliedDamage = saturatingNormalizedDamageAttribution(appliedDamage)
     }
 
     mutating func recordLoss(_ event: SoldierLossEvent) {
         losses.append(SiegeLossCount(type: event.type, source: event.source, count: 1))
-        losses = normalizedLosses(losses)
+        losses = saturatingNormalizedLosses(losses)
     }
 
     mutating func recordIdleDamage(type: SoldierType, appliedDamage: Int) {
@@ -157,7 +174,7 @@ struct ActiveSiegeSession: Codable, Equatable {
         }
 
         idleDamageByType.append(SiegeIdleDamageByType(type: type, damage: appliedDamage))
-        idleDamageByType = normalizedIdleDamage(idleDamageByType)
+        idleDamageByType = saturatingNormalizedIdleDamage(idleDamageByType)
     }
 
     mutating func advanceActiveBattleTime(_ delta: TimeInterval) {
@@ -172,17 +189,17 @@ struct ActiveSiegeSession: Codable, Equatable {
     }
 
     func finalized(conquestMode: BattleConquestMode, goldEarned: Int) -> BattleResult {
-        var damageByType: [SoldierType: Int] = [:]
+        var damageByType: [SoldierType: Int64] = [:]
         for row in appliedDamage {
-            damageByType[row.type, default: 0] += row.damage
+            damageByType[row.type, default: 0] += Int64(row.damage)
         }
         for row in idleDamageByType {
-            damageByType[row.type, default: 0] += row.damage
+            damageByType[row.type, default: 0] += Int64(row.damage)
         }
 
-        let totalDamage = damageByType.values.reduce(0, +)
+        let totalDamage = damageByType.values.reduce(Int64(0), +)
         var mvpType: SoldierType?
-        var mvpDamage = 0
+        var mvpDamage: Int64 = 0
         for type in SoldierType.allCases {
             let damage = damageByType[type, default: 0]
             if damage > mvpDamage {
@@ -190,7 +207,10 @@ struct ActiveSiegeSession: Codable, Equatable {
                 mvpDamage = damage
             }
         }
-        let mvpPercent = mvpType.map { _ in (mvpDamage * 100) / totalDamage }
+        let mvpPercent: Int? = {
+            guard mvpType != nil, totalDamage > 0 else { return nil }
+            return Int((mvpDamage * 100) / totalDamage)
+        }()
 
         return BattleResult(
             cityKey: cityKey,
@@ -208,11 +228,12 @@ struct ActiveSiegeSession: Codable, Equatable {
         )
     }
 
-    private mutating func normalizeRows() {
-        deployments = normalizedDeployments(deployments)
-        appliedDamage = normalizedDamageAttribution(appliedDamage)
-        losses = normalizedLosses(losses)
-        idleDamageByType = normalizedIdleDamage(idleDamageByType)
+    /// Live/encode path: saturates on overflow. Decode uses throwing aggregation instead.
+    private mutating func normalizeRowsSaturating() {
+        deployments = saturatingNormalizedDeployments(deployments)
+        appliedDamage = saturatingNormalizedDamageAttribution(appliedDamage)
+        losses = saturatingNormalizedLosses(losses)
+        idleDamageByType = saturatingNormalizedIdleDamage(idleDamageByType)
     }
 }
 
@@ -262,10 +283,10 @@ struct BattleResult: Codable, Equatable {
         self.cityKey = cityKey
         self.conquestMode = conquestMode
         self.activeBattleSeconds = ActiveSiegeSession.normalizedActiveBattleSeconds(activeBattleSeconds)
-        self.deployments = normalizedDeployments(deployments)
-        self.appliedDamage = normalizedDamageAttribution(appliedDamage)
-        self.losses = normalizedLosses(losses)
-        self.idleDamageByType = normalizedIdleDamage(idleDamageByType)
+        self.deployments = saturatingNormalizedDeployments(deployments)
+        self.appliedDamage = saturatingNormalizedDamageAttribution(appliedDamage)
+        self.losses = saturatingNormalizedLosses(losses)
+        self.idleDamageByType = saturatingNormalizedIdleDamage(idleDamageByType)
         self.mvpSoldierType = mvpSoldierType
         self.mvpDamageSharePercent = mvpDamageSharePercent
         self.usedFavorableUnit = usedFavorableUnit
@@ -275,6 +296,39 @@ struct BattleResult: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedDeployments = try container.decode([SiegeDeploymentCount].self, forKey: .deployments)
+        let decodedAppliedDamage = try container.decode(
+            [SiegeDamageAttribution].self,
+            forKey: .appliedDamage
+        )
+        let decodedLosses = try container.decode([SiegeLossCount].self, forKey: .losses)
+        let decodedIdleDamage = try container.decode(
+            [SiegeIdleDamageByType].self,
+            forKey: .idleDamageByType
+        )
+
+        let mergedDeployments: [SiegeDeploymentCount]
+        let mergedAppliedDamage: [SiegeDamageAttribution]
+        let mergedLosses: [SiegeLossCount]
+        let mergedIdleDamage: [SiegeIdleDamageByType]
+        do {
+            mergedDeployments = try normalizedDeployments(decodedDeployments, overflow: .throwError)
+            mergedAppliedDamage = try normalizedDamageAttribution(
+                decodedAppliedDamage,
+                overflow: .throwError
+            )
+            mergedLosses = try normalizedLosses(decodedLosses, overflow: .throwError)
+            mergedIdleDamage = try normalizedIdleDamage(decodedIdleDamage, overflow: .throwError)
+        } catch {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "BattleResult row aggregation overflowed",
+                    underlyingError: error
+                )
+            )
+        }
+
         self.init(
             cityKey: try container.decode(CityKey.self, forKey: .cityKey),
             conquestMode: try container.decode(BattleConquestMode.self, forKey: .conquestMode),
@@ -282,19 +336,10 @@ struct BattleResult: Codable, Equatable {
                 TimeInterval.self,
                 forKey: .activeBattleSeconds
             ),
-            deployments: try container.decode(
-                [SiegeDeploymentCount].self,
-                forKey: .deployments
-            ),
-            appliedDamage: try container.decode(
-                [SiegeDamageAttribution].self,
-                forKey: .appliedDamage
-            ),
-            losses: try container.decode([SiegeLossCount].self, forKey: .losses),
-            idleDamageByType: try container.decode(
-                [SiegeIdleDamageByType].self,
-                forKey: .idleDamageByType
-            ),
+            deployments: mergedDeployments,
+            appliedDamage: mergedAppliedDamage,
+            losses: mergedLosses,
+            idleDamageByType: mergedIdleDamage,
             mvpSoldierType: try container.decodeIfPresent(
                 SoldierType.self,
                 forKey: .mvpSoldierType
@@ -343,15 +388,68 @@ struct BattleResult: Codable, Equatable {
     }
 }
 
-private func normalizedDeployments(
+private enum SiegeAggregationOverflow: Error {
+    case integerOverflow
+}
+
+private enum SiegeIntOverflowPolicy {
+    case throwError
+    case saturate
+}
+
+private func addSiegeInts(
+    _ lhs: Int,
+    _ rhs: Int,
+    overflow policy: SiegeIntOverflowPolicy
+) throws -> Int {
+    let (sum, didOverflow) = lhs.addingReportingOverflow(rhs)
+    if !didOverflow {
+        return sum
+    }
+    switch policy {
+    case .throwError:
+        throw SiegeAggregationOverflow.integerOverflow
+    case .saturate:
+        return Int.max
+    }
+}
+
+private func saturatingNormalizedDeployments(
     _ rows: [SiegeDeploymentCount]
 ) -> [SiegeDeploymentCount] {
+    (try? normalizedDeployments(rows, overflow: .saturate)) ?? []
+}
+
+private func saturatingNormalizedDamageAttribution(
+    _ rows: [SiegeDamageAttribution]
+) -> [SiegeDamageAttribution] {
+    (try? normalizedDamageAttribution(rows, overflow: .saturate)) ?? []
+}
+
+private func saturatingNormalizedLosses(_ rows: [SiegeLossCount]) -> [SiegeLossCount] {
+    (try? normalizedLosses(rows, overflow: .saturate)) ?? []
+}
+
+private func saturatingNormalizedIdleDamage(
+    _ rows: [SiegeIdleDamageByType]
+) -> [SiegeIdleDamageByType] {
+    (try? normalizedIdleDamage(rows, overflow: .saturate)) ?? []
+}
+
+private func normalizedDeployments(
+    _ rows: [SiegeDeploymentCount],
+    overflow policy: SiegeIntOverflowPolicy
+) throws -> [SiegeDeploymentCount] {
     var result: [SiegeDeploymentCount] = []
     for row in rows where row.count > 0 {
         if let index = result.firstIndex(where: {
             $0.type == row.type && $0.source == row.source && $0.lane == row.lane
         }) {
-            result[index].count += row.count
+            result[index].count = try addSiegeInts(
+                result[index].count,
+                row.count,
+                overflow: policy
+            )
         } else {
             result.append(row)
         }
@@ -363,14 +461,19 @@ private func normalizedDeployments(
 }
 
 private func normalizedDamageAttribution(
-    _ rows: [SiegeDamageAttribution]
-) -> [SiegeDamageAttribution] {
+    _ rows: [SiegeDamageAttribution],
+    overflow policy: SiegeIntOverflowPolicy
+) throws -> [SiegeDamageAttribution] {
     var result: [SiegeDamageAttribution] = []
     for row in rows where row.damage > 0 {
         if let index = result.firstIndex(where: {
             $0.type == row.type && $0.source == row.source && $0.lane == row.lane
         }) {
-            result[index].damage += row.damage
+            result[index].damage = try addSiegeInts(
+                result[index].damage,
+                row.damage,
+                overflow: policy
+            )
         } else {
             result.append(row)
         }
@@ -381,13 +484,20 @@ private func normalizedDamageAttribution(
     }
 }
 
-private func normalizedLosses(_ rows: [SiegeLossCount]) -> [SiegeLossCount] {
+private func normalizedLosses(
+    _ rows: [SiegeLossCount],
+    overflow policy: SiegeIntOverflowPolicy
+) throws -> [SiegeLossCount] {
     var result: [SiegeLossCount] = []
     for row in rows where row.count > 0 {
         if let index = result.firstIndex(where: {
             $0.type == row.type && $0.source == row.source
         }) {
-            result[index].count += row.count
+            result[index].count = try addSiegeInts(
+                result[index].count,
+                row.count,
+                overflow: policy
+            )
         } else {
             result.append(row)
         }
@@ -399,12 +509,17 @@ private func normalizedLosses(_ rows: [SiegeLossCount]) -> [SiegeLossCount] {
 }
 
 private func normalizedIdleDamage(
-    _ rows: [SiegeIdleDamageByType]
-) -> [SiegeIdleDamageByType] {
+    _ rows: [SiegeIdleDamageByType],
+    overflow policy: SiegeIntOverflowPolicy
+) throws -> [SiegeIdleDamageByType] {
     var result: [SiegeIdleDamageByType] = []
     for row in rows where row.damage > 0 {
         if let index = result.firstIndex(where: { $0.type == row.type }) {
-            result[index].damage += row.damage
+            result[index].damage = try addSiegeInts(
+                result[index].damage,
+                row.damage,
+                overflow: policy
+            )
         } else {
             result.append(row)
         }
