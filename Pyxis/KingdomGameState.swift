@@ -654,6 +654,39 @@ struct KingdomGameState: Codable, Equatable {
         }
     }
 
+    /// Applies abstract building-spawn damage with per-type idle attribution.
+    /// Returns (totalApplied, conquered, goldEarned).
+    private mutating func applyAbstractBuildingSpawnDamage(
+        _ spawns: [BuildingSpawn],
+        conquestMode: BattleConquestMode
+    ) -> (applied: Int, conquered: Bool, goldEarned: Int) {
+        var appliedTotal = 0
+
+        for spawn in spawns {
+            guard cityRemainingPower > 0 else { break }
+
+            let power = traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
+            let applied = min(max(0, power), cityRemainingPower)
+            guard applied > 0 else { continue }
+
+            ensureSession()
+            activeSiegeSession?.recordIdleDamage(type: spawn.soldierType, appliedDamage: applied)
+            cityRemainingPower -= applied
+            appliedTotal += applied
+        }
+
+        guard cityRemainingPower <= 0 else {
+            return (appliedTotal, false, 0)
+        }
+
+        let reward = currentGoldReward
+        ensureSession()
+        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
+            .finalized(conquestMode: conquestMode, goldEarned: reward)
+        let completion = completeCurrentCity(with: result)
+        return (appliedTotal, completion.awarded, completion.goldEarned)
+    }
+
     /// Resolves any pending building spawns and applies the resulting damage
     /// to the current city, then advances the progress timestamp to `date`.
     /// Used before mutating buildings (build/upgrade) so that existing buildings
@@ -680,22 +713,9 @@ struct KingdomGameState: Codable, Equatable {
         let effectiveActive = elapsedSeconds / Self.idleBuildingProductionScale
         let spawns = Self.resolveBuildingSpawns(in: &cityState, effectiveActiveSeconds: effectiveActive)
 
-        let totalDamage = spawns.reduce(0) { total, spawn in
-            total + traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
-        }
-
-        if totalDamage > 0 {
-            let appliedDamage = min(totalDamage, cityRemainingPower)
-            cityRemainingPower -= appliedDamage
-
-            if cityRemainingPower <= 0 {
-                let reward = currentGoldReward
-                ensureSession()
-                let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
-                    .finalized(conquestMode: .idle, goldEarned: reward)
-                _ = completeCurrentCity(with: result)
-                return
-            }
+        let damageResult = applyAbstractBuildingSpawnDamage(spawns, conquestMode: .idle)
+        if damageResult.conquered {
+            return
         }
 
         cityState.lastBuildingProgressResolvedAt = date
@@ -726,41 +746,28 @@ struct KingdomGameState: Codable, Equatable {
             return .none
         }
 
-        let totalPotentialDamage: Int
+        let spawns: [BuildingSpawn]
         if cityState.occupiedSlotCount > 0 {
-            let spawns = Self.resolveBuildingSpawns(
+            spawns = Self.resolveBuildingSpawns(
                 in: &cityState,
                 effectiveActiveSeconds: Double(elapsedSeconds) / Self.idleBuildingProductionScale
             )
             cityState.lastBuildingProgressResolvedAt = date
             cityBattleStates[key.storageKey] = cityState
-            totalPotentialDamage = spawns.reduce(0) { total, spawn in
-                total + traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
-            }
         } else {
-            totalPotentialDamage = 0
+            spawns = []
         }
 
-        guard totalPotentialDamage > 0 else {
+        guard !spawns.isEmpty else {
             return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: 0, conqueredCities: 0, goldEarned: 0)
         }
 
-        let appliedDamage = min(totalPotentialDamage, cityRemainingPower)
-        guard totalPotentialDamage >= cityRemainingPower else {
-            cityRemainingPower -= totalPotentialDamage
-            return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: totalPotentialDamage, conqueredCities: 0, goldEarned: 0)
-        }
-
-        let reward = currentGoldReward
-        ensureSession()
-        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
-            .finalized(conquestMode: .idle, goldEarned: reward)
-        let completion = completeCurrentCity(with: result)
+        let damageResult = applyAbstractBuildingSpawnDamage(spawns, conquestMode: .idle)
         return IdleProgressResult(
             elapsedSeconds: elapsedSeconds,
-            damageDealt: appliedDamage,
-            conqueredCities: completion.awarded ? 1 : 0,
-            goldEarned: completion.goldEarned
+            damageDealt: damageResult.applied,
+            conqueredCities: damageResult.conquered ? 1 : 0,
+            goldEarned: damageResult.goldEarned
         )
     }
 
