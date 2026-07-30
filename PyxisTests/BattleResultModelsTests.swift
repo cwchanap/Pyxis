@@ -254,4 +254,62 @@ struct BattleResultModelsTests {
         #expect(result.mvpSoldierType == .mage)
         #expect(result.mvpDamageSharePercent == 100)
     }
+
+    @Test func finalizedPreservesCrossTypeMVPWhenPerTypeTotalsExceedInt64Max() {
+        var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 3))
+
+        // Two distinct Int.max infantry rows (different source/lane).
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                appliedCityDamage: Int.max
+            )
+        )
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 2,
+                type: .infantry,
+                source: .building,
+                lane: .center,
+                appliedCityDamage: Int.max
+            )
+        )
+
+        // Three distinct Int.max archer rows — archer dealt more damage overall.
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 3,
+                type: .archer,
+                source: .manual,
+                lane: .left,
+                appliedCityDamage: Int.max
+            )
+        )
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 4,
+                type: .archer,
+                source: .building,
+                lane: .center,
+                appliedCityDamage: Int.max
+            )
+        )
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 5,
+                type: .archer,
+                source: .manual,
+                lane: .right,
+                appliedCityDamage: Int.max
+            )
+        )
+
+        let result = session.finalized(conquestMode: .live, goldEarned: 8)
+
+        #expect(result.mvpSoldierType == .archer)
+        #expect(result.mvpDamageSharePercent == 60)
+    }
 }
