@@ -179,4 +179,33 @@ struct BattleResultModelsTests {
         let decodedResult = try JSONDecoder().decode(BattleResult.self, from: encodedNegativeResult)
         #expect(decodedResult.activeBattleSeconds == 0)
     }
+
+    @Test func overflowingSessionRowsThrowDecodingErrorInsteadOfTrapping() {
+        let nearMax = Int.max - 1
+        let json = """
+        {
+          "cityKey": "1-1",
+          "activeBattleSeconds": 0,
+          "deployments": [
+            {"type":"infantry","source":"manual","lane":0,"count":\(nearMax)},
+            {"type":"infantry","source":"manual","lane":0,"count":2}
+          ],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [],
+          "usedFavorableUnit": false,
+          "usedExposedLane": false
+        }
+        """.data(using: .utf8)!
+
+        var threwDecodingError = false
+        do {
+            _ = try JSONDecoder().decode(ActiveSiegeSession.self, from: json)
+        } catch is DecodingError {
+            threwDecodingError = true
+        } catch {
+            threwDecodingError = false
+        }
+        #expect(threwDecodingError)
+    }
 }
