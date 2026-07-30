@@ -68,6 +68,51 @@ struct KingdomGameStoreTests {
         #expect(loaded.stageStatus == .cityConqueredPendingMap)
     }
 
+    @Test func liveConquestPendingResultSurvivesRelaunch() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        var saved = KingdomGameState(gold: 0, cityRemainingPower: 5)
+        saved.recordSoldierDeployment(type: .archer, source: .manual, lane: .right)
+        saved.recordActiveBattleTime(1.5)
+        _ = saved.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .archer,
+                source: .manual,
+                lane: .right,
+                appliedCityDamage: 5
+            )
+        ])
+        let expectedPending = try #require(saved.pendingBattleResult)
+
+        store.save(saved)
+        let loaded = store.load()
+
+        #expect(loaded.pendingBattleResult == expectedPending)
+        #expect(loaded.stageStatus == .cityConqueredPendingMap)
+        #expect(loaded.activeSiegeSession == nil)
+    }
+
+    @Test func backgroundAndRelaunchPreserveActiveSiegeSession() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let backgroundDate = Date(timeIntervalSinceReferenceDate: 20_000)
+        var saved = KingdomGameState(gold: 10, cityRemainingPower: 20)
+        saved.recordSoldierDeployment(type: .mage, source: .building, lane: .left)
+        saved.recordActiveBattleTime(2.5)
+        let expectedSession = try #require(saved.activeSiegeSession)
+
+        saved.enterBackground(at: backgroundDate)
+        #expect(saved.activeSiegeSession == expectedSession)
+        store.save(saved)
+        let loaded = store.load()
+
+        #expect(loaded.stageStatus == .battleActive)
+        #expect(loaded.activeSiegeSession == expectedSession)
+        #expect(loaded.activeSiegeSession?.deployments == expectedSession.deployments)
+        #expect(loaded.activeSiegeSession?.activeBattleSeconds == 2.5)
+    }
+
     @Test func saveAndLoadRoundTripsCityBuildingState() throws {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")
@@ -161,6 +206,35 @@ struct KingdomGameStoreTests {
         #expect(loaded.cityRemainingPower == 12)
         #expect(loaded.stageStatus == .battleActive)
         #expect(loaded.activeSiegeSession == nil)
+    }
+
+    @Test func loadDropsMalformedPendingBattleResultWithoutDiscardingSave() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let data = """
+        {
+          "gold": 72,
+          "cityLevel": 1,
+          "cityRemainingPower": 0,
+          "normalSoldierUpgradeLevel": 4,
+          "lastBackgroundedAt": null,
+          "countryNumber": 1,
+          "cityNumberInCountry": 1,
+          "completedCityCount": 1,
+          "stageStatus": "cityConqueredPendingMap",
+          "cityBattleStates": {},
+          "pendingBattleResult": "bogus"
+        }
+        """.data(using: .utf8)!
+        defaults.set(data, forKey: "state")
+
+        let loaded = store.load()
+
+        #expect(loaded.gold == 72)
+        #expect(loaded.normalSoldierUpgradeLevel == 4)
+        #expect(loaded.cityRemainingPower == 0)
+        #expect(loaded.stageStatus == .cityConqueredPendingMap)
+        #expect(loaded.pendingBattleResult == nil)
     }
 
     @Test func loadReturnsFreshStateAndBacksUpCorruptData() throws {

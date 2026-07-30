@@ -197,6 +197,7 @@ struct ActiveSiegeLifecycleTests {
         var state = KingdomGameState(gold: 100, cityRemainingPower: 2)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
         #expect(state.buildBuilding(.barracks, inSlot: 2, at: start) == .built(cost: 15, remainingGold: 70))
+        state.recordActiveBattleTime(2)
 
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: end)
@@ -207,7 +208,7 @@ struct ActiveSiegeLifecycleTests {
         #expect(pending.idleDamageByType == [
             SiegeIdleDamageByType(type: .infantry, damage: 2)
         ])
-        #expect(pending.activeBattleSeconds == 0)
+        #expect(pending.activeBattleSeconds == 2)
         #expect(pending.goldEarned == result.goldEarned)
         #expect(pending.mvpSoldierType != nil)
     }
