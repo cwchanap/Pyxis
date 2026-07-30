@@ -393,14 +393,17 @@ struct KingdomGameState: Codable, Equatable {
             return
         }
 
-        ensureSession()
-        activeSiegeSession?.recordDeployment(
-            type: type,
-            source: source,
-            lane: lane,
-            favorableTypes: currentCityDefenseTrait.favorableSoldierTypes,
-            exposedLane: currentCityLaneDefenseProfile.exposedLane
-        )
+        let favorableTypes = currentCityDefenseTrait.favorableSoldierTypes
+        let exposedLane = currentCityLaneDefenseProfile.exposedLane
+        mutateActiveSiegeSession { session in
+            session.recordDeployment(
+                type: type,
+                source: source,
+                lane: lane,
+                favorableTypes: favorableTypes,
+                exposedLane: exposedLane
+            )
+        }
     }
 
     mutating func recordActiveBattleTime(_ delta: TimeInterval) {
@@ -408,8 +411,9 @@ struct KingdomGameState: Codable, Equatable {
             return
         }
 
-        ensureSession()
-        activeSiegeSession?.advanceActiveBattleTime(delta)
+        mutateActiveSiegeSession { session in
+            session.advanceActiveBattleTime(delta)
+        }
     }
 
     mutating func acknowledgePendingBattleResult() {
@@ -421,9 +425,10 @@ struct KingdomGameState: Codable, Equatable {
             return
         }
 
-        ensureSession()
-        for event in events {
-            activeSiegeSession?.recordLoss(event)
+        mutateActiveSiegeSession { session in
+            for event in events {
+                session.recordLoss(event)
+            }
         }
     }
 
@@ -433,7 +438,6 @@ struct KingdomGameState: Codable, Equatable {
             return .blocked
         }
 
-        ensureSession()
         var totalApplied = 0
 
         for event in events {
@@ -442,15 +446,17 @@ struct KingdomGameState: Codable, Equatable {
                 continue
             }
 
-            activeSiegeSession?.recordAttack(
-                SoldierAttackEvent(
-                    soldierID: event.soldierID,
-                    type: event.type,
-                    source: event.source,
-                    lane: event.lane,
-                    appliedCityDamage: applied
+            mutateActiveSiegeSession { session in
+                session.recordAttack(
+                    SoldierAttackEvent(
+                        soldierID: event.soldierID,
+                        type: event.type,
+                        source: event.source,
+                        lane: event.lane,
+                        appliedCityDamage: applied
+                    )
                 )
-            )
+            }
             cityRemainingPower -= applied
             totalApplied += applied
 
@@ -469,8 +475,9 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         let reward = currentGoldReward
+        let cityKey = currentCityKey
         ensureSession()
-        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
+        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: cityKey))
             .finalized(conquestMode: .live, goldEarned: reward)
         let completion = completeCurrentCity(with: result)
 
@@ -669,8 +676,9 @@ struct KingdomGameState: Codable, Equatable {
             let applied = min(max(0, power), cityRemainingPower)
             guard applied > 0 else { continue }
 
-            ensureSession()
-            activeSiegeSession?.recordIdleDamage(type: spawn.soldierType, appliedDamage: applied)
+            mutateActiveSiegeSession { session in
+                session.recordIdleDamage(type: spawn.soldierType, appliedDamage: applied)
+            }
             cityRemainingPower -= applied
             appliedTotal += applied
         }
@@ -680,8 +688,9 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         let reward = currentGoldReward
+        let cityKey = currentCityKey
         ensureSession()
-        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: currentCityKey))
+        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: cityKey))
             .finalized(conquestMode: conquestMode, goldEarned: reward)
         let completion = completeCurrentCity(with: result)
         return (appliedTotal, completion.awarded, completion.goldEarned)
@@ -995,6 +1004,17 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         activeSiegeSession = ActiveSiegeSession(cityKey: currentCityKey)
+    }
+
+    private mutating func mutateActiveSiegeSession(
+        _ body: (inout ActiveSiegeSession) -> Void
+    ) {
+        ensureSession()
+        guard var session = activeSiegeSession else {
+            return
+        }
+        body(&session)
+        activeSiegeSession = session
     }
 
     @discardableResult
