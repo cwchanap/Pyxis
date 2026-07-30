@@ -134,6 +134,35 @@ struct KingdomGameStoreTests {
         #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 2) == nil)
     }
 
+    @Test func loadDropsMalformedActiveSiegeSessionWithoutDiscardingSave() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let data = """
+        {
+          "gold": 64,
+          "cityLevel": 1,
+          "cityRemainingPower": 12,
+          "normalSoldierUpgradeLevel": 3,
+          "lastBackgroundedAt": null,
+          "countryNumber": 1,
+          "cityNumberInCountry": 1,
+          "completedCityCount": 0,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {},
+          "activeSiegeSession": "bogus"
+        }
+        """.data(using: .utf8)!
+        defaults.set(data, forKey: "state")
+
+        let loaded = store.load()
+
+        #expect(loaded.gold == 64)
+        #expect(loaded.normalSoldierUpgradeLevel == 3)
+        #expect(loaded.cityRemainingPower == 12)
+        #expect(loaded.stageStatus == .battleActive)
+        #expect(loaded.activeSiegeSession == nil)
+    }
+
     @Test func loadReturnsFreshStateAndBacksUpCorruptData() throws {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")

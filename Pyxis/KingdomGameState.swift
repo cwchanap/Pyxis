@@ -95,6 +95,8 @@ struct KingdomGameState: Codable, Equatable {
     var completedCityCount: Int
     var stageStatus: StageStatus
     var cityBattleStates: [String: CityBattleState]
+    var activeSiegeSession: ActiveSiegeSession?
+    var pendingBattleResult: BattleResult?
 
     private enum CodingKeys: String, CodingKey {
         case gold
@@ -107,6 +109,8 @@ struct KingdomGameState: Codable, Equatable {
         case completedCityCount
         case stageStatus
         case cityBattleStates
+        case activeSiegeSession
+        case pendingBattleResult
     }
 
     private struct CityBattleStateCodingKey: CodingKey {
@@ -134,7 +138,9 @@ struct KingdomGameState: Codable, Equatable {
         cityNumberInCountry: Int = 1,
         completedCityCount: Int = 0,
         stageStatus: StageStatus = .battleActive,
-        cityBattleStates: [String: CityBattleState] = [:]
+        cityBattleStates: [String: CityBattleState] = [:],
+        activeSiegeSession: ActiveSiegeSession? = nil,
+        pendingBattleResult: BattleResult? = nil
     ) {
         let clampedCountryNumber = max(1, countryNumber)
         let clampedCompletedCityCount = min(max(0, completedCityCount), Self.firstCountryCityCount)
@@ -201,11 +207,35 @@ struct KingdomGameState: Codable, Equatable {
         } else {
             self.cityRemainingPower = max(0, cityRemainingPower ?? 0)
         }
+
+        let normalizedCurrentCityKey = CityKey(
+            countryNumber: clampedCountryNumber,
+            cityNumber: normalizedCityNumber
+        )
+        if resolvedStatus == .battleActive,
+           activeSiegeSession?.cityKey == normalizedCurrentCityKey {
+            self.activeSiegeSession = activeSiegeSession
+        } else {
+            self.activeSiegeSession = nil
+        }
+
+        if resolvedStatus != .battleActive,
+           pendingBattleResult?.cityKey == normalizedCurrentCityKey {
+            self.pendingBattleResult = pendingBattleResult
+        } else {
+            self.pendingBattleResult = nil
+        }
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let decodedStageStatus: StageStatus
+        let decodedSession = (
+            try? container.decodeIfPresent(ActiveSiegeSession.self, forKey: .activeSiegeSession)
+        ) ?? nil
+        let decodedPending = (
+            try? container.decodeIfPresent(BattleResult.self, forKey: .pendingBattleResult)
+        ) ?? nil
 
         if let rawStageStatus = try? container.decodeIfPresent(String.self, forKey: .stageStatus) {
             decodedStageStatus = StageStatus(rawValue: rawStageStatus) ?? .battleActive
@@ -225,7 +255,9 @@ struct KingdomGameState: Codable, Equatable {
             completedCityCount: try container.decodeIfPresent(Int.self, forKey: .completedCityCount)
                 ?? min(max(0, (try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1) - 1), Self.firstCountryCityCount),
             stageStatus: decodedStageStatus,
-            cityBattleStates: Self.decodeCityBattleStates(from: container)
+            cityBattleStates: Self.decodeCityBattleStates(from: container),
+            activeSiegeSession: decodedSession,
+            pendingBattleResult: decodedPending
         )
     }
 
@@ -341,8 +373,42 @@ struct KingdomGameState: Codable, Equatable {
         cityRemainingPower = cityMaxPower
         stageStatus = .battleActive
         lastBackgroundedAt = nil
+        pendingBattleResult = nil
+        activeSiegeSession = ActiveSiegeSession(cityKey: currentCityKey)
 
         return .entered(country: countryNumber, city: cityNumberInCountry)
+    }
+
+    mutating func recordSoldierDeployment(
+        type: SoldierType,
+        source: SoldierSpawnSource,
+        lane: BattleLane
+    ) {
+        guard stageStatus == .battleActive else {
+            return
+        }
+
+        ensureSession()
+        activeSiegeSession?.recordDeployment(
+            type: type,
+            source: source,
+            lane: lane,
+            favorableTypes: currentCityDefenseTrait.favorableSoldierTypes,
+            exposedLane: currentCityLaneDefenseProfile.exposedLane
+        )
+    }
+
+    mutating func recordActiveBattleTime(_ delta: TimeInterval) {
+        guard stageStatus == .battleActive else {
+            return
+        }
+
+        ensureSession()
+        activeSiegeSession?.advanceActiveBattleTime(delta)
+    }
+
+    mutating func acknowledgePendingBattleResult() {
+        pendingBattleResult = nil
     }
 
     @discardableResult
@@ -821,6 +887,14 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         return spawns
+    }
+
+    private mutating func ensureSession() {
+        guard activeSiegeSession == nil else {
+            return
+        }
+
+        activeSiegeSession = ActiveSiegeSession(cityKey: currentCityKey)
     }
 
     private mutating func completeCurrentCity() -> Int {
