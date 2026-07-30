@@ -107,6 +107,90 @@ struct ActiveSiegeLifecycleTests {
         #expect(state.pendingBattleResult == nil)
     }
 
+    @Test func liveAttacksAttributeDamageAndFinalizePendingResult() throws {
+        var state = KingdomGameState(
+            gold: 0,
+            cityLevel: 1,
+            cityRemainingPower: 5,
+            normalSoldierUpgradeLevel: 1
+        )
+        state.recordSoldierDeployment(type: .infantry, source: .manual, lane: .center)
+
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 5
+            )
+        ])
+
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == state.pendingBattleResult?.goldEarned)
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .live)
+        #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: 1))
+        #expect(pending.mvpSoldierType == .infantry)
+        #expect(pending.goldEarned == KingdomGameState.goldReward(for: 1))
+        #expect(state.gold == pending.goldEarned)
+        #expect(state.activeSiegeSession == nil)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func completeCurrentCityRejectsDuplicate() throws {
+        var state = KingdomGameState(
+            gold: 0,
+            cityLevel: 1,
+            cityRemainingPower: 1,
+            normalSoldierUpgradeLevel: 1
+        )
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                appliedCityDamage: 1
+            )
+        ])
+        let pending = try #require(state.pendingBattleResult)
+        let gold = state.gold
+
+        let second = state.completeCurrentCity(with: pending)
+
+        #expect(second.awarded == false)
+        #expect(state.gold == gold)
+    }
+
+    @Test func recordLossesDoNotRunOnEmptyAndMergeByTypeSource() {
+        var state = KingdomGameState(
+            gold: 0,
+            cityLevel: 1,
+            cityRemainingPower: 20,
+            normalSoldierUpgradeLevel: 1
+        )
+
+        state.recordSoldierLosses([
+            SoldierLossEvent(
+                soldierID: 1,
+                type: .archer,
+                source: .building,
+                lane: .left
+            ),
+            SoldierLossEvent(
+                soldierID: 2,
+                type: .archer,
+                source: .building,
+                lane: .right
+            ),
+        ])
+
+        #expect(state.activeSiegeSession?.losses == [
+            SiegeLossCount(type: .archer, source: .building, count: 2)
+        ])
+    }
+
     private func battleResult(
         cityNumber: Int,
         activeBattleSeconds: TimeInterval = 3,
