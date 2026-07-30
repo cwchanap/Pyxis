@@ -1517,6 +1517,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
+        let clampedDeltaTime = combat.clampedDeltaTime(deltaTime)
+        if clampedDeltaTime > 0 {
+            state.recordActiveBattleTime(clampedDeltaTime)
+        }
+
         #if DEBUG
         lastAdvanceCombatDeltaForTestingStorage = deltaTime
         #endif
@@ -1530,6 +1535,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 level: spawn.level,
                 attackPower: state.traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
             )
+            if let soldier = combat.soldier(id: soldierID) {
+                state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
+            }
             createSoldierNode(id: soldierID)
         }
         if shouldSaveBuildingProgress {
@@ -1621,11 +1629,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             updateLiveCombatStatusLabel()
         }
 
-        guard result.cityDamage > 0 else {
+        state.recordSoldierLosses(result.soldierLosses)
+
+        guard !result.soldierAttacks.isEmpty else {
             return
         }
 
-        let damageResult = state.applyLiveCombatDamage(result.cityDamage)
+        let damageResult = state.applyLiveSoldierAttacks(result.soldierAttacks)
         guard damageResult.attackApplied else {
             return
         }
@@ -1685,6 +1695,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 level: manualSoldierLevel
             )
         )
+        if let soldier = combat.soldier(id: soldierID) {
+            state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
+        }
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
         updateLiveCombatStatusLabel()
@@ -3214,6 +3227,10 @@ extension BattleScene {
 
     var goldForTesting: Int {
         state.gold
+    }
+
+    var gameStateForTesting: KingdomGameState {
+        state
     }
 
     var cityTitleTextForTesting: String? {
