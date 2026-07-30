@@ -189,23 +189,19 @@ struct ActiveSiegeSession: Codable, Equatable {
     }
 
     func finalized(conquestMode: BattleConquestMode, goldEarned: Int) -> BattleResult {
-        var damageByType: [SoldierType: Int64] = [:]
+        // Use Decimal so many distinct Int.max rows for the same type (different
+        // source/lane) keep exact relative magnitude for MVP ranking and share.
+        var damageByType: [SoldierType: Decimal] = [:]
         for row in appliedDamage {
-            damageByType[row.type, default: 0] = saturatingAddInt64(
-                damageByType[row.type, default: 0],
-                Int64(row.damage)
-            )
+            damageByType[row.type, default: 0] += Decimal(row.damage)
         }
         for row in idleDamageByType {
-            damageByType[row.type, default: 0] = saturatingAddInt64(
-                damageByType[row.type, default: 0],
-                Int64(row.damage)
-            )
+            damageByType[row.type, default: 0] += Decimal(row.damage)
         }
 
-        let totalDamage = damageByType.values.reduce(Int64(0), saturatingAddInt64)
+        let totalDamage = damageByType.values.reduce(Decimal(0), +)
         var mvpType: SoldierType?
-        var mvpDamage: Int64 = 0
+        var mvpDamage = Decimal(0)
         for type in SoldierType.allCases {
             let damage = damageByType[type, default: 0]
             if damage > mvpDamage {
@@ -400,12 +396,7 @@ private enum SiegeIntOverflowPolicy {
     case saturate
 }
 
-private func saturatingAddInt64(_ lhs: Int64, _ rhs: Int64) -> Int64 {
-    let (sum, didOverflow) = lhs.addingReportingOverflow(rhs)
-    return didOverflow ? Int64.max : sum
-}
-
-private func mvpDamageSharePercent(mvpDamage: Int64, totalDamage: Int64) -> Int? {
+private func mvpDamageSharePercent(mvpDamage: Decimal, totalDamage: Decimal) -> Int? {
     guard mvpDamage > 0, totalDamage > 0 else {
         return nil
     }
@@ -413,11 +404,11 @@ private func mvpDamageSharePercent(mvpDamage: Int64, totalDamage: Int64) -> Int?
         return 100
     }
 
-    let (product, didOverflow) = mvpDamage.multipliedReportingOverflow(by: 100)
-    if didOverflow {
-        return Int((Double(mvpDamage) / Double(totalDamage)) * 100.0)
-    }
-    return Int(product / totalDamage)
+    // Truncating integer percent: floor((mvp * 100) / total).
+    var percent = (mvpDamage * Decimal(100)) / totalDamage
+    var rounded = Decimal()
+    NSDecimalRound(&rounded, &percent, 0, .down)
+    return NSDecimalNumber(decimal: rounded).intValue
 }
 
 private func addSiegeInts(
