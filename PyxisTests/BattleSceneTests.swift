@@ -1333,8 +1333,12 @@ struct BattleSceneTests {
         // A building soldier should have spawned
         #expect(scene.buildingLiveSoldierCountForTesting == 1)
         // The timer reset must be persisted immediately without waiting for the throttle
-        let persisted = store.load().cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? interval
+        let savedState = store.load()
+        let persisted = savedState.cityBattleState(for: cityKey).building(inSlot: 1)?.spawnTimerElapsed ?? interval
         #expect(persisted < interval * 0.5)
+        #expect(savedState.activeSiegeSession?.deployments.contains {
+            $0.type == .infantry && $0.source == .building && $0.count == 1
+        } == true)
     }
 
     @Test func liveSoldierHPBarStaysAttachedToScaledBodyTopEdge() throws {
@@ -1457,6 +1461,9 @@ struct BattleSceneTests {
         #expect(!scene.isConquestPopupVisibleForTesting)
         #expect(savedState.stageStatus == .battleActive)
         #expect(savedState.cityRemainingPower == 100)
+        #expect(savedState.activeSiegeSession?.losses.contains {
+            $0.type == .infantry && $0.source == .manual && $0.count == 1
+        } == true)
     }
 
     @Test func liveCombatStatusUpdatesWhenTowerKillsLastSoldierWithoutCityDamage() throws {
@@ -1482,8 +1489,10 @@ struct BattleSceneTests {
     }
 
     @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
+        let initialGold = 100
         let store = try makeStore(
             initialState: stateWithBarracks(
+                gold: initialGold,
                 cityRemainingPower: 1,
                 completedCityCount: 0
             )
@@ -1504,6 +1513,11 @@ struct BattleSceneTests {
         #expect(savedState.gold == 108)
         #expect(savedState.completedCityCount == 1)
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
+        let pendingResult = try #require(savedState.pendingBattleResult)
+        #expect(pendingResult.conquestMode == .live)
+        #expect(pendingResult.goldEarned == savedState.gold - initialGold)
+        #expect(!pendingResult.deployments.isEmpty)
+        #expect(pendingResult.mvpSoldierType == .infantry)
 
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
@@ -1513,6 +1527,37 @@ struct BattleSceneTests {
         #expect(laterState.gold == savedState.gold)
         #expect(laterState.completedCityCount == savedState.completedCityCount)
         #expect(laterState.stageStatus == savedState.stageStatus)
+    }
+
+    @Test func backgroundClearPreservesDeploymentsWithoutRecordingLosses() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        #expect(scene.gameStateForTesting.activeSiegeSession?.deployments.isEmpty == false)
+
+        NotificationCenter.default.post(name: .pyxisSceneDidEnterBackground, object: nil)
+
+        let savedSession = try #require(store.load().activeSiegeSession)
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(!savedSession.deployments.isEmpty)
+        #expect(savedSession.losses.isEmpty)
+    }
+
+    @Test func activeBattleTimeAdvancesOnlyWhileConquestPopupIsHidden() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 0.2)
+
+        let activeSeconds = try #require(scene.gameStateForTesting.activeSiegeSession?.activeBattleSeconds)
+        #expect(activeSeconds > 0)
+
+        scene.presentConquestPopupForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.0)
+
+        #expect(scene.gameStateForTesting.activeSiegeSession?.activeBattleSeconds == activeSeconds)
     }
 
     @Test func conquestPopupLayoutKeepsCityConquestFeedbackRunning() throws {
@@ -1703,6 +1748,7 @@ struct BattleSceneTests {
         #expect(savedState.gold == 93)
         #expect(savedState.completedCityCount == 1)
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
+        #expect(savedState.pendingBattleResult?.conquestMode == .idle)
     }
 
     @Test func idleConquestSuppressesFeedbackTooltipBehindPopup() throws {
