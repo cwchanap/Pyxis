@@ -258,7 +258,7 @@ struct BattleCombatStateTests {
         let soldier = try #require(combat.soldier(id: id))
         #expect(soldier.position == 0.80)
         #expect(secondTick.cityDamage == 3)
-        #expect(secondTick.soldierAttackIDs == [id])
+        #expect(secondTick.soldierAttacks.map(\.soldierID) == [id])
     }
 
     @Test func soldierAttacksRepeatedlyOnCooldownWhileInRange() {
@@ -279,15 +279,15 @@ struct BattleCombatStateTests {
 
         let firstTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
         #expect(firstTick.cityDamage == 4)
-        #expect(firstTick.soldierAttackIDs == [id])
+        #expect(firstTick.soldierAttacks.map(\.soldierID) == [id])
 
         let cooldownTick = combat.tick(deltaTime: 0.2, cityRemainingHP: 16)
         #expect(cooldownTick.cityDamage == 0)
-        #expect(cooldownTick.soldierAttackIDs.isEmpty)
+        #expect(cooldownTick.soldierAttacks.isEmpty)
 
         let secondAttackTick = combat.tick(deltaTime: 0.3, cityRemainingHP: 16)
         #expect(secondAttackTick.cityDamage == 4)
-        #expect(secondAttackTick.soldierAttackIDs == [id])
+        #expect(secondAttackTick.soldierAttacks.map(\.soldierID) == [id])
     }
 
     @Test func emittedCityDamageIsCappedToRemainingHP() {
@@ -309,6 +309,44 @@ struct BattleCombatStateTests {
         let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 3)
 
         #expect(result.cityDamage == 3)
+        #expect(result.didReachConquest)
+    }
+
+    @Test func soldierAttackEventUsesClampedAppliedDamageOnOverkill() {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 1,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 1.0,
+                soldierMovementSpeed: 0,
+                towerDamage: 0,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0,
+                maxDeltaTime: 1.0
+            ),
+            seed: 1
+        )
+        let id = combat.spawnSoldier(
+            type: .infantry,
+            source: .manual,
+            level: 1,
+            attackPower: 10,
+            lane: .center
+        )
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 3)
+
+        #expect(result.cityDamage == 3)
+        #expect(result.soldierAttacks == [
+            SoldierAttackEvent(
+                soldierID: id,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 3
+            )
+        ])
         #expect(result.didReachConquest)
     }
 
@@ -474,21 +512,21 @@ struct BattleCombatStateTests {
 
         let damageTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
         #expect(damageTick.damagedSoldierIDs == [id])
-        #expect(damageTick.killedSoldierIDs.isEmpty)
+        #expect(damageTick.soldierLosses.isEmpty)
         #expect(damageTick.cityDamage == 3)
-        #expect(damageTick.soldierAttackIDs == [id])
+        #expect(damageTick.soldierAttacks.map(\.soldierID) == [id])
         #expect(try #require(combat.soldier(id: id)).currentHP == 1)
 
         let killTick = combat.tick(deltaTime: 0.1, cityRemainingHP: 17)
-        #expect(killTick.killedSoldierIDs == [id])
+        #expect(killTick.soldierLosses.map(\.soldierID) == [id])
         #expect(killTick.cityDamage == 0)
-        #expect(killTick.soldierAttackIDs.isEmpty)
+        #expect(killTick.soldierAttacks.isEmpty)
         #expect(combat.soldier(id: id) == nil)
 
         let laterTick = combat.tick(deltaTime: 0.2, cityRemainingHP: 17)
         #expect(laterTick.cityDamage == 0)
         #expect(laterTick.towerShots.isEmpty)
-        #expect(laterTick.soldierAttackIDs.isEmpty)
+        #expect(laterTick.soldierAttacks.isEmpty)
     }
 
     @Test func deadSoldiersArePrunedFromActiveCombatants() {
@@ -509,10 +547,47 @@ struct BattleCombatStateTests {
 
         let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
 
-        #expect(result.killedSoldierIDs == [id])
+        #expect(result.soldierLosses.map(\.soldierID) == [id])
         #expect(combat.livingSoldierCount == 0)
         #expect(combat.soldiers.isEmpty)
         #expect(combat.soldier(id: id) == nil)
+    }
+
+    @Test func soldierLossEventEmittedBeforePrune() {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 1,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0,
+                soldierMovementSpeed: 0,
+                towerDamage: 10,
+                towerAttackSpeed: 100.0,
+                towerAttackRange: 1.0,
+                maxDeltaTime: 1.0
+            ),
+            seed: 1
+        )
+        let id = combat.spawnSoldier(
+            type: .archer,
+            source: .building,
+            level: 2,
+            attackPower: 1,
+            lane: .left
+        )
+
+        let result = combat.tick(deltaTime: 0.1, cityRemainingHP: 20)
+
+        #expect(result.soldierLosses == [
+            SoldierLossEvent(
+                soldierID: id,
+                type: .archer,
+                source: .building,
+                lane: .left
+            )
+        ])
+        #expect(combat.soldier(id: id) == nil)
+        #expect(result.damagedSoldierIDs.contains(id))
     }
 
     @Test func towerWaitsAtReadyWithoutTargetInsteadOfBuildingCooldownDebt() throws {

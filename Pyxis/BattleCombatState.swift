@@ -5,6 +5,21 @@
 
 import Foundation
 
+struct SoldierAttackEvent: Equatable {
+    let soldierID: BattleCombatState.SoldierID
+    let type: SoldierType
+    let source: SoldierSpawnSource
+    let lane: BattleLane
+    let appliedCityDamage: Int
+}
+
+struct SoldierLossEvent: Equatable {
+    let soldierID: BattleCombatState.SoldierID
+    let type: SoldierType
+    let source: SoldierSpawnSource
+    let lane: BattleLane
+}
+
 struct BattleCombatState: Equatable {
     typealias SoldierID = Int
 
@@ -94,10 +109,10 @@ struct BattleCombatState: Equatable {
     struct TickResult: Equatable {
         var cityDamage: Int = 0
         var didReachConquest = false
-        var soldierAttackIDs: [SoldierID] = []
+        var soldierAttacks: [SoldierAttackEvent] = []
         var towerShots: [TowerShot] = []
         var damagedSoldierIDs: [SoldierID] = []
-        var killedSoldierIDs: [SoldierID] = []
+        var soldierLosses: [SoldierLossEvent] = []
     }
 
     let configuration: Configuration
@@ -194,7 +209,15 @@ struct BattleCombatState: Equatable {
             result.damagedSoldierIDs.append(soldierID)
 
             if !soldiers[targetIndex].isAlive {
-                result.killedSoldierIDs.append(soldierID)
+                let soldier = soldiers[targetIndex]
+                result.soldierLosses.append(
+                    SoldierLossEvent(
+                        soldierID: soldier.id,
+                        type: soldier.type,
+                        source: soldier.source,
+                        lane: soldier.lane
+                    )
+                )
             }
 
             towerCooldownRemaining = towerAttackInterval()
@@ -212,7 +235,15 @@ struct BattleCombatState: Equatable {
             if soldiers[index].attackCooldownRemaining <= 0 {
                 let appliedDamage = min(soldiers[index].attackPower, remainingCityHP)
                 result.cityDamage += appliedDamage
-                result.soldierAttackIDs.append(soldiers[index].id)
+                result.soldierAttacks.append(
+                    SoldierAttackEvent(
+                        soldierID: soldiers[index].id,
+                        type: soldiers[index].type,
+                        source: soldiers[index].source,
+                        lane: soldiers[index].lane,
+                        appliedCityDamage: appliedDamage
+                    )
+                )
                 remainingCityHP -= appliedDamage
                 soldiers[index].attackCooldownRemaining += attackInterval(forSoldier: soldiers[index])
             }
