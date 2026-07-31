@@ -1,7 +1,7 @@
 # Compact Conquest Report Design
 
 **Issue:** HPA-388  
-**Status:** Approved for implementation planning  
+**Status:** Design approved; awaiting written spec review  
 **Date:** 2026-07-30
 
 ## Goal
@@ -25,28 +25,25 @@ HPA-363 already provides the authoritative model boundary:
 - `acknowledgePendingBattleResult()` clears only the pending presentation value; it does not award gold or change progress.
 - Gold and stage completion occur before report presentation.
 
-The current UI is still a legacy `BattleScene` popup with a title, one gold label, and a Continue button. Both live and idle paths pass transient `goldEarned` values into that popup, every presentation plays the gold burst, and Continue routes without acknowledging or saving. On relaunch, `GameViewController` routes conquered stages directly to `CountryMapScene`, so a pending report is currently bypassed.
+The current UI is a legacy `BattleScene` popup with a title, one gold label, and a Continue button. Both live and idle paths pass transient `goldEarned` values into that popup, every presentation plays the gold burst, and Continue routes without acknowledging or saving. On relaunch, `GameViewController` routes conquered stages directly to `CountryMapScene`, so a pending report is currently bypassed.
 
 ## Product Decisions
 
-### Report copy
-
-The report has one title and three or four summary rows.
-
-Title:
+### Title
 
 - Normal conquest: `<resolved city title> Conquered`
 - Country completion: `Country <number> Conquered`
 
-Required rows:
+### Summary row slots
+
+The report has exactly these four possible row slots:
 
 1. `Gold earned: +<amount>`
-2. Live: `Battle time: <active duration>`
-3. Idle: `Conquered while away`
-4. Optional MVP: `MVP: <soldier type> · <damage share>%`
-5. Final row: `Deployed: <count> · Lost: <count>`
+2. Live: `Battle time: <active duration>`; idle: `Conquered while away`
+3. Optional: `MVP: <soldier type> · <damage share>%`
+4. `Deployed: <count> · Lost: <count>`
 
-The list above produces at most four rows because live/idle share the second-row position and MVP is omitted when unavailable.
+When MVP is absent, row slot 3 is removed and the final row moves up. The report therefore contains three or four visible summary rows and never more than four.
 
 ### Duration formatting
 
@@ -59,6 +56,10 @@ Use compact natural formatting based only on `BattleResult.activeBattleSeconds`:
 
 Fractional seconds are truncated after normalizing to a finite, non-negative value. Idle conquest never displays a duration, even if restored data contains a non-zero active duration.
 
+### Numeric formatting
+
+Gold, deployment count, and loss count use a private pure compact formatter inside `ConquestReportContent`, matching the existing `BattleScene.compactNumber` behavior. This ticket does not refactor unrelated HUD formatting.
+
 ### Optional data
 
 - MVP is rendered only when both `mvpSoldierType` and `mvpDamageSharePercent` are present.
@@ -68,12 +69,12 @@ Fractional seconds are truncated after normalizing to a finite, non-negative val
 
 ### Achievement icons
 
-Use two small presentation-only badges in a horizontal strip:
+Use two small presentation-only badges in a fixed horizontal order:
 
-- Favorable counter: a check-mark shield glyph.
-- Exposed lane: a broken/slashed shield glyph.
+1. Favorable counter: `checkmark.shield.fill`.
+2. Exposed lane: `shield.slash.fill`.
 
-The node may use installed game assets, system-symbol images, or equivalent procedural glyphs, but the semantic mapping and ordering are fixed: favorable counter first, exposed lane second. Icons add no report row and do not affect model state.
+Load each with `UIImage(systemName:)`. If a symbol is unavailable, render a procedural shield fallback with the corresponding check mark or slash. Icons add no report row and do not affect model state.
 
 ## Architecture
 
@@ -104,12 +105,12 @@ struct ConquestReportContent: Equatable {
 
 Responsibilities:
 
-- Format the title, gold, duration, live/idle distinction, MVP, and totals.
+- Format title, gold, duration, live/idle distinction, MVP, and totals.
 - Omit unavailable optional data.
 - Preserve achievement ordering.
 - Guarantee three or four summary rows.
 
-The projector receives a resolved title instead of reading the city catalog itself. This keeps it pure and allows HPA-366 to change the shared city-identity API without persisting or duplicating titles in `BattleResult`.
+The projector receives a resolved title instead of reading the city catalog. This keeps it pure and allows HPA-366 to change the shared city-identity API without persisting or duplicating titles in `BattleResult`.
 
 ### Derived `BattleResult` totals
 
@@ -120,38 +121,43 @@ var totalDeploymentCount: Int
 var totalLossCount: Int
 ```
 
-Each accessor sums the normalized rows using saturating integer addition. SpriteKit must not perform these reductions. The same accessors can later be reused by Chronicle presentation.
+Each accessor sums normalized rows using saturating integer addition. SpriteKit must not perform these reductions. The accessors can later be reused by Chronicle presentation.
 
 ### `ConquestReportLayout`
 
 Add `Pyxis/ConquestReportLayout.swift` as a pure layout calculator.
 
-Inputs include:
+Inputs:
 
 - Scene size.
-- Safe-area insets or the existing layout environment.
-- Content width limit.
-- Summary row count.
-- Whether achievement icons are present.
+- Existing content-width cap.
+- Safe top and bottom insets.
 - Compact-height classification.
+- Summary row count, restricted to `3...4`.
+- Achievement count, restricted to `0...2`.
 
-Outputs include deterministic frames for:
+Outputs:
 
-- Panel.
-- Title.
-- Each visible summary row.
-- Achievement strip.
-- Continue button.
+- Panel frame.
+- Title frame.
+- One frame per visible summary row.
+- Optional achievement-strip frame.
+- Continue-button frame.
+- Font metrics for the current layout class.
 
 Layout rules:
 
-- Center the panel in the supported scene region.
-- Cap width using the scene's existing content-width policy.
-- Compute height from actual rows and optional badges.
-- Reduce font size and vertical spacing on compact-height layouts.
+- Center the panel within the safe vertical region.
+- Cap width using the current Battle scene content-width policy.
+- Compute panel height from the actual row and badge counts.
 - Omitted MVP closes the vertical gap.
-- Keep the complete Continue hit frame inside the supported visible bounds.
-- Return an explicit failure only when required content cannot fit at the documented minimum sizes; the scene must then remain safely blocked rather than route or acknowledge silently.
+- Keep the complete Continue hit frame inside the safe visible bounds.
+- Standard metrics start at title 22 pt, rows 17 pt, Continue 16 pt, and badges 24 pt.
+- Compact-height metrics use title 19 pt, rows 14 pt, Continue 15 pt, and badges 20 pt.
+- Title fitting may reduce to 14 pt. If a future named-city title still does not fit, replace it with the safe numbered city title and fit again.
+- Summary rows may reduce to 12 pt. The fixed English copy plus compact numeric formatting must fit every supported layout; tests enforce this.
+
+`ConquestReportLayout` is required to produce valid geometry for every app-supported portrait layout. Unsupported geometry remains owned by the existing app-wide layout gate; this ticket adds no second layout-gate system.
 
 ### `ConquestReportNode`
 
@@ -165,20 +171,15 @@ The node owns:
 - Two reusable achievement badge nodes.
 - One Continue button and its hit frame.
 
-Suggested API:
+API:
 
 ```swift
 final class ConquestReportNode: SKNode {
-    enum ApplyResult: Equatable {
-        case presented
-        case requiredContentDoesNotFit
-    }
-
     func apply(
         content: ConquestReportContent,
         layout: ConquestReportLayout,
         isContinueEnabled: Bool
-    ) -> ApplyResult
+    )
 
     func containsContinue(_ scenePoint: CGPoint) -> Bool
 }
@@ -196,12 +197,13 @@ Reapplying content or layout updates the existing node tree. It never creates du
 
 ## City Identity Resolution
 
-`BattleScene` resolves the report title from `BattleResult.cityKey` through the current shared city-display API.
+`BattleScene` resolves the title from `BattleResult.cityKey` through the current shared city-display boundary.
 
-- Before HPA-366, use the existing safe `Country N - City M` display title.
-- After HPA-366, the same resolution boundary uses the catalog-provided identity.
-- Do not persist a city name or conquest title inside `BattleResult`.
-- If a release build cannot resolve an authored definition, fall back to the existing numbered title rather than failing report restoration.
+1. Confirm the normalized pending result matches `state.currentCityKey`.
+2. Resolve the title with the current state/catalog API for `result.cityKey.cityNumber`.
+3. If resolution fails in a release build, use `Country <country> - City <city>` from the result key.
+
+Before HPA-366 this produces the existing numbered title. After HPA-366 the same boundary uses catalog-provided identity. Do not persist a city name or conquest title inside `BattleResult`.
 
 Country completion uses `Country <number> Conquered` regardless of city naming.
 
@@ -257,8 +259,8 @@ After foreground catch-up finalizes the result and saves state:
 
 1. Clear live combat and stale tooltip feedback.
 2. Present `state.pendingBattleResult` with `.freshIdle`.
-3. Preserve the existing idle conquest presentation, including the gold burst, once.
-4. Do not introduce live-only floating damage or city-hit feedback.
+3. Preserve the existing idle conquest gold burst once.
+4. Do not introduce live-only floating damage or city-conquest flourish.
 
 The scene no longer passes `IdleProgressResult.goldEarned` into report rendering.
 
@@ -270,11 +272,11 @@ When `BattleScene.didMove(to:)` completes interface construction and redraw:
 - Show the same title, rows, badges, and Continue action.
 - Do not play the gold burst, conquest flourish, floating damage, SFX, or haptic.
 
-Repeated `didMove`, resize, safe-area refresh, and redraw may reapply content/layout but must not call any effect path.
+Repeated `didMove`, resize, safe-area refresh, and redraw may reapply content/layout but must not call an effect path.
 
 ### Input gating
 
-While the report is visible, `BattleScene` accepts only the enabled Continue hit target. Spawn, manual type selection, world, building, information tooltip, and background battlefield touches are ignored.
+While the report is visible, `BattleScene` accepts only the enabled Continue hit target. Spawn, manual type selection, world, building, information tooltip, and battlefield touches are ignored.
 
 This explicit gate replaces reliance on each individual button handler to reject report-visible input.
 
@@ -303,11 +305,13 @@ Consequences:
 - Relaunch with a pending live or idle result restores the report in `BattleScene`.
 - Relaunch after successful acknowledgment routes directly to Country Map.
 - Older conquered saves without a pending result retain current Country Map behavior.
-- Country 15 also restores its pending report before the final Country Map presentation.
+- Country 15 restores its pending report before final Country Map presentation.
+
+`KingdomGameState` normalization already prevents a pending result from surviving in `.battleActive`, so the precedence rule does not redirect a valid active battle.
 
 ## Continue Transaction
 
-`BattleScene` owns a scene-local guard such as:
+`BattleScene` owns a scene-local guard:
 
 ```swift
 private var isConquestContinueEnabled = true
@@ -326,7 +330,7 @@ Do not hide or destroy the report before routing. Keeping the disabled report vi
 
 A repeated tap exits at the first guard and performs no additional acknowledgment, save, or route.
 
-If the router is unavailable, leave Continue enabled and leave state untouched so a later valid interaction can complete the transaction.
+If the router is unavailable, leave Continue enabled and state untouched so a later valid interaction can complete the transaction.
 
 ## Effects Lifecycle
 
@@ -335,25 +339,24 @@ Effect ownership remains in `BattleScene`, separate from report rendering.
 | Origin | City flourish | Floating final damage | Gold burst | Future SFX/haptic |
 |---|---:|---:|---:|---:|
 | Fresh live | Existing behavior | Existing behavior | Once | Once when integrated |
-| Fresh idle | No new live-only effect | No | Once | Once when integrated |
+| Fresh idle | No | No | Once | Once when integrated |
 | Restored | No | No | No | No |
 | Resize/redraw | No replay | No replay | No replay | No replay |
 
 The report node never starts effects, so node reapplication cannot replay them.
 
-## Error and Defensive Behavior
+## Defensive Behavior
 
 - Missing optional MVP fields are omitted.
-- Invalid or mismatched persisted results continue to be normalized/dropped by `KingdomGameState`; the scene does not compensate by generating a new result.
-- If required report content cannot fit, keep the report state unacknowledged and surface the existing unsupported-layout gate or equivalent safe blocked state. Never route past an unreadable report automatically.
-- If an achievement icon image is unavailable, render its procedural fallback glyph; do not remove the persisted achievement silently.
-- All counts and displayed gold use compact-number formatting without changing authoritative stored values.
+- Invalid or mismatched persisted results continue to be normalized or dropped by `KingdomGameState`; the scene does not generate a replacement result.
+- App-supported layouts must always keep the required content and Continue visible.
+- Unsupported geometry remains paused and blocked by the existing `AppLayoutGateView`; no acknowledgment or route occurs while gated.
+- If an achievement system symbol is unavailable, its procedural fallback is rendered.
+- Display formatting never changes authoritative stored values.
 
 ## Testing Strategy
 
 ### `BattleResultModelsTests`
-
-Cover:
 
 - Total deployment count across type/source/lane rows.
 - Total loss count across type/source rows.
@@ -362,8 +365,6 @@ Cover:
 
 ### `ConquestReportContentTests`
 
-Cover:
-
 - Full live report with MVP and both achievements.
 - Full idle report with MVP.
 - Idle mode suppresses active duration.
@@ -371,55 +372,48 @@ Cover:
 - Zero deployment and zero loss copy.
 - Each achievement independently and neither achievement.
 - Duration boundaries and truncation.
+- Compact numeric boundaries.
 - Normal city and country-complete titles.
 - Exactly three or four summary rows.
 
 ### `ConquestReportLayoutTests`
 
-Cover:
-
 - Three-row and four-row geometry.
-- Layouts with zero, one, and two badges.
+- Zero, one, and two badge layouts.
 - Supported phone and iPad portrait sizes.
 - Compact-height supported layout.
 - Continue frame remains fully visible and non-overlapping.
-- Required-content fit failure at impossible sizes.
+- Title fallback and minimum-font policy.
 
 ### `ConquestReportNodeTests`
 
-Cover:
-
 - One title, up to four row labels, optional badges, and exactly one Continue button.
 - Reapply and resize do not duplicate nodes or controls.
-- Hidden fourth row when MVP is absent.
-- Enabled and disabled Continue appearance/hit behavior.
-- Missing icon asset uses a fallback glyph.
+- Hidden fourth label when MVP is absent.
+- Enabled and disabled Continue appearance and hit behavior.
+- Missing system symbol uses the procedural fallback.
 
 ### `BattleSceneTests`
-
-Cover:
 
 - Live conquest renders only the persisted pending result.
 - Idle conquest renders `Conquered while away`.
 - Missing optional fields.
 - Fresh live presentation plays existing effects once.
-- Fresh idle presentation plays only its approved effects once.
+- Fresh idle presentation plays only its approved gold effect once.
 - Restored report is static.
-- Resize/redraw duplicate neither effects nor controls.
+- Resize/redraw duplicates neither effects nor controls.
 - Underlying HUD and battlefield input is blocked.
 - Continue acknowledges, saves, then routes.
 - Duplicate Continue routes once.
 - Next-city state does not redisplay an acknowledged result.
 
-A router spy verifies acknowledgment ordering at callback time:
+A router spy verifies ordering at callback time:
 
 - The scene's pending result is already nil.
 - Reloading the store returns a nil pending result.
 - Route count is exactly one.
 
 ### `GameViewControllerTests`
-
-Cover:
 
 - Pending result takes precedence and presents `BattleScene` for both conquered stage values.
 - Conquered stage without a pending result presents `CountryMapScene`.
@@ -428,10 +422,8 @@ Cover:
 
 ### Manual smoke
 
-Verify:
-
-1. One live conquest.
-2. One idle conquest.
+1. Live conquest.
+2. Idle conquest.
 3. Relaunch before Continue.
 4. Relaunch after Continue/save.
 5. Compact supported phone layout.
@@ -486,3 +478,4 @@ Verify:
 - Replay, sharing, analytics, leaderboards, or remote telemetry.
 - New sound or haptic implementation beyond preserving the effect boundary for HPA-389.
 - Persisting duplicate city identity strings.
+- Refactoring unrelated number formatting or HUD layout.
