@@ -35,7 +35,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let build = "buildButton"
         static let goldInfo = "goldInfoButton"
         static let cityInfo = "cityInfoButton"
-        static let popupContinue = "conquestPopupContinueButton"
     }
 
     private enum EffectName {
@@ -192,13 +191,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private let buildButtonBackground = SKShapeNode()
     private let buildButtonIcon = SKSpriteNode(imageNamed: BattleAssetName.buildingPadEmpty)
     private let buildButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let popupOverlay = SKShapeNode()
-    private let popupTitleLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let popupRewardLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
-    private let popupContinueButton = SKNode()
-    private let popupContinueBackground = SKShapeNode()
-    private let popupContinueLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private var isConquestPopupVisible = false
+    private let conquestReportNode = ConquestReportNode()
+    private var hasPresentedPendingConquestReport = false
+    private var isConquestReportVisible = false
+    private var isConquestContinueEnabled = true
+    private(set) var isConquestReportFitFailed = false
+    private var lastAppliedConquestReportContent: ConquestReportContent?
     private var isGoldBurstRemovalScheduled = false
     private var goldBurstRemovalTask: Task<Void, Never>?
 
@@ -276,6 +274,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         observeLifecycleNotificationsIfNeeded()
         redraw()
+
+        if state.pendingBattleResult != nil, !hasPresentedPendingConquestReport {
+            _ = applyPendingConquestReport(resetsContinueState: true)
+        }
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -294,7 +296,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        guard state.stageStatus == .battleActive, !isConquestPopupVisible else {
+        guard state.stageStatus == .battleActive, !isConquestReportVisible else {
             return
         }
 
@@ -319,7 +321,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        handleTouch(named: buttonName(at: touch.location(in: self)))
+        let point = touch.location(in: self)
+
+        if isConquestReportVisible, conquestReportNode.containsContinue(point) {
+            closeConquestReport()
+            return
+        }
+
+        handleTouch(named: buttonName(at: point))
     }
 
     private func handleTouch(named touchedButtonName: String?) {
@@ -354,9 +363,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         case ButtonName.build:
             hideManualTypeMenuWithoutLayoutIfNeeded()
             requestBuildingView()
-        case ButtonName.popupContinue:
-            hideManualTypeMenuWithoutLayoutIfNeeded()
-            closeConquestPopup()
         default:
             return false
         }
@@ -365,9 +371,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func handleInfoButton(named touchedButtonName: String) -> Bool {
-        // Info tooltips must not fire while the conquest popup is overlaying
-        // the HUD — otherwise the tooltip renders behind the popup overlay.
-        guard !isConquestPopupVisible else {
+        // Info tooltips must not fire while the conquest report is overlaying
+        // the HUD — otherwise the tooltip renders behind the report overlay.
+        guard !isConquestReportVisible else {
             return false
         }
         switch touchedButtonName {
@@ -480,25 +486,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             icon: buildButtonIcon,
             color: SKColor(red: 0.50, green: 0.28, blue: 0.18, alpha: 1.0)
         )
-        popupOverlay.fillColor = SKColor(white: 0.02, alpha: 0.86)
-        popupOverlay.strokeColor = SKColor(white: 1.0, alpha: 0.24)
-        popupOverlay.lineWidth = 2
-        popupOverlay.zPosition = 200
-        popupOverlay.isHidden = true
 
-        configureLabel(popupTitleLabel, fontSize: 22, color: .white)
-        configureLabel(popupRewardLabel, fontSize: 18, color: SKColor(red: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
-        configureButton(
-            popupContinueButton,
-            background: popupContinueBackground,
-            label: popupContinueLabel,
-            name: ButtonName.popupContinue,
-            color: SKColor(red: 0.18, green: 0.58, blue: 0.42, alpha: 1.0)
-        )
-
-        popupTitleLabel.zPosition = 201
-        popupRewardLabel.zPosition = 201
-        popupContinueButton.zPosition = 201
+        conquestReportNode.zPosition = GameUITheme.Z.modal
 
         [
             goldLabel,
@@ -526,15 +515,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         addChild(spawnButton)
         addChild(worldButton)
         addChild(buildButton)
-        addChild(popupOverlay)
-        addChild(popupTitleLabel)
-        addChild(popupRewardLabel)
-        addChild(popupContinueButton)
+        addChild(conquestReportNode)
 
         applyPersistentHUDTextVisibility()
         feedbackPanel.alpha = 0
         feedbackLabel.alpha = 0
-        setConquestPopupHidden(true)
     }
 
     private func configureHUDIcon(_ icon: SKSpriteNode, name: String) {
@@ -743,8 +728,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let feedbackY = bottomControlsTopY + max(32, (hudBottomY - bottomControlsTopY) * 0.25)
         feedbackLabel.position = CGPoint(x: centerX, y: feedbackY)
 
-        layoutConquestPopup(contentWidth: metrics.contentWidth)
-
         layoutBattlefield(
             contentWidth: metrics.battlefieldWidth,
             hpBarBottomY: hudBottomY,
@@ -767,13 +750,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         fitLabel(spawnButtonLabel, maxWidth: metrics.spawnButtonWidth - 28)
         fitLabel(worldButtonLabel, maxWidth: metrics.worldButtonWidth - 20)
         fitLabel(buildButtonLabel, maxWidth: metrics.buildButtonWidth - 24)
-        fitLabel(popupTitleLabel, maxWidth: metrics.contentWidth - 48)
-        fitLabel(popupRewardLabel, maxWidth: metrics.contentWidth - 48)
-        fitLabel(popupContinueLabel, maxWidth: metrics.contentWidth - 76)
 
         let feedbackPanelWidth = min(metrics.contentWidth, max(220, feedbackLabel.frame.width + 32))
         feedbackPanel.update(size: CGSize(width: feedbackPanelWidth, height: max(32, feedbackLabel.fontSize + 18)))
         feedbackPanel.position = feedbackLabel.position
+
+        if state.pendingBattleResult != nil,
+           hasPresentedPendingConquestReport || isConquestReportFitFailed {
+            _ = applyPendingConquestReport(resetsContinueState: false)
+        }
     }
 
     private func resetFontSizes() {
@@ -790,9 +775,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         spawnButtonLabel.fontSize = 16
         worldButtonLabel.fontSize = 16
         buildButtonLabel.fontSize = 16
-        popupTitleLabel.fontSize = 22
-        popupRewardLabel.fontSize = 18
-        popupContinueLabel.fontSize = 16
     }
 
     private struct LayoutMetrics {
@@ -1061,7 +1043,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             feedbackFontSize: 0
         ))
 
-        if !isConquestPopupVisible {
+        if !isConquestReportVisible {
             cancelCityFeedbackActions()
         }
 
@@ -1513,7 +1495,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func advanceCombat(deltaTime: TimeInterval) {
-        guard state.stageStatus == .battleActive, !isConquestPopupVisible else {
+        guard state.stageStatus == .battleActive, !isConquestReportVisible else {
             return
         }
 
@@ -1663,7 +1645,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         if conqueredCity {
             playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
             playCityConquestFeedback()
-            showConquestPopup(goldEarned: damageResult.goldEarned)
+            if applyPendingConquestReport(resetsContinueState: true),
+               let anchor = conquestReportNode.goldEffectAnchor(in: self) {
+                playGoldBurst(at: anchor)
+            }
         } else {
             playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
             playCityHitFeedback()
@@ -1671,7 +1656,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func spawnSoldier() {
-        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
             return
         }
 
@@ -1707,7 +1692,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func toggleManualTypeMenu() {
-        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
             return
         }
 
@@ -1723,7 +1708,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func selectManualSoldierType(_ type: SoldierType) {
-        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
             return
         }
 
@@ -1760,7 +1745,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func requestCountryMap() {
-        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
             return
         }
 
@@ -1776,7 +1761,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func requestBuildingView() {
-        guard !isConquestPopupVisible, state.stageStatus == .battleActive else {
+        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
             return
         }
 
@@ -2625,7 +2610,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         redraw()
 
         if result.conqueredCities > 0 {
-            showConquestPopup(goldEarned: result.goldEarned)
+            if applyPendingConquestReport(resetsContinueState: true),
+               let anchor = conquestReportNode.goldEffectAnchor(in: self) {
+                playGoldBurst(at: anchor)
+            }
         }
     }
 
@@ -2636,8 +2624,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             ButtonName.world,
             ButtonName.build,
             ButtonName.goldInfo,
-            ButtonName.cityInfo,
-            ButtonName.popupContinue
+            ButtonName.cityInfo
         ]
         let touchedNames = Set(nodes(at: point).compactMap(\.name))
         for name in priority where touchedNames.contains(name) {
@@ -2657,48 +2644,88 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    private func layoutConquestPopup(contentWidth: CGFloat) {
-        let popupWidth = min(contentWidth, size.width - 56)
-        let popupHeight: CGFloat = 188
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+    private static func isPendingResultPresentable(
+        _ result: BattleResult,
+        currentCityKey: CityKey
+    ) -> Bool {
+        result.cityKey == currentCityKey
+    }
 
-        popupOverlay.path = CGPath(
-            roundedRect: CGRect(x: -popupWidth / 2, y: -popupHeight / 2, width: popupWidth, height: popupHeight),
-            cornerWidth: 14,
-            cornerHeight: 14,
-            transform: nil
-        )
-        popupOverlay.position = center
-        popupTitleLabel.position = CGPoint(x: center.x, y: center.y + 52)
-        popupRewardLabel.position = CGPoint(x: center.x, y: center.y + 12)
-        layoutButton(
-            popupContinueButton,
-            background: popupContinueBackground,
-            size: CGSize(width: popupWidth - 48, height: 48),
-            position: CGPoint(x: center.x, y: center.y - 54)
+    private func pendingResultForPresentation() -> BattleResult? {
+        guard let result = state.pendingBattleResult else { return nil }
+        guard Self.isPendingResultPresentable(result, currentCityKey: state.currentCityKey) else {
+            assertionFailure("Pending BattleResult city does not match current city")
+            return nil
+        }
+        return result
+    }
+
+    private func conquestReportContent(for result: BattleResult) -> ConquestReportContent {
+        .project(
+            from: result,
+            cityTitle: state.displayCityTitle(for: result.cityKey.cityNumber),
+            isCountryComplete: state.stageStatus == .countryComplete
         )
     }
 
-    private func showConquestPopup(goldEarned: Int) {
-        isConquestPopupVisible = true
-        popupTitleLabel.text = state.stageStatus == .countryComplete
-            ? "Country \(state.countryNumber) Conquered"
-            : "\(state.displayCityTitle) Conquered"
-        popupRewardLabel.text = "+\(goldEarned) gold"
-        popupContinueLabel.text = "Continue"
-        setConquestPopupHidden(false)
-        layoutInterface()
-        playGoldBurst(goldEarned: goldEarned)
+    private func conquestReportLayout(for content: ConquestReportContent) -> ConquestReportLayout? {
+        let metrics = layoutMetrics()
+        let insets = view?.safeAreaInsets ?? .zero
+        return .compute(.init(
+            sceneSize: size,
+            safeAreaInsets: .init(top: insets.top, left: insets.left,
+                                  bottom: insets.bottom, right: insets.right),
+            battleContentWidth: metrics.contentWidth,
+            summaryRowCount: content.summaryLines.count,
+            achievementCount: content.achievements.count,
+            compactHeight: metrics.compactHeight
+        ))
     }
 
-    private func playGoldBurst(goldEarned _: Int) {
+    @discardableResult
+    private func applyPendingConquestReport(resetsContinueState: Bool) -> Bool {
+        guard let result = pendingResultForPresentation() else { return false }
+        if resetsContinueState { isConquestContinueEnabled = true }
+        let content = conquestReportContent(for: result)
+        lastAppliedConquestReportContent = content
+        guard let layout = conquestReportLayout(for: content),
+              conquestReportNode.apply(
+                  content: content,
+                  layout: layout,
+                  isContinueEnabled: isConquestContinueEnabled
+              ) == .presented else {
+            isConquestReportVisible = true
+            isConquestReportFitFailed = true
+            conquestReportNode.isHidden = true
+            return false
+        }
+        isConquestReportVisible = true
+        isConquestReportFitFailed = false
+        hasPresentedPendingConquestReport = true
+        return true
+    }
+
+    private func closeConquestReport() {
+        guard isConquestReportVisible else {
+            return
+        }
+        guard let router else {
+            return
+        }
+
+        isConquestReportVisible = false
+        conquestReportNode.isHidden = true
+        router.battleSceneDidRequestCountryMap(self)
+    }
+
+    private func playGoldBurst(at anchor: CGPoint) {
         goldBurstRemovalTask?.cancel()
         childNode(withName: EffectName.goldBurst)?.removeFromParent()
         isGoldBurstRemovalScheduled = false
 
         let burst = SKNode()
         burst.name = EffectName.goldBurst
-        burst.position = CGPoint(x: popupRewardLabel.position.x, y: popupRewardLabel.position.y + 10)
+        burst.position = anchor
         burst.zPosition = EffectStyle.goldBurstZ
         addChild(burst)
 
@@ -2753,26 +2780,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             self.isGoldBurstRemovalScheduled = false
             self.goldBurstRemovalTask = nil
         }
-    }
-
-    private func setConquestPopupHidden(_ isHidden: Bool) {
-        popupOverlay.isHidden = isHidden
-        popupTitleLabel.isHidden = isHidden
-        popupRewardLabel.isHidden = isHidden
-        popupContinueButton.isHidden = isHidden
-    }
-
-    private func closeConquestPopup() {
-        guard isConquestPopupVisible else {
-            return
-        }
-        guard let router else {
-            return
-        }
-
-        isConquestPopupVisible = false
-        setConquestPopupHidden(true)
-        router.battleSceneDidRequestCountryMap(self)
     }
 }
 
@@ -3171,16 +3178,20 @@ extension BattleScene {
         childNode(withName: EffectName.goldBurst)?.zPosition ?? -.greatestFiniteMagnitude
     }
 
-    var popupRewardZPositionForTesting: CGFloat {
-        popupRewardLabel.zPosition
+    var conquestReportNodeZPositionForTesting: CGFloat {
+        conquestReportNode.zPosition
     }
 
-    var goldBurstContainsRewardTextForTesting: Bool {
-        guard let goldBurst = childNode(withName: EffectName.goldBurst) else {
-            return false
-        }
+    var conquestReportTitleForTesting: String {
+        lastAppliedConquestReportContent?.title ?? ""
+    }
 
-        return containsLabelWithText(in: goldBurst, text: popupRewardLabel.text)
+    var conquestReportLinesForTesting: [String] {
+        lastAppliedConquestReportContent?.summaryLines ?? []
+    }
+
+    var isConquestContinueEnabledForTesting: Bool {
+        isConquestContinueEnabled
     }
 
     var cityRemainingPowerForTesting: Int {
@@ -3208,7 +3219,14 @@ extension BattleScene {
     }
 
     var isConquestPopupVisibleForTesting: Bool {
-        isConquestPopupVisible
+        isConquestReportVisible
+    }
+
+    static func isPendingResultPresentableForTesting(
+        _ result: BattleResult,
+        currentCityKey: CityKey
+    ) -> Bool {
+        isPendingResultPresentable(result, currentCityKey: currentCityKey)
     }
 
     /// True when the feedback tooltip panel is currently shown (alpha > 0).
@@ -3366,13 +3384,14 @@ extension BattleScene {
     }
 
     func closeConquestPopupForTesting() {
-        closeConquestPopup()
+        closeConquestReport()
     }
 
-    /// Presents the conquest popup without requiring a live conquest, so tests
-    /// can verify HUD interactions are gated while the popup is overlaying.
-    func presentConquestPopupForTesting(goldEarned: Int = 0) {
-        showConquestPopup(goldEarned: goldEarned)
+    /// Presents the conquest report flag without requiring a live conquest, so
+    /// tests can verify HUD interactions are gated while the report overlays.
+    func presentConquestPopupForTesting() {
+        isConquestReportVisible = true
+        hasPresentedPendingConquestReport = true
     }
 
     /// Drives the info-button touch path. Returns whether an info tooltip was
@@ -3392,7 +3411,7 @@ extension BattleScene {
     }
 
     var popupContinueButtonFrameForTesting: CGRect? {
-        sceneFrame(for: popupContinueButton)
+        conquestReportNode.continueHitFrameForTesting
     }
 
     private func sceneFrame(for node: SKNode) -> CGRect? {
@@ -3418,14 +3437,6 @@ extension BattleScene {
         }
 
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-
-    private func containsLabelWithText(in node: SKNode, text: String?) -> Bool {
-        if let label = node as? SKLabelNode, label.text == text {
-            return true
-        }
-
-        return node.children.contains { containsLabelWithText(in: $0, text: text) }
     }
 
     private func soldierBodyColor(_ node: SKNode) -> SKColor {
