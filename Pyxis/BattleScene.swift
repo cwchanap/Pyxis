@@ -1376,7 +1376,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         reconcileSelectedManualSoldierType()
         updateHUDIcons()
 
-        goldLabel.text = compactNumber(state.gold)
+        goldLabel.text = CompactNumberFormatter.string(from: state.gold)
         cityLevelLabel.text = state.displayCityTitle
         defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
         cityHPLabel.text = ""
@@ -1654,18 +1654,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // damage tick whose tooltip has already faded (dedupe token reset).
             feedbackText = ""
         } else {
-            feedbackText = "Soldiers dealt \(compactNumber(damageResult.damageDealt)) damage."
+            feedbackText = "Soldiers dealt \(CompactNumberFormatter.string(from: damageResult.damageDealt)) damage."
         }
 
         store.save(state)
         redraw(shouldLayout: conqueredCity)
 
         if conqueredCity {
-            playFloatingFeedback(text: "-\(compactNumber(damageResult.damageDealt))", at: enemyCityImpactPoint)
+            playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
             playCityConquestFeedback()
             showConquestPopup(goldEarned: damageResult.goldEarned)
         } else {
-            playFloatingFeedback(text: "-\(compactNumber(damageResult.damageDealt))", at: enemyCityImpactPoint)
+            playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
             playCityHitFeedback()
         }
     }
@@ -1749,13 +1749,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func showGoldInfoTooltip() {
-        showTooltip("Gold \(compactNumber(state.gold)) | Soldiers \(combat.livingSoldierCount)")
+        showTooltip("Gold \(CompactNumberFormatter.string(from: state.gold)) | Soldiers \(combat.livingSoldierCount)")
     }
 
     private func showCityInfoTooltip() {
         showTooltip(
             "\(state.displayCityTitle) | \(state.currentCityDefenseTrait.displayName) | HP "
-                + "\(compactNumber(state.cityRemainingPower))/\(compactNumber(state.cityMaxPower))"
+                + "\(CompactNumberFormatter.string(from: state.cityRemainingPower))/\(CompactNumberFormatter.string(from: state.cityMaxPower))"
         )
     }
 
@@ -2616,7 +2616,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 // stale message left over from before backgrounding.
                 feedbackText = ""
             } else if result.damageDealt > 0 {
-                feedbackText = "Buildings dealt \(compactNumber(result.damageDealt)) idle damage."
+                feedbackText = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
             } else {
                 feedbackText = "No building damage while away."
             }
@@ -2655,43 +2655,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         while label.frame.width > maxWidth && label.fontSize > 8 {
             label.fontSize -= 1
         }
-    }
-
-    private func compactNumber(_ value: Int) -> String {
-        let absValue = abs(value)
-        let sign = value < 0 ? "-" : ""
-
-        let units: [(threshold: Int, suffix: String)] = [
-            (1_000_000_000_000, "T"),
-            (1_000_000_000, "B"),
-            (1_000_000, "M"),
-            (1_000, "K")
-        ]
-
-        guard let unitIndex = units.firstIndex(where: { absValue >= $0.threshold }) else {
-            return "\(value)"
-        }
-
-        let unit = units[unitIndex]
-        let scaled = Double(absValue) / Double(unit.threshold)
-        let roundedTenths = (scaled * 10).rounded() / 10
-
-        // Promote when integer rounding would produce "1000" in the current unit
-        let integerRounded = roundedTenths.rounded()
-        if integerRounded >= 1000, unitIndex > 0 {
-            let promotedUnit = units[unitIndex - 1]
-            let promotedScaled = Double(absValue) / Double(promotedUnit.threshold)
-            let promotedRounded = (promotedScaled * 10).rounded() / 10
-            let body = promotedRounded >= 10 || promotedRounded.rounded() == promotedRounded
-                ? String(format: "%.0f", promotedRounded)
-                : String(format: "%.1f", promotedRounded)
-            return "\(sign)\(body)\(promotedUnit.suffix)"
-        }
-
-        let body = roundedTenths >= 10 || roundedTenths.rounded() == roundedTenths
-            ? String(format: "%.0f", roundedTenths)
-            : String(format: "%.1f", roundedTenths)
-        return "\(sign)\(body)\(unit.suffix)"
     }
 
     private func layoutConquestPopup(contentWidth: CGFloat) {
@@ -3426,10 +3389,6 @@ extension BattleScene {
     func flushBuildingProgressSaveForTesting() {
         buildingProgressSaveAccumulator = 0
         store.save(state)
-    }
-
-    func compactNumberForTesting(_ value: Int) -> String {
-        compactNumber(value)
     }
 
     var popupContinueButtonFrameForTesting: CGRect? {
