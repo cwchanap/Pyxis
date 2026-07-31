@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Self-reviewed and ready for execution.
+
 **Goal:** Replace the legacy gold-only conquest popup with a compact report rendered from persisted `pendingBattleResult`, restore it across relaunch and Building View handoff, and acknowledge/save/route exactly once.
 
 **Architecture:** Pure helpers own whole-point text fitting, compact-number formatting, result projection, and safe-area geometry. `ConquestReportNode` owns only SpriteKit rendering, Continue hit testing, and the gold-effect anchor. `BattleScene` owns fresh/restored lifecycle, effects, input gating, fit failure, and acknowledgment; `GameViewController` owns pending-first routing and the existing unsupported-geometry gate.
