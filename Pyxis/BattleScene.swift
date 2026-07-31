@@ -324,17 +324,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else {
+        guard let point = touches.first?.location(in: self) else {
             return
         }
+        handleTouch(at: point)
+    }
 
-        let point = touch.location(in: self)
-
-        if isConquestReportVisible, conquestReportNode.containsContinue(point) {
-            closeConquestReport()
+    private func handleTouch(at point: CGPoint) {
+        if isConquestReportVisible || isConquestReportFitFailed {
+            guard !isConquestReportFitFailed,
+                  conquestReportNode.containsContinue(point) else {
+                return
+            }
+            continueFromConquestReport()
             return
         }
-
         handleTouch(named: buttonName(at: point))
     }
 
@@ -2734,16 +2738,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return true
     }
 
-    private func closeConquestReport() {
-        guard isConquestReportVisible else {
+    private func continueFromConquestReport() {
+        guard isConquestReportVisible,
+              isConquestContinueEnabled,
+              !isConquestReportFitFailed,
+              state.pendingBattleResult != nil,
+              let router else {
             return
         }
-        guard let router else {
-            return
-        }
-
-        isConquestReportVisible = false
-        conquestReportNode.isHidden = true
+        isConquestContinueEnabled = false
+        _ = applyPendingConquestReport(resetsContinueState: false)
+        state.acknowledgePendingBattleResult()
+        store.save(state)
         router.battleSceneDidRequestCountryMap(self)
     }
 
@@ -3445,7 +3451,15 @@ extension BattleScene {
     }
 
     func closeConquestPopupForTesting() {
-        closeConquestReport()
+        guard isConquestReportVisible else {
+            return
+        }
+        guard let router else {
+            return
+        }
+        isConquestReportVisible = false
+        conquestReportNode.isHidden = true
+        router.battleSceneDidRequestCountryMap(self)
     }
 
     /// Presents the conquest report flag without requiring a live conquest, so
@@ -3473,6 +3487,38 @@ extension BattleScene {
 
     var popupContinueButtonFrameForTesting: CGRect? {
         conquestReportNode.continueHitFrameForTesting
+    }
+
+    /// Taps the Continue hit-frame center through the production touch path
+    /// (`handleTouch(at:)`), so tests exercise the real Continue transaction
+    /// (disable → re-present → acknowledge → save → route) rather than a bypass.
+    func tapConquestContinueForTesting() {
+        guard let frame = conquestReportNode.continueHitFrameForTesting else {
+            return
+        }
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        handleTouch(at: center)
+    }
+
+    /// Drives the production touch dispatcher at an arbitrary scene point.
+    func handleTouchForTesting(at point: CGPoint) {
+        handleTouch(at: point)
+    }
+
+    /// Centers of the spawn/world/build/gold-info/city-info controls, so the
+    /// modal-block test can iterate every underlying touch path while the
+    /// conquest report overlays the HUD.
+    var underlyingControlCentersForTesting: [CGPoint] {
+        guard let frames = battleLayoutFramesForTesting else {
+            return []
+        }
+        return [
+            CGPoint(x: frames.spawnButton.midX, y: frames.spawnButton.midY),
+            CGPoint(x: frames.worldButton.midX, y: frames.worldButton.midY),
+            CGPoint(x: frames.buildButton.midX, y: frames.buildButton.midY),
+            CGPoint(x: frames.leftHUD.midX, y: frames.leftHUD.midY),
+            CGPoint(x: frames.rightHUD.midX, y: frames.rightHUD.midY)
+        ]
     }
 
     private func sceneFrame(for node: SKNode) -> CGRect? {
