@@ -2612,8 +2612,8 @@ struct BattleSceneTests {
     }
 
     private func pendingConqueredState(
-        city: Int,
-        mode: BattleConquestMode,
+        city: Int = 1,
+        mode: BattleConquestMode = .live,
         countryComplete: Bool = false
     ) -> KingdomGameState {
         KingdomGameState(
@@ -2643,15 +2643,23 @@ struct BattleSceneTests {
     private final class RouteSpy: BattleSceneRouting {
         private(set) var didRequestCountryMap = false
         private(set) var didRequestBuildingView = false
+        private(set) var countryMapRequestCount = 0
+        private(set) var buildingRequestCount = 0
+        var onCountryMapRequest: ((BattleScene) -> Void)?
 
         func battleSceneDidRequestCountryMap(_ scene: BattleScene) {
             didRequestCountryMap = true
+            countryMapRequestCount += 1
+            onCountryMapRequest?(scene)
         }
 
         func battleSceneDidRequestBuildingView(_ scene: BattleScene) {
             didRequestBuildingView = true
+            buildingRequestCount += 1
         }
     }
+
+    private typealias BattleRouterSpy = RouteSpy
 
     private final class MockTouch: UITouch {
         private let loc: CGPoint
@@ -2959,7 +2967,7 @@ struct BattleSceneTests {
         #expect(router.didRequestCountryMap)
     }
 
-    @Test func touchesEndedPopupContinueClosesPopupAndRoutes() throws {
+    @Test func touchesEndedContinueDisablesAndRoutes() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0))
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
@@ -2972,7 +2980,55 @@ struct BattleSceneTests {
         scene.touchesEnded([MockTouch(location: point)], with: nil)
 
         #expect(router.didRequestCountryMap)
-        #expect(!scene.isConquestPopupVisibleForTesting)
+        #expect(!scene.isConquestContinueEnabledForTesting)
+        #expect(scene.gameStateForTesting.pendingBattleResult == nil)
+    }
+
+    @Test func continueDisablesAcknowledgesSavesThenRoutesOnce() throws {
+        let store = try makeStore(initialState: pendingConqueredState())
+        let router = BattleRouterSpy()
+        let scene = makeScene(store: store, router: router)
+        router.onCountryMapRequest = { routed in
+            #expect(!routed.isConquestContinueEnabledForTesting)
+            #expect(routed.gameStateForTesting.pendingBattleResult == nil)
+            #expect(store.load().pendingBattleResult == nil)
+        }
+        scene.tapConquestContinueForTesting()
+        scene.tapConquestContinueForTesting()
+        #expect(router.countryMapRequestCount == 1)
+    }
+
+    @Test func missingRouterLeavesReportPendingAndEnabled() throws {
+        let store = try makeStore(initialState: pendingConqueredState())
+        let scene = makeScene(store: store, router: nil)
+        scene.tapConquestContinueForTesting()
+        #expect(scene.isConquestContinueEnabledForTesting)
+        #expect(store.load().pendingBattleResult != nil)
+    }
+
+    @Test func reportBlocksEveryUnderlyingTouchPath() throws {
+        let store = try makeStore(initialState: pendingConqueredState())
+        let router = BattleRouterSpy()
+        let scene = makeScene(store: store, router: router)
+        let before = scene.gameStateForTesting
+        for point in scene.underlyingControlCentersForTesting {
+            scene.handleTouchForTesting(at: point)
+        }
+        #expect(scene.gameStateForTesting == before)
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(router.buildingRequestCount == 0)
+        #expect(router.countryMapRequestCount == 0)
+        #expect(!scene.isFeedbackTooltipVisibleForTesting)
+    }
+
+    @Test func resizeAfterDisableCannotReenableContinue() throws {
+        let store = try makeStore(initialState: pendingConqueredState())
+        let router = BattleRouterSpy()
+        let scene = makeScene(store: store, router: router)
+        scene.tapConquestContinueForTesting()
+        scene.refreshLayoutForCurrentEnvironment()
+        scene.redrawForTesting(shouldLayout: true)
+        #expect(!scene.isConquestContinueEnabledForTesting)
     }
 
     @Test func touchesEndedOutsideClosesManualTypeMenu() throws {
@@ -3012,4 +3068,3 @@ struct BattleSceneTests {
         #expect(!router.didRequestCountryMap)
     }
 }
-
