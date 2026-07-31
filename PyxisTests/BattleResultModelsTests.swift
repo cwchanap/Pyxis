@@ -255,6 +255,36 @@ struct BattleResultModelsTests {
         #expect(result.mvpDamageSharePercent == 100)
     }
 
+    @Test func battleResultTotalsSumRows() {
+        let result = makeBattleResult(
+            deployments: [
+                .init(type: .infantry, source: .manual, lane: .left, count: 2),
+                .init(type: .archer, source: .building, lane: .right, count: 5)
+            ],
+            losses: [
+                .init(type: .infantry, source: .manual, count: 1),
+                .init(type: .archer, source: .building, count: 3)
+            ]
+        )
+        #expect(result.totalDeploymentCount == 7)
+        #expect(result.totalLossCount == 4)
+    }
+
+    @Test func battleResultTotalsSaturate() {
+        let result = makeBattleResult(
+            deployments: [
+                .init(type: .infantry, source: .manual, lane: .left, count: Int.max),
+                .init(type: .archer, source: .building, lane: .right, count: 1)
+            ],
+            losses: [
+                .init(type: .infantry, source: .manual, count: Int.max),
+                .init(type: .archer, source: .building, count: 1)
+            ]
+        )
+        #expect(result.totalDeploymentCount == Int.max)
+        #expect(result.totalLossCount == Int.max)
+    }
+
     @Test func finalizedPreservesCrossTypeMVPWhenPerTypeTotalsExceedInt64Max() {
         var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 3))
 
@@ -312,4 +342,24 @@ struct BattleResultModelsTests {
         #expect(result.mvpSoldierType == .archer)
         #expect(result.mvpDamageSharePercent == 60)
     }
+}
+
+private func makeBattleResult(
+    deployments: [SiegeDeploymentCount] = [],
+    losses: [SiegeLossCount] = []
+) -> BattleResult {
+    BattleResult(
+        cityKey: CityKey(countryNumber: 1, cityNumber: 1),
+        conquestMode: .live,
+        activeBattleSeconds: 0,
+        deployments: deployments,
+        appliedDamage: [],
+        losses: losses,
+        idleDamageByType: [],
+        mvpSoldierType: nil,
+        mvpDamageSharePercent: nil,
+        usedFavorableUnit: false,
+        usedExposedLane: false,
+        goldEarned: 0
+    )
 }

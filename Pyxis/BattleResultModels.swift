@@ -554,3 +554,19 @@ private func rowSortKey(
 private func soldierTypeOrder(_ type: SoldierType) -> Int {
     SoldierType.allCases.firstIndex(of: type) ?? SoldierType.allCases.endIndex
 }
+
+extension BattleResult {
+    var totalDeploymentCount: Int {
+        deployments.reduce(0) { total, row in
+            let (sum, overflowed) = total.addingReportingOverflow(row.count)
+            return overflowed ? Int.max : sum
+        }
+    }
+
+    var totalLossCount: Int {
+        losses.reduce(0) { total, row in
+            let (sum, overflowed) = total.addingReportingOverflow(row.count)
+            return overflowed ? Int.max : sum
+        }
+    }
+}
