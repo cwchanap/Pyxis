@@ -200,6 +200,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var isGoldBurstRemovalScheduled = false
     private var goldBurstRemovalTask: Task<Void, Never>?
 
+    private enum ConquestReportPresentationOrigin { case freshLive, freshIdle, restored }
+    #if DEBUG
+    private var lastConquestReportOriginForTestingStorage: ConquestReportPresentationOrigin?
+    private var conquestEffectPresentationCountForTestingStorage = 0
+    private var lastGoldBurstAnchorForTestingStorage: CGPoint?
+    #endif
+
     private var feedbackText = ""
     private var lastPresentedTooltipText = ""
     private var currentLeftHUDLabelWidth: CGFloat = 140
@@ -276,7 +283,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         redraw()
 
         if state.pendingBattleResult != nil, !hasPresentedPendingConquestReport {
-            _ = applyPendingConquestReport(resetsContinueState: true)
+            _ = presentPendingConquestReport(origin: .restored, resetsContinueState: true)
         }
     }
 
@@ -1643,11 +1650,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         redraw(shouldLayout: conqueredCity)
 
         if conqueredCity {
-            playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
-            playCityConquestFeedback()
-            if applyPendingConquestReport(resetsContinueState: true),
-               let anchor = conquestReportNode.goldEffectAnchor(in: self) {
-                playGoldBurst(at: anchor)
+            if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
+                playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
+                playCityConquestFeedback()
             }
         } else {
             playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
@@ -2580,13 +2585,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     @objc private func sceneDidEnterBackground(_ notification: Notification) {
-        state.enterBackground(at: Date())
+        handleSceneDidEnterBackground(at: Date())
+    }
+
+    @objc private func sceneWillEnterForeground(_ notification: Notification) {
+        handleSceneWillEnterForeground(at: Date())
+    }
+
+    private func handleSceneDidEnterBackground(at date: Date) {
+        state.enterBackground(at: date)
         store.save(state)
         clearLiveCombat()
     }
 
-    @objc private func sceneWillEnterForeground(_ notification: Notification) {
-        let result = state.returnFromBackground(at: Date())
+    private func handleSceneWillEnterForeground(at date: Date) {
+        let result = state.returnFromBackground(at: date)
 
         store.save(state)
         reconcileSelectedManualSoldierType()
@@ -2610,10 +2623,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         redraw()
 
         if result.conqueredCities > 0 {
-            if applyPendingConquestReport(resetsContinueState: true),
-               let anchor = conquestReportNode.goldEffectAnchor(in: self) {
-                playGoldBurst(at: anchor)
-            }
+            _ = presentPendingConquestReport(origin: .freshIdle, resetsContinueState: true)
         }
     }
 
@@ -2683,6 +2693,25 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     @discardableResult
+    private func presentPendingConquestReport(
+        origin: ConquestReportPresentationOrigin,
+        resetsContinueState: Bool
+    ) -> Bool {
+        guard applyPendingConquestReport(resetsContinueState: resetsContinueState) else {
+            return false
+        }
+        #if DEBUG
+        lastConquestReportOriginForTestingStorage = origin
+        conquestEffectPresentationCountForTestingStorage += origin == .restored ? 0 : 1
+        #endif
+        if origin != .restored,
+           let anchor = conquestReportNode.goldEffectAnchor(in: self) {
+            playGoldBurst(at: anchor)
+        }
+        return true
+    }
+
+    @discardableResult
     private func applyPendingConquestReport(resetsContinueState: Bool) -> Bool {
         guard let result = pendingResultForPresentation() else { return false }
         if resetsContinueState { isConquestContinueEnabled = true }
@@ -2722,6 +2751,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         goldBurstRemovalTask?.cancel()
         childNode(withName: EffectName.goldBurst)?.removeFromParent()
         isGoldBurstRemovalScheduled = false
+        #if DEBUG
+        lastGoldBurstAnchorForTestingStorage = anchor
+        #endif
 
         let burst = SKNode()
         burst.name = EffectName.goldBurst
@@ -3190,6 +3222,27 @@ extension BattleScene {
         lastAppliedConquestReportContent?.summaryLines ?? []
     }
 
+    var lastConquestReportOriginForTesting: String? {
+        guard let origin = lastConquestReportOriginForTestingStorage else { return nil }
+        switch origin {
+        case .freshLive: return "freshLive"
+        case .freshIdle: return "freshIdle"
+        case .restored: return "restored"
+        }
+    }
+
+    var conquestEffectPresentationCountForTesting: Int {
+        conquestEffectPresentationCountForTestingStorage
+    }
+
+    var conquestReportGoldAnchorForTesting: CGPoint? {
+        conquestReportNode.goldEffectAnchor(in: self)
+    }
+
+    var goldBurstAnchorForTesting: CGPoint? {
+        lastGoldBurstAnchorForTestingStorage
+    }
+
     var isConquestContinueEnabledForTesting: Bool {
         isConquestContinueEnabled
     }
@@ -3372,6 +3425,14 @@ extension BattleScene {
             advanceCombat(deltaTime: step)
             remaining -= step
         }
+    }
+
+    func enterBackgroundForTesting(at date: Date) {
+        handleSceneDidEnterBackground(at: date)
+    }
+
+    func enterForegroundForTesting(at date: Date) {
+        handleSceneWillEnterForeground(at: date)
     }
 
     /// Drives a single `advanceCombat` call with the raw `deltaTime` (no
