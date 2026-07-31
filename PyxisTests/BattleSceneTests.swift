@@ -1839,6 +1839,35 @@ struct BattleSceneTests {
         #expect(scene.conquestReportLinesForTesting[1] == "Battle time: 1m 5s")
         #expect(!scene.isGoldBurstVisibleForTesting)
         #expect(!scene.isCityConquestFeedbackRunningForTesting)
+        #expect(scene.lastConquestReportOriginForTesting == "restored")
+        #expect(scene.conquestEffectPresentationCountForTesting == 0)
+    }
+
+    @Test func liveConquestUsesFreshLiveEffectsOnce() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
+        let scene = makeScene(store: store)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3)
+        #expect(scene.lastConquestReportOriginForTesting == "freshLive")
+        #expect(scene.isGoldBurstVisibleForTesting)
+        #expect(scene.isCityConquestFeedbackRunningForTesting)
+        #expect(scene.goldBurstAnchorForTesting == scene.conquestReportGoldAnchorForTesting)
+        let count = scene.conquestEffectPresentationCountForTesting
+        scene.redrawForTesting(shouldLayout: true)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.conquestEffectPresentationCountForTesting == count)
+    }
+
+    @Test func battleForegroundIdleUsesFreshIdleGoldOnly() throws {
+        let store = try makeStore(initialState: idleConquestReadyState())
+        let scene = makeScene(store: store)
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        scene.enterForegroundForTesting(at: Date(timeIntervalSince1970: 10_000))
+        #expect(scene.lastConquestReportOriginForTesting == "freshIdle")
+        #expect(scene.conquestReportLinesForTesting[1] == "Conquered by your buildings")
+        #expect(scene.isGoldBurstVisibleForTesting)
+        #expect(!scene.isCityConquestFeedbackRunningForTesting)
+        #expect(scene.floatingFeedbackCountForTesting == 0)
     }
 
     @Test func countryCompleteIsAnInertReportHost() throws {
@@ -2552,6 +2581,13 @@ struct BattleSceneTests {
             completedCityCount: completedCityCount,
             cityBattleStates: [cityKey.storageKey: CityBattleState(slots: slots)]
         )
+    }
+
+    private func idleConquestReadyState() -> KingdomGameState {
+        let backgroundAt = Date(timeIntervalSince1970: 1_000)
+        var state = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: backgroundAt)
+        return state
     }
 
     private func pendingResult(
