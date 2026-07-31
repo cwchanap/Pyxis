@@ -115,6 +115,17 @@ struct CountryMapScoutCardTextLayoutTests {
         ) == nil)
     }
 
+    @Test func fittedFontSizeMatchesSharedHelper() {
+        let measure: (String, CGFloat) -> CGFloat = { text, size in
+            CGFloat(text.count) * size
+        }
+        #expect(CountryMapScoutCardTextLayout.fittedFontSize(
+            "AB", startingAt: 7.8, minimum: 4, maximumWidth: 10, measure: measure
+        ) == SingleLineTextFitter.fittedFontSize(
+            "AB", startingAt: 7.8, minimum: 4, maximumWidth: 10, measure: measure
+        ))
+    }
+
     @Test func footerWidthIncludesEveryVisiblePartAndGap() {
         let items: [CountryMapScoutCardTextLayout.FooterItem] = [
             .init(label: "Inf", showsIcon: true),

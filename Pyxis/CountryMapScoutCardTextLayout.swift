@@ -37,14 +37,13 @@ enum CountryMapScoutCardTextLayout {
         maximumWidth: CGFloat,
         measure: (String, CGFloat) -> CGFloat
     ) -> CGFloat? {
-        var size = floor(start)
-        while size >= minimum {
-            if measure(text, size) <= maximumWidth {
-                return size
-            }
-            size -= 1
-        }
-        return nil
+        SingleLineTextFitter.fittedFontSize(
+            text,
+            startingAt: start,
+            minimum: minimum,
+            maximumWidth: maximumWidth,
+            measure: measure
+        )
     }
 
     struct FooterSpacing: Equatable {
