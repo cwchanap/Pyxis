@@ -1628,8 +1628,11 @@ struct BattleSceneTests {
 
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(scene.isGoldBurstVisibleForTesting)
-        #expect(scene.goldBurstZPositionForTesting < scene.popupRewardZPositionForTesting)
-        #expect(!scene.goldBurstContainsRewardTextForTesting)
+        // The gold burst renders above the report panel so sparkles are visible.
+        #expect(scene.goldBurstZPositionForTesting > scene.conquestReportNodeZPositionForTesting)
+        // The report (not the burst) carries the gold-earned summary line.
+        let goldLine = try #require(scene.conquestReportLinesForTesting.first)
+        #expect(goldLine.contains("Gold earned"))
     }
 
     @Test func conquestPopupRemovesGoldBurstAfterTransientActions() async throws {
@@ -1826,6 +1829,36 @@ struct BattleSceneTests {
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(scene.feedbackTextForTesting.isEmpty)
         #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
+    }
+
+    @Test func restoredPendingReportIsStatic() throws {
+        let store = try makeStore(initialState: pendingConqueredState(city: 3, mode: .live))
+        let scene = makeScene(store: store)
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(scene.conquestReportTitleForTesting == "Country 1 - City 3 Conquered")
+        #expect(scene.conquestReportLinesForTesting[1] == "Battle time: 1m 5s")
+        #expect(!scene.isGoldBurstVisibleForTesting)
+        #expect(!scene.isCityConquestFeedbackRunningForTesting)
+    }
+
+    @Test func countryCompleteIsAnInertReportHost() throws {
+        let store = try makeStore(initialState: pendingConqueredState(city: 15, mode: .idle, countryComplete: true))
+        let scene = makeScene(store: store)
+        let before = scene.gameStateForTesting
+        scene.advanceCombatForTesting(deltaTime: 10)
+        scene.spawnSoldierForTesting()
+        #expect(scene.conquestReportTitleForTesting == "Country 1 Conquered")
+        #expect(scene.gameStateForTesting == before)
+        #expect(scene.liveSoldierCountForTesting == 0)
+    }
+
+    @Test func presentabilityRequiresMatchingCityKey() {
+        #expect(BattleScene.isPendingResultPresentableForTesting(
+            pendingResult(city: 3), currentCityKey: CityKey(countryNumber: 1, cityNumber: 3)
+        ))
+        #expect(!BattleScene.isPendingResultPresentableForTesting(
+            pendingResult(city: 2), currentCityKey: CityKey(countryNumber: 1, cityNumber: 3)
+        ))
     }
 
     @Test func commanderHUDKeepsTopClustersAndActionsInsideScene() throws {
@@ -2225,8 +2258,8 @@ struct BattleSceneTests {
         #expect(!scene.isFeedbackTooltipVisibleForTesting)
         #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
 
-        // Present the conquest popup (overlaying the HUD).
-        scene.presentConquestPopupForTesting(goldEarned: 5)
+        // Present the conquest report (overlaying the HUD).
+        scene.presentConquestPopupForTesting()
         #expect(scene.isConquestPopupVisibleForTesting)
 
         // While the popup is visible, both info buttons must be suppressed —
@@ -2518,6 +2551,41 @@ struct BattleSceneTests {
             cityNumberInCountry: cityNumberInCountry,
             completedCityCount: completedCityCount,
             cityBattleStates: [cityKey.storageKey: CityBattleState(slots: slots)]
+        )
+    }
+
+    private func pendingResult(
+        city: Int,
+        mode: BattleConquestMode = .live,
+        activeBattleSeconds: TimeInterval = 65
+    ) -> BattleResult {
+        BattleResult(
+            cityKey: CityKey(countryNumber: 1, cityNumber: city),
+            conquestMode: mode,
+            activeBattleSeconds: activeBattleSeconds,
+            deployments: [],
+            appliedDamage: [],
+            losses: [],
+            idleDamageByType: [],
+            mvpSoldierType: nil,
+            mvpDamageSharePercent: nil,
+            usedFavorableUnit: false,
+            usedExposedLane: false,
+            goldEarned: 8
+        )
+    }
+
+    private func pendingConqueredState(
+        city: Int,
+        mode: BattleConquestMode,
+        countryComplete: Bool = false
+    ) -> KingdomGameState {
+        KingdomGameState(
+            cityLevel: city,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            stageStatus: countryComplete ? .countryComplete : .cityConqueredPendingMap,
+            pendingBattleResult: pendingResult(city: city, mode: mode)
         )
     }
 
