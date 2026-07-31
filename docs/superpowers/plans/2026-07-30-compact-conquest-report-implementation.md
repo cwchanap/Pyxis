@@ -957,7 +957,7 @@ After `redraw()` in `didMove`:
 
 ```swift
 if state.pendingBattleResult != nil, !hasPresentedPendingConquestReport {
-    _ = presentPendingConquestReport(origin: .restored, resetsContinueState: true)
+    _ = applyPendingConquestReport(resetsContinueState: true)
 }
 ```
 
