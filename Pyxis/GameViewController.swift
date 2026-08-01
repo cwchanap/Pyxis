@@ -213,6 +213,11 @@ extension GameViewController: BattleSceneRouting {
 
         presentBuildingViewScene(in: view)
     }
+
+    func battleScene(_ scene: BattleScene, didRequestLayoutGate reason: AppLayoutGateReason) {
+        requestedMapGateReason = reason
+        refreshLayoutSupport()
+    }
 }
 
 extension GameViewController: CountryMapSceneRouting {

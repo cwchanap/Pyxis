@@ -12,6 +12,7 @@ import UIKit
 protocol BattleSceneRouting: AnyObject {
     func battleSceneDidRequestCountryMap(_ scene: BattleScene)
     func battleSceneDidRequestBuildingView(_ scene: BattleScene)
+    func battleScene(_ scene: BattleScene, didRequestLayoutGate reason: AppLayoutGateReason)
 }
 
 final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
@@ -2744,6 +2745,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             isConquestReportVisible = true
             isConquestReportFitFailed = true
             conquestReportNode.isHidden = true
+            // A fresh live/idle conquest that cannot render blocks all scene
+            // input, but the fit-failed flag alone never surfaces to the
+            // controller unless a layout event happens to refresh the gate.
+            // Notify the router immediately so the unsupported-geometry gate
+            // appears without waiting for a resize/safe-area change.
+            router?.battleScene(self, didRequestLayoutGate: .unsupportedGeometry)
             return false
         }
         isConquestReportVisible = true

@@ -2712,6 +2712,14 @@ struct BattleSceneTests {
             didRequestBuildingView = true
             buildingRequestCount += 1
         }
+
+        private(set) var layoutGateRequestCount = 0
+        private(set) var lastLayoutGateReason: AppLayoutGateReason?
+
+        func battleScene(_ scene: BattleScene, didRequestLayoutGate reason: AppLayoutGateReason) {
+            layoutGateRequestCount += 1
+            lastLayoutGateReason = reason
+        }
     }
 
     private final class MockTouch: UITouch {
