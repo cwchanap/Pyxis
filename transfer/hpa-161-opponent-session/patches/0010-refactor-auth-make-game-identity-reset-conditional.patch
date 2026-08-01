@@ -1,0 +1,168 @@
+From 512cbe06dc820e8dab6d9f13b97c41082314e787 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 01:14:54 +0000
+Subject: [PATCH 10/23] refactor(auth): make game identity reset conditional
+
+---
+ .../src/hooks/useGameIdentityReset.test.ts    | 101 ++++++++++++++++++
+ apps/web/src/hooks/useGameIdentityReset.ts    |  14 ++-
+ 2 files changed, 112 insertions(+), 3 deletions(-)
+
+diff --git a/apps/web/src/hooks/useGameIdentityReset.test.ts b/apps/web/src/hooks/useGameIdentityReset.test.ts
+index 6a392ed..2156dd9 100644
+--- a/apps/web/src/hooks/useGameIdentityReset.test.ts
++++ b/apps/web/src/hooks/useGameIdentityReset.test.ts
+@@ -8,6 +8,7 @@ setupReactDom();
+ type IdentityProps = {
+ 	isAuthenticated: boolean;
+ 	userId: string | null | undefined;
++	enabled?: boolean;
+ };
+ 
+ describe('useGameIdentityReset', () => {
+@@ -85,4 +86,104 @@ describe('useGameIdentityReset', () => {
+ 		rerender({ isAuthenticated: true, userId: 'a' });
+ 		expect(onReset).not.toHaveBeenCalled();
+ 	});
++
++	describe('enabled policy', () => {
++		test('default enabled preserves logout reset behavior', () => {
++			const onReset = mock(() => {});
++			const invalidate = mock(() => {});
++			const initial: IdentityProps = {
++				isAuthenticated: true,
++				userId: 'a',
++			};
++			const { rerender } = renderHook(
++				(props: IdentityProps) =>
++					useGameIdentityReset({ ...props, onReset, invalidate }),
++				{ initialProps: initial }
++			);
++			rerender({ isAuthenticated: false, userId: undefined });
++			expect(invalidate).toHaveBeenCalledTimes(1);
++			expect(onReset).toHaveBeenCalledTimes(1);
++		});
++
++		test('default enabled preserves account-switch reset behavior', () => {
++			const onReset = mock(() => {});
++			const invalidate = mock(() => {});
++			const initial: IdentityProps = {
++				isAuthenticated: true,
++				userId: 'a',
++			};
++			const { rerender } = renderHook(
++				(props: IdentityProps) =>
++					useGameIdentityReset({ ...props, onReset, invalidate }),
++				{ initialProps: initial }
++			);
++			rerender({ isAuthenticated: true, userId: 'b' });
++			expect(invalidate).toHaveBeenCalledTimes(1);
++			expect(onReset).toHaveBeenCalledTimes(1);
++		});
++
++		test('disabled policy skips invalidate and onReset on logout', () => {
++			const onReset = mock(() => {});
++			const invalidate = mock(() => {});
++			const initial: IdentityProps = {
++				isAuthenticated: true,
++				userId: 'a',
++				enabled: false,
++			};
++			const { rerender } = renderHook(
++				(props: IdentityProps) =>
++					useGameIdentityReset({ ...props, onReset, invalidate }),
++				{ initialProps: initial }
++			);
++			rerender({
++				isAuthenticated: false,
++				userId: undefined,
++				enabled: false,
++			});
++			expect(invalidate).not.toHaveBeenCalled();
++			expect(onReset).not.toHaveBeenCalled();
++		});
++
++		test('disabled policy skips invalidate and onReset on account switch', () => {
++			const onReset = mock(() => {});
++			const invalidate = mock(() => {});
++			const initial: IdentityProps = {
++				isAuthenticated: true,
++				userId: 'a',
++				enabled: false,
++			};
++			const { rerender } = renderHook(
++				(props: IdentityProps) =>
++					useGameIdentityReset({ ...props, onReset, invalidate }),
++				{ initialProps: initial }
++			);
++			rerender({ isAuthenticated: true, userId: 'b', enabled: false });
++			expect(invalidate).not.toHaveBeenCalled();
++			expect(onReset).not.toHaveBeenCalled();
++		});
++
++		test('disabled policy still updates previous refs so re-enabling does not replay', () => {
++			const onReset = mock(() => {});
++			const invalidate = mock(() => {});
++			const initial: IdentityProps = {
++				isAuthenticated: true,
++				userId: 'a',
++				enabled: false,
++			};
++			const { rerender } = renderHook(
++				(props: IdentityProps) =>
++					useGameIdentityReset({ ...props, onReset, invalidate }),
++				{ initialProps: initial }
++			);
++			rerender({
++				isAuthenticated: true,
++				userId: 'b',
++				enabled: false,
++			});
++			expect(onReset).not.toHaveBeenCalled();
++			rerender({ isAuthenticated: true, userId: 'b', enabled: true });
++			expect(onReset).not.toHaveBeenCalled();
++			expect(invalidate).not.toHaveBeenCalled();
++		});
++	});
+ });
+diff --git a/apps/web/src/hooks/useGameIdentityReset.ts b/apps/web/src/hooks/useGameIdentityReset.ts
+index 4947dc8..0183936 100644
+--- a/apps/web/src/hooks/useGameIdentityReset.ts
++++ b/apps/web/src/hooks/useGameIdentityReset.ts
+@@ -6,8 +6,16 @@ export function useGameIdentityReset(options: {
+ 	onReset: () => void;
+ 	/** Called immediately before onReset when auth is lost or identity changes */
+ 	invalidate?: () => void;
++	/** When false, skip reset on auth/identity transitions (default true) */
++	enabled?: boolean;
+ }): void {
+-	const { isAuthenticated, userId, onReset, invalidate } = options;
++	const {
++		isAuthenticated,
++		userId,
++		onReset,
++		invalidate,
++		enabled = true,
++	} = options;
+ 	const prevAuthenticatedRef = useRef(isAuthenticated);
+ 	const prevUserIdRef = useRef<string | null | undefined>(userId);
+ 	// Keep latest callbacks without re-subscribing logic via identity of onReset
+@@ -23,7 +31,7 @@ export function useGameIdentityReset(options: {
+ 			isAuthenticated &&
+ 			prevUserIdRef.current != null &&
+ 			prevUserIdRef.current !== currentUserId;
+-		if (authLost || identityChanged) {
++		if (enabled && (authLost || identityChanged)) {
+ 			// `invalidate` bumps the AI move-generation token so any in-flight
+ 			// makeAIMove callback bails. `onReset` (typically `resetGame`) also
+ 			// calls `invalidate` internally, so the token bumps twice on a
+@@ -36,5 +44,5 @@ export function useGameIdentityReset(options: {
+ 		}
+ 		prevAuthenticatedRef.current = isAuthenticated;
+ 		prevUserIdRef.current = currentUserId;
+-	}, [isAuthenticated, userId]);
++	}, [isAuthenticated, userId, enabled]);
+ }
+-- 
+2.43.0
+

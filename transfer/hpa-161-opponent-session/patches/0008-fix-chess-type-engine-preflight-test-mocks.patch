@@ -1,0 +1,144 @@
+From 4ac3e132d41b6a3487d2fa5ae88ef2814fe502db Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 01:09:10 +0000
+Subject: [PATCH 08/23] fix(chess): type engine preflight test mocks
+
+---
+ .../lib/chess/rival/engine-preflight.test.ts  | 25 ++++++++++---------
+ .../src/lib/chess/rival/engine-preflight.ts   | 15 +++++++++--
+ 2 files changed, 26 insertions(+), 14 deletions(-)
+
+diff --git a/apps/web/src/lib/chess/rival/engine-preflight.test.ts b/apps/web/src/lib/chess/rival/engine-preflight.test.ts
+index d38e326..cee1ee8 100644
+--- a/apps/web/src/lib/chess/rival/engine-preflight.test.ts
++++ b/apps/web/src/lib/chess/rival/engine-preflight.test.ts
+@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
+ import {
+ 	runEnginePreflight,
+ 	type EngineCapabilityEnvironment,
++	type EngineWorkerCapability,
+ } from './engine-preflight';
+ import {
+ 	STOCKFISH_JS_FILENAME,
+@@ -14,10 +15,10 @@ const stockfishWasmUrl = `/${STOCKFISH_PUBLIC_DIRECTORY}/${STOCKFISH_WASM_FILENA
+ 
+ function createPassingEnvironment(): EngineCapabilityEnvironment {
+ 	return {
+-		Worker: class MockWorker {} as typeof Worker,
++		Worker: class MockWorker {},
+ 		WebAssembly: {
+ 			validate: () => true,
+-		} as typeof WebAssembly,
++		},
+ 	};
+ }
+ 
+@@ -34,7 +35,7 @@ describe('runEnginePreflight', () => {
+ 		const result = runEnginePreflight({
+ 			WebAssembly: {
+ 				validate: () => true,
+-			} as typeof WebAssembly,
++			},
+ 		});
+ 
+ 		expect(result).toEqual({
+@@ -45,7 +46,7 @@ describe('runEnginePreflight', () => {
+ 
+ 	test('missing WebAssembly returns unsupported', () => {
+ 		const result = runEnginePreflight({
+-			Worker: class MockWorker {} as typeof Worker,
++			Worker: class MockWorker {},
+ 		});
+ 
+ 		expect(result).toEqual({
+@@ -56,10 +57,10 @@ describe('runEnginePreflight', () => {
+ 
+ 	test('WebAssembly.validate returning false returns unsupported', () => {
+ 		const result = runEnginePreflight({
+-			Worker: class MockWorker {} as typeof Worker,
++			Worker: class MockWorker {},
+ 			WebAssembly: {
+ 				validate: () => false,
+-			} as typeof WebAssembly,
++			},
+ 		});
+ 
+ 		expect(result).toEqual({
+@@ -70,12 +71,12 @@ describe('runEnginePreflight', () => {
+ 
+ 	test('WebAssembly.validate throwing returns unsupported', () => {
+ 		const result = runEnginePreflight({
+-			Worker: class MockWorker {} as typeof Worker,
++			Worker: class MockWorker {},
+ 			WebAssembly: {
+ 				validate: () => {
+ 					throw new Error('wasm unavailable');
+ 				},
+-			} as typeof WebAssembly,
++			},
+ 		});
+ 
+ 		expect(result).toEqual({
+@@ -94,13 +95,13 @@ describe('runEnginePreflight', () => {
+ 		workerSpy = mock(() => {
+ 			throw new Error('Worker must not be constructed during preflight');
+ 		});
+-		const WorkerClass = workerSpy as unknown as typeof Worker;
++		const WorkerClass = workerSpy as unknown as EngineWorkerCapability;
+ 
+ 		const result = runEnginePreflight({
+ 			Worker: WorkerClass,
+ 			WebAssembly: {
+ 				validate: () => true,
+-			} as typeof WebAssembly,
++			},
+ 		});
+ 
+ 		expect(result).toEqual({ status: 'supported' });
+@@ -109,7 +110,7 @@ describe('runEnginePreflight', () => {
+ 
+ 	test('does not call fetch when supported', () => {
+ 		fetchSpy = mock(() => Promise.resolve(new Response('', { status: 200 })));
+-		globalThis.fetch = fetchSpy as typeof fetch;
++		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+ 
+ 		const result = runEnginePreflight(createPassingEnvironment());
+ 
+@@ -125,7 +126,7 @@ describe('runEnginePreflight', () => {
+ 			}
+ 			return Promise.resolve(new Response('', { status: 200 }));
+ 		});
+-		globalThis.fetch = fetchSpy as typeof fetch;
++		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+ 
+ 		const result = runEnginePreflight(createPassingEnvironment());
+ 
+diff --git a/apps/web/src/lib/chess/rival/engine-preflight.ts b/apps/web/src/lib/chess/rival/engine-preflight.ts
+index 7cd82be..214a659 100644
+--- a/apps/web/src/lib/chess/rival/engine-preflight.ts
++++ b/apps/web/src/lib/chess/rival/engine-preflight.ts
+@@ -1,8 +1,19 @@
+ import type { EnginePreflight } from './types';
+ 
++/** Minimal Worker presence probe — preflight never constructs one. */
++export type EngineWorkerCapability = new (
++	scriptURL: string | URL,
++	options?: WorkerOptions
++) => unknown;
++
++/** Minimal WebAssembly probe — only `validate` is exercised. */
++export interface EngineWebAssemblyCapability {
++	validate: (bytes: BufferSource) => boolean;
++}
++
+ export interface EngineCapabilityEnvironment {
+-	Worker?: typeof Worker;
+-	WebAssembly?: typeof WebAssembly;
++	Worker?: EngineWorkerCapability;
++	WebAssembly?: EngineWebAssemblyCapability;
+ }
+ 
+ /** Minimal valid WASM module used only for capability probing. */
+-- 
+2.43.0
+

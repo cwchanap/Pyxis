@@ -1,0 +1,981 @@
+From 47e12b431b8b82e415c0e85b31cc0d2e31af6335 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 01:50:26 +0000
+Subject: [PATCH 14/23] feat(chess): add rival setup interface
+
+---
+ .superpowers/sdd/task-12-report.md            |  90 +++++++++
+ .../components/game/ChessRivalSetup.test.tsx  | 120 ++++++++++++
+ .../src/components/game/ChessRivalSetup.tsx   | 179 ++++++++++++++++++
+ .../game/EngineRivalDetails.test.tsx          | 112 +++++++++++
+ .../components/game/EngineRivalDetails.tsx    | 100 ++++++++++
+ .../components/game/LlmRivalDetails.test.tsx  | 104 ++++++++++
+ .../src/components/game/LlmRivalDetails.tsx   |  74 ++++++++
+ .../game/RivalSetupSummary.test.tsx           |  65 +++++++
+ .../src/components/game/RivalSetupSummary.tsx |  54 ++++++
+ 9 files changed, 898 insertions(+)
+ create mode 100644 .superpowers/sdd/task-12-report.md
+ create mode 100644 apps/web/src/components/game/ChessRivalSetup.test.tsx
+ create mode 100644 apps/web/src/components/game/ChessRivalSetup.tsx
+ create mode 100644 apps/web/src/components/game/EngineRivalDetails.test.tsx
+ create mode 100644 apps/web/src/components/game/EngineRivalDetails.tsx
+ create mode 100644 apps/web/src/components/game/LlmRivalDetails.test.tsx
+ create mode 100644 apps/web/src/components/game/LlmRivalDetails.tsx
+ create mode 100644 apps/web/src/components/game/RivalSetupSummary.test.tsx
+ create mode 100644 apps/web/src/components/game/RivalSetupSummary.tsx
+
+diff --git a/.superpowers/sdd/task-12-report.md b/.superpowers/sdd/task-12-report.md
+new file mode 100644
+index 0000000..9568193
+--- /dev/null
++++ b/.superpowers/sdd/task-12-report.md
+@@ -0,0 +1,90 @@
++# Task 12 Report: Focused rival setup/status components
++
++## Status
++
++Completed.
++
++## Summary
++
++- Added `ChessRivalSetup`, a presentation-only setup panel for rival kind and side selection.
++- Added `RivalSetupSummary`, a frozen/setup summary formatter for engine and LLM opponents.
++- Added `EngineRivalDetails`, covering engine preflight, start, load failure, thinking, and active failure states.
++- Added `LlmRivalDetails`, wrapping the existing `AIStatusPanel` and `AIGameInstructions` for LLM-specific details.
++- Added focused test coverage for all four components.
++
++## Files
++
++- `apps/web/src/components/game/ChessRivalSetup.tsx`
++- `apps/web/src/components/game/ChessRivalSetup.test.tsx`
++- `apps/web/src/components/game/RivalSetupSummary.tsx`
++- `apps/web/src/components/game/RivalSetupSummary.test.tsx`
++- `apps/web/src/components/game/EngineRivalDetails.tsx`
++- `apps/web/src/components/game/EngineRivalDetails.test.tsx`
++- `apps/web/src/components/game/LlmRivalDetails.tsx`
++- `apps/web/src/components/game/LlmRivalDetails.test.tsx`
++
++## Requirement checklist
++
++- Opponent choices are accessible radios with exact visible labels `On-device computer` and `Language model`.
++- Engine setup copy includes runs on device, no account/API key, and `Unrated`.
++- Side control is labeled `You play` with `White` and `Black` radio options.
++- Locked setup disables opponent and side selectors and renders the lock explanation.
++- Fallback notices render with `role="status"` and `aria-live="polite"`.
++- Explicit unusable LLM selection remains selected and surfaces sign-in/config state.
++- Summary strings match:
++  - `On-device computer · Computer plays Black · Unrated`
++  - `Language model · <model> · Computer plays White`
++- Active summaries consume the complete `ActiveRivalSession`.
++- Engine details cover ready, unsupported, loading, load failed with `Try again`, thinking, and active failure with `New Game` guidance.
++- LLM details preserve sign-in/config guidance, existing retry/debug copy, and do not show engine copy.
++
++## TDD evidence
++
++Initial red run:
++
++```text
++bun test apps/web/src/components/game/ChessRivalSetup.test.tsx \
++  apps/web/src/components/game/RivalSetupSummary.test.tsx \
++  apps/web/src/components/game/EngineRivalDetails.test.tsx \
++  apps/web/src/components/game/LlmRivalDetails.test.tsx
++
++0 pass
++4 fail
++4 errors
++Cannot find module './ChessRivalSetup'
++Cannot find module './RivalSetupSummary'
++Cannot find module './EngineRivalDetails'
++Cannot find module './LlmRivalDetails'
++```
++
++Final focused test run:
++
++```text
++bun test apps/web/src/components/game/ChessRivalSetup.test.tsx \
++  apps/web/src/components/game/RivalSetupSummary.test.tsx \
++  apps/web/src/components/game/EngineRivalDetails.test.tsx \
++  apps/web/src/components/game/LlmRivalDetails.test.tsx
++
++20 pass
++0 fail
++41 expect() calls
++```
++
++Additional verification:
++
++```text
++bunx prettier --check <new task files>
++All matched files use Prettier code style!
++
++bun run lint
++0 errors, 63 existing warnings
++
++bun run typecheck
++astro sync && tsc --noEmit
++exit 0
++```
++
++## Concerns
++
++- `bun run lint` still reports 63 pre-existing warnings in unrelated files; no lint errors were introduced by this task.
++- Components are intentionally presentation-only and are not wired into `ChessGame` yet.
+diff --git a/apps/web/src/components/game/ChessRivalSetup.test.tsx b/apps/web/src/components/game/ChessRivalSetup.test.tsx
+new file mode 100644
+index 0000000..2643bbe
+--- /dev/null
++++ b/apps/web/src/components/game/ChessRivalSetup.test.tsx
+@@ -0,0 +1,120 @@
++import { describe, expect, mock, test } from 'bun:test';
++import { fireEvent, render } from '@testing-library/react';
++import React from 'react';
++import { setupReactDom } from '../../test/reactSetup';
++import type {
++	EnginePreflight,
++	GameSetup,
++	LlmUsability,
++	RivalKind,
++} from '../../lib/chess/rival/types';
++import ChessRivalSetup from './ChessRivalSetup';
++
++setupReactDom();
++
++const supportedEngine = {
++	status: 'supported',
++} as const satisfies EnginePreflight;
++const availableLlm = {
++	status: 'available',
++	provider: 'openai',
++	model: 'gpt-4o-mini',
++} as const satisfies LlmUsability;
++
++function renderSetup(
++	overrides: Partial<{
++		setup: GameSetup;
++		enginePreflight: EnginePreflight;
++		llmUsability: LlmUsability;
++		disabled: boolean;
++		lockReason: string | null;
++		fallbackNotice: string | null;
++		onSelectRival: (kind: RivalKind) => void;
++		onSelectHumanSide: (side: 'white' | 'black') => void;
++	}> = {}
++) {
++	return render(
++		<ChessRivalSetup
++			setup={overrides.setup ?? { rivalKind: 'engine', humanSide: 'white' }}
++			enginePreflight={overrides.enginePreflight ?? supportedEngine}
++			llmUsability={overrides.llmUsability ?? availableLlm}
++			disabled={overrides.disabled ?? false}
++			lockReason={overrides.lockReason ?? null}
++			fallbackNotice={overrides.fallbackNotice ?? null}
++			onSelectRival={overrides.onSelectRival ?? (() => {})}
++			onSelectHumanSide={overrides.onSelectHumanSide ?? (() => {})}
++		/>
++	);
++}
++
++describe('ChessRivalSetup', () => {
++	test('renders opponent choices as an accessible radio group with exact labels', () => {
++		const { getByRole, getByText } = renderSetup();
++
++		expect(getByRole('radiogroup', { name: /opponent/i })).toBeTruthy();
++		expect(getByRole('radio', { name: /On-device computer/i })).toBeTruthy();
++		expect(getByRole('radio', { name: /Language model/i })).toBeTruthy();
++		expect(getByText('On-device computer')).toBeTruthy();
++		expect(getByText('Language model')).toBeTruthy();
++	});
++
++	test('describes the engine as on-device, account-free, and unrated', () => {
++		const { getAllByText, getByText } = renderSetup();
++
++		expect(getByText(/Runs on this device/i)).toBeTruthy();
++		expect(getByText(/No account or API key/i)).toBeTruthy();
++		expect(getAllByText(/Unrated/i).length).toBeGreaterThan(0);
++	});
++
++	test('renders side controls under You play and emits side changes', () => {
++		const onSelectHumanSide = mock(() => {});
++		const { getByRole } = renderSetup({ onSelectHumanSide });
++
++		expect(getByRole('radiogroup', { name: 'You play' })).toBeTruthy();
++		fireEvent.click(getByRole('radio', { name: 'Black' }));
++
++		expect(onSelectHumanSide).toHaveBeenCalledWith('black');
++	});
++
++	test('disables opponent and side selectors while setup is locked', () => {
++		const { getByRole, getByText } = renderSetup({
++			disabled: true,
++			lockReason: 'Opponent settings are locked for the active game.',
++		});
++
++		expect(
++			(getByRole('radio', { name: /On-device computer/i }) as HTMLInputElement)
++				.disabled
++		).toBe(true);
++		expect(
++			(getByRole('radio', { name: 'White' }) as HTMLInputElement).disabled
++		).toBe(true);
++		expect(
++			getByText('Opponent settings are locked for the active game.')
++		).toBeTruthy();
++	});
++
++	test('announces automatic fallback notices politely', () => {
++		const { getByRole } = renderSetup({
++			fallbackNotice:
++				'Language model was unavailable, so on-device computer was selected.',
++		});
++
++		const notice = getByRole('status');
++		expect(notice.getAttribute('aria-live')).toBe('polite');
++		expect(notice.textContent).toContain('Language model was unavailable');
++	});
++
++	test('keeps an explicit unusable opponent selected', () => {
++		const { getByRole, getByText } = renderSetup({
++			setup: { rivalKind: 'llm', humanSide: 'black' },
++			llmUsability: { status: 'signed-out' },
++		});
++
++		expect(
++			(getByRole('radio', { name: /Language model/i }) as HTMLInputElement)
++				.checked
++		).toBe(true);
++		expect(getByText(/Sign in required/i)).toBeTruthy();
++	});
++});
+diff --git a/apps/web/src/components/game/ChessRivalSetup.tsx b/apps/web/src/components/game/ChessRivalSetup.tsx
+new file mode 100644
+index 0000000..13ed074
+--- /dev/null
++++ b/apps/web/src/components/game/ChessRivalSetup.tsx
+@@ -0,0 +1,179 @@
++import React from 'react';
++import { cn } from '../../lib/utils';
++import type {
++	ChessSide,
++	EnginePreflight,
++	GameSetup,
++	LlmUsability,
++	RivalKind,
++} from '../../lib/chess/rival/types';
++import RivalSetupSummary from './RivalSetupSummary';
++
++interface ChessRivalSetupProps {
++	setup: GameSetup;
++	enginePreflight: EnginePreflight;
++	llmUsability: LlmUsability;
++	disabled?: boolean;
++	lockReason?: string | null;
++	fallbackNotice?: string | null;
++	onSelectRival: (kind: RivalKind) => void;
++	onSelectHumanSide: (side: ChessSide) => void;
++}
++
++interface OpponentCardProps {
++	value: RivalKind;
++	label: string;
++	checked: boolean;
++	disabled: boolean;
++	onChange: (kind: RivalKind) => void;
++	children: React.ReactNode;
++}
++
++function opponentStatus(
++	kind: RivalKind,
++	enginePreflight: EnginePreflight,
++	llmUsability: LlmUsability
++): string {
++	if (kind === 'engine') {
++		return enginePreflight.status === 'supported'
++			? 'Ready'
++			: `Unavailable: ${enginePreflight.message}`;
++	}
++	switch (llmUsability.status) {
++		case 'available':
++			return `${llmUsability.provider} · ${llmUsability.model}`;
++		case 'loading':
++			return 'Checking AI configuration';
++		case 'signed-out':
++			return 'Sign in required';
++		case 'unconfigured':
++			return 'Configure an AI provider first';
++	}
++}
++
++const OpponentCard: React.FC<OpponentCardProps> = ({
++	value,
++	label,
++	checked,
++	disabled,
++	onChange,
++	children,
++}) => (
++	<label
++		className={cn(
++			'block rounded-lg border p-3 transition-colors',
++			checked ? 'border-brass bg-brass/10' : 'border-line bg-ink-700/60',
++			disabled
++				? 'cursor-not-allowed opacity-70'
++				: 'cursor-pointer hover:bg-ink-600'
++		)}
++	>
++		<div className='flex items-start gap-3'>
++			<input
++				type='radio'
++				name='rival-kind'
++				value={value}
++				aria-label={label}
++				checked={checked}
++				disabled={disabled}
++				onChange={() => onChange(value)}
++				className='mt-1'
++			/>
++			<div className='space-y-1'>
++				<div className='font-medium text-ivory'>{label}</div>
++				<div className='text-sm text-ivory-dim'>{children}</div>
++			</div>
++		</div>
++	</label>
++);
++
++const ChessRivalSetup: React.FC<ChessRivalSetupProps> = ({
++	setup,
++	enginePreflight,
++	llmUsability,
++	disabled = false,
++	lockReason = null,
++	fallbackNotice = null,
++	onSelectRival,
++	onSelectHumanSide,
++}) => {
++	const llmModel =
++		llmUsability.status === 'available' ? llmUsability.model : undefined;
++
++	return (
++		<section className='space-y-4 rounded-lg border border-line bg-ink-800 p-4'>
++			<div className='space-y-1'>
++				<h3 className='text-base font-semibold text-brass'>Opponent</h3>
++				<RivalSetupSummary setup={setup} llmModel={llmModel} />
++			</div>
++
++			{lockReason && <p className='text-sm text-ivory-dim'>{lockReason}</p>}
++
++			{fallbackNotice && (
++				<div
++					role='status'
++					aria-live='polite'
++					className='rounded-md border border-brass/40 bg-brass/10 p-3 text-sm text-brass'
++				>
++					{fallbackNotice}
++				</div>
++			)}
++
++			<div role='radiogroup' aria-label='Opponent' className='space-y-3'>
++				<OpponentCard
++					value='engine'
++					label='On-device computer'
++					checked={setup.rivalKind === 'engine'}
++					disabled={disabled}
++					onChange={onSelectRival}
++				>
++					<div>Runs on this device.</div>
++					<div>No account or API key required.</div>
++					<div>Unrated.</div>
++					<div>{opponentStatus('engine', enginePreflight, llmUsability)}</div>
++				</OpponentCard>
++
++				<OpponentCard
++					value='llm'
++					label='Language model'
++					checked={setup.rivalKind === 'llm'}
++					disabled={disabled}
++					onChange={onSelectRival}
++				>
++					<div>Uses your configured AI provider.</div>
++					<div>{opponentStatus('llm', enginePreflight, llmUsability)}</div>
++				</OpponentCard>
++			</div>
++
++			<div role='radiogroup' aria-label='You play' className='space-y-2'>
++				<div className='text-sm font-medium text-ivory'>You play</div>
++				<div className='flex gap-2'>
++					{(['white', 'black'] as const).map(side => (
++						<label
++							key={side}
++							className={cn(
++								'flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm',
++								setup.humanSide === side
++									? 'border-brass bg-brass text-ink-900'
++									: 'border-line text-ivory-dim'
++							)}
++						>
++							<input
++								type='radio'
++								name='human-side'
++								value={side}
++								aria-label={side === 'white' ? 'White' : 'Black'}
++								checked={setup.humanSide === side}
++								disabled={disabled}
++								onChange={() => onSelectHumanSide(side)}
++							/>
++							{side === 'white' ? 'White' : 'Black'}
++						</label>
++					))}
++				</div>
++			</div>
++		</section>
++	);
++};
++
++export default ChessRivalSetup;
+diff --git a/apps/web/src/components/game/EngineRivalDetails.test.tsx b/apps/web/src/components/game/EngineRivalDetails.test.tsx
+new file mode 100644
+index 0000000..f0f4270
+--- /dev/null
++++ b/apps/web/src/components/game/EngineRivalDetails.test.tsx
+@@ -0,0 +1,112 @@
++import { describe, expect, mock, test } from 'bun:test';
++import { fireEvent, render } from '@testing-library/react';
++import React from 'react';
++import { setupReactDom } from '../../test/reactSetup';
++import type { EnginePreflight } from '../../lib/chess/rival/types';
++import type { RivalSessionError } from '../../hooks/useChessRivalSession';
++import EngineRivalDetails from './EngineRivalDetails';
++
++setupReactDom();
++
++const supportedEngine = {
++	status: 'supported',
++} as const satisfies EnginePreflight;
++
++describe('EngineRivalDetails', () => {
++	test('shows ready-to-load guidance before Start', () => {
++		const { getByText } = render(
++			<EngineRivalDetails
++				enginePreflight={supportedEngine}
++				startState='idle'
++				rivalThinking={false}
++				rivalError={null}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(getByText(/Ready to load/i)).toBeTruthy();
++		expect(getByText(/on-device engine/i)).toBeTruthy();
++	});
++
++	test('shows unsupported engine preflight message', () => {
++		const { getByText } = render(
++			<EngineRivalDetails
++				enginePreflight={{
++					status: 'unsupported',
++					message: 'WebAssembly threads are unavailable.',
++				}}
++				startState='idle'
++				rivalThinking={false}
++				rivalError={null}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(getByText(/WebAssembly threads are unavailable/i)).toBeTruthy();
++	});
++
++	test('shows loading state while the engine starts', () => {
++		const { getByText } = render(
++			<EngineRivalDetails
++				enginePreflight={supportedEngine}
++				startState='starting'
++				rivalThinking={false}
++				rivalError={null}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(getByText(/Loading on-device engine/i)).toBeTruthy();
++	});
++
++	test('shows load failure with Try again action', () => {
++		const onRetry = mock(() => {});
++		const { getByRole, getByText } = render(
++			<EngineRivalDetails
++				enginePreflight={supportedEngine}
++				startState='load-failed'
++				rivalThinking={false}
++				rivalError={null}
++				onRetry={onRetry}
++			/>
++		);
++
++		expect(getByText(/Engine load failed/i)).toBeTruthy();
++		fireEvent.click(getByRole('button', { name: 'Try again' }));
++		expect(onRetry).toHaveBeenCalled();
++	});
++
++	test('shows thinking state for active engine turns', () => {
++		const { getByText } = render(
++			<EngineRivalDetails
++				enginePreflight={supportedEngine}
++				startState='idle'
++				rivalThinking={true}
++				rivalError={null}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(getByText(/Computer is thinking/i)).toBeTruthy();
++	});
++
++	test('shows active failure with New Game guidance', () => {
++		const rivalError: RivalSessionError = {
++			kind: 'move-failed',
++			reason: 'invalid-move',
++			message: 'The engine attempted an invalid move.',
++		};
++		const { getByText } = render(
++			<EngineRivalDetails
++				enginePreflight={supportedEngine}
++				startState='idle'
++				rivalThinking={false}
++				rivalError={rivalError}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(getByText(/The engine attempted an invalid move/i)).toBeTruthy();
++		expect(getByText(/New Game/i)).toBeTruthy();
++	});
++});
+diff --git a/apps/web/src/components/game/EngineRivalDetails.tsx b/apps/web/src/components/game/EngineRivalDetails.tsx
+new file mode 100644
+index 0000000..9f4de4b
+--- /dev/null
++++ b/apps/web/src/components/game/EngineRivalDetails.tsx
+@@ -0,0 +1,100 @@
++import React from 'react';
++import type { EnginePreflight } from '../../lib/chess/rival/types';
++import type {
++	RivalSessionError,
++	RivalSessionStartState,
++} from '../../hooks/useChessRivalSession';
++
++interface EngineRivalDetailsProps {
++	enginePreflight: EnginePreflight;
++	startState: RivalSessionStartState;
++	rivalThinking: boolean;
++	rivalError: RivalSessionError | null;
++	onRetry: () => void;
++}
++
++const panelClass = 'rounded-lg border border-line bg-ink-700 p-4 text-sm';
++
++const EngineRivalDetails: React.FC<EngineRivalDetailsProps> = ({
++	enginePreflight,
++	startState,
++	rivalThinking,
++	rivalError,
++	onRetry,
++}) => {
++	if (enginePreflight.status === 'unsupported') {
++		return (
++			<div className={panelClass}>
++				<div className='font-semibold text-brass'>Engine unavailable</div>
++				<p className='mt-1 text-ivory-dim'>{enginePreflight.message}</p>
++			</div>
++		);
++	}
++
++	if (startState === 'starting') {
++		return (
++			<div className={panelClass}>
++				<div className='font-semibold text-brass'>
++					Loading on-device engine...
++				</div>
++				<p className='mt-1 text-ivory-dim'>
++					The computer opponent is preparing a local chess engine.
++				</p>
++			</div>
++		);
++	}
++
++	if (startState === 'load-failed') {
++		return (
++			<div className={panelClass}>
++				<div className='font-semibold text-destructive'>Engine load failed</div>
++				<p className='mt-1 text-ivory-dim'>
++					The on-device computer could not start.
++				</p>
++				<button
++					type='button'
++					onClick={onRetry}
++					className='mt-3 rounded-md bg-brass px-3 py-2 text-sm font-medium text-ink-900 hover:bg-brass-bright'
++				>
++					Try again
++				</button>
++			</div>
++		);
++	}
++
++	if (rivalError) {
++		return (
++			<div className={panelClass}>
++				<div className='font-semibold text-destructive'>
++					Computer move failed
++				</div>
++				<p className='mt-1 text-ivory-dim'>{rivalError.message}</p>
++				<p className='mt-2 text-ivory-dim'>
++					Start a New Game to reset the computer opponent.
++				</p>
++			</div>
++		);
++	}
++
++	if (rivalThinking) {
++		return (
++			<div className={panelClass}>
++				<div className='font-semibold text-brass'>Computer is thinking...</div>
++				<p className='mt-1 text-ivory-dim'>
++					The on-device engine is choosing its move.
++				</p>
++			</div>
++		);
++	}
++
++	return (
++		<div className={panelClass}>
++			<div className='font-semibold text-brass'>Ready to load</div>
++			<p className='mt-1 text-ivory-dim'>
++				The on-device engine loads only after you start the game.
++			</p>
++		</div>
++	);
++};
++
++export default EngineRivalDetails;
+diff --git a/apps/web/src/components/game/LlmRivalDetails.test.tsx b/apps/web/src/components/game/LlmRivalDetails.test.tsx
+new file mode 100644
+index 0000000..bc02471
+--- /dev/null
++++ b/apps/web/src/components/game/LlmRivalDetails.test.tsx
+@@ -0,0 +1,104 @@
++import { describe, expect, mock, test } from 'bun:test';
++import { fireEvent, render } from '@testing-library/react';
++import React from 'react';
++import { setupReactDom } from '../../test/reactSetup';
++import type { LlmUsability } from '../../lib/chess/rival/types';
++import LlmRivalDetails from './LlmRivalDetails';
++
++setupReactDom();
++
++const availableLlm = {
++	status: 'available',
++	provider: 'openai',
++	model: 'gpt-4o-mini',
++} as const satisfies LlmUsability;
++
++describe('LlmRivalDetails', () => {
++	test('preserves sign-in guidance for signed-out players', () => {
++		const { getByText, queryByText } = render(
++			<LlmRivalDetails
++				llmUsability={{ status: 'signed-out' }}
++				hasGameStarted={false}
++				isAIThinking={false}
++				isAIPaused={false}
++				aiError={null}
++				aiDebugMoves={[]}
++				isDebugMode={false}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(getByText(/Sign in to configure your AI provider/i)).toBeTruthy();
++		expect(queryByText(/on-device engine/i)).toBeNull();
++	});
++
++	test('preserves configuration guidance for unconfigured AI', () => {
++		const { getByText, queryByText } = render(
++			<LlmRivalDetails
++				llmUsability={{ status: 'unconfigured' }}
++				hasGameStarted={true}
++				isAIThinking={false}
++				isAIPaused={false}
++				aiError={null}
++				aiDebugMoves={[]}
++				isDebugMode={false}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(
++			getByText(/Configure API key in Profile to enable AI/i)
++		).toBeTruthy();
++		expect(queryByText(/Runs on this device/i)).toBeNull();
++	});
++
++	test('wraps current instructions for an available LLM opponent', () => {
++		const { getByText, queryByText } = render(
++			<LlmRivalDetails
++				llmUsability={availableLlm}
++				hasGameStarted={true}
++				isAIThinking={false}
++				isAIPaused={false}
++				aiError={null}
++				aiDebugMoves={[]}
++				isDebugMode={false}
++				onRetry={() => {}}
++			/>
++		);
++
++		expect(getByText('Playing against openai (gpt-4o-mini)')).toBeTruthy();
++		expect(getByText(/Possible moves/i)).toBeTruthy();
++		expect(queryByText(/No account or API key/i)).toBeNull();
++	});
++
++	test('preserves LLM retry and debug copy', () => {
++		const onRetry = mock(() => {});
++		const { getByRole, getByText } = render(
++			<LlmRivalDetails
++				llmUsability={availableLlm}
++				hasGameStarted={true}
++				isAIThinking={false}
++				isAIPaused={true}
++				aiError='Model returned an invalid move.'
++				aiDebugMoves={[
++					{
++						moveNumber: 1,
++						player: 'AI',
++						move: 'e7-e5',
++						timestamp: 1_700_000_000,
++						isAI: true,
++						thinking: 'I should contest the center.',
++					},
++				]}
++				isDebugMode={true}
++				onRetry={onRetry}
++			/>
++		);
++
++		expect(getByText(/AI Error/i)).toBeTruthy();
++		expect(getByText(/Model returned an invalid move/i)).toBeTruthy();
++		expect(getByText(/AI Move History/i)).toBeTruthy();
++		fireEvent.click(getByRole('button', { name: /Retry/i }));
++		expect(onRetry).toHaveBeenCalled();
++	});
++});
+diff --git a/apps/web/src/components/game/LlmRivalDetails.tsx b/apps/web/src/components/game/LlmRivalDetails.tsx
+new file mode 100644
+index 0000000..68cc443
+--- /dev/null
++++ b/apps/web/src/components/game/LlmRivalDetails.tsx
+@@ -0,0 +1,74 @@
++import React from 'react';
++import type { LlmUsability } from '../../lib/chess/rival/types';
++import type { AIMove } from '../ai/AIDebugDialog';
++import AIGameInstructions from './AIGameInstructions';
++import AIStatusPanel from './AIStatusPanel';
++
++interface LlmRivalDetailsProps {
++	llmUsability: LlmUsability;
++	hasGameStarted: boolean;
++	isAIThinking: boolean;
++	isAIPaused: boolean;
++	aiError: string | null;
++	aiDebugMoves: AIMove[];
++	isDebugMode: boolean;
++	onRetry: () => void;
++}
++
++function statusGuidance(llmUsability: LlmUsability): string | null {
++	switch (llmUsability.status) {
++		case 'loading':
++			return 'Checking language-model configuration...';
++		case 'signed-out':
++			return 'Sign in to configure your AI provider.';
++		case 'unconfigured':
++		case 'available':
++			return null;
++	}
++}
++
++const LlmRivalDetails: React.FC<LlmRivalDetailsProps> = ({
++	llmUsability,
++	hasGameStarted,
++	isAIThinking,
++	isAIPaused,
++	aiError,
++	aiDebugMoves,
++	isDebugMode,
++	onRetry,
++}) => {
++	const aiConfigured = llmUsability.status === 'available';
++	const guidance = statusGuidance(llmUsability);
++	const providerName = aiConfigured ? llmUsability.provider : undefined;
++	const modelName = aiConfigured ? llmUsability.model : undefined;
++
++	return (
++		<div className='space-y-4'>
++			{guidance && (
++				<div className='rounded-lg border border-line bg-ink-700 p-4 text-center text-sm text-ivory-dim'>
++					{guidance}
++				</div>
++			)}
++
++			<AIStatusPanel
++				aiConfigured={aiConfigured}
++				hasGameStarted={hasGameStarted}
++				isAIThinking={isAIThinking}
++				isAIPaused={isAIPaused}
++				aiError={aiError}
++				aiDebugMoves={aiDebugMoves}
++				isDebugMode={isDebugMode}
++				onRetry={onRetry}
++			/>
++
++			<AIGameInstructions
++				variant='chess'
++				providerName={providerName}
++				modelName={modelName}
++				aiConfigured={aiConfigured}
++			/>
++		</div>
++	);
++};
++
++export default LlmRivalDetails;
+diff --git a/apps/web/src/components/game/RivalSetupSummary.test.tsx b/apps/web/src/components/game/RivalSetupSummary.test.tsx
+new file mode 100644
+index 0000000..c1a4fd5
+--- /dev/null
++++ b/apps/web/src/components/game/RivalSetupSummary.test.tsx
+@@ -0,0 +1,65 @@
++import { describe, expect, test } from 'bun:test';
++import { render } from '@testing-library/react';
++import React from 'react';
++import { setupReactDom } from '../../test/reactSetup';
++import type {
++	ActiveRivalSession,
++	GameSetup,
++} from '../../lib/chess/rival/types';
++import RivalSetupSummary from './RivalSetupSummary';
++
++setupReactDom();
++
++describe('RivalSetupSummary', () => {
++	test('summarizes engine setup with side and unrated status', () => {
++		const setup: GameSetup = { rivalKind: 'engine', humanSide: 'white' };
++		const { getByText } = render(<RivalSetupSummary setup={setup} />);
++
++		expect(
++			getByText('On-device computer · Computer plays Black · Unrated')
++		).toBeTruthy();
++	});
++
++	test('summarizes language-model setup with model and side', () => {
++		const setup: GameSetup = { rivalKind: 'llm', humanSide: 'black' };
++		const { getByText } = render(
++			<RivalSetupSummary setup={setup} llmModel='gpt-4o-mini' />
++		);
++
++		expect(
++			getByText('Language model · gpt-4o-mini · Computer plays White')
++		).toBeTruthy();
++	});
++
++	test('freezes active engine summary from the active session', () => {
++		const session: ActiveRivalSession = {
++			id: 7,
++			opponent: { kind: 'engine', id: 'stockfish' },
++			humanSide: 'black',
++			rivalSide: 'white',
++			startedByUserId: null,
++		};
++		const { getByText } = render(<RivalSetupSummary activeSession={session} />);
++
++		expect(
++			getByText('On-device computer · Computer plays White · Unrated')
++		).toBeTruthy();
++	});
++
++	test('freezes active LLM summary from the active session opponent', () => {
++		const session: ActiveRivalSession = {
++			id: 8,
++			opponent: { kind: 'llm', provider: 'openai', model: 'gpt-4o' },
++			humanSide: 'white',
++			rivalSide: 'black',
++			startedByUserId: 'user-1',
++		};
++		const { getByText } = render(
++			<RivalSetupSummary activeSession={session} llmModel='stale-model' />
++		);
++
++		expect(
++			getByText('Language model · gpt-4o · Computer plays Black')
++		).toBeTruthy();
++	});
++});
+diff --git a/apps/web/src/components/game/RivalSetupSummary.tsx b/apps/web/src/components/game/RivalSetupSummary.tsx
+new file mode 100644
+index 0000000..be914cc
+--- /dev/null
++++ b/apps/web/src/components/game/RivalSetupSummary.tsx
+@@ -0,0 +1,54 @@
++import React from 'react';
++import {
++	getRivalSide,
++	type ActiveRivalSession,
++	type ChessSide,
++	type GameSetup,
++} from '../../lib/chess/rival/types';
++
++interface RivalSetupSummaryProps {
++	setup?: GameSetup;
++	activeSession?: ActiveRivalSession | null;
++	llmModel?: string;
++	className?: string;
++}
++
++function sideName(side: ChessSide): string {
++	return side === 'white' ? 'White' : 'Black';
++}
++
++function engineSummary(rivalSide: ChessSide): string {
++	return `On-device computer · Computer plays ${sideName(rivalSide)} · Unrated`;
++}
++
++function llmSummary(model: string, rivalSide: ChessSide): string {
++	return `Language model · ${model} · Computer plays ${sideName(rivalSide)}`;
++}
++
++const RivalSetupSummary: React.FC<RivalSetupSummaryProps> = ({
++	setup,
++	activeSession,
++	llmModel,
++	className = '',
++}) => {
++	const summary = (() => {
++		if (activeSession?.opponent.kind === 'engine') {
++			return engineSummary(activeSession.rivalSide);
++		}
++		if (activeSession?.opponent.kind === 'llm') {
++			return llmSummary(activeSession.opponent.model, activeSession.rivalSide);
++		}
++		if (!setup) {
++			return '';
++		}
++		const rivalSide = getRivalSide(setup.humanSide);
++		if (setup.rivalKind === 'engine') {
++			return engineSummary(rivalSide);
++		}
++		return llmSummary(llmModel ?? 'Selected model', rivalSide);
++	})();
++
++	return <p className={`text-sm text-ivory-dim ${className}`}>{summary}</p>;
++};
++
++export default RivalSetupSummary;
+-- 
+2.43.0
+

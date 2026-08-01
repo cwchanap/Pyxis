@@ -1,0 +1,616 @@
+From 73709074a5b396d563458f780f9626d364c3126e Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 00:55:53 +0000
+Subject: [PATCH 02/23] feat(chess): resolve rival setup preferences
+
+---
+ .../src/lib/chess/rival/preferences.test.ts   | 111 ++++++++++
+ apps/web/src/lib/chess/rival/preferences.ts   | 115 ++++++++++
+ .../src/lib/chess/rival/resolve-setup.test.ts | 198 ++++++++++++++++++
+ apps/web/src/lib/chess/rival/resolve-setup.ts | 149 +++++++++++++
+ 4 files changed, 573 insertions(+)
+ create mode 100644 apps/web/src/lib/chess/rival/preferences.test.ts
+ create mode 100644 apps/web/src/lib/chess/rival/preferences.ts
+ create mode 100644 apps/web/src/lib/chess/rival/resolve-setup.test.ts
+ create mode 100644 apps/web/src/lib/chess/rival/resolve-setup.ts
+
+diff --git a/apps/web/src/lib/chess/rival/preferences.test.ts b/apps/web/src/lib/chess/rival/preferences.test.ts
+new file mode 100644
+index 0000000..874d321
+--- /dev/null
++++ b/apps/web/src/lib/chess/rival/preferences.test.ts
+@@ -0,0 +1,111 @@
++import { describe, expect, test } from 'bun:test';
++import {
++	RIVAL_PREFERENCES_STORAGE_KEY,
++	readRivalPreferences,
++	persistHumanSide,
++	persistRivalKind,
++	type RivalPreferenceStorage,
++	type RivalPreferencesV1,
++} from './preferences';
++
++function createMemoryStorage(
++	initial: Record<string, string> = {}
++): RivalPreferenceStorage {
++	const store = new Map(Object.entries(initial));
++	return {
++		getItem: key => store.get(key) ?? null,
++		setItem: (key, value) => {
++			store.set(key, value);
++		},
++	};
++}
++
++const defaultPreferences: RivalPreferencesV1 = {
++	version: 1,
++	lastRivalKind: 'engine',
++	humanSideByRival: {
++		engine: 'white',
++		llm: 'white',
++	},
++};
++
++describe('rival preferences', () => {
++	test('missing storage returns defaults with both human sides white', () => {
++		const storage = createMemoryStorage();
++		expect(readRivalPreferences(storage)).toEqual(defaultPreferences);
++	});
++
++	test('valid V1 round-trips through storage', () => {
++		const storage = createMemoryStorage();
++		persistRivalKind(storage, 'llm');
++		persistHumanSide(storage, 'engine', 'black');
++		persistHumanSide(storage, 'llm', 'black');
++
++		expect(readRivalPreferences(storage)).toEqual({
++			version: 1,
++			lastRivalKind: 'llm',
++			humanSideByRival: {
++				engine: 'black',
++				llm: 'black',
++			},
++		});
++	});
++
++	test('corrupt JSON falls back to defaults', () => {
++		const storage = createMemoryStorage({
++			[RIVAL_PREFERENCES_STORAGE_KEY]: '{not-json',
++		});
++		expect(readRivalPreferences(storage)).toEqual(defaultPreferences);
++	});
++
++	test('wrong version falls back to defaults', () => {
++		const storage = createMemoryStorage({
++			[RIVAL_PREFERENCES_STORAGE_KEY]: JSON.stringify({
++				version: 2,
++				lastRivalKind: 'llm',
++				humanSideByRival: { engine: 'black', llm: 'black' },
++			}),
++		});
++		expect(readRivalPreferences(storage)).toEqual(defaultPreferences);
++	});
++
++	test('invalid opponent and side values fall back to defaults', () => {
++		const storage = createMemoryStorage({
++			[RIVAL_PREFERENCES_STORAGE_KEY]: JSON.stringify({
++				version: 1,
++				lastRivalKind: 'cloud',
++				humanSideByRival: { engine: 'purple', llm: 'white' },
++			}),
++		});
++		expect(readRivalPreferences(storage)).toEqual(defaultPreferences);
++	});
++
++	test('deliberate changes persist independently', () => {
++		const storage = createMemoryStorage();
++		persistRivalKind(storage, 'llm');
++		persistHumanSide(storage, 'engine', 'black');
++
++		expect(readRivalPreferences(storage)).toEqual({
++			version: 1,
++			lastRivalKind: 'llm',
++			humanSideByRival: {
++				engine: 'black',
++				llm: 'white',
++			},
++		});
++	});
++
++	test('automatic fallback does not update lastRivalKind', () => {
++		const storage = createMemoryStorage();
++		persistRivalKind(storage, 'engine');
++		persistHumanSide(storage, 'engine', 'white');
++
++		readRivalPreferences(storage);
++		readRivalPreferences(storage);
++
++		expect(readRivalPreferences(storage).lastRivalKind).toBe('engine');
++		expect(storage.getItem(RIVAL_PREFERENCES_STORAGE_KEY)).toContain(
++			'"lastRivalKind":"engine"'
++		);
++	});
++});
+diff --git a/apps/web/src/lib/chess/rival/preferences.ts b/apps/web/src/lib/chess/rival/preferences.ts
+new file mode 100644
+index 0000000..1bb5292
+--- /dev/null
++++ b/apps/web/src/lib/chess/rival/preferences.ts
+@@ -0,0 +1,115 @@
++import type { ChessSide, RivalKind } from './types';
++
++export const RIVAL_PREFERENCES_STORAGE_KEY =
++	'procyon.chess.rival-preferences.v1';
++
++export interface RivalPreferenceStorage {
++	getItem(key: string): string | null;
++	setItem(key: string, value: string): void;
++}
++
++export interface RivalPreferencesV1 {
++	version: 1;
++	lastRivalKind: RivalKind;
++	humanSideByRival: Record<RivalKind, ChessSide>;
++}
++
++export function createDefaultRivalPreferences(): RivalPreferencesV1 {
++	return {
++		version: 1,
++		lastRivalKind: 'engine',
++		humanSideByRival: {
++			engine: 'white',
++			llm: 'white',
++		},
++	};
++}
++
++function isRivalKind(value: unknown): value is RivalKind {
++	return value === 'engine' || value === 'llm';
++}
++
++function isChessSide(value: unknown): value is ChessSide {
++	return value === 'white' || value === 'black';
++}
++
++function parseRivalPreferences(raw: string): RivalPreferencesV1 | null {
++	let parsed: unknown;
++	try {
++		parsed = JSON.parse(raw);
++	} catch {
++		return null;
++	}
++
++	if (typeof parsed !== 'object' || parsed === null) {
++		return null;
++	}
++
++	const record = parsed as Record<string, unknown>;
++	if (record.version !== 1 || !isRivalKind(record.lastRivalKind)) {
++		return null;
++	}
++
++	const sides = record.humanSideByRival;
++	if (typeof sides !== 'object' || sides === null) {
++		return null;
++	}
++
++	const sideRecord = sides as Record<string, unknown>;
++	if (!isChessSide(sideRecord.engine) || !isChessSide(sideRecord.llm)) {
++		return null;
++	}
++
++	return {
++		version: 1,
++		lastRivalKind: record.lastRivalKind,
++		humanSideByRival: {
++			engine: sideRecord.engine,
++			llm: sideRecord.llm,
++		},
++	};
++}
++
++export function readRivalPreferences(
++	storage: RivalPreferenceStorage
++): RivalPreferencesV1 {
++	const raw = storage.getItem(RIVAL_PREFERENCES_STORAGE_KEY);
++	if (raw === null) {
++		return createDefaultRivalPreferences();
++	}
++
++	return parseRivalPreferences(raw) ?? createDefaultRivalPreferences();
++}
++
++function writeRivalPreferences(
++	storage: RivalPreferenceStorage,
++	preferences: RivalPreferencesV1
++): void {
++	storage.setItem(RIVAL_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
++}
++
++export function persistRivalKind(
++	storage: RivalPreferenceStorage,
++	kind: RivalKind
++): void {
++	const preferences = readRivalPreferences(storage);
++	writeRivalPreferences(storage, {
++		...preferences,
++		lastRivalKind: kind,
++	});
++}
++
++export function persistHumanSide(
++	storage: RivalPreferenceStorage,
++	rivalKind: RivalKind,
++	side: ChessSide
++): void {
++	const preferences = readRivalPreferences(storage);
++	writeRivalPreferences(storage, {
++		...preferences,
++		humanSideByRival: {
++			...preferences.humanSideByRival,
++			[rivalKind]: side,
++		},
++	});
++}
+diff --git a/apps/web/src/lib/chess/rival/resolve-setup.test.ts b/apps/web/src/lib/chess/rival/resolve-setup.test.ts
+new file mode 100644
+index 0000000..786a397
+--- /dev/null
++++ b/apps/web/src/lib/chess/rival/resolve-setup.test.ts
+@@ -0,0 +1,198 @@
++import { describe, expect, test } from 'bun:test';
++import { resolveSetup, type ResolveSetupInput } from './resolve-setup';
++
++const supportedEngine = { status: 'supported' } as const;
++const unsupportedEngine = {
++	status: 'unsupported',
++	message: 'No Worker',
++} as const;
++const usableLlm = {
++	status: 'available',
++	provider: 'openai',
++	model: 'gpt-4',
++} as const;
++const signedOutLlm = { status: 'signed-out' } as const;
++const loadingLlm = { status: 'loading' } as const;
++const unconfiguredLlm = { status: 'unconfigured' } as const;
++
++function resolve(input: ResolveSetupInput) {
++	return resolveSetup(input);
++}
++
++describe('resolveSetup matrix', () => {
++	test('no preference + signed out + supported engine resolves to engine', () => {
++		expect(
++			resolve({
++				rememberedKind: null,
++				enginePreflight: supportedEngine,
++				llmUsability: signedOutLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({ kind: 'engine', automatic: true });
++	});
++
++	test('no preference + configured signed in + untouched setup resolves to LLM', () => {
++		expect(
++			resolve({
++				rememberedKind: null,
++				enginePreflight: supportedEngine,
++				llmUsability: usableLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({ kind: 'llm', automatic: true });
++	});
++
++	test('remembered engine + supported resolves to engine', () => {
++		expect(
++			resolve({
++				rememberedKind: 'engine',
++				enginePreflight: supportedEngine,
++				llmUsability: signedOutLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({ kind: 'engine', automatic: true });
++	});
++
++	test('remembered engine + unsupported + usable LLM resolves to LLM with engine-to-llm notice', () => {
++		expect(
++			resolve({
++				rememberedKind: 'engine',
++				enginePreflight: unsupportedEngine,
++				llmUsability: usableLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({
++			kind: 'llm',
++			automatic: true,
++			notice: 'engine-to-llm',
++		});
++	});
++
++	test('remembered engine + unsupported + unusable LLM resolves to engine unavailable', () => {
++		expect(
++			resolve({
++				rememberedKind: 'engine',
++				enginePreflight: unsupportedEngine,
++				llmUsability: signedOutLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({
++			kind: 'engine',
++			automatic: true,
++			startBlockedReason: 'engine-unsupported',
++		});
++	});
++
++	test('remembered LLM + loading resolves to provisional LLM with Start disabled', () => {
++		expect(
++			resolve({
++				rememberedKind: 'llm',
++				enginePreflight: supportedEngine,
++				llmUsability: loadingLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({
++			kind: 'llm',
++			automatic: true,
++			startBlockedReason: 'llm-loading',
++		});
++	});
++
++	test('remembered LLM + usable resolves to LLM', () => {
++		expect(
++			resolve({
++				rememberedKind: 'llm',
++				enginePreflight: supportedEngine,
++				llmUsability: usableLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({ kind: 'llm', automatic: true });
++	});
++
++	test('remembered LLM + unusable + supported engine resolves to engine with llm-to-engine notice', () => {
++		expect(
++			resolve({
++				rememberedKind: 'llm',
++				enginePreflight: supportedEngine,
++				llmUsability: unconfiguredLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({
++			kind: 'engine',
++			automatic: true,
++			notice: 'llm-to-engine',
++		});
++	});
++
++	test('remembered LLM + unusable + unsupported engine resolves to engine unavailable', () => {
++		expect(
++			resolve({
++				rememberedKind: 'llm',
++				enginePreflight: unsupportedEngine,
++				llmUsability: signedOutLlm,
++				setupTouched: false,
++				explicitKind: null,
++			})
++		).toEqual({
++			kind: 'engine',
++			automatic: true,
++			startBlockedReason: 'engine-unsupported',
++		});
++	});
++
++	test('explicit selections are not overridden by automatic fallback', () => {
++		expect(
++			resolve({
++				rememberedKind: 'engine',
++				enginePreflight: unsupportedEngine,
++				llmUsability: usableLlm,
++				setupTouched: false,
++				explicitKind: 'engine',
++			})
++		).toEqual({
++			kind: 'engine',
++			automatic: false,
++			startBlockedReason: 'engine-unsupported',
++		});
++	});
++
++	test('first user interaction closes automatic resolution', () => {
++		expect(
++			resolve({
++				rememberedKind: 'engine',
++				enginePreflight: unsupportedEngine,
++				llmUsability: usableLlm,
++				setupTouched: true,
++				explicitKind: null,
++			})
++		).toEqual({
++			kind: 'engine',
++			automatic: false,
++			startBlockedReason: 'engine-unsupported',
++		});
++	});
++
++	test('fallback never mutates the stored preference', () => {
++		const input: ResolveSetupInput = {
++			rememberedKind: 'engine',
++			enginePreflight: unsupportedEngine,
++			llmUsability: usableLlm,
++			setupTouched: false,
++			explicitKind: null,
++		};
++
++		const first = resolveSetup(input);
++		const second = resolveSetup(input);
++
++		expect(first).toEqual(second);
++		expect(first.notice).toBe('engine-to-llm');
++	});
++});
+diff --git a/apps/web/src/lib/chess/rival/resolve-setup.ts b/apps/web/src/lib/chess/rival/resolve-setup.ts
+new file mode 100644
+index 0000000..194fe4e
+--- /dev/null
++++ b/apps/web/src/lib/chess/rival/resolve-setup.ts
+@@ -0,0 +1,149 @@
++import type { EnginePreflight, LlmUsability, RivalKind } from './types';
++
++export interface ResolveSetupInput {
++	rememberedKind: RivalKind | null;
++	enginePreflight: EnginePreflight;
++	llmUsability: LlmUsability;
++	setupTouched: boolean;
++	explicitKind: RivalKind | null;
++}
++
++export interface ResolvedSetupKind {
++	kind: RivalKind;
++	automatic: boolean;
++	notice?: 'engine-to-llm' | 'llm-to-engine';
++	startBlockedReason?: 'llm-loading' | 'llm-unusable' | 'engine-unsupported';
++}
++
++function isEngineSupported(preflight: EnginePreflight): boolean {
++	return preflight.status === 'supported';
++}
++
++function isLlmAvailable(usability: LlmUsability): boolean {
++	return usability.status === 'available';
++}
++
++function isLlmConfirmedUnusable(usability: LlmUsability): boolean {
++	return (
++		usability.status === 'signed-out' || usability.status === 'unconfigured'
++	);
++}
++
++function resolveDefaultKind(
++	enginePreflight: EnginePreflight,
++	llmUsability: LlmUsability
++): RivalKind {
++	if (isLlmAvailable(llmUsability)) {
++		return 'llm';
++	}
++	return 'engine';
++}
++
++function resolveFixedKind(
++	kind: RivalKind,
++	enginePreflight: EnginePreflight,
++	llmUsability: LlmUsability,
++	automatic: boolean
++): ResolvedSetupKind {
++	const result: ResolvedSetupKind = { kind, automatic };
++
++	if (kind === 'llm') {
++		if (llmUsability.status === 'loading') {
++			result.startBlockedReason = 'llm-loading';
++		} else if (!isLlmAvailable(llmUsability)) {
++			result.startBlockedReason = 'llm-unusable';
++		}
++	} else if (!isEngineSupported(enginePreflight)) {
++		result.startBlockedReason = 'engine-unsupported';
++	}
++
++	return result;
++}
++
++function resolveAutomatic(
++	rememberedKind: RivalKind | null,
++	enginePreflight: EnginePreflight,
++	llmUsability: LlmUsability
++): ResolvedSetupKind {
++	const engineSupported = isEngineSupported(enginePreflight);
++	const llmAvailable = isLlmAvailable(llmUsability);
++
++	if (rememberedKind === 'engine') {
++		if (engineSupported) {
++			return { kind: 'engine', automatic: true };
++		}
++		if (llmAvailable) {
++			return { kind: 'llm', automatic: true, notice: 'engine-to-llm' };
++		}
++		return {
++			kind: 'engine',
++			automatic: true,
++			startBlockedReason: 'engine-unsupported',
++		};
++	}
++
++	if (rememberedKind === 'llm') {
++		if (llmUsability.status === 'loading') {
++			return {
++				kind: 'llm',
++				automatic: true,
++				startBlockedReason: 'llm-loading',
++			};
++		}
++		if (llmAvailable) {
++			return { kind: 'llm', automatic: true };
++		}
++		if (isLlmConfirmedUnusable(llmUsability)) {
++			if (engineSupported) {
++				return {
++					kind: 'engine',
++					automatic: true,
++					notice: 'llm-to-engine',
++				};
++			}
++			return {
++				kind: 'engine',
++				automatic: true,
++				startBlockedReason: 'engine-unsupported',
++			};
++		}
++	}
++
++	if (llmAvailable) {
++		return {
++			kind: 'llm',
++			automatic: true,
++			notice: engineSupported ? undefined : 'engine-to-llm',
++		};
++	}
++	if (engineSupported) {
++		return { kind: 'engine', automatic: true };
++	}
++	return {
++		kind: 'engine',
++		automatic: true,
++		startBlockedReason: 'engine-unsupported',
++	};
++}
++
++export function resolveSetup(input: ResolveSetupInput): ResolvedSetupKind {
++	const {
++		rememberedKind,
++		enginePreflight,
++		llmUsability,
++		setupTouched,
++		explicitKind,
++	} = input;
++
++	if (explicitKind !== null) {
++		return resolveFixedKind(explicitKind, enginePreflight, llmUsability, false);
++	}
++
++	if (setupTouched) {
++		const kind =
++			rememberedKind ?? resolveDefaultKind(enginePreflight, llmUsability);
++		return resolveFixedKind(kind, enginePreflight, llmUsability, false);
++	}
++
++	return resolveAutomatic(rememberedKind, enginePreflight, llmUsability);
++}
+-- 
+2.43.0
+

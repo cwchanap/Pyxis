@@ -1,0 +1,228 @@
+From d32bce698fa5fbcdc0b0ad4410a76fd738fff90b Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 03:33:51 +0000
+Subject: [PATCH 20/23] fix(chess): freeze LLM history config at start
+
+---
+ apps/web/src/components/ChessGame.test.tsx | 100 ++++++++++++++++++++-
+ apps/web/src/components/ChessGame.tsx      |  10 ++-
+ apps/web/src/hooks/useChessRivalSession.ts |   3 +
+ apps/web/src/lib/chess/rival/types.ts      |   3 +
+ 4 files changed, 109 insertions(+), 7 deletions(-)
+
+diff --git a/apps/web/src/components/ChessGame.test.tsx b/apps/web/src/components/ChessGame.test.tsx
+index f2a1c56..67117a6 100644
+--- a/apps/web/src/components/ChessGame.test.tsx
++++ b/apps/web/src/components/ChessGame.test.tsx
+@@ -5,7 +5,7 @@ import React from 'react';
+ import { setupReactDom } from '../test/reactSetup';
+ import ChessGame from './ChessGame';
+ import { AUTH_CHANGE_EVENT, __resetSharedAuthUserForTests } from '../lib/auth';
+-import { resetAIConfigStore } from '../lib/ai/ai-config-store';
++import { resetAIConfigStore, setConfig } from '../lib/ai/ai-config-store';
+ import { RIVAL_PREFERENCES_STORAGE_KEY } from '../lib/chess/rival/preferences';
+ import { deferred, engineOptions, FakeRivalProvider } from '../test/fakeRival';
+ 
+@@ -464,7 +464,11 @@ describe('ChessGame — tutorial interactions', () => {
+ // the `/ai-config` endpoints. `aiConfigOk: true` hydrates a usable OpenAI
+ // config (LLM becomes selectable); `false` fails hydration so the setup
+ // falls back to the engine.
+-function installAuthedEnv(aiConfigOk: boolean): { restore: () => void } {
++function installAuthedEnv(aiConfigOk: boolean): {
++	bodies: Array<Record<string, unknown>>;
++	playHistoryCount: () => number;
++	restore: () => void;
++} {
+ 	const user = { id: 'user-a', email: 'a@test.com', username: 'userA' };
+ 	(
+ 		window as unknown as Record<string, InitialAuthUser>
+@@ -483,8 +487,25 @@ function installAuthedEnv(aiConfigOk: boolean): { restore: () => void } {
+ 	} catch {
+ 		/* ignore */
+ 	}
+-
+-	(globalThis as unknown as { fetch: unknown }).fetch = ((url: string) => {
++	const bodies: Array<Record<string, unknown>> = [];
++	let count = 0;
++
++	(globalThis as unknown as { fetch: unknown }).fetch = ((
++		url: string,
++		init?: RequestInit
++	) => {
++		if (url.includes('/play-history')) {
++			count++;
++			if (init?.body) {
++				bodies.push(JSON.parse(init.body as string) as Record<string, unknown>);
++			}
++			return Promise.resolve({
++				ok: true,
++				status: 200,
++				statusText: 'OK',
++				json: () => Promise.resolve({}),
++			});
++		}
+ 		if (url.includes('/auth/session')) {
+ 			return Promise.resolve({
+ 				ok: true,
+@@ -533,6 +554,8 @@ function installAuthedEnv(aiConfigOk: boolean): { restore: () => void } {
+ 	}) as unknown as typeof fetch;
+ 
+ 	return {
++		bodies,
++		playHistoryCount: () => count,
+ 		restore() {
+ 			(globalThis as unknown as { fetch: unknown }).fetch = originalFetch;
+ 			if (originalLocalStorageDesc) {
+@@ -1081,6 +1104,23 @@ describe('ChessGame — identity policy, history & tools', () => {
+ 		await waitFor(() => expect(whiteRadio(view).disabled).toBe(true));
+ 	}
+ 
++	async function startLlm(view: RenderResult): Promise<void> {
++		await waitForSetupResolved(view);
++		await waitFor(() =>
++			expect(
++				(
++					view.getByRole('radio', {
++						name: /Language model/i,
++					}) as HTMLInputElement
++				).checked
++			).toBe(true)
++		);
++		fireEvent.click(
++			await waitFor(() => view.getByRole('button', { name: /start/i }))
++		);
++		await waitFor(() => expect(whiteRadio(view).disabled).toBe(true));
++	}
++
+ 	// DEV-only: Shift+D reveals the debug outcome buttons; clicking Win forces
+ 	// a terminal (checkmate) position, which is the save trigger.
+ 	async function forceWin(view: RenderResult): Promise<void> {
+@@ -1136,6 +1176,26 @@ describe('ChessGame — identity policy, history & tools', () => {
+ 		}
+ 	});
+ 
++	test('an active LLM session resets local game state on account change (re-enables selectors)', async () => {
++		const authed = installAuthedEnv(true);
++		const options = {
++			createLlmProvider: () =>
++				new FakeRivalProvider({
++					kind: 'llm',
++					makeMove: async () => ({ ok: true, move: { from: 'e7', to: 'e5' } }),
++				}),
++		};
++		try {
++			const view = render(<ChessGame rivalSessionOptions={options} />);
++			await startLlm(view);
++
++			signInEvent({ id: 'user-b', email: 'b@test.com', username: 'userB' });
++			await waitFor(() => expect(whiteRadio(view).disabled).toBe(false));
++		} finally {
++			authed.restore();
++		}
++	});
++
+ 	test('an active engine session continues (stays locked) when auth is lost mid-game', async () => {
+ 		const authed = installAuthedEnv(false); // LLM unconfigured -> engine default
+ 		const { options } = engineOptions();
+@@ -1237,6 +1297,38 @@ describe('ChessGame — identity policy, history & tools', () => {
+ 		}
+ 	});
+ 
++	test('LLM play history uses the config frozen at Start, not the live config after Start', async () => {
++		const authed = installAuthedEnv(true);
++		devEnv.DEV = true;
++		const options = {
++			createLlmProvider: () =>
++				new FakeRivalProvider({
++					kind: 'llm',
++					makeMove: async () => ({ ok: true, move: { from: 'e7', to: 'e5' } }),
++				}),
++		};
++		try {
++			const view = render(<ChessGame rivalSessionOptions={options} />);
++			await startLlm(view);
++
++			act(() => {
++				setConfig({
++					provider: 'gemini',
++					model: 'gemini-2.5-flash',
++					apiKey: 'gem-key',
++					enabled: true,
++				});
++			});
++			await flushEffects();
++
++			await forceWin(view);
++			expect(authed.playHistoryCount()).toBe(1);
++			expect(authed.bodies[0]).toHaveProperty('opponentLlmId', 'gpt-4o');
++		} finally {
++			authed.restore();
++		}
++	});
++
+ 	test('an active engine session presents the opponent as Unrated', async () => {
+ 		const { options } = engineOptions();
+ 		const view = render(<ChessGame rivalSessionOptions={options} />);
+diff --git a/apps/web/src/components/ChessGame.tsx b/apps/web/src/components/ChessGame.tsx
+index f79e5a7..5dc66b3 100644
+--- a/apps/web/src/components/ChessGame.tsx
++++ b/apps/web/src/components/ChessGame.tsx
+@@ -262,8 +262,12 @@ const ChessGame: React.FC<ChessGameProps> = ({ rivalSessionOptions }) => {
+ 	// with different opponent metadata: the engine passes the frozen rival
+ 	// side and the unrated `{ kind: 'engine', id: 'stockfish' }` descriptor
+ 	// (and omits `aiConfig`), while the LLM keeps the existing rated path
+-	// (frozen config, no descriptor). The hook must be called unconditionally,
+-	// so the options are branched here rather than the call.
++	// (Start-frozen config, no descriptor). The hook must be called
++	// unconditionally, so the options are branched here rather than the call.
++	const llmHistoryConfig =
++		activeSession?.opponent.kind === 'llm'
++			? (activeSession.startedConfig ?? aiConfig)
++			: aiConfig;
+ 	usePlayHistory(
+ 		activeSession?.opponent.kind === 'engine'
+ 			? {
+@@ -286,7 +290,7 @@ const ChessGame: React.FC<ChessGameProps> = ({ rivalSessionOptions }) => {
+ 					gameVariant: 'chess',
+ 					gameStatus: effectiveStatus,
+ 					aiPlayer: activeSession?.rivalSide ?? previewRivalSide,
+-					aiConfig,
++					aiConfig: llmHistoryConfig,
+ 					moveCount: gameState.moveHistory.length,
+ 					getWinnerColor,
+ 					enabled: gameMode === 'ai' && gameStarted,
+diff --git a/apps/web/src/hooks/useChessRivalSession.ts b/apps/web/src/hooks/useChessRivalSession.ts
+index f522c8c..47363c8 100644
+--- a/apps/web/src/hooks/useChessRivalSession.ts
++++ b/apps/web/src/hooks/useChessRivalSession.ts
+@@ -258,6 +258,9 @@ export function useChessRivalSession(
+ 				humanSide: input.setup.humanSide,
+ 				rivalSide: getRivalSide(input.setup.humanSide),
+ 				startedByUserId: input.userId,
++				...(input.setup.rivalKind === 'llm'
++					? { startedConfig: frozenConfig }
++					: {}),
+ 			}) as ActiveRivalSession;
+ 
+ 			candidateRef.current = null;
+diff --git a/apps/web/src/lib/chess/rival/types.ts b/apps/web/src/lib/chess/rival/types.ts
+index ac113e3..b7fde8b 100644
+--- a/apps/web/src/lib/chess/rival/types.ts
++++ b/apps/web/src/lib/chess/rival/types.ts
+@@ -1,3 +1,4 @@
++import type { AIConfig } from '../../ai/types';
+ import type { ChessMoveRequest, PieceColor } from '../types';
+ 
+ export type RivalKind = 'engine' | 'llm';
+@@ -22,6 +23,8 @@ export interface ActiveRivalSession {
+ 	humanSide: ChessSide;
+ 	rivalSide: ChessSide;
+ 	startedByUserId: string | null;
++	/** Frozen AI config captured at Start for LLM sessions. Engine sessions omit it. */
++	startedConfig?: AIConfig;
+ }
+ 
+ export type EnginePreflight =
+-- 
+2.43.0
+

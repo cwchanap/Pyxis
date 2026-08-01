@@ -1,0 +1,211 @@
+From 2a265a9cdea826b4d4f929e521202f19127573dc Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 00:57:30 +0000
+Subject: [PATCH 03/23] feat(chess): add local engine preflight
+
+---
+ .../lib/chess/rival/engine-preflight.test.ts  | 135 ++++++++++++++++++
+ .../src/lib/chess/rival/engine-preflight.ts   |  49 +++++++
+ 2 files changed, 184 insertions(+)
+ create mode 100644 apps/web/src/lib/chess/rival/engine-preflight.test.ts
+ create mode 100644 apps/web/src/lib/chess/rival/engine-preflight.ts
+
+diff --git a/apps/web/src/lib/chess/rival/engine-preflight.test.ts b/apps/web/src/lib/chess/rival/engine-preflight.test.ts
+new file mode 100644
+index 0000000..d38e326
+--- /dev/null
++++ b/apps/web/src/lib/chess/rival/engine-preflight.test.ts
+@@ -0,0 +1,135 @@
++import { afterEach, describe, expect, mock, test } from 'bun:test';
++import {
++	runEnginePreflight,
++	type EngineCapabilityEnvironment,
++} from './engine-preflight';
++import {
++	STOCKFISH_JS_FILENAME,
++	STOCKFISH_PUBLIC_DIRECTORY,
++	STOCKFISH_WASM_FILENAME,
++} from '../../../../scripts/stockfish-assets';
++
++const stockfishJsUrl = `/${STOCKFISH_PUBLIC_DIRECTORY}/${STOCKFISH_JS_FILENAME}`;
++const stockfishWasmUrl = `/${STOCKFISH_PUBLIC_DIRECTORY}/${STOCKFISH_WASM_FILENAME}`;
++
++function createPassingEnvironment(): EngineCapabilityEnvironment {
++	return {
++		Worker: class MockWorker {} as typeof Worker,
++		WebAssembly: {
++			validate: () => true,
++		} as typeof WebAssembly,
++	};
++}
++
++describe('runEnginePreflight', () => {
++	let fetchSpy: ReturnType<typeof mock>;
++	let workerSpy: ReturnType<typeof mock>;
++
++	afterEach(() => {
++		fetchSpy?.mockRestore();
++		workerSpy?.mockRestore();
++	});
++
++	test('missing Worker returns unsupported', () => {
++		const result = runEnginePreflight({
++			WebAssembly: {
++				validate: () => true,
++			} as typeof WebAssembly,
++		});
++
++		expect(result).toEqual({
++			status: 'unsupported',
++			message: expect.stringContaining('local chess engine'),
++		});
++	});
++
++	test('missing WebAssembly returns unsupported', () => {
++		const result = runEnginePreflight({
++			Worker: class MockWorker {} as typeof Worker,
++		});
++
++		expect(result).toEqual({
++			status: 'unsupported',
++			message: expect.stringContaining('local chess engine'),
++		});
++	});
++
++	test('WebAssembly.validate returning false returns unsupported', () => {
++		const result = runEnginePreflight({
++			Worker: class MockWorker {} as typeof Worker,
++			WebAssembly: {
++				validate: () => false,
++			} as typeof WebAssembly,
++		});
++
++		expect(result).toEqual({
++			status: 'unsupported',
++			message: expect.stringContaining('local chess engine'),
++		});
++	});
++
++	test('WebAssembly.validate throwing returns unsupported', () => {
++		const result = runEnginePreflight({
++			Worker: class MockWorker {} as typeof Worker,
++			WebAssembly: {
++				validate: () => {
++					throw new Error('wasm unavailable');
++				},
++			} as typeof WebAssembly,
++		});
++
++		expect(result).toEqual({
++			status: 'unsupported',
++			message: expect.stringContaining('local chess engine'),
++		});
++	});
++
++	test('all cheap checks pass returns supported', () => {
++		const result = runEnginePreflight(createPassingEnvironment());
++
++		expect(result).toEqual({ status: 'supported' });
++	});
++
++	test('does not construct a Worker when supported', () => {
++		workerSpy = mock(() => {
++			throw new Error('Worker must not be constructed during preflight');
++		});
++		const WorkerClass = workerSpy as unknown as typeof Worker;
++
++		const result = runEnginePreflight({
++			Worker: WorkerClass,
++			WebAssembly: {
++				validate: () => true,
++			} as typeof WebAssembly,
++		});
++
++		expect(result).toEqual({ status: 'supported' });
++		expect(workerSpy).not.toHaveBeenCalled();
++	});
++
++	test('does not call fetch when supported', () => {
++		fetchSpy = mock(() => Promise.resolve(new Response('', { status: 200 })));
++		globalThis.fetch = fetchSpy as typeof fetch;
++
++		const result = runEnginePreflight(createPassingEnvironment());
++
++		expect(result).toEqual({ status: 'supported' });
++		expect(fetchSpy).not.toHaveBeenCalled();
++	});
++
++	test('does not request Stockfish asset URLs', () => {
++		fetchSpy = mock((input: RequestInfo | URL) => {
++			const url = String(input);
++			if (url.includes(stockfishJsUrl) || url.includes(stockfishWasmUrl)) {
++				throw new Error(`Stockfish asset must not be fetched: ${url}`);
++			}
++			return Promise.resolve(new Response('', { status: 200 }));
++		});
++		globalThis.fetch = fetchSpy as typeof fetch;
++
++		const result = runEnginePreflight(createPassingEnvironment());
++
++		expect(result).toEqual({ status: 'supported' });
++		expect(fetchSpy).not.toHaveBeenCalled();
++	});
++});
+diff --git a/apps/web/src/lib/chess/rival/engine-preflight.ts b/apps/web/src/lib/chess/rival/engine-preflight.ts
+new file mode 100644
+index 0000000..7cd82be
+--- /dev/null
++++ b/apps/web/src/lib/chess/rival/engine-preflight.ts
+@@ -0,0 +1,49 @@
++import type { EnginePreflight } from './types';
++
++export interface EngineCapabilityEnvironment {
++	Worker?: typeof Worker;
++	WebAssembly?: typeof WebAssembly;
++}
++
++/** Minimal valid WASM module used only for capability probing. */
++const MINIMAL_VALID_WASM = new Uint8Array([
++	0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
++]);
++
++const UNSUPPORTED_MESSAGE =
++	'This device cannot run the local chess engine. Choose a language-model opponent instead.';
++
++function resolveEnvironment(
++	env?: EngineCapabilityEnvironment
++): EngineCapabilityEnvironment {
++	if (env !== undefined) {
++		return env;
++	}
++
++	return globalThis as EngineCapabilityEnvironment;
++}
++
++export function runEnginePreflight(
++	env?: EngineCapabilityEnvironment
++): EnginePreflight {
++	const capabilities = resolveEnvironment(env);
++
++	if (typeof capabilities.Worker === 'undefined') {
++		return { status: 'unsupported', message: UNSUPPORTED_MESSAGE };
++	}
++
++	const wasm = capabilities.WebAssembly;
++	if (typeof wasm === 'undefined' || typeof wasm.validate !== 'function') {
++		return { status: 'unsupported', message: UNSUPPORTED_MESSAGE };
++	}
++
++	try {
++		if (!wasm.validate(MINIMAL_VALID_WASM)) {
++			return { status: 'unsupported', message: UNSUPPORTED_MESSAGE };
++		}
++	} catch {
++		return { status: 'unsupported', message: UNSUPPORTED_MESSAGE };
++	}
++
++	return { status: 'supported' };
++}
+-- 
+2.43.0
+

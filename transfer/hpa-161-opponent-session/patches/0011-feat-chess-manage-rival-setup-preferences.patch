@@ -1,0 +1,914 @@
+From d598e644e3379b606e538395ae2fa15418800ccf Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 01:21:58 +0000
+Subject: [PATCH 11/23] feat(chess): manage rival setup preferences
+
+---
+ apps/web/src/hooks/index.ts                   |   5 +
+ .../web/src/hooks/useChessRivalSetup.test.tsx | 487 ++++++++++++++++++
+ apps/web/src/hooks/useChessRivalSetup.ts      | 386 ++++++++++++++
+ 3 files changed, 878 insertions(+)
+ create mode 100644 apps/web/src/hooks/useChessRivalSetup.test.tsx
+ create mode 100644 apps/web/src/hooks/useChessRivalSetup.ts
+
+diff --git a/apps/web/src/hooks/index.ts b/apps/web/src/hooks/index.ts
+index caf98c9..855f703 100644
+--- a/apps/web/src/hooks/index.ts
++++ b/apps/web/src/hooks/index.ts
+@@ -8,3 +8,8 @@ export {
+ export { useAiMoveGenerationToken } from './useAiMoveGenerationToken';
+ export { useGameIdentityReset } from './useGameIdentityReset';
+ export { useGameDebugOutcomes } from './useGameDebugOutcomes';
++export {
++	useChessRivalSetup,
++	type UseChessRivalSetupOptions,
++	type UseChessRivalSetupResult,
++} from './useChessRivalSetup';
+diff --git a/apps/web/src/hooks/useChessRivalSetup.test.tsx b/apps/web/src/hooks/useChessRivalSetup.test.tsx
+new file mode 100644
+index 0000000..74dc2fd
+--- /dev/null
++++ b/apps/web/src/hooks/useChessRivalSetup.test.tsx
+@@ -0,0 +1,487 @@
++import { describe, expect, mock, test } from 'bun:test';
++import { act, renderHook, waitFor } from '@testing-library/react';
++import { setupReactDom } from '../test/reactSetup';
++import {
++	RIVAL_PREFERENCES_STORAGE_KEY,
++	type RivalPreferenceStorage,
++	type RivalPreferencesV1,
++} from '../lib/chess/rival/preferences';
++import type { EngineCapabilityEnvironment } from '../lib/chess/rival/engine-preflight';
++import type { EnginePreflight } from '../lib/chess/rival/types';
++import {
++	useChessRivalSetup,
++	type ChessRivalAIConfigSnapshot,
++	type UseChessRivalSetupOptions,
++	type UseChessRivalSetupResult,
++} from './useChessRivalSetup';
++
++setupReactDom();
++
++const supportedEngine = {
++	status: 'supported',
++} as const satisfies EnginePreflight;
++const unsupportedEngine = {
++	status: 'unsupported',
++	message: 'Engine unsupported',
++} as const satisfies EnginePreflight;
++
++const signedOutAuth = {
++	isAuthenticated: false,
++	loading: false,
++	revalidated: true,
++};
++
++const signedInAuth = {
++	isAuthenticated: true,
++	loading: false,
++	revalidated: true,
++};
++
++const loadingAiConfig = {
++	config: {
++		provider: 'openai',
++		model: '',
++		apiKey: '',
++		enabled: false,
++	},
++	hydrated: false,
++	hydrateError: false,
++	configPending: true,
++} satisfies ChessRivalAIConfigSnapshot;
++
++const unconfiguredAiConfig = {
++	config: {
++		provider: 'openai',
++		model: '',
++		apiKey: '',
++		enabled: false,
++	},
++	hydrated: true,
++	hydrateError: false,
++	configPending: false,
++} satisfies ChessRivalAIConfigSnapshot;
++
++const availableAiConfig = {
++	config: {
++		provider: 'openai',
++		model: 'gpt-4o-mini',
++		apiKey: 'sk-test',
++		enabled: true,
++	},
++	hydrated: true,
++	hydrateError: false,
++	configPending: false,
++} satisfies ChessRivalAIConfigSnapshot;
++
++function storedPreferences(
++	overrides: Partial<RivalPreferencesV1> = {}
++): RivalPreferencesV1 {
++	return {
++		version: 1,
++		lastRivalKind: 'engine',
++		...overrides,
++		humanSideByRival: {
++			engine: 'white',
++			llm: 'white',
++			...overrides.humanSideByRival,
++		},
++	};
++}
++
++function createStorage(initial?: RivalPreferencesV1) {
++	const store = new Map<string, string>();
++	if (initial) {
++		store.set(RIVAL_PREFERENCES_STORAGE_KEY, JSON.stringify(initial));
++	}
++	let getItemCount = 0;
++	let setItemCount = 0;
++	const storage: RivalPreferenceStorage = {
++		getItem: key => {
++			getItemCount += 1;
++			return store.get(key) ?? null;
++		},
++		setItem: (key, value) => {
++			setItemCount += 1;
++			store.set(key, value);
++		},
++	};
++
++	return {
++		storage,
++		getItemCount: () => getItemCount,
++		setItemCount: () => setItemCount,
++		read: () =>
++			JSON.parse(
++				store.get(RIVAL_PREFERENCES_STORAGE_KEY) ?? 'null'
++			) as RivalPreferencesV1 | null,
++	};
++}
++
++function createOptions(
++	overrides: Partial<UseChessRivalSetupOptions> = {}
++): UseChessRivalSetupOptions {
++	return {
++		auth: signedOutAuth,
++		aiConfig: unconfiguredAiConfig,
++		enginePreflight: supportedEngine,
++		...overrides,
++	};
++}
++
++async function waitForResolved(result: { current: UseChessRivalSetupResult }) {
++	await waitFor(() => {
++		expect(result.current.resolved).toBe(true);
++	});
++}
++
++describe('useChessRivalSetup', () => {
++	test('reads preferences once after client mount', async () => {
++		const memory = createStorage(
++			storedPreferences({
++				lastRivalKind: 'engine',
++				humanSideByRival: { engine: 'black', llm: 'white' },
++			})
++		);
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(createOptions({ storage: memory.storage }))
++		);
++
++		await waitForResolved(result);
++
++		expect(memory.getItemCount()).toBe(1);
++		expect(result.current.setup).toEqual({
++			rivalKind: 'engine',
++			humanSide: 'black',
++		});
++	});
++
++	test('exposes unresolved setup before client preference read', async () => {
++		const memory = createStorage(
++			storedPreferences({
++				lastRivalKind: 'llm',
++				humanSideByRival: { engine: 'white', llm: 'black' },
++			})
++		);
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(createOptions({ storage: memory.storage }))
++		);
++
++		expect(result.current.resolved).toBe(false);
++		expect(result.current.setup).toEqual({
++			rivalKind: 'engine',
++			humanSide: 'white',
++		});
++
++		await waitForResolved(result);
++	});
++
++	test('defaults signed-out visitors to engine as White', async () => {
++		const memory = createStorage();
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(createOptions({ storage: memory.storage }))
++		);
++
++		await waitForResolved(result);
++
++		expect(result.current.setup).toEqual({
++			rivalKind: 'engine',
++			humanSide: 'white',
++		});
++		expect(result.current.startBlockedReason).toBeNull();
++	});
++
++	test('resolves signed-in configured users with no preference to LLM before interaction', async () => {
++		const memory = createStorage();
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(
++				createOptions({
++					auth: signedInAuth,
++					aiConfig: availableAiConfig,
++					storage: memory.storage,
++				})
++			)
++		);
++
++		await waitForResolved(result);
++
++		expect(result.current.setup).toEqual({
++			rivalKind: 'llm',
++			humanSide: 'white',
++		});
++		expect(result.current.llmUsability).toEqual({
++			status: 'available',
++			provider: 'openai',
++			model: 'gpt-4o-mini',
++		});
++	});
++
++	test('keeps a remembered LLM selected while AI config is loading', async () => {
++		const memory = createStorage(
++			storedPreferences({
++				lastRivalKind: 'llm',
++				humanSideByRival: { engine: 'white', llm: 'black' },
++			})
++		);
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(
++				createOptions({
++					auth: signedInAuth,
++					aiConfig: loadingAiConfig,
++					storage: memory.storage,
++				})
++			)
++		);
++
++		await waitForResolved(result);
++
++		expect(result.current.setup).toEqual({
++			rivalKind: 'llm',
++			humanSide: 'black',
++		});
++		expect(result.current.startBlockedReason).toContain('loading');
++	});
++
++	test('selecting a rival persists the deliberate rival kind', async () => {
++		const memory = createStorage();
++		const { result } = renderHook(() =>
++			useChessRivalSetup(createOptions({ storage: memory.storage }))
++		);
++		await waitForResolved(result);
++
++		act(() => {
++			result.current.selectRival('llm');
++		});
++
++		expect(result.current.setup.rivalKind).toBe('llm');
++		expect(memory.read()?.lastRivalKind).toBe('llm');
++		expect(memory.setItemCount()).toBe(1);
++	});
++
++	test('selecting a side persists it separately per rival', async () => {
++		const memory = createStorage();
++		const { result } = renderHook(() =>
++			useChessRivalSetup(createOptions({ storage: memory.storage }))
++		);
++		await waitForResolved(result);
++
++		act(() => {
++			result.current.selectHumanSide('black');
++		});
++		act(() => {
++			result.current.selectRival('llm');
++		});
++
++		expect(result.current.setup).toEqual({
++			rivalKind: 'llm',
++			humanSide: 'white',
++		});
++
++		act(() => {
++			result.current.selectHumanSide('black');
++		});
++
++		expect(memory.read()?.humanSideByRival).toEqual({
++			engine: 'black',
++			llm: 'black',
++		});
++	});
++
++	test('automatic fallback emits a notice without persisting the rival kind', async () => {
++		const memory = createStorage(
++			storedPreferences({
++				lastRivalKind: 'llm',
++			})
++		);
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(
++				createOptions({
++					aiConfig: unconfiguredAiConfig,
++					storage: memory.storage,
++				})
++			)
++		);
++
++		await waitForResolved(result);
++
++		expect(result.current.setup.rivalKind).toBe('engine');
++		expect(result.current.fallbackNotice).toBe('llm-to-engine');
++		expect(memory.read()?.lastRivalKind).toBe('llm');
++		expect(memory.setItemCount()).toBe(0);
++	});
++
++	test('first interaction closes automatic resolution', async () => {
++		const memory = createStorage();
++		const initial = createOptions({
++			auth: signedInAuth,
++			aiConfig: availableAiConfig,
++			storage: memory.storage,
++		});
++		const { result, rerender } = renderHook(
++			(props: UseChessRivalSetupOptions) => useChessRivalSetup(props),
++			{ initialProps: initial }
++		);
++		await waitForResolved(result);
++		expect(result.current.setup.rivalKind).toBe('llm');
++
++		act(() => {
++			result.current.selectHumanSide('black');
++		});
++		rerender(createOptions({ storage: memory.storage }));
++
++		expect(result.current.setup).toEqual({
++			rivalKind: 'llm',
++			humanSide: 'black',
++		});
++		expect(result.current.fallbackNotice).toBeNull();
++	});
++
++	test('automatic changes are skipped while a game is active', async () => {
++		const memory = createStorage();
++		const initial = createOptions({ storage: memory.storage });
++		const { result, rerender } = renderHook(
++			(props: UseChessRivalSetupOptions) => useChessRivalSetup(props),
++			{ initialProps: initial }
++		);
++		await waitForResolved(result);
++		expect(result.current.setup.rivalKind).toBe('engine');
++
++		rerender(
++			createOptions({
++				auth: signedInAuth,
++				aiConfig: availableAiConfig,
++				storage: memory.storage,
++				isGameActive: true,
++			})
++		);
++
++		expect(result.current.setup.rivalKind).toBe('engine');
++	});
++
++	test('preflight performs no fetch or Worker creation', async () => {
++		const fetchSpy = mock(() =>
++			Promise.resolve(new Response('', { status: 200 }))
++		);
++		const workerSpy = mock(() => {
++			throw new Error('Worker must not be constructed');
++		});
++		const originalFetch = globalThis.fetch;
++		globalThis.fetch = fetchSpy as unknown as typeof fetch;
++		const environment: EngineCapabilityEnvironment = {
++			Worker: workerSpy as unknown as EngineCapabilityEnvironment['Worker'],
++			WebAssembly: {
++				validate: () => true,
++			},
++		};
++
++		try {
++			const { result } = renderHook(() =>
++				useChessRivalSetup(
++					createOptions({
++						enginePreflight: undefined,
++						engineEnvironment: environment,
++						storage: createStorage().storage,
++					})
++				)
++			);
++			await waitForResolved(result);
++
++			expect(result.current.enginePreflight).toEqual({ status: 'supported' });
++			expect(fetchSpy).not.toHaveBeenCalled();
++			expect(workerSpy).not.toHaveBeenCalled();
++		} finally {
++			globalThis.fetch = originalFetch;
++		}
++	});
++
++	test('switching opponent or side emits setup-change callbacks', async () => {
++		const memory = createStorage();
++		const onSetupChange = mock(() => {});
++		const { result } = renderHook(() =>
++			useChessRivalSetup(
++				createOptions({
++					storage: memory.storage,
++					onSetupChange,
++				})
++			)
++		);
++		await waitForResolved(result);
++
++		act(() => {
++			result.current.selectRival('llm');
++		});
++		act(() => {
++			result.current.selectHumanSide('black');
++		});
++
++		expect(onSetupChange).toHaveBeenNthCalledWith(1, {
++			rivalKind: 'llm',
++			humanSide: 'white',
++		});
++		expect(onSetupChange).toHaveBeenNthCalledWith(2, {
++			rivalKind: 'llm',
++			humanSide: 'black',
++		});
++	});
++
++	test('fallback notices can be cleared', async () => {
++		const memory = createStorage(
++			storedPreferences({
++				lastRivalKind: 'engine',
++			})
++		);
++		const { result } = renderHook(() =>
++			useChessRivalSetup(
++				createOptions({
++					auth: signedInAuth,
++					aiConfig: availableAiConfig,
++					enginePreflight: unsupportedEngine,
++					storage: memory.storage,
++				})
++			)
++		);
++		await waitForResolved(result);
++		expect(result.current.fallbackNotice).toBe('engine-to-llm');
++
++		act(() => {
++			result.current.clearFallbackNotice();
++		});
++
++		expect(result.current.fallbackNotice).toBeNull();
++	});
++
++	test('cleared fallback notices stay hidden across equivalent rerenders', async () => {
++		const memory = createStorage(
++			storedPreferences({
++				lastRivalKind: 'engine',
++			})
++		);
++		const fallbackOptions = createOptions({
++			auth: signedInAuth,
++			aiConfig: availableAiConfig,
++			enginePreflight: unsupportedEngine,
++			storage: memory.storage,
++		});
++		const { result, rerender } = renderHook(
++			(props: UseChessRivalSetupOptions) => useChessRivalSetup(props),
++			{ initialProps: fallbackOptions }
++		);
++		await waitForResolved(result);
++		expect(result.current.fallbackNotice).toBe('engine-to-llm');
++
++		act(() => {
++			result.current.clearFallbackNotice();
++		});
++		rerender({
++			...fallbackOptions,
++			auth: { ...signedInAuth },
++		});
++
++		expect(result.current.fallbackNotice).toBeNull();
++	});
++});
+diff --git a/apps/web/src/hooks/useChessRivalSetup.ts b/apps/web/src/hooks/useChessRivalSetup.ts
+new file mode 100644
+index 0000000..5ca58e1
+--- /dev/null
++++ b/apps/web/src/hooks/useChessRivalSetup.ts
+@@ -0,0 +1,386 @@
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import type { AIConfig } from '../lib/ai/types';
++import {
++	createDefaultRivalPreferences,
++	persistHumanSide,
++	persistRivalKind,
++	readRivalPreferences,
++	RIVAL_PREFERENCES_STORAGE_KEY,
++	type RivalPreferenceStorage,
++	type RivalPreferencesV1,
++} from '../lib/chess/rival/preferences';
++import {
++	runEnginePreflight,
++	type EngineCapabilityEnvironment,
++} from '../lib/chess/rival/engine-preflight';
++import {
++	resolveSetup,
++	type ResolvedSetupKind,
++} from '../lib/chess/rival/resolve-setup';
++import type {
++	ChessSide,
++	EnginePreflight,
++	GameSetup,
++	LlmUsability,
++	RivalKind,
++} from '../lib/chess/rival/types';
++
++type FallbackNotice = NonNullable<ResolvedSetupKind['notice']>;
++type StartBlockedReasonCode = NonNullable<
++	ResolvedSetupKind['startBlockedReason']
++>;
++
++export interface ChessRivalAuthSnapshot {
++	isAuthenticated: boolean;
++	loading: boolean;
++	revalidated?: boolean;
++}
++
++export interface ChessRivalAIConfigSnapshot {
++	config: Pick<AIConfig, 'provider' | 'model' | 'apiKey' | 'enabled'>;
++	hydrated: boolean;
++	hydrateError: boolean;
++	configPending?: boolean;
++}
++
++export interface UseChessRivalSetupOptions {
++	auth: ChessRivalAuthSnapshot;
++	aiConfig: ChessRivalAIConfigSnapshot;
++	isGameActive?: boolean;
++	isStarting?: boolean;
++	storage?: RivalPreferenceStorage;
++	enginePreflight?: EnginePreflight;
++	engineEnvironment?: EngineCapabilityEnvironment;
++	onSetupChange?: (setup: GameSetup) => void;
++}
++
++export interface UseChessRivalSetupResult {
++	resolved: boolean;
++	setup: GameSetup;
++	enginePreflight: EnginePreflight;
++	llmUsability: LlmUsability;
++	fallbackNotice: FallbackNotice | null;
++	startBlockedReason: string | null;
++	selectRival(kind: RivalKind): void;
++	selectHumanSide(side: ChessSide): void;
++	clearFallbackNotice(): void;
++}
++
++const defaultSetup: GameSetup = {
++	rivalKind: 'engine',
++	humanSide: 'white',
++};
++
++const startBlockedMessages: Record<StartBlockedReasonCode, string> = {
++	'llm-loading': 'AI opponent configuration is still loading.',
++	'llm-unusable':
++		'Sign in and configure an AI provider before starting a language-model opponent.',
++	'engine-unsupported':
++		'This device cannot run the local chess engine. Choose a language-model opponent instead.',
++};
++
++function getClientStorage(
++	storage?: RivalPreferenceStorage
++): RivalPreferenceStorage | null {
++	if (storage) {
++		return storage;
++	}
++	if (typeof window === 'undefined') {
++		return null;
++	}
++	return window.localStorage;
++}
++
++function readPreferencesOnce(storage: RivalPreferenceStorage | null): {
++	preferences: RivalPreferencesV1;
++	rememberedKind: RivalKind | null;
++} {
++	if (storage === null) {
++		return {
++			preferences: createDefaultRivalPreferences(),
++			rememberedKind: null,
++		};
++	}
++
++	const raw = storage.getItem(RIVAL_PREFERENCES_STORAGE_KEY);
++	const cachedStorage: RivalPreferenceStorage = {
++		getItem: key => {
++			if (key === RIVAL_PREFERENCES_STORAGE_KEY) {
++				return raw;
++			}
++			return storage.getItem(key);
++		},
++		setItem: (key, value) => {
++			storage.setItem(key, value);
++		},
++	};
++
++	const preferences = readRivalPreferences(cachedStorage);
++	return {
++		preferences,
++		rememberedKind: raw === null ? null : preferences.lastRivalKind,
++	};
++}
++
++function resolveLlmUsability(
++	auth: ChessRivalAuthSnapshot,
++	aiConfig: ChessRivalAIConfigSnapshot
++): LlmUsability {
++	if (auth.loading) {
++		return { status: 'loading' };
++	}
++	if (!auth.isAuthenticated) {
++		return { status: 'signed-out' };
++	}
++	if (auth.revalidated === false) {
++		return { status: 'loading' };
++	}
++	if (aiConfig.hydrateError) {
++		return { status: 'unconfigured' };
++	}
++	if (aiConfig.configPending || !aiConfig.hydrated) {
++		return { status: 'loading' };
++	}
++
++	const { config } = aiConfig;
++	if (!config.enabled || !config.apiKey.trim() || !config.model.trim()) {
++		return { status: 'unconfigured' };
++	}
++
++	return {
++		status: 'available',
++		provider: config.provider,
++		model: config.model,
++	};
++}
++
++function startBlockedReasonFor(
++	rivalKind: RivalKind,
++	enginePreflight: EnginePreflight,
++	llmUsability: LlmUsability
++): string | null {
++	const resolved = resolveSetup({
++		rememberedKind: null,
++		enginePreflight,
++		llmUsability,
++		setupTouched: false,
++		explicitKind: rivalKind,
++	});
++	if (!resolved.startBlockedReason) {
++		return null;
++	}
++	if (resolved.startBlockedReason === 'engine-unsupported') {
++		return enginePreflight.status === 'unsupported'
++			? enginePreflight.message
++			: startBlockedMessages['engine-unsupported'];
++	}
++	return startBlockedMessages[resolved.startBlockedReason];
++}
++
++function setupForResolution(
++	preferences: RivalPreferencesV1,
++	resolution: ResolvedSetupKind
++): GameSetup {
++	return {
++		rivalKind: resolution.kind,
++		humanSide: preferences.humanSideByRival[resolution.kind],
++	};
++}
++
++function setupsEqual(left: GameSetup, right: GameSetup): boolean {
++	return (
++		left.rivalKind === right.rivalKind && left.humanSide === right.humanSide
++	);
++}
++
++function visibleFallbackNotice(
++	notice: FallbackNotice | undefined,
++	clearedNotice: FallbackNotice | null
++): FallbackNotice | null {
++	if (!notice || notice === clearedNotice) {
++		return null;
++	}
++	return notice;
++}
++
++export function useChessRivalSetup({
++	auth,
++	aiConfig,
++	isGameActive = false,
++	isStarting = false,
++	storage,
++	enginePreflight: injectedEnginePreflight,
++	engineEnvironment,
++	onSetupChange,
++}: UseChessRivalSetupOptions): UseChessRivalSetupResult {
++	const storageRef = useRef<RivalPreferenceStorage | null>(null);
++	const setupTouchedRef = useRef(false);
++	const explicitKindRef = useRef<RivalKind | null>(null);
++	const rememberedKindRef = useRef<RivalKind | null>(null);
++	const clearedFallbackNoticeRef = useRef<FallbackNotice | null>(null);
++	const [resolved, setResolved] = useState(false);
++	const [preferences, setPreferences] = useState<RivalPreferencesV1>(() =>
++		createDefaultRivalPreferences()
++	);
++	const [setup, setSetup] = useState<GameSetup>(defaultSetup);
++	const [fallbackNotice, setFallbackNotice] = useState<FallbackNotice | null>(
++		null
++	);
++
++	const enginePreflight = useMemo(
++		() => injectedEnginePreflight ?? runEnginePreflight(engineEnvironment),
++		[injectedEnginePreflight, engineEnvironment]
++	);
++	const llmUsability = useMemo(
++		() => resolveLlmUsability(auth, aiConfig),
++		[auth, aiConfig]
++	);
++
++	useEffect(() => {
++		let canceled = false;
++		queueMicrotask(() => {
++			if (canceled) {
++				return;
++			}
++			const clientStorage = getClientStorage(storage);
++			storageRef.current = clientStorage;
++			const { preferences: storedPreferences, rememberedKind } =
++				readPreferencesOnce(clientStorage);
++			const initialResolution = resolveSetup({
++				rememberedKind,
++				enginePreflight,
++				llmUsability,
++				setupTouched: false,
++				explicitKind: null,
++			});
++
++			rememberedKindRef.current = rememberedKind;
++			setPreferences(storedPreferences);
++			setSetup(setupForResolution(storedPreferences, initialResolution));
++			setFallbackNotice(
++				visibleFallbackNotice(
++					initialResolution.notice,
++					clearedFallbackNoticeRef.current
++				)
++			);
++			setResolved(true);
++		});
++
++		return () => {
++			canceled = true;
++		};
++		// Preference hydration is intentionally client-mount-only. Later auth,
++		// AI config, and preflight changes are handled by the follow-up effect.
++	}, []);
++
++	useEffect(() => {
++		if (!resolved) {
++			return;
++		}
++		if (!setupTouchedRef.current && (isGameActive || isStarting)) {
++			return;
++		}
++
++		const resolution = resolveSetup({
++			rememberedKind: rememberedKindRef.current,
++			enginePreflight,
++			llmUsability,
++			setupTouched: setupTouchedRef.current,
++			explicitKind: explicitKindRef.current,
++		});
++		const nextSetup = setupForResolution(preferences, resolution);
++
++		setSetup(current =>
++			setupsEqual(current, nextSetup) ? current : nextSetup
++		);
++		setFallbackNotice(
++			visibleFallbackNotice(resolution.notice, clearedFallbackNoticeRef.current)
++		);
++	}, [
++		enginePreflight,
++		isGameActive,
++		isStarting,
++		llmUsability,
++		preferences,
++		resolved,
++	]);
++
++	const selectRival = useCallback(
++		(kind: RivalKind) => {
++			setupTouchedRef.current = true;
++			explicitKindRef.current = kind;
++			clearedFallbackNoticeRef.current = null;
++			setFallbackNotice(null);
++
++			const nextPreferences: RivalPreferencesV1 = {
++				...preferences,
++				lastRivalKind: kind,
++			};
++			const nextSetup: GameSetup = {
++				rivalKind: kind,
++				humanSide: nextPreferences.humanSideByRival[kind],
++			};
++
++			if (storageRef.current) {
++				persistRivalKind(storageRef.current, kind);
++			}
++			rememberedKindRef.current = kind;
++			setPreferences(nextPreferences);
++			setSetup(nextSetup);
++			onSetupChange?.(nextSetup);
++		},
++		[onSetupChange, preferences]
++	);
++
++	const selectHumanSide = useCallback(
++		(side: ChessSide) => {
++			setupTouchedRef.current = true;
++			explicitKindRef.current = setup.rivalKind;
++			clearedFallbackNoticeRef.current = null;
++			setFallbackNotice(null);
++
++			const nextPreferences: RivalPreferencesV1 = {
++				...preferences,
++				humanSideByRival: {
++					...preferences.humanSideByRival,
++					[setup.rivalKind]: side,
++				},
++			};
++			const nextSetup: GameSetup = {
++				...setup,
++				humanSide: side,
++			};
++
++			if (storageRef.current) {
++				persistHumanSide(storageRef.current, setup.rivalKind, side);
++			}
++			setPreferences(nextPreferences);
++			setSetup(nextSetup);
++			onSetupChange?.(nextSetup);
++		},
++		[onSetupChange, preferences, setup]
++	);
++
++	const clearFallbackNotice = useCallback(() => {
++		setFallbackNotice(current => {
++			clearedFallbackNoticeRef.current = current;
++			return null;
++		});
++	}, []);
++
++	return {
++		resolved,
++		setup,
++		enginePreflight,
++		llmUsability,
++		fallbackNotice,
++		startBlockedReason: startBlockedReasonFor(
++			setup.rivalKind,
++			enginePreflight,
++			llmUsability
++		),
++		selectRival,
++		selectHumanSide,
++		clearFallbackNotice,
++	};
++}
+-- 
+2.43.0
+

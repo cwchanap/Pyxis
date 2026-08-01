@@ -1,0 +1,26 @@
+From 3356fd929b1652ec469972fb3b07cb38a5bad433 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 04:01:08 +0000
+Subject: [PATCH 23/23] fix(chess): type fake Stockfish Worker for e2e
+
+---
+ apps/web/e2e/chess-rival.spec.ts | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/apps/web/e2e/chess-rival.spec.ts b/apps/web/e2e/chess-rival.spec.ts
+index f2f430d..bc9ca6f 100644
+--- a/apps/web/e2e/chess-rival.spec.ts
++++ b/apps/web/e2e/chess-rival.spec.ts
+@@ -138,7 +138,8 @@ async function installFakeStockfish(
+ 					o?: unknown
+ 				) => unknown)(url, options);
+ 			} as unknown as typeof Worker;
+-			WorkerProxy.prototype = FakeStockfishWorker.prototype;
++			WorkerProxy.prototype =
++				FakeStockfishWorker.prototype as unknown as Worker;
+ 			window.Worker = WorkerProxy;
+ 		},
+ 		{ cfg: config, marker: STOCKFISH_ASSET_MARKER }
+-- 
+2.43.0
+

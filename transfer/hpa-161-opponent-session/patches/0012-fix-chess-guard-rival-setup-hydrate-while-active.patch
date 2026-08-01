@@ -1,0 +1,101 @@
+From a8cfc7a052878b154f158712f798271cbe7d2a1a Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 1 Aug 2026 01:26:10 +0000
+Subject: [PATCH 12/23] fix(chess): guard rival setup hydrate while active
+
+---
+ .../web/src/hooks/useChessRivalSetup.test.tsx | 53 +++++++++++++++++++
+ apps/web/src/hooks/useChessRivalSetup.ts      | 10 ++--
+ 2 files changed, 60 insertions(+), 3 deletions(-)
+
+diff --git a/apps/web/src/hooks/useChessRivalSetup.test.tsx b/apps/web/src/hooks/useChessRivalSetup.test.tsx
+index 74dc2fd..f7f3b61 100644
+--- a/apps/web/src/hooks/useChessRivalSetup.test.tsx
++++ b/apps/web/src/hooks/useChessRivalSetup.test.tsx
+@@ -363,6 +363,59 @@ describe('useChessRivalSetup', () => {
+ 		expect(result.current.setup.rivalKind).toBe('engine');
+ 	});
+ 
++	test('initial hydration does not auto-switch while a game is already active', async () => {
++		const memory = createStorage();
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(
++				createOptions({
++					auth: signedInAuth,
++					aiConfig: availableAiConfig,
++					storage: memory.storage,
++					isGameActive: true,
++				})
++			)
++		);
++
++		await waitForResolved(result);
++
++		expect(result.current.setup).toEqual({
++			rivalKind: 'engine',
++			humanSide: 'white',
++		});
++		expect(result.current.fallbackNotice).toBeNull();
++		expect(memory.setItemCount()).toBe(0);
++	});
++
++	test('initial hydration does not emit fallback notices while a game is already starting', async () => {
++		const memory = createStorage(
++			storedPreferences({
++				lastRivalKind: 'llm',
++				humanSideByRival: { engine: 'white', llm: 'black' },
++			})
++		);
++
++		const { result } = renderHook(() =>
++			useChessRivalSetup(
++				createOptions({
++					aiConfig: unconfiguredAiConfig,
++					storage: memory.storage,
++					isStarting: true,
++				})
++			)
++		);
++
++		await waitForResolved(result);
++
++		expect(result.current.setup).toEqual({
++			rivalKind: 'llm',
++			humanSide: 'black',
++		});
++		expect(result.current.fallbackNotice).toBeNull();
++		expect(result.current.startBlockedReason).toContain('configure');
++		expect(memory.setItemCount()).toBe(0);
++	});
++
+ 	test('preflight performs no fetch or Worker creation', async () => {
+ 		const fetchSpy = mock(() =>
+ 			Promise.resolve(new Response('', { status: 200 }))
+diff --git a/apps/web/src/hooks/useChessRivalSetup.ts b/apps/web/src/hooks/useChessRivalSetup.ts
+index 5ca58e1..78d7435 100644
+--- a/apps/web/src/hooks/useChessRivalSetup.ts
++++ b/apps/web/src/hooks/useChessRivalSetup.ts
+@@ -246,12 +246,16 @@ export function useChessRivalSetup({
+ 			storageRef.current = clientStorage;
+ 			const { preferences: storedPreferences, rememberedKind } =
+ 				readPreferencesOnce(clientStorage);
++			const automaticResolutionAllowed =
++				!setupTouchedRef.current && !isGameActive && !isStarting;
++			const fixedKind =
++				explicitKindRef.current ?? rememberedKind ?? defaultSetup.rivalKind;
+ 			const initialResolution = resolveSetup({
+-				rememberedKind,
++				rememberedKind: automaticResolutionAllowed ? rememberedKind : fixedKind,
+ 				enginePreflight,
+ 				llmUsability,
+-				setupTouched: false,
+-				explicitKind: null,
++				setupTouched: !automaticResolutionAllowed,
++				explicitKind: automaticResolutionAllowed ? null : fixedKind,
+ 			});
+ 
+ 			rememberedKindRef.current = rememberedKind;
+-- 
+2.43.0
+
