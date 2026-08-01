@@ -3266,6 +3266,23 @@ extension BattleScene {
         isConquestReportFitFailed = value
     }
 
+    var isConquestReportFitFailedForTesting: Bool {
+        isConquestReportFitFailed
+    }
+
+    var conquestReportControlCountForTesting: Int {
+        conquestReportNode.nodeCountsForTesting
+    }
+
+    var conquestReportBadgeCountForTesting: Int {
+        conquestReportNode.renderedAchievementSymbolsForTesting.count
+    }
+
+    func repeatDidMoveForTesting() {
+        guard let view else { return }
+        didMove(to: view)
+    }
+
     var cityRemainingPowerForTesting: Int {
         state.cityRemainingPower
     }
