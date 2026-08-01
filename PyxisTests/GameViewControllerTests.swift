@@ -317,11 +317,17 @@ struct GameViewControllerTests {
         #expect(!battle.isGoldBurstVisibleForTesting)
     }
 
-    @Test func mismatchedPendingResultClearsAndRoutesToMapWithoutRelaunch() throws {
+    @Test func mismatchedPendingResultNormalizedAwayByInitAndRoutesToMap() throws {
         // A pending result for city 3 while the current city is 1 is a stale
-        // persisted state. The BattleScene should clear it, persist, and ask
-        // the controller to re-resolve — landing on the Country Map without
-        // requiring a relaunch.
+        // persisted state. KingdomGameState.init normalizes the mismatched
+        // pending result to nil (the city key does not match the current
+        // city), so the saved state already has no pending result and
+        // GameViewController presents the Country Map via normal stage-status
+        // routing. The scene-level mismatch guard in
+        // pendingResultForPresentation is defense-in-depth for a case that
+        // cannot reach it through any normal flow (init normalizes on
+        // construct and decode; completeCurrentCity guards on city match
+        // before setting pendingBattleResult).
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 1,
             cityNumberInCountry: 1,

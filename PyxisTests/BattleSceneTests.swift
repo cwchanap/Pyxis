@@ -2720,12 +2720,6 @@ struct BattleSceneTests {
             layoutGateRequestCount += 1
             lastLayoutGateReason = reason
         }
-
-        private(set) var stageReResolutionRequestCount = 0
-
-        func battleSceneDidRequestStageReResolution(_ scene: BattleScene) {
-            stageReResolutionRequestCount += 1
-        }
     }
 
     private final class MockTouch: UITouch {
