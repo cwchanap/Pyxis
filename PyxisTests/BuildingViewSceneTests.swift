@@ -402,9 +402,11 @@ struct BuildingViewSceneTests {
         #expect(savedState.lastBackgroundedAt == nil)
         #expect(scene.feedbackTextForTesting == "Buildings conquered Country 1 - City 1.")
         #expect(!router.didRequestBattle)
+        #expect(router.battleRequestCount == 0)
+        #expect(savedState.pendingBattleResult?.conquestMode == .idle)
     }
 
-    @Test func battleRequestAfterForegroundIdleConquestRoutesToCountryMap() throws {
+    @Test func battleRequestAfterForegroundIdleConquestRoutesToBattleSceneWithPendingReport() throws {
         let size = CGSize(width: 390, height: 844)
         let start = Date(timeIntervalSinceNow: -1_000)
         var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
@@ -416,10 +418,31 @@ struct BuildingViewSceneTests {
         let scene = makeScene(size: size, store: store, router: controller)
 
         NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+        #expect(store.load().pendingBattleResult?.conquestMode == .idle)
         scene.requestBattleForTesting()
 
         #expect(store.load().stageStatus == .cityConqueredPendingMap)
-        #expect(view.scene is CountryMapScene)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(view.scene is BattleScene)
+    }
+
+    @Test func battleRequestCreatesPendingResultBeforeRoutingThroughRouteSpy() throws {
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1, lastBackgroundedAt: start)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+        #expect(router.battleRequestCount == 0)
+        #expect(store.load().pendingBattleResult?.conquestMode == .idle)
+        #expect(scene.feedbackTextForTesting.contains("conquered"))
+
+        scene.requestBattleForTesting()
+
+        #expect(router.battleRequestCount == 1)
+        #expect(store.load().pendingBattleResult != nil)
     }
 
     @Test func compactLandscapeLayoutKeepsGridBetweenPanelsAndAwayFromButtons() throws {
@@ -684,9 +707,11 @@ struct BuildingViewSceneTests {
 
     private final class RouteSpy: BuildingViewSceneRouting {
         private(set) var didRequestBattle = false
+        private(set) var battleRequestCount = 0
 
         func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) {
             didRequestBattle = true
+            battleRequestCount += 1
         }
     }
 }

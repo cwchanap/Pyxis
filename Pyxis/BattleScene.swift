@@ -205,6 +205,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var lastConquestReportOriginForTestingStorage: ConquestReportPresentationOrigin?
     private var conquestEffectPresentationCountForTestingStorage = 0
     private var lastGoldBurstAnchorForTestingStorage: CGPoint?
+    private var lastConquestReportLayoutInputForTestingStorage: ConquestReportLayout.Input?
     #endif
 
     private var feedbackText = ""
@@ -2685,7 +2686,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func conquestReportLayout(for content: ConquestReportContent) -> ConquestReportLayout? {
         let metrics = layoutMetrics()
         let insets = view?.safeAreaInsets ?? .zero
-        return .compute(.init(
+        let input = ConquestReportLayout.Input(
             sceneSize: size,
             safeAreaInsets: .init(top: insets.top, left: insets.left,
                                   bottom: insets.bottom, right: insets.right),
@@ -2693,7 +2694,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             summaryRowCount: content.summaryLines.count,
             achievementCount: content.achievements.count,
             compactHeight: metrics.compactHeight
-        ))
+        )
+        #if DEBUG
+        lastConquestReportLayoutInputForTestingStorage = input
+        #endif
+        return .compute(input)
     }
 
     @discardableResult
@@ -3251,6 +3256,14 @@ extension BattleScene {
 
     var isConquestContinueEnabledForTesting: Bool {
         isConquestContinueEnabled
+    }
+
+    var lastConquestReportLayoutInputForTesting: ConquestReportLayout.Input? {
+        lastConquestReportLayoutInputForTestingStorage
+    }
+
+    func setConquestReportFitFailedForTesting(_ value: Bool) {
+        isConquestReportFitFailed = value
     }
 
     var cityRemainingPowerForTesting: Int {
