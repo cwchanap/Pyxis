@@ -11,6 +11,13 @@ struct ConquestReportContent: Equatable {
     let summaryLines: [String]
     let achievements: [Achievement]
 
+    /// Index of the "Gold earned" line within `summaryLines`. `project`
+    /// always emits gold first, so this is 0; exposing it keeps the gold-burst
+    /// anchor coupled to the gold line's semantic identity rather than to a
+    /// positional assumption that would silently drift if the line order
+    /// ever changed.
+    static let goldLineIndex = 0
+
     static func project(
         from result: BattleResult,
         cityTitle: String,
@@ -43,7 +50,16 @@ struct ConquestReportContent: Equatable {
     }
 
     private static func durationText(_ raw: TimeInterval) -> String {
-        let total = Int(ActiveSiegeSession.normalizedActiveBattleSeconds(raw))
+        let normalized = ActiveSiegeSession.normalizedActiveBattleSeconds(raw)
+        // Int(normalized) traps when normalized exceeds Int's representable
+        // range. `normalized` is already finite and non-negative, so the only
+        // remaining overflow is a finite value above Int.max. Saturate it:
+        // TimeInterval(Int.max) rounds up to 2^63 (the first Double outside
+        // Int's range), so any value >= that threshold clamps to Int.max,
+        // and every smaller Double converts safely. Formatting a saturated
+        // value yields an enormous hour count, which is the intended display
+        // for a corrupted/oversized persisted duration.
+        let total = normalized >= TimeInterval(Int.max) ? Int.max : Int(normalized)
         let hours = total / 3_600
         let minutes = (total % 3_600) / 60
         let seconds = total % 60

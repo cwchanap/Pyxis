@@ -59,11 +59,17 @@ struct ConquestReportNodeTests {
         let scene = SKScene(size: .init(width: 393, height: 852))
         let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
         scene.addChild(node)
+        let content = fullContent()
         let layout = try reportLayout(rows: 4, achievements: 2)
-        _ = node.apply(content: fullContent(), layout: layout, isContinueEnabled: true)
+        _ = node.apply(content: content, layout: layout, isContinueEnabled: true)
         #expect(node.renderedAchievementSymbolsForTesting == ["checkmark.shield.fill", "shield.slash.fill"])
-        let firstRow = layout.summaryRowFrames[0]
-        #expect(node.goldEffectAnchor(in: scene) == CGPoint(x: firstRow.midX, y: firstRow.midY))
+        // The gold burst anchors to the row selected by the gold line's
+        // semantic index, not a positional assumption. Verify the selected
+        // row is the one whose copy is the gold line.
+        let goldIndex = ConquestReportContent.goldLineIndex
+        #expect(content.summaryLines[goldIndex].hasPrefix("Gold earned:"))
+        let goldRow = layout.summaryRowFrames[goldIndex]
+        #expect(node.goldEffectAnchor(in: scene) == CGPoint(x: goldRow.midX, y: goldRow.midY))
     }
 
     @Test func disabledContinueAndFitFailureHaveNoHitTarget() throws {
@@ -72,6 +78,11 @@ struct ConquestReportNodeTests {
         _ = disabled.apply(content: fullContent(), layout: layout, isContinueEnabled: false)
         let continueCenter = CGPoint(x: layout.continueFrame.midX, y: layout.continueFrame.midY)
         #expect(!disabled.containsContinue(continueCenter))
+        // Disabled Continue is visually dimmed relative to the enabled state.
+        let enabled = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
+        _ = enabled.apply(content: fullContent(), layout: layout, isContinueEnabled: true)
+        #expect(disabled.continueBackgroundAlphaForTesting < enabled.continueBackgroundAlphaForTesting)
+        #expect(enabled.continueBackgroundAlphaForTesting == 1.0)
 
         let failing = ConquestReportNode(textWidth: { text, _, _ in CGFloat(text.count) * 100 })
         let result = failing.apply(content: fullContent(), layout: layout, isContinueEnabled: true)

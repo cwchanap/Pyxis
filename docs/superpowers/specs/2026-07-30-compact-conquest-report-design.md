@@ -63,7 +63,7 @@ When both MVP fields are present, the soldier name uses `SoldierType.displayName
 
 ### Duration formatting
 
-Normalize to a finite, non-negative value, truncate fractional seconds, and format with unbounded hours; do not convert hours to days.
+Normalize to a finite, non-negative value, saturate to `Int.max` before truncating so a finite value above `Int`'s representable range (e.g. a corrupted persisted duration) cannot trap the `Int(_:)` conversion, truncate fractional seconds, and format with unbounded hours; do not convert hours to days.
 
 Rules:
 
@@ -497,7 +497,7 @@ Continue performs this exact synchronous sequence:
 
 1. Guard report visible, Continue enabled, pending result present, router available, and no fit failure.
 2. Set `isConquestContinueEnabled = false`.
-3. Reapply/dim the node so Continue becomes immediately non-interactive.
+3. Reapply/dim the node so Continue becomes immediately non-interactive. If this reapplication fails (layout fit), abort the transaction: preserve `state.pendingBattleResult`, restore `isConquestContinueEnabled = true`, and perform none of steps 4–6. The fit-failure flag stays set so the player can retry once a supported resize recovers geometry.
 4. Call `state.acknowledgePendingBattleResult()`.
 5. Call `store.save(state)`.
 6. Request one Country Map route.
@@ -563,8 +563,8 @@ The report node exposes geometry only; it never starts effects.
 - Side-inset fixture using insets sourced from the view adapter.
 - `nil` for insufficient safe width or safe height.
 - All successful frames contained by safe region.
-- No row/badge/Continue overlap.
-- Complete Continue hit frame visible.
+- No row/badge/Continue overlap: ordered, non-overlapping summary rows (each row's `maxY` ≤ the row above's `minY`); separation between the last summary row and the achievement badge strip (`strip.maxY` ≤ `lastRow.minY`).
+- Complete Continue hit frame visible: `continueFrame` is both the visual background and the enabled hit target, so it must be contained by the safe region.
 
 ### `ConquestReportNodeTests`
 
@@ -575,7 +575,7 @@ The report node exposes geometry only; it never starts effects.
 - Required-content failure when title or a row cannot fit.
 - Enabled/disabled Continue appearance and hit behavior.
 - Layout-only reapply preserves disabled Continue.
-- Gold effect anchor equals first row center in requested coordinates.
+- Gold effect anchor equals the `ConquestReportContent.goldLineIndex` row center in requested coordinates, and that row's copy is the gold line (semantic, not positional).
 - SF Symbol badges appear in fixed order when achievements are present.
 
 ### `BattleSceneTests`
@@ -585,7 +585,7 @@ The report node exposes geometry only; it never starts effects.
 - Restored report is static and starts with Continue enabled.
 - First-versus-repeated `didMove` is deduplicated by the scene-local flag.
 - Building View pending result enters as restored with no effects.
-- Mismatched pending result DEBUG assertion/no-op seam.
+- Mismatched pending result DEBUG assertion, then acknowledge-and-persist so the stale result cannot re-launch BattleScene and re-fail on every subsequent presentation; normal stage-status routing proceeds.
 - Gold burst uses the node-provided anchor.
 - Resize/redraw duplicates neither controls nor effects.
 - Resize/redraw cannot re-enable Continue after transaction start.

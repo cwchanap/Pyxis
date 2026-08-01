@@ -526,6 +526,13 @@ struct ConquestReportContent: Equatable {
     let summaryLines: [String]
     let achievements: [Achievement]
 
+    /// Index of the "Gold earned" line within `summaryLines`. `project`
+    /// always emits gold first, so this is 0; exposing it keeps the gold-burst
+    /// anchor coupled to the gold line's semantic identity rather than to a
+    /// positional assumption that would silently drift if the line order
+    /// ever changed.
+    static let goldLineIndex = 0
+
     static func project(
         from result: BattleResult,
         cityTitle: String,
@@ -558,7 +565,13 @@ struct ConquestReportContent: Equatable {
     }
 
     private static func durationText(_ raw: TimeInterval) -> String {
-        let total = Int(ActiveSiegeSession.normalizedActiveBattleSeconds(raw))
+        let normalized = ActiveSiegeSession.normalizedActiveBattleSeconds(raw)
+        // Saturate to Int.max before converting so a finite value above Int's
+        // representable range (e.g. a corrupted persisted duration) cannot
+        // trap the Int(_:) conversion. TimeInterval(Int.max) rounds up to
+        // 2^63, the first Double outside Int's range, so any value >= that
+        // threshold clamps to Int.max and every smaller Double converts safely.
+        let total = normalized >= TimeInterval(Int.max) ? Int.max : Int(normalized)
         let hours = total / 3_600
         let minutes = (total % 3_600) / 60
         let seconds = total % 60
@@ -636,6 +649,22 @@ Use the exact ten fixture sizes/insets from the design and these required assert
         #expect(layout.summaryRowFrames.allSatisfy { layout.panelFrame.contains($0) })
         #expect(layout.achievementStripFrame.map { layout.panelFrame.contains($0) } ?? true)
         #expect(layout.panelFrame.contains(layout.continueFrame))
+        // Ordered, non-overlapping summary rows (higher index = lower Y).
+        for index in 1..<layout.summaryRowFrames.count {
+            let upper = layout.summaryRowFrames[index - 1]
+            let lower = layout.summaryRowFrames[index]
+            #expect(lower.maxY <= upper.minY)
+        }
+        // Separation between the summary rows and the achievement badge strip.
+        if let strip = layout.achievementStripFrame {
+            let lastRow = try #require(layout.summaryRowFrames.last)
+            #expect(strip.maxY <= lastRow.minY)
+        }
+        // Complete Continue hit frame contained by the safe region.
+        // continueFrame is both the visual background and the enabled hit
+        // target (ConquestReportNode.continueHitFrame), so this is the
+        // complete hit-frame containment check.
+        #expect(layout.safeFrame.contains(layout.continueFrame))
     }
 }
 
@@ -758,10 +787,16 @@ final class ConquestReportNode: SKNode {
     let scene = SKScene(size: .init(width: 393, height: 852))
     let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
     scene.addChild(node)
+    let content = fullContent()
     let layout = try reportLayout(rows: 4, achievements: 2)
-    _ = node.apply(content: fullContent(), layout: layout, isContinueEnabled: true)
+    _ = node.apply(content: content, layout: layout, isContinueEnabled: true)
     #expect(node.renderedAchievementSymbolsForTesting == ["checkmark.shield.fill", "shield.slash.fill"])
-    #expect(node.goldEffectAnchor(in: scene) == CGPoint(x: layout.summaryRowFrames[0].midX, y: layout.summaryRowFrames[0].midY))
+    // The gold burst anchors to the row selected by the gold line's semantic
+    // index, not a positional assumption; verify the selected row is the
+    // one whose copy is the gold line.
+    let goldIndex = ConquestReportContent.goldLineIndex
+    #expect(content.summaryLines[goldIndex].hasPrefix("Gold earned:"))
+    #expect(node.goldEffectAnchor(in: scene) == CGPoint(x: layout.summaryRowFrames[goldIndex].midX, y: layout.summaryRowFrames[goldIndex].midY))
 }
 
 @Test func disabledContinueAndFitFailureHaveNoHitTarget() throws {
@@ -817,7 +852,7 @@ for (line, frame) in zip(content.summaryLines, layout.summaryRowFrames) {
 }
 ```
 
-Map achievements to exact symbol names, load with `UIImage(systemName:)`, assert in DEBUG if unavailable, render in fixed order, and hide unused sprites. `renderContinue` assigns the hit frame only when enabled. `failApply` hides the node and clears Continue/gold geometry. Use `SingleLineTextFitter` and a production width closure based on `UIFont`/`NSString`.
+Map achievements to exact symbol names, load with `UIImage(systemName:)`, assert in DEBUG if unavailable, render in fixed order, and hide unused sprites. `renderContinue` assigns the hit frame only when enabled and dims the Continue background/label (alpha 0.5) when disabled. `failApply` hides the node and clears Continue/gold geometry. Use `SingleLineTextFitter` and a production width closure based on `UIFont`/`NSString`.
 
 Add a DEBUG extension exposing only the readbacks used by the tests above.
 
@@ -903,6 +938,11 @@ private func pendingResultForPresentation() -> BattleResult? {
     guard let result = state.pendingBattleResult else { return nil }
     guard Self.isPendingResultPresentable(result, currentCityKey: state.currentCityKey) else {
         assertionFailure("Pending BattleResult city does not match current city")
+        // Clear and persist the stale result so it cannot re-launch
+        // BattleScene and re-fail on every subsequent presentation; normal
+        // stage-status routing then proceeds.
+        state.acknowledgePendingBattleResult()
+        store.save(state)
         return nil
     }
     return result
@@ -1158,7 +1198,15 @@ private func continueFromConquestReport() {
           state.pendingBattleResult != nil,
           let router else { return }
     isConquestContinueEnabled = false
-    _ = applyPendingConquestReport(resetsContinueState: false)
+    // Reapply with Continue disabled so the node re-renders dimmed and drops
+    // its hit target. If that re-fit fails (e.g. the safe area shrank between
+    // presentation and the tap), abort the transaction: keep the pending
+    // result, restore Continue, and stay on the battle scene so the player
+    // can retry once geometry recovers. Do not acknowledge, save, or route.
+    guard applyPendingConquestReport(resetsContinueState: false) else {
+        isConquestContinueEnabled = true
+        return
+    }
     state.acknowledgePendingBattleResult()
     store.save(state)
     router.battleSceneDidRequestCountryMap(self)
