@@ -13,6 +13,7 @@ protocol BattleSceneRouting: AnyObject {
     func battleSceneDidRequestCountryMap(_ scene: BattleScene)
     func battleSceneDidRequestBuildingView(_ scene: BattleScene)
     func battleScene(_ scene: BattleScene, didRequestLayoutGate reason: AppLayoutGateReason)
+    func battleSceneDidRequestStageReResolution(_ scene: BattleScene)
 }
 
 final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
@@ -2677,9 +2678,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // presentation (GameViewController routes on a non-nil pending
             // result regardless of stageStatus). Clear and persist it so the
             // app falls back to normal stage-status routing instead of
-            // looping on the unpresentable result.
+            // looping on the unpresentable result. Then ask the controller to
+            // re-resolve the scene from the persisted state so the current
+            // session is not left on an inert BattleScene (combat blocked by
+            // stage, navigation blocked by stage) until the next relaunch.
             state.acknowledgePendingBattleResult()
             store.save(state)
+            router?.battleSceneDidRequestStageReResolution(self)
             return nil
         }
         return result

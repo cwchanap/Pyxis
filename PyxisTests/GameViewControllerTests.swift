@@ -317,20 +317,54 @@ struct GameViewControllerTests {
         #expect(!battle.isGoldBurstVisibleForTesting)
     }
 
-    @Test func battleReportFitFailureGatesControllerImmediatelyAndRecovers() throws {
-        let store = try makeStore(initialState: pendingConqueredState(city: 3))
+    @Test func mismatchedPendingResultClearsAndRoutesToMapWithoutRelaunch() throws {
+        // A pending result for city 3 while the current city is 1 is a stale
+        // persisted state. The BattleScene should clear it, persist, and ask
+        // the controller to re-resolve — landing on the Country Map without
+        // requiring a relaunch.
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 1,
+            cityNumberInCountry: 1,
+            completedCityCount: 0,
+            stageStatus: .cityConqueredPendingMap,
+            pendingBattleResult: pendingResult(city: 3)
+        ))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        #expect(view.scene is CountryMapScene)
+        #expect(store.load().pendingBattleResult == nil)
+    }
+
+    @Test func liveConquestFitFailureGatesControllerViaCallbackOnly() throws {
+        // Start with an active battle (no pending result) and normal insets.
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 1
+        ))
         let controller = GameViewController(store: store)
         let view = SafeAreaOverridingSKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        // A top inset that leaves no vertical room inside the safe frame makes
-        // the conquest report genuinely unrenderable (compute returns nil), so
-        // presentation fails through the real layout/node pipeline.
-        view.overrideInsets = UIEdgeInsets(top: 1_000, left: 0, bottom: 0, right: 0)
         controller.view = view
         controller.viewDidLoad()
         let battle = try #require(view.scene as? BattleScene)
 
-        // The failure propagates to the controller gate through the routing
-        // callback as it happens — no manual refreshLayoutSupport() needed.
+        // No gate with normal insets and no fit failure.
+        #expect(controller.layoutGateReasonForTesting == nil)
+        #expect(!battle.isConquestReportFitFailedForTesting)
+
+        // Shrink the safe area so the conquest report cannot render. The inset
+        // change alone does NOT gate — no layout refresh has been called since
+        // viewDidLoad, so the controller has not re-evaluated.
+        view.overrideInsets = UIEdgeInsets(top: 1_000, left: 0, bottom: 0, right: 0)
+        #expect(controller.layoutGateReasonForTesting == nil)
+
+        // Trigger a live conquest. The report fit fails inside the combat
+        // tick, and the scene's didRequestLayoutGate callback fires
+        // synchronously — gating the controller without any manual refresh.
+        battle.spawnSoldierForTesting()
+        battle.advanceCombatForTesting(deltaTime: 3.0)
+
         #expect(battle.isConquestReportFitFailedForTesting)
         #expect(controller.layoutGateReasonForTesting == .unsupportedGeometry)
         #expect(view.isPaused)

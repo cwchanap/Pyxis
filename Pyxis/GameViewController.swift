@@ -218,6 +218,14 @@ extension GameViewController: BattleSceneRouting {
         requestedMapGateReason = reason
         refreshLayoutSupport()
     }
+
+    func battleSceneDidRequestStageReResolution(_ scene: BattleScene) {
+        guard let view = self.view as? SKView else {
+            return
+        }
+
+        presentSceneForCurrentStage(in: view)
+    }
 }
 
 extension GameViewController: CountryMapSceneRouting {
