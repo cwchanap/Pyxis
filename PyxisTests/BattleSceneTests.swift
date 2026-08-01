@@ -1660,40 +1660,9 @@ struct BattleSceneTests {
         #expect(!scene.isGoldBurstRemovalScheduledForTesting)
     }
 
-    @Test func closingConquestPopupRequestsCountryMapRoute() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-
-        scene.spawnSoldierForTesting()
-        scene.advanceCombatForTesting(deltaTime: 3.0)
-
-        #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(!router.didRequestCountryMap)
-
-        scene.closeConquestPopupForTesting()
-
-        #expect(!scene.isConquestPopupVisibleForTesting)
-        #expect(router.didRequestCountryMap)
-    }
-
-    @Test func closingConquestPopupWithoutRouterKeepsPopupVisible() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
-        let scene = makeScene(store: store)
-
-        scene.spawnSoldierForTesting()
-        scene.advanceCombatForTesting(deltaTime: 3.0)
-
-        #expect(scene.isConquestPopupVisibleForTesting)
-
-        scene.closeConquestPopupForTesting()
-
-        #expect(scene.isConquestPopupVisibleForTesting)
-    }
-
     @Test func buildButtonRequestsBuildingViewRoute() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
 
         scene.requestBuildingViewForTesting()
@@ -1703,7 +1672,7 @@ struct BattleSceneTests {
 
     @Test func worldButtonRequestsCountryMapRoute() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
 
         scene.requestCountryMapForTesting()
@@ -1716,7 +1685,7 @@ struct BattleSceneTests {
         var initialState = KingdomGameState(gold: 100, cityRemainingPower: 20)
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
         let store = try makeStore(initialState: initialState)
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
 
         scene.spawnSoldierForTesting()
@@ -1740,7 +1709,7 @@ struct BattleSceneTests {
                 cityBattleStates: [cityKey.storageKey: cityState]
             )
         )
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
 
         // Advance combat to trigger a building spawn
@@ -2280,7 +2249,7 @@ struct BattleSceneTests {
         // so tapping a HUD info button (gold/city) while the conquest popup
         // overlayed the scene could present a tooltip rendered behind the popup.
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
 
         // Fresh scene: no tooltip presented yet.
@@ -2298,9 +2267,10 @@ struct BattleSceneTests {
         #expect(!scene.isFeedbackTooltipVisibleForTesting)
         #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
 
-        // After the popup closes, info tooltips work again. A router is required
-        // for `closeConquestPopup` to complete its routing handoff.
-        scene.closeConquestPopupForTesting()
+        // After the overlay lifts, info tooltips work again. This resets only
+        // the report-gated state — it is NOT the production Continue path
+        // (which is covered by `touchesEndedContinueDisablesAndRoutes`).
+        scene.forceDismissConquestOverlayForTesting()
         #expect(!scene.isConquestPopupVisibleForTesting)
         scene.handleInfoButtonForTesting(named: scene.cityInfoButtonNameForTesting)
         #expect(scene.isFeedbackTooltipVisibleForTesting)
@@ -2640,7 +2610,7 @@ struct BattleSceneTests {
         }
     }
 
-    private final class RouteSpy: BattleSceneRouting {
+    private final class BattleRouterSpy: BattleSceneRouting {
         private(set) var didRequestCountryMap = false
         private(set) var didRequestBuildingView = false
         private(set) var countryMapRequestCount = 0
@@ -2658,8 +2628,6 @@ struct BattleSceneTests {
             buildingRequestCount += 1
         }
     }
-
-    private typealias BattleRouterSpy = RouteSpy
 
     private final class MockTouch: UITouch {
         private let loc: CGPoint
@@ -2921,7 +2889,7 @@ struct BattleSceneTests {
 
     @Test func touchesEndedEmptyTouchesDoesNothing() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         let liveCountBefore = scene.liveSoldierCountForTesting
 
@@ -2945,7 +2913,7 @@ struct BattleSceneTests {
 
     @Test func touchesEndedBuildButtonRequestsBuildingView() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         let frames = try #require(scene.battleLayoutFramesForTesting)
         let point = CGPoint(x: frames.buildButton.midX, y: frames.buildButton.midY)
@@ -2957,7 +2925,7 @@ struct BattleSceneTests {
 
     @Test func touchesEndedWorldButtonRequestsCountryMap() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         let frames = try #require(scene.battleLayoutFramesForTesting)
         let point = CGPoint(x: frames.worldButton.midX, y: frames.worldButton.midY)
@@ -2969,7 +2937,7 @@ struct BattleSceneTests {
 
     @Test func touchesEndedContinueDisablesAndRoutes() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
@@ -3045,7 +3013,7 @@ struct BattleSceneTests {
 
     @Test func requestCountryMapBlocksWithManualSoldiersAlive() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         scene.spawnSoldierForTesting()
 
@@ -3057,7 +3025,7 @@ struct BattleSceneTests {
 
     @Test func requestCountryMapBlocksWhenConquestPopupVisible() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0))
-        let router = RouteSpy()
+        let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)

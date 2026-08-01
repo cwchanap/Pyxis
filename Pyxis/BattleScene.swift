@@ -3450,16 +3450,15 @@ extension BattleScene {
         advanceCombat(deltaTime: deltaTime)
     }
 
-    func closeConquestPopupForTesting() {
-        guard isConquestReportVisible else {
-            return
-        }
-        guard let router else {
-            return
-        }
+    /// Test-only overlay reset that lifts the conquest report's modal block
+    /// without running the production Continue transaction. Use this to leave
+    /// the report-gated state in tests that need to confirm behavior re-enables
+    /// once the overlay is gone (e.g. info tooltips). It does NOT route, save,
+    /// acknowledge, or disable Continue — the real handoff is `handleTouch(at:)`
+    /// → `continueFromConquestReport()`.
+    func forceDismissConquestOverlayForTesting() {
         isConquestReportVisible = false
         conquestReportNode.isHidden = true
-        router.battleSceneDidRequestCountryMap(self)
     }
 
     /// Presents the conquest report flag without requiring a live conquest, so
