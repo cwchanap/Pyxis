@@ -276,6 +276,82 @@ struct GameViewControllerTests {
         #expect(building.layoutInterfaceCallCountForTesting > countBefore)
     }
 
+    @Test func pendingResultWinsOverBothConqueredStagesAtLaunch() throws {
+        for stage in [KingdomGameState.StageStatus.cityConqueredPendingMap, .countryComplete] {
+            let city = stage == .countryComplete ? 15 : 3
+            let store = try makeStore(initialState: pendingConqueredState(city: city, stage: stage))
+            let controller = GameViewController(store: store)
+            let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+            controller.view = view
+            controller.viewDidLoad()
+            #expect(view.scene is BattleScene)
+        }
+    }
+
+    @Test func conqueredStateWithoutPendingStillUsesMap() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 3,
+            completedCityCount: 3,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        #expect(view.scene is CountryMapScene)
+    }
+
+    @Test func buildingViewBattleRequestRestoresPendingIdleReport() throws {
+        let store = try makeStore(initialState: pendingConqueredState(
+            city: 1, stage: .cityConqueredPendingMap, mode: .idle
+        ))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        let building = BuildingViewScene(size: view.bounds.size, store: store, router: controller)
+        controller.buildingViewSceneDidRequestBattle(building)
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        #expect(battle.conquestReportLinesForTesting[1] == "Conquered by your buildings")
+        #expect(!battle.isGoldBurstVisibleForTesting)
+    }
+
+    @Test func battleReportFitFailureUsesExistingGateAndRecovers() throws {
+        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.setConquestReportFitFailedForTesting(true)
+        controller.refreshLayoutSupportForTesting(environment: .init(
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        ))
+        #expect(controller.layoutGateReasonForTesting == .unsupportedGeometry)
+        battle.setConquestReportFitFailedForTesting(false)
+        controller.refreshLayoutSupportForTesting(environment: .init(
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        ))
+        #expect(controller.layoutGateReasonForTesting == nil)
+    }
+
+    @Test func conquestReportLayoutReadsHorizontalSafeAreaInsetsFromView() throws {
+        let store = try makeStore(initialState: pendingConqueredState(city: 3, stage: .cityConqueredPendingMap))
+        let controller = GameViewController(store: store)
+        let view = SafeAreaOverridingSKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        view.overrideInsets = UIEdgeInsets(top: 0, left: 50, bottom: 0, right: 50)
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        let input = try #require(battle.lastConquestReportLayoutInputForTesting)
+        #expect(input.safeAreaInsets.left == 50)
+        #expect(input.safeAreaInsets.right == 50)
+    }
+
     private func makeStore(
         initialState: KingdomGameState
     ) throws -> KingdomGameStore {
@@ -286,4 +362,40 @@ struct GameViewControllerTests {
         store.save(initialState)
         return store
     }
+
+    private func pendingResult(city: Int, mode: BattleConquestMode = .live) -> BattleResult {
+        BattleResult(
+            cityKey: CityKey(countryNumber: 1, cityNumber: city),
+            conquestMode: mode,
+            activeBattleSeconds: 65,
+            deployments: [],
+            appliedDamage: [],
+            losses: [],
+            idleDamageByType: [],
+            mvpSoldierType: nil,
+            mvpDamageSharePercent: nil,
+            usedFavorableUnit: false,
+            usedExposedLane: false,
+            goldEarned: 8
+        )
+    }
+
+    private func pendingConqueredState(
+        city: Int = 1,
+        stage: KingdomGameState.StageStatus = .cityConqueredPendingMap,
+        mode: BattleConquestMode = .live
+    ) -> KingdomGameState {
+        KingdomGameState(
+            cityLevel: city,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            stageStatus: stage,
+            pendingBattleResult: pendingResult(city: city, mode: mode)
+        )
+    }
+}
+
+private final class SafeAreaOverridingSKView: SKView {
+    var overrideInsets: UIEdgeInsets = .zero
+    override var safeAreaInsets: UIEdgeInsets { overrideInsets }
 }

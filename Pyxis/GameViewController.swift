@@ -91,6 +91,11 @@ final class GameViewController: UIViewController {
     private func presentSceneForCurrentStage(in view: SKView) {
         let state = store.load()
 
+        if state.pendingBattleResult != nil {
+            presentBattleScene(in: view)
+            return
+        }
+
         switch state.stageStatus {
         case .battleActive:
             presentBattleScene(in: view)
@@ -139,6 +144,8 @@ final class GameViewController: UIViewController {
         let reason: AppLayoutGateReason?
         if requestedMapGateReason == .mapUnavailable {
             reason = .mapUnavailable
+        } else if let battle = skView.scene as? BattleScene, battle.isConquestReportFitFailed {
+            reason = .unsupportedGeometry
         } else {
             switch layoutResult {
             case .supported:
