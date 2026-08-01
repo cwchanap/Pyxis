@@ -75,6 +75,26 @@ struct ConquestReportLayoutTests {
             #expect(layout.summaryRowFrames.allSatisfy { layout.panelFrame.contains($0) })
             #expect(layout.achievementStripFrame.map { layout.panelFrame.contains($0) } ?? true)
             #expect(layout.panelFrame.contains(layout.continueFrame))
+            // Ordered, non-overlapping summary rows: each row sits strictly
+            // below the one above it (rows are emitted top-to-bottom as the
+            // cursor descends, so a higher index has a lower Y).
+            for index in 1..<layout.summaryRowFrames.count {
+                let upper = layout.summaryRowFrames[index - 1]
+                let lower = layout.summaryRowFrames[index]
+                #expect(lower.maxY <= upper.minY)
+            }
+            // Separation between the summary rows and the achievement badge
+            // strip: the strip sits below the last (lowest) summary row.
+            if let strip = layout.achievementStripFrame {
+                let lastRow = try #require(layout.summaryRowFrames.last)
+                #expect(strip.maxY <= lastRow.minY)
+            }
+            // Complete Continue hit frame containment. continueFrame is both
+            // the visual background and the enabled hit target
+            // (ConquestReportNode.continueHitFrame), so the containment check
+            // above already covers the complete hit frame; assert it again
+            // explicitly against the safe region to document the intent.
+            #expect(layout.safeFrame.contains(layout.continueFrame))
         }
     }
 

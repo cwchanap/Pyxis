@@ -104,6 +104,25 @@ struct ConquestReportContentTests {
             #expect(content.summaryLines[1] == "Battle time: 0s")
         }
     }
+
+    @Test func durationsAboveIntRangeSaturateInsteadOfTrapping() {
+        // A finite Double above Int's representable range must not trap the
+        // Int(_:) conversion; it saturates to Int.max and formats as hours.
+        let oversized: [TimeInterval] = [TimeInterval(Int.max), TimeInterval(Int.max) * 2, 1e308]
+        var produced: [String] = []
+        for seconds in oversized {
+            let content = ConquestReportContent.project(
+                from: makeResult(seconds: seconds),
+                cityTitle: "Country 1 - City 3",
+                isCountryComplete: false
+            )
+            #expect(content.summaryLines[1].hasPrefix("Battle time: "))
+            #expect(content.summaryLines[1].contains("h"))
+            produced.append(content.summaryLines[1])
+        }
+        // All oversized values saturate to the same Int.max-derived string.
+        #expect(produced.allSatisfy { $0 == produced[0] })
+    }
 }
 
 private func makeResult(

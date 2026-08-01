@@ -1638,6 +1638,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         let conqueredCity = damageResult.conqueredCities > 0
+        let damageText = CompactNumberFormatter.string(from: damageResult.damageDealt)
 
         if conqueredCity {
             clearLiveCombat()
@@ -1648,7 +1649,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // damage tick whose tooltip has already faded (dedupe token reset).
             feedbackText = ""
         } else {
-            feedbackText = "Soldiers dealt \(CompactNumberFormatter.string(from: damageResult.damageDealt)) damage."
+            feedbackText = "Soldiers dealt \(damageText) damage."
         }
 
         store.save(state)
@@ -1656,11 +1657,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if conqueredCity {
             if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
-                playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
+                playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint)
                 playCityConquestFeedback()
             }
         } else {
-            playFloatingFeedback(text: "-\(CompactNumberFormatter.string(from: damageResult.damageDealt))", at: enemyCityImpactPoint)
+            playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint)
             playCityHitFeedback()
         }
     }
@@ -2670,6 +2671,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guard let result = state.pendingBattleResult else { return nil }
         guard Self.isPendingResultPresentable(result, currentCityKey: state.currentCityKey) else {
             assertionFailure("Pending BattleResult city does not match current city")
+            // A stale pending result whose city no longer matches the current
+            // city would re-launch BattleScene and re-fail on every subsequent
+            // presentation (GameViewController routes on a non-nil pending
+            // result regardless of stageStatus). Clear and persist it so the
+            // app falls back to normal stage-status routing instead of
+            // looping on the unpresentable result.
+            state.acknowledgePendingBattleResult()
+            store.save(state)
             return nil
         }
         return result
@@ -2752,7 +2761,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
         isConquestContinueEnabled = false
-        _ = applyPendingConquestReport(resetsContinueState: false)
+        // Reapply with Continue disabled so the node re-renders dimmed and
+        // drops its hit target. If that re-fit fails (e.g. the safe area
+        // shrank between presentation and the tap), abort the transaction:
+        // keep the pending result, restore Continue, and stay on the battle
+        // scene so the player can retry once geometry recovers. Do not
+        // acknowledge, save, or route — none of those steps may run.
+        guard applyPendingConquestReport(resetsContinueState: false) else {
+            isConquestContinueEnabled = true
+            return
+        }
         state.acknowledgePendingBattleResult()
         store.save(state)
         router.battleSceneDidRequestCountryMap(self)

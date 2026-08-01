@@ -90,7 +90,8 @@ final class ConquestReportNode: SKNode {
         renderContinue(layout, enabled: isContinueEnabled)
 
         isHidden = false
-        goldAnchor = CGPoint(x: layout.summaryRowFrames[0].midX, y: layout.summaryRowFrames[0].midY)
+        let goldRow = layout.summaryRowFrames[ConquestReportContent.goldLineIndex]
+        goldAnchor = CGPoint(x: goldRow.midX, y: goldRow.midY)
         continueHitFrame = isContinueEnabled ? layout.continueFrame : nil
 
         renderedTitleFontSize = titleSize
@@ -197,6 +198,12 @@ final class ConquestReportNode: SKNode {
         continueLabel.text = "Continue"
         continueLabel.fontSize = layout.continueStartingFontSize
         continueLabel.position = CGPoint(x: layout.continueFrame.midX, y: layout.continueFrame.midY)
+        // Disabled Continue is non-interactive (continueHitFrame is nil) and
+        // also visually dimmed so the disabled state is legible during the
+        // brief window before scene replacement.
+        let continueAlpha: CGFloat = enabled ? 1.0 : 0.5
+        continueBackground.alpha = continueAlpha
+        continueLabel.alpha = continueAlpha
     }
 
     private func failApply() -> ApplyResult {
@@ -313,5 +320,6 @@ extension ConquestReportNode {
     var continueHitFrameForTesting: CGRect? { continueHitFrame }
     var titleFontSizeForTesting: CGFloat { renderedTitleFontSize }
     var summaryFontSizesForTesting: [CGFloat] { renderedSummaryFontSizes }
+    var continueBackgroundAlphaForTesting: CGFloat { continueBackground.alpha }
 }
 #endif
