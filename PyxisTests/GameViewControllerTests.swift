@@ -352,6 +352,24 @@ struct GameViewControllerTests {
         #expect(input.safeAreaInsets.right == 50)
     }
 
+    @Test func compatiblePreReleasePendingResultDisplaysOnce() throws {
+        let store = try makeStore(initialState: pendingConqueredState())
+        let first = GameViewController(store: store)
+        let firstView = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        first.view = firstView
+        first.viewDidLoad()
+        let battle = try #require(firstView.scene as? BattleScene)
+        battle.didMove(to: firstView)
+        battle.tapConquestContinueForTesting()
+        #expect(store.load().pendingBattleResult == nil)
+
+        let second = GameViewController(store: store)
+        let secondView = SKView(frame: firstView.frame)
+        second.view = secondView
+        second.viewDidLoad()
+        #expect(secondView.scene is CountryMapScene)
+    }
+
     private func makeStore(
         initialState: KingdomGameState
     ) throws -> KingdomGameStore {

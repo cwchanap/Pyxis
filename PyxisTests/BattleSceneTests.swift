@@ -1859,6 +1859,82 @@ struct BattleSceneTests {
         ))
     }
 
+    @Test func repeatedDidMoveResizeAndRedrawDoNotDuplicateOrReplay() throws {
+        let scene = makeScene(store: try makeStore(initialState: pendingConqueredState()))
+        let controlCount = scene.conquestReportControlCountForTesting
+        let effects = scene.conquestEffectPresentationCountForTesting
+        scene.repeatDidMoveForTesting()
+        scene.refreshLayoutForCurrentEnvironment()
+        scene.redrawForTesting(shouldLayout: true)
+        #expect(scene.conquestReportControlCountForTesting == controlCount)
+        #expect(scene.conquestEffectPresentationCountForTesting == effects)
+    }
+
+    @Test func zeroDeploymentLossAndNoMVPRemainReadable() throws {
+        let store = try makeStore(initialState: pendingConqueredState(city: 3))
+        let scene = makeScene(store: store)
+        #expect(scene.conquestReportTitleForTesting == "Country 1 - City 3 Conquered")
+        #expect(scene.conquestReportLinesForTesting == [
+            "Gold earned: +8",
+            "Battle time: 1m 5s",
+            "Deployed: 0 · Lost: 0"
+        ])
+        #expect(scene.conquestReportBadgeCountForTesting == 0)
+        #expect(scene.popupContinueButtonFrameForTesting != nil)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+        #expect(scene.isConquestPopupVisibleForTesting)
+    }
+
+    @Test func oneAchievementRendersOneBadge() throws {
+        let store = try makeStore(initialState: pendingConqueredState(
+            city: 3, usedFavorableUnit: true
+        ))
+        let scene = makeScene(store: store)
+        #expect(scene.conquestReportBadgeCountForTesting == 1)
+        #expect(scene.conquestReportLinesForTesting.count == 3)
+        #expect(scene.popupContinueButtonFrameForTesting != nil)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+    }
+
+    @Test func threeRowCompactLayoutKeepsContinueVisible() throws {
+        let store = try makeStore(initialState: pendingConqueredState(city: 3))
+        let scene = makeScene(store: store)
+        #expect(scene.conquestReportLinesForTesting.count == 3)
+        let continueFrame = try #require(scene.popupContinueButtonFrameForTesting)
+        #expect(continueFrame.minX >= 0)
+        #expect(continueFrame.maxX <= scene.size.width)
+        #expect(continueFrame.minY >= 0)
+        #expect(continueFrame.maxY <= scene.size.height)
+        #expect(continueFrame.width > 0)
+        #expect(continueFrame.height > 0)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+    }
+
+    @Test func fitFailureRetriesAndClearsAfterSupportedResize() throws {
+        let store = try makeStore(initialState: pendingConqueredState(city: 3))
+        let scene = makeScene(store: store)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+        scene.setConquestReportFitFailedForTesting(true)
+        #expect(scene.isConquestReportFitFailedForTesting)
+        scene.redrawForTesting(shouldLayout: true)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(scene.popupContinueButtonFrameForTesting != nil)
+    }
+
+    @Test func countryCompleteContinueRoutesToFinalMapOnce() throws {
+        let store = try makeStore(initialState: pendingConqueredState(
+            city: 15, mode: .idle, countryComplete: true
+        ))
+        let router = BattleRouterSpy()
+        let scene = makeScene(store: store, router: router)
+        #expect(scene.conquestReportTitleForTesting == "Country 1 Conquered")
+        scene.tapConquestContinueForTesting()
+        scene.tapConquestContinueForTesting()
+        #expect(router.countryMapRequestCount == 1)
+        #expect(store.load().pendingBattleResult == nil)
+    }
+
     @Test func commanderHUDKeepsTopClustersAndActionsInsideScene() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -2563,7 +2639,9 @@ struct BattleSceneTests {
     private func pendingResult(
         city: Int,
         mode: BattleConquestMode = .live,
-        activeBattleSeconds: TimeInterval = 65
+        activeBattleSeconds: TimeInterval = 65,
+        usedFavorableUnit: Bool = false,
+        usedExposedLane: Bool = false
     ) -> BattleResult {
         BattleResult(
             cityKey: CityKey(countryNumber: 1, cityNumber: city),
@@ -2575,8 +2653,8 @@ struct BattleSceneTests {
             idleDamageByType: [],
             mvpSoldierType: nil,
             mvpDamageSharePercent: nil,
-            usedFavorableUnit: false,
-            usedExposedLane: false,
+            usedFavorableUnit: usedFavorableUnit,
+            usedExposedLane: usedExposedLane,
             goldEarned: 8
         )
     }
@@ -2584,14 +2662,21 @@ struct BattleSceneTests {
     private func pendingConqueredState(
         city: Int = 1,
         mode: BattleConquestMode = .live,
-        countryComplete: Bool = false
+        countryComplete: Bool = false,
+        usedFavorableUnit: Bool = false,
+        usedExposedLane: Bool = false
     ) -> KingdomGameState {
         KingdomGameState(
             cityLevel: city,
             cityNumberInCountry: city,
             completedCityCount: city - 1,
             stageStatus: countryComplete ? .countryComplete : .cityConqueredPendingMap,
-            pendingBattleResult: pendingResult(city: city, mode: mode)
+            pendingBattleResult: pendingResult(
+                city: city,
+                mode: mode,
+                usedFavorableUnit: usedFavorableUnit,
+                usedExposedLane: usedExposedLane
+            )
         )
     }
 
