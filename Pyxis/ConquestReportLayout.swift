@@ -67,6 +67,7 @@ struct ConquestReportLayout: Equatable {
     let titleFrame: CGRect
     let summaryRowFrames: [CGRect]
     let achievementStripFrame: CGRect?
+    let badgeFrames: [CGRect]
     let continueFrame: CGRect
     let panelCornerRadius: CGFloat
     let titleStartingFontSize: CGFloat
@@ -133,20 +134,34 @@ struct ConquestReportLayout: Equatable {
         }
 
         let achievementStripFrame: CGRect?
+        let badgeFrames: [CGRect]
         if input.achievementCount > 0 {
             cursorY -= metrics.rowsBadgeGap
             let stripWidth = CGFloat(input.achievementCount) * metrics.badgeSize
                 + CGFloat(input.achievementCount - 1) * metrics.badgeGap
             let stripX = panelFrame.midX - stripWidth / 2
+            let stripY = cursorY - metrics.badgeSize
             achievementStripFrame = CGRect(
                 x: stripX,
-                y: cursorY - metrics.badgeSize,
+                y: stripY,
                 width: stripWidth,
                 height: metrics.badgeSize
             )
+            // Per-badge frames step by badgeSize + badgeGap so the rendered
+            // edge-to-edge gap matches the configured gap (evenly spacing
+            // centers across the whole strip would halve it).
+            badgeFrames = (0..<input.achievementCount).map { index in
+                CGRect(
+                    x: stripX + CGFloat(index) * (metrics.badgeSize + metrics.badgeGap),
+                    y: stripY,
+                    width: metrics.badgeSize,
+                    height: metrics.badgeSize
+                )
+            }
             cursorY -= metrics.badgeSize
         } else {
             achievementStripFrame = nil
+            badgeFrames = []
         }
 
         cursorY -= metrics.contentContinueGap
@@ -165,6 +180,7 @@ struct ConquestReportLayout: Equatable {
             titleFrame: titleFrame,
             summaryRowFrames: summaryRowFrames,
             achievementStripFrame: achievementStripFrame,
+            badgeFrames: badgeFrames,
             continueFrame: continueFrame
         )
         guard framesAreContained(frames) else { return nil }
@@ -175,6 +191,7 @@ struct ConquestReportLayout: Equatable {
             titleFrame: titleFrame,
             summaryRowFrames: summaryRowFrames,
             achievementStripFrame: achievementStripFrame,
+            badgeFrames: badgeFrames,
             continueFrame: continueFrame,
             panelCornerRadius: metrics.cornerRadius,
             titleStartingFontSize: metrics.titleStartingFontSize,
@@ -205,6 +222,7 @@ struct ConquestReportLayout: Equatable {
         let titleFrame: CGRect
         let summaryRowFrames: [CGRect]
         let achievementStripFrame: CGRect?
+        let badgeFrames: [CGRect]
         let continueFrame: CGRect
     }
 
@@ -215,6 +233,12 @@ struct ConquestReportLayout: Equatable {
               frames.panelFrame.contains(frames.continueFrame) else { return false }
         if let achievementStripFrame = frames.achievementStripFrame {
             guard frames.panelFrame.contains(achievementStripFrame) else { return false }
+            // Badge frames step by badgeSize + badgeGap inside the strip, so
+            // every frame is a height-square fully contained by the strip.
+            guard frames.badgeFrames.allSatisfy({
+                $0.size == CGSize(width: achievementStripFrame.height, height: achievementStripFrame.height)
+                    && achievementStripFrame.contains($0)
+            }) else { return false }
         }
         return true
     }

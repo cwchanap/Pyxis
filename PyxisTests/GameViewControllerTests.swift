@@ -317,25 +317,38 @@ struct GameViewControllerTests {
         #expect(!battle.isGoldBurstVisibleForTesting)
     }
 
-    @Test func battleReportFitFailureUsesExistingGateAndRecovers() throws {
-        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+    @Test func battleReportFitFailureGatesControllerImmediatelyAndRecovers() throws {
+        let store = try makeStore(initialState: pendingConqueredState(city: 3))
         let controller = GameViewController(store: store)
-        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let view = SafeAreaOverridingSKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        // A top inset that leaves no vertical room inside the safe frame makes
+        // the conquest report genuinely unrenderable (compute returns nil), so
+        // presentation fails through the real layout/node pipeline.
+        view.overrideInsets = UIEdgeInsets(top: 1_000, left: 0, bottom: 0, right: 0)
         controller.view = view
         controller.viewDidLoad()
         let battle = try #require(view.scene as? BattleScene)
-        battle.setConquestReportFitFailedForTesting(true)
-        controller.refreshLayoutSupportForTesting(environment: .init(
-            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
-            layoutClass: .phone
-        ))
+
+        // The failure propagates to the controller gate through the routing
+        // callback as it happens — no manual refreshLayoutSupport() needed.
+        #expect(battle.isConquestReportFitFailedForTesting)
         #expect(controller.layoutGateReasonForTesting == .unsupportedGeometry)
-        battle.setConquestReportFitFailedForTesting(false)
+        #expect(view.isPaused)
+        #expect(view.scene?.isUserInteractionEnabled == false)
+
+        // Recovery: supported geometry lets the report re-apply, and the next
+        // layout event clears the gate.
+        view.overrideInsets = .zero
+        battle.refreshLayoutForCurrentEnvironment()
+        #expect(!battle.isConquestReportFitFailedForTesting)
+        #expect(battle.isConquestPopupVisibleForTesting)
         controller.refreshLayoutSupportForTesting(environment: .init(
             safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
             layoutClass: .phone
         ))
         #expect(controller.layoutGateReasonForTesting == nil)
+        #expect(!view.isPaused)
+        #expect(view.scene?.isUserInteractionEnabled == true)
     }
 
     @Test func conquestReportLayoutReadsHorizontalSafeAreaInsetsFromView() throws {

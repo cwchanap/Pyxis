@@ -72,6 +72,18 @@ struct ConquestReportNodeTests {
         #expect(node.goldEffectAnchor(in: scene) == CGPoint(x: goldRow.midX, y: goldRow.midY))
     }
 
+    @Test func badgeCentersHonorConfiguredGap() throws {
+        let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
+        // The compact fixture uses 20pt badges with a 6pt gap.
+        let layout = try reportLayout(rows: 4, achievements: 2)
+        _ = node.apply(content: fullContent(), layout: layout, isContinueEnabled: true)
+        let centers = node.renderedBadgeCentersForTesting
+        #expect(centers.count == 2)
+        #expect(centers[0].y == centers[1].y)
+        #expect(centers[1].x - centers[0].x == 26)
+        #expect(layout.badgeFrames.map(\.midX) == centers.map(\.x))
+    }
+
     @Test func disabledContinueAndFitFailureHaveNoHitTarget() throws {
         let layout = try reportLayout(rows: 4, achievements: 2)
         let disabled = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })

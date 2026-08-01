@@ -62,6 +62,33 @@ struct ConquestReportLayoutTests {
         #expect(two.achievementStripFrame?.width == 56)
     }
 
+    @Test func badgeFramesHonorConfiguredGap() throws {
+        let standard = try #require(makeLayout(rows: 4, achievements: 2))
+        let compact = try #require(makeLayout(
+            size: .init(width: 375, height: 499), rows: 4, achievements: 2
+        ))
+        let single = try #require(makeLayout(rows: 4, achievements: 1))
+        let strip = try #require(standard.achievementStripFrame)
+
+        // Standard: 24pt badges with an 8pt edge-to-edge gap.
+        #expect(standard.badgeFrames.count == 2)
+        #expect(standard.badgeFrames[0].size == CGSize(width: 24, height: 24))
+        #expect(standard.badgeFrames[1].size == CGSize(width: 24, height: 24))
+        #expect(standard.badgeFrames[0].maxX + 8 == standard.badgeFrames[1].minX)
+        #expect(standard.badgeFrames[0].minX == strip.minX)
+        #expect(standard.badgeFrames[1].maxX == strip.maxX)
+
+        // Compact: 20pt badges with a 6pt edge-to-edge gap.
+        #expect(compact.badgeFrames.count == 2)
+        #expect(compact.badgeFrames[0].size == CGSize(width: 20, height: 20))
+        #expect(compact.badgeFrames[0].maxX + 6 == compact.badgeFrames[1].minX)
+
+        // A single badge is centered by the strip itself.
+        let singleStrip = try #require(single.achievementStripFrame)
+        #expect(single.badgeFrames.count == 1)
+        #expect(single.badgeFrames[0] == singleStrip)
+    }
+
     @Test func everySupportedFixtureContainsAllFrames() throws {
         for fixture in supportedFixtures {
             let layout = try #require(makeLayout(

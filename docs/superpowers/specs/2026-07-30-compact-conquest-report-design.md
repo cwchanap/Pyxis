@@ -349,7 +349,7 @@ Reapplication updates the existing node tree and never duplicates labels, badges
 
 1. Guard `result.cityKey == state.currentCityKey`.
 2. In DEBUG, assertion-fail if the guard is violated.
-3. In release, no-op presentation without acknowledging, routing, or playing effects if the mismatch somehow survives model normalization.
+3. In release, if the mismatch somehow survives model normalization, acknowledge and persist the pending result without routing or playing effects. A stale result whose city no longer matches would re-launch BattleScene on every subsequent presentation (the router presents BattleScene whenever a pending result exists, regardless of `stageStatus`), so clearing it lets normal stage-status routing take over instead of looping on the unpresentable result.
 4. Resolve the city identity through the current shared state/catalog display API.
 5. Pass the identity without ` Conquered` to the projector.
 

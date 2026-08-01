@@ -59,6 +59,7 @@ final class ConquestReportNode: SKNode {
         isContinueEnabled: Bool
     ) -> ApplyResult {
         guard content.summaryLines.count == layout.summaryRowFrames.count,
+              content.achievements.count == layout.badgeFrames.count,
               let titleSize = fitSize(
                 content.title,
                 fontName: GameUITheme.Font.bold,
@@ -86,7 +87,7 @@ final class ConquestReportNode: SKNode {
         renderPanel(layout)
         renderTitle(content.title, size: titleSize, frame: layout.titleFrame)
         renderSummary(content.summaryLines, sizes: rowSizes, frames: layout.summaryRowFrames)
-        renderAchievements(content.achievements, strip: layout.achievementStripFrame)
+        renderAchievements(content.achievements, badgeFrames: layout.badgeFrames)
         renderContinue(layout, enabled: isContinueEnabled)
 
         isHidden = false
@@ -150,7 +151,10 @@ final class ConquestReportNode: SKNode {
         let sprite: SKSpriteNode
     }
 
-    private func renderAchievements(_ achievements: [ConquestReportContent.Achievement], strip: CGRect?) {
+    private func renderAchievements(
+        _ achievements: [ConquestReportContent.Achievement],
+        badgeFrames: [CGRect]
+    ) {
         let ordered = [
             AchievementBadge(achievement: .favorableUnit, symbol: Self.favorableUnitSymbol, sprite: badgeSprites[0]),
             AchievementBadge(achievement: .exposedLane, symbol: Self.exposedLaneSymbol, sprite: badgeSprites[1])
@@ -167,19 +171,17 @@ final class ConquestReportNode: SKNode {
             }
         }
 
-        guard let stripFrame = strip, !visible.isEmpty else {
+        guard !visible.isEmpty, badgeFrames.count >= visible.count else {
             for sprite in visible { sprite.isHidden = true }
             renderedAchievementSymbols = []
             return
         }
 
-        let total = CGFloat(visible.count)
         for (index, sprite) in visible.enumerated() {
             sprite.isHidden = false
-            let badgeSize = CGSize(width: stripFrame.height, height: stripFrame.height)
-            sprite.size = badgeSize
-            let center = stripFrame.minX + (CGFloat(index) + 0.5) * stripFrame.width / total
-            sprite.position = CGPoint(x: center, y: stripFrame.midY)
+            let badgeFrame = badgeFrames[index]
+            sprite.size = CGSize(width: badgeFrame.width, height: badgeFrame.height)
+            sprite.position = CGPoint(x: badgeFrame.midX, y: badgeFrame.midY)
         }
         renderedAchievementSymbols = symbols
     }
@@ -316,6 +318,9 @@ extension ConquestReportNode {
 
     var renderedSummaryLinesForTesting: [String] { renderedSummaryLines }
     var renderedAchievementSymbolsForTesting: [String] { renderedAchievementSymbols }
+    var renderedBadgeCentersForTesting: [CGPoint] {
+        badgeSprites.filter { !$0.isHidden }.map { $0.position }
+    }
     var goldEffectAnchorForTesting: CGPoint? { goldAnchor }
     var continueHitFrameForTesting: CGRect? { continueHitFrame }
     var titleFontSizeForTesting: CGFloat { renderedTitleFontSize }
