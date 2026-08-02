@@ -3,8 +3,7 @@
 **Issue:** HPA-364  
 **Consumer:** HPA-389  
 **Related producer:** HPA-362 — adds direct manual lane deployment and emits the fortified-lane warning when a successful deployment uses the fortified lane.  
-**Normative consumer reference:** cwchanap/Pyxis#19, with the HPA-364 contract clarification added after review of PR #20.  
-**Status:** Review feedback incorporated  
+**Status:** Second-pass review incorporated  
 **Date:** 2026-08-02
 
 ## Summary
@@ -19,6 +18,17 @@ The foundation contains four capabilities:
 4. An injectable monotonic-clock contract for deterministic downstream timing policy.
 
 HPA-364 does not play sound, generate haptics, map events to outputs, project combat results, enforce rate limits, compose the runtime, or modify scenes. HPA-389 owns those behaviors.
+
+## Contract authority and merge order
+
+While PR #20 and PR #19 are both drafts, their shared signatures must remain synchronized.
+
+The intended merge order is:
+
+1. Merge PR #20 so this design exists on `main`.
+2. Merge PR #19 after it consumes the HPA-364 contract from `main`.
+
+After PR #20 merges, this file on `main` is the shared-contract authority. HPA-389 may define narrower output policy, mapping, and scheduling behavior, but it may not redefine the HPA-364 event, provider, preference-manager, or clock contracts. A later shared-contract change starts in this HPA-364 design and must update every active consumer before scene integration proceeds.
 
 ## Problem
 
@@ -75,6 +85,7 @@ HPA-364 does not include:
 ### HPA-389 owns
 
 - Projection from one authoritative `BattleCombatState.TickResult` into an ordered event array.
+- Validation that an automatic-combat batch contains only automatic-combat-eligible events.
 - Concrete output types and event mapping.
 - Automatic and discrete scheduling policy.
 - Final timing intervals and state machines.
@@ -82,13 +93,17 @@ HPA-364 does not include:
 - Shared runtime composition in `GameViewController`.
 - Settings UI and all scene integration.
 
-A shared signature change requires HPA-364 and PR #19 to be updated together before HPA-389 scene integration begins.
-
 ## Design decisions
 
 ### Semantic events instead of asset-oriented commands
 
 Scenes emit occurrences such as `.manualDeployment` or `.soldierDamage(.death)`. They never request a filename, haptic generator, volume, priority, or cooldown.
+
+### Audible category names are intentional
+
+`SoldierAttackSoundCategory` and `SoldierDamageSoundKind` are intentionally named as audible classifications consumed by HPA-389. They are not a general gameplay taxonomy and must not be reused as the basis for unrelated mechanics.
+
+Renaming them now would break the reviewed HPA-389 contract without improving HPA-364. Any future rename requires one coordinated shared-contract revision rather than an HPA-364-only cleanup.
 
 ### Dedicated preference storage instead of campaign-state fields
 
@@ -173,10 +188,13 @@ The method does not throw and returns no value. Feedback must never control game
 - Array order is significant.
 - An empty batch is valid.
 - One call represents one tick, not independent discrete calls.
-- HPA-364 does not project, inspect, select, throttle, queue, replay, or deduplicate the array.
+- HPA-364 does not project, inspect, validate, select, throttle, queue, replay, or deduplicate the array.
+- HPA-389's projector and scene integration must only place automatic-combat-eligible events in this batch: `soldierAttack`, `towerFire`, and `soldierDamage`.
 - HPA-389 may select at most one output from the batch.
 
-### No-op provider
+The automatic-only membership rule is a consumer invariant. HPA-364 intentionally does not add runtime validation or a second batch model.
+
+### No-op and recording providers
 
 ```swift
 final class NoOpGameplayFeedbackProvider: GameplayFeedbackProviding {
@@ -185,7 +203,9 @@ final class NoOpGameplayFeedbackProvider: GameplayFeedbackProviding {
 }
 ```
 
-The provider is stateless and performs no logging. Recording behavior remains test-only.
+HPA-364 ships `NoOpGameplayFeedbackProvider` as a production type. It is stateless and performs no logging.
+
+A recording provider is test infrastructure only. HPA-364 defines a recorder privately in `PyxisTests/GameplayFeedbackTests.swift` to verify the protocol and order-preserving batch boundary. HPA-389 may reuse an equivalent helper in `PyxisTests/GameplayFeedbackTestDoubles.swift`; neither ticket adds a production recording provider or a `#if DEBUG` event history.
 
 ## Preference model
 
@@ -217,9 +237,11 @@ Both settings default to `true`.
 
 ### Coding strategy
 
+`FeedbackPreferences` implements a custom `init(from:)` for field-tolerant decoding and relies on the compiler-synthesized `encode(to:)` to encode both stored properties. A private `CodingKeys` enum contains exactly the two approved keys.
+
 The store uses plain `JSONEncoder()` and `JSONDecoder()` instances with default key strategies. No snake-case conversion, custom key strategy, or alternate key aliases are configured. Therefore encoded keys are exactly `soundEffectsEnabled` and `hapticsEnabled`.
 
-### Field-tolerant decoding
+### Field-tolerant fail-open decoding
 
 Each Boolean is decoded independently:
 
@@ -238,7 +260,7 @@ Consequences:
 - Unknown fields are ignored.
 - A valid keyed object with malformed fields is not root corruption.
 
-Invalid JSON or a non-keyed root is handled by the store.
+Fail-open is intentional product behavior: malformed or older preference fields must not strand an existing user in unexplained silence or disable device feedback indefinitely. A partially corrupt payload may therefore re-enable only the malformed setting. Invalid JSON or a non-keyed root uses the full corrupt-root recovery path and defaults both settings.
 
 ## Public preference-manager contract
 
@@ -293,7 +315,7 @@ The store loads once during initialization:
 
 1. No data: use `.defaultValue`.
 2. Valid keyed data: decode with field-level tolerance.
-3. Invalid root data: back up the original bytes under `<key>.corrupt` and use `.defaultValue`.
+3. Invalid JSON or a non-keyed root: back up the original bytes under `<key>.corrupt` and use `.defaultValue`.
 
 The corrupt backup is diagnostic evidence only and is not automatically restored.
 
@@ -309,7 +331,7 @@ For a distinct value, a setter synchronously:
 
 The methods do not throw.
 
-The model contains only Booleans, so encoding failure is not expected. A defensive encoding failure leaves the new in-memory snapshot active, logs diagnostically, and still notifies observers. A later successful distinct setter persists a newer snapshot. If no later write succeeds, the next launch loads the last successfully persisted snapshot, which may be older than the in-memory change.
+`UserDefaults` does not provide a reliable synchronous write-error result. The encode-failure branch is therefore defensive consistency with `KingdomGameStore`, not a primary recovery mechanism. Since the model contains only Booleans, encoding failure is not expected. If it occurs, the store keeps the new in-memory snapshot, logs diagnostically, and still notifies observers. A later successful distinct setter persists a newer snapshot. If no later write succeeds, the next launch loads the last successfully persisted snapshot, which may be older than the in-memory change.
 
 ### Duplicate suppression
 
@@ -338,11 +360,11 @@ For each retained active observer:
 
 - Initial state is delivered synchronously.
 - Every distinct later update is delivered synchronously before the setter returns.
-- Snapshot versions never decrease.
-- A newer re-entrant update is never followed by a stale outer update.
+- Delivered versions never decrease.
+- A newer nested update is never followed by a stale outer update.
 - Cancellation prevents callbacks that have not begun.
 
-Ordering between different observers is intentionally unspecified. Consumers must not depend on registration or collection iteration order.
+Ordering between different observers is intentionally unspecified.
 
 ### Re-entrant-safe delivery
 
@@ -358,41 +380,23 @@ private struct ObserverRecord {
 For one update:
 
 1. Increment the version after memory and persistence handling.
-2. Capture current observer IDs.
-3. Verify each observer is still registered before delivery.
-4. Skip it when `lastDeliveredVersion >= deliveryVersion`.
-5. Mark the delivery version before invoking the callback.
-6. Invoke with the exact snapshot associated with that version.
+2. Capture the current observer IDs.
+3. Verify each observer is still registered before invoking it.
+4. Skip it when `lastDeliveredVersion` is equal to or newer than this delivery.
+5. Mark the version delivered before invoking the callback.
+6. Invoke it with the snapshot associated with that version.
 
-This supports self-cancellation, cross-cancellation, nested setters, and nested registration without mutating active iteration or delivering stale-after-new state.
+This permits self-cancellation, cross-cancellation, re-entrant registration, and nested updates without mutating an active iteration or delivering stale-after-new state.
 
 ### Cancellation and ownership
 
-The token has idempotent cancellation:
+The observation token uses idempotent cancellation. Its closure captures the store weakly, so the token does not retain the store. The store retains callback records but does not retain tokens. The caller must retain the token to continue observing.
 
-```swift
-private final class ObservationToken: FeedbackPreferencesObservation {
-    private var cancellation: (() -> Void)?
+Releasing the token unregisters the observer. Callers remain responsible for avoiding callback retain cycles, such as by weakly capturing a scene or controller.
 
-    init(cancellation: @escaping () -> Void) {
-        self.cancellation = cancellation
-    }
+### Threading contract
 
-    func cancel() {
-        let action = cancellation
-        cancellation = nil
-        action?()
-    }
-
-    deinit {
-        cancel()
-    }
-}
-```
-
-The cancellation closure captures the store weakly. The store retains callback records but not tokens. The caller must retain the token to keep observing.
-
-Callers remain responsible for avoiding callback retain cycles, such as by weakly capturing scenes or controllers.
+The store performs no synchronization and no queue hop. Production access is confined to the main/UI executor. Tests use one thread. Simultaneous access from multiple executors is unsupported.
 
 ## Monotonic time contract
 
@@ -408,7 +412,9 @@ struct SystemMonotonicClock: MonotonicClock {
 }
 ```
 
-HPA-364 defines no gate, timestamp collection, rate, scheduler, retry policy, or sleep. HPA-389 injects the clock into its timing policy.
+`SystemMonotonicClock` is unaffected by wall-clock changes and returns seconds suitable for interval comparisons.
+
+HPA-364 defines no gate, timestamp collection, rate, scheduler, retry policy, or sleep. HPA-389 injects the clock into its coordinator, automatic scheduler, discrete gates, and audio-session retry logic.
 
 Tests use a manually controlled clock and never sleep.
 
@@ -416,95 +422,150 @@ Tests use a manually controlled clock and never sleep.
 
 ### Missing or older data
 
-Missing data and fields use enabled defaults. Valid older fields are preserved independently.
+Missing data and missing fields use enabled defaults. Valid sibling fields are preserved independently.
 
 ### Partially malformed keyed data
 
-A wrong-typed field defaults to `true` without discarding a valid sibling field. No corrupt backup is created for a valid keyed object.
+A wrong-typed field defaults to `true` without discarding a valid sibling field. No corrupt backup is created for a valid keyed object with field-level errors.
 
 ### Completely corrupt root data
 
 The store:
 
-1. Copies original bytes to `<key>.corrupt`.
-2. Logs a diagnostic.
+1. Copies the original bytes to `<key>.corrupt`.
+2. Logs diagnostically.
 3. Uses `.defaultValue`.
-4. Continues launch.
-
-It does not delete or overwrite campaign data.
+4. Continues launch without throwing.
 
 ### Persistence failure
 
-UserDefaults writes are best-effort. Failure does not roll back in-memory state or block callbacks. The next launch uses the last successfully persisted snapshot.
+Persistence is best-effort. Failure does not roll back in-memory state or block callbacks. The next launch uses the last successfully persisted snapshot.
 
 ## Repository shape
 
 Create:
 
-- `Pyxis/GameplayFeedback.swift`
-- `Pyxis/FeedbackPreferences.swift`
-- `Pyxis/FeedbackPreferencesStore.swift`
-- `PyxisTests/GameplayFeedbackTests.swift`
-- `PyxisTests/FeedbackPreferencesTests.swift`
-- `PyxisTests/FeedbackPreferencesStoreTests.swift`
+- `Pyxis/GameplayFeedback.swift` — `GameplayFeedbackEvent`, audible payload types, `GameplayFeedbackProviding`, `NoOpGameplayFeedbackProvider`, `MonotonicClock`, and `SystemMonotonicClock`.
+- `Pyxis/FeedbackPreferences.swift` — `FeedbackPreferences`, custom tolerant decoding, synthesized encoding, `FeedbackPreferencesObservation`, and `FeedbackPreferencesManaging`.
+- `Pyxis/FeedbackPreferencesStore.swift` — dedicated `UserDefaults` persistence, corruption recovery, observation records, and token implementation.
+- `PyxisTests/GameplayFeedbackTests.swift` — semantic contract, no-op, test-local recording provider, batch-order, and manual-clock tests.
+- `PyxisTests/FeedbackPreferencesTests.swift` — defaults, exact encoding keys, tolerant decoding, and compile-only consumer-signature checks.
+- `PyxisTests/FeedbackPreferencesStoreTests.swift` — isolated persistence, corruption, observation, cancellation, ownership, and re-entrancy tests.
 
-Modify after implementation is green:
+Modify only after implementation is green:
 
-- `CLAUDE.md` to document the HPA-364/HPA-389 boundary.
+- `CLAUDE.md` — document the HPA-364/HPA-389 ownership and composition boundary.
 
-Do not modify:
+Do not modify scenes, `GameViewController`, platform feedback code, assets, or `Pyxis.xcodeproj/project.pbxproj`.
 
-- `BattleScene.swift`
-- `CountryMapScene.swift`
-- `BuildingViewScene.swift`
-- `GameViewController.swift`
-- Platform audio or haptic code
-- Audio assets
-- `Pyxis.xcodeproj/project.pbxproj`
+## Compile-only consumer-signature check
+
+`PyxisTests/FeedbackPreferencesTests.swift` includes a private helper that is compiled but does not need to execute:
+
+```swift
+@inline(never)
+private func assertHPA389ConsumerContract(
+    manager: FeedbackPreferencesManaging,
+    observation: FeedbackPreferencesObservation,
+    provider: GameplayFeedbackProviding,
+    clock: MonotonicClock
+) {
+    _ = FeedbackPreferences()
+    _ = FeedbackPreferences.defaultValue
+    _ = manager.current
+    _ = manager.setSoundEffectsEnabled(true)
+    _ = manager.setHapticsEnabled(true)
+    _ = manager.observe { _ in }
+    observation.cancel()
+    provider.emit(.manualDeployment)
+    provider.emitAutomaticCombat([
+        .towerFire,
+        .soldierAttack(.melee),
+        .soldierDamage(.hit)
+    ])
+    _ = clock.now
+}
+```
+
+The helper locks the consumer-visible names, payloads, return values, and callable signatures without adding production code or runtime behavior.
 
 ## Test strategy
 
-### Semantic contract
+### Semantic contract tests
 
-- Construct and compare every event and payload.
-- Verify attack-category `allCases`.
-- Record discrete calls separately from batch calls.
-- Verify batch order and empty-batch identity.
-- Verify no-op behavior.
-- Verify a manual clock without sleeps.
+- Construct and compare every event and associated payload.
+- Verify attack-category case order.
+- Record discrete and automatic calls separately.
+- Preserve caller order, including an empty automatic batch.
+- Verify the no-op provider is side-effect-free.
+- Verify a manually controlled clock without sleeping.
 
-### Preference model
+### Preference model tests
 
-- Defaults and all Boolean combinations.
-- Exactly two encoded keys using default JSON key strategies.
-- No music or volume keys.
-- Missing-field, wrong-type, unknown-field, and round-trip behavior.
-- Compile-only consumer-signature checks.
+- `FeedbackPreferences()` and `.defaultValue` are enabled defaults.
+- All four Boolean combinations round-trip.
+- Encoded keys are exactly the two approved camel-case names.
+- Synthesized encoding writes both fields after custom decoding is introduced.
+- Missing and wrong-typed fields default independently.
+- Unknown fields are ignored.
+- No music, volume, or version key appears.
+- The compile-only consumer helper typechecks.
 
-### Persistent store
+### Store tests
 
-Every test uses an isolated `UserDefaults` suite and key and never uses `.shared`.
+Every test constructs an isolated store and never uses `.shared`.
 
-Cover:
-
-- Missing, valid, partial, wrong-typed, and corrupt data.
-- Dedicated-key isolation from campaign state.
-- Corrupt backup.
-- Independent persistence.
-- Immediate initial delivery.
-- Distinct update delivery and duplicate suppression.
-- Self- and cross-cancellation.
-- Token release.
-- Nested setters during initial and later callbacks.
-- Cross-observer stale-after-new prevention.
-- Re-entrant observer registration.
-- Duplicate closure registrations as independent tokens.
-- Unspecified cross-observer order.
+- Missing, partial, wrong-typed, and corrupt-root data.
+- `<key>.corrupt` backup behavior.
+- Campaign-key isolation.
+- Setter persistence and duplicate suppression.
+- Immediate observation and synchronous updates.
+- Self-cancellation, cross-cancellation, and token deallocation.
+- Nested updates during initial and later delivery.
+- Re-entrant registration and duplicate registration.
+- No stale-after-new snapshots.
+- No assumptions about cross-observer order.
 - Token/store non-retention.
 
-### Verification
+## Acceptance criteria
 
-Run with parallel testing disabled:
+- Event payloads and provider signatures match this document and the HPA-389 consumer.
+- The automatic batch boundary preserves order and permits an empty batch without validating membership.
+- HPA-389 owns the automatic-only membership invariant.
+- `GameplayFeedback.swift` owns the monotonic-clock seam.
+- The production target contains a no-op provider but no recording provider.
+- A test-local recorder verifies provider behavior.
+- Preferences have exactly two stored fields and enabled defaults.
+- Custom tolerant decoding and synthesized encoding preserve both exact keys.
+- Fail-open field recovery is documented and tested.
+- Root corruption is backed up and never blocks launch.
+- Preference persistence is independent from campaign state.
+- Observation is synchronous, cancellable, version-monotonic, re-entrant-safe, and single-executor-confined.
+- Compile-only tests lock the HPA-389 consumer signatures.
+- Tests never access `FeedbackPreferencesStore.shared`.
+- The full `PyxisTests` suite and SwiftLint pass with parallel testing disabled.
+
+## Handoff to HPA-389
+
+After HPA-364 merges, HPA-389 may assume:
+
+- The exact semantic event and payload types.
+- Discrete and automatic-batch provider calls.
+- Independent enabled-by-default preferences.
+- Immediate synchronous observation.
+- A production no-op provider and test-only recording support.
+- The monotonic-clock seam.
+
+HPA-389 must not assume:
+
+- Event mapping or output types from HPA-364.
+- Automatic batch validation, selection, throttling, or anti-starvation from HPA-364.
+- Platform playback or haptic behavior from HPA-364.
+- Scene composition or lifecycle behavior from HPA-364.
+
+## Verification
+
+Before merging implementation:
 
 ```bash
 xcodebuild test \
@@ -517,45 +578,4 @@ xcodebuild test \
 swiftlint lint
 ```
 
-## Acceptance criteria
-
-- Semantic payloads cover manual deployment, attack category, tower fire, hit/death, building change, invalid action, reward, conquest, completion, and fortified warning.
-- The provider supports discrete events and one ordered automatic-combat batch per tick.
-- Production foundation files import Foundation only.
-- The no-op provider has no side effects.
-- Preferences have exactly two stored Booleans with enabled defaults and explicit `defaultValue`/default-valued initialization.
-- Default JSON key strategies encode exactly the approved keys.
-- Preference persistence is independent from campaign persistence.
-- Missing, partial, wrong-typed, and corrupt data recover safely.
-- Observation is synchronous, cancellable, duplicate-suppressed, re-entrant-safe, and per-observer version-monotonic.
-- Re-entrant registration and duplicate registrations have explicit deterministic semantics.
-- Cross-observer callback order is unspecified.
-- The store is intentionally non-`Sendable` and confined to one executor.
-- Tests never use `.shared` and do not pollute `.standard`.
-- The monotonic clock is replaceable without sleeps.
-- Full unit tests and SwiftLint pass with parallel testing disabled.
-
-## HPA-389 handoff
-
-HPA-389 may assume:
-
-- Exact semantic event types and payloads.
-- Exact preference model, defaults, manager, and observation signatures.
-- One shared synchronous preference store.
-- One ordered automatic batch per tick.
-- No-op and test-recording support.
-- An injectable monotonic clock.
-
-HPA-389 must not assume:
-
-- HPA-364 maps or schedules output.
-- HPA-364 imports platform media or haptic frameworks.
-- Events are persisted or replayed.
-- Automatic batches have already been projected or coalesced.
-- Observer callback order between separate registrations.
-
-## Change control
-
-This document is the HPA-364 design authority. PR #19 must contain an equivalent shared-contract statement before HPA-389 implementation begins.
-
-Any change to event cases, payload types, preference fields/defaults, manager signatures, batch semantics, observation guarantees, or clock signatures requires both designs to be updated and re-reviewed.
+If the named simulator is unavailable, list destinations and use an available supported iPhone simulator. CI must use a destination that exists on the selected runner image; a missing simulator is infrastructure failure, not a test failure.
