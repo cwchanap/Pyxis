@@ -61,6 +61,34 @@ struct GameplaySoundOutputControllerTests {
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
+    @Test func preparationFailureDropsPartialCatalogUntilAnExplicitNonblockingRetrySucceeds() async throws {
+        let backend = RecordingAudioBackend(preparationFailuresOnCalls: [2])
+        let controller = makeController(backend: backend, catalog: partialCatalog)
+
+        controller.prepareIfNeeded()
+        try await waitUntil { backend.preparationFailureCount == 1 }
+        try await settleOutput()
+
+        #expect(backend.preparedResourceIDs.count == 2)
+        #expect(backend.createdVoiceIndices.isEmpty)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+        #expect(backend.configuredAmbientSessionCount == 1)
+
+        let retryStartedAt = ProcessInfo.processInfo.systemUptime
+        controller.prepareIfNeeded()
+        let retryReturnedAt = ProcessInfo.processInfo.systemUptime
+        #expect(retryReturnedAt - retryStartedAt < 0.050)
+
+        try await waitUntil { backend.createdVoiceIndices == Array(0...7) }
+        #expect(backend.preparedResourceIDs.count == 4)
+        #expect(backend.preparationFailureCount == 1)
+        #expect(backend.configuredAmbientSessionCount == 2)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+    }
+
     @Test func firstReadyPlaybackActivatesAndStartsOnlyOnce() async throws {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
@@ -102,6 +130,30 @@ struct GameplaySoundOutputControllerTests {
         )
     }
 
+    @Test func activationCooldownStartsAtTheActualFailureTime() async throws {
+        let clock = MutableMonotonicClock(now: 0)
+        let backend = RecordingAudioBackend(
+            activationFailuresRemaining: 1,
+            beforeFailingActivation: {
+                clock.setNow(50)
+            }
+        )
+        let controller = try await preparedController(backend: backend, clock: clock)
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.activeSessionRequests.count == 1 }
+
+        clock.setNow(50.999)
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await settleOutput()
+        #expect(backend.activeSessionRequests.count == 1)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+
+        clock.setNow(51)
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+    }
+
     @Test func lifecycleRecoveryClearsActivationCooldownForAnImmediateRetry() async throws {
         let backend = RecordingAudioBackend(activationFailuresRemaining: 1)
         let clock = MutableMonotonicClock(now: 20)
@@ -112,6 +164,7 @@ struct GameplaySoundOutputControllerTests {
 
         clock.setNow(20.100)
         controller.handleLifecycleRecovery()
+        try await waitUntil { backend.createdVoiceIndices == Array(0...7) + Array(0...7) }
         controller.play(.deployment, soundClass: .nonAutomatic)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
 
@@ -121,6 +174,20 @@ struct GameplaySoundOutputControllerTests {
                 .init(active: true, notifyOthers: false)
             ]
         )
+    }
+
+    @Test func lifecycleRecoveryRebuildsReadyOutputWithoutActivatingOrReplaying() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.handleLifecycleRecovery()
+        try await waitUntil { backend.lifecycleRecoveryCount == 1 }
+        try await waitUntil { backend.createdVoiceIndices == Array(0...7) + Array(0...7) }
+
+        #expect(backend.configuredAmbientSessionCount == 2)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+        #expect(backend.activeSessionRequests.isEmpty)
+        #expect(backend.engineStartCount == 0)
     }
 
     @Test func preparationCreatesExactlyEightFixedVoicesAndNeverAllocatesANinth() async throws {
@@ -171,6 +238,49 @@ struct GameplaySoundOutputControllerTests {
         for index in 0...5 {
             #expect(backend.voiceOperations(for: index).isEmpty)
         }
+    }
+
+    @Test func normalVoiceCompletionMakesAProtectedVoiceReusable() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+
+        backend.completeScheduledVoice(at: 6, occurrence: 0)
+        try await settleOutput()
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs.count == 2 }
+
+        #expect(backend.voiceOperations(for: 6) == [.schedule(.deployment), .schedule(.deployment)])
+        #expect(backend.voiceOperations(for: 7).isEmpty)
+    }
+
+    @Test func staleVoiceCompletionCannotClearANewerSchedule() async throws {
+        let backend = RecordingAudioBackend()
+        let clock = MutableMonotonicClock(now: 0)
+        let controller = try await preparedController(backend: backend, clock: clock)
+
+        for time in 0...5 {
+            clock.setNow(TimeInterval(time))
+            controller.play(.attackMelee, soundClass: .automaticCombat)
+            try await waitUntil { backend.scheduledSoundIDs.count == time + 1 }
+        }
+
+        clock.setNow(6)
+        controller.play(.attackMelee, soundClass: .automaticCombat)
+        try await waitUntil { backend.scheduledSoundIDs.count == 7 }
+
+        backend.completeScheduledVoice(at: 0, occurrence: 0)
+        try await settleOutput()
+
+        clock.setNow(7)
+        controller.play(.attackMelee, soundClass: .automaticCombat)
+        try await waitUntil { backend.scheduledSoundIDs.count == 8 }
+
+        #expect(backend.voiceOperations(for: 0) == [.schedule(.attackMelee), .stop, .schedule(.attackMelee)])
+        #expect(backend.voiceOperations(for: 1) == [.schedule(.attackMelee), .stop, .schedule(.attackMelee)])
     }
 
     @Test func nonAutomaticEventPreemptsOldestAutomaticAndStopsItBeforeReuse() async throws {
@@ -381,6 +491,7 @@ private final class RecordingPreparedSound: GameplayPreparedSound {
 private final class RecordingAudioBackend: GameplayAudioBackend {
     enum BackendError: Error {
         case activation
+        case preparation
     }
 
     enum Call: Equatable {
@@ -390,6 +501,7 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         case setSessionActive(Bool, Bool)
         case startEngine
         case stopEngine
+        case lifecycleRecovery
         case voiceSchedule(Int, GameplaySoundID)
         case voiceStop(Int)
     }
@@ -406,17 +518,28 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
 
     private let lock = NSLock()
     private let blockingPreparationCall: Int?
+    private let preparationFailuresOnCalls: Set<Int>
     private let preparationDidBlock = DispatchSemaphore(value: 0)
     private let continuePreparation = DispatchSemaphore(value: 0)
+    private let beforeFailingActivation: (() -> Void)?
     private var remainingActivationFailures: Int
     private var recordedCalls: [Call] = []
     private var recordedPreparedResourceIDs: [GameplaySoundID] = []
     private var recordedCreatedVoiceIndices: [Int] = []
     private var recordedVoiceOperations: [Int: [VoiceOperation]] = [:]
+    private var recordedVoiceCompletions: [Int: [() -> Void]] = [:]
+    private var recordedPreparationFailureCount = 0
 
-    init(blockingPreparationCall: Int? = nil, activationFailuresRemaining: Int = 0) {
+    init(
+        blockingPreparationCall: Int? = nil,
+        activationFailuresRemaining: Int = 0,
+        beforeFailingActivation: (() -> Void)? = nil,
+        preparationFailuresOnCalls: Set<Int> = []
+    ) {
         self.blockingPreparationCall = blockingPreparationCall
         remainingActivationFailures = activationFailuresRemaining
+        self.beforeFailingActivation = beforeFailingActivation
+        self.preparationFailuresOnCalls = preparationFailuresOnCalls
     }
 
     var calls: [Call] {
@@ -429,6 +552,10 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
 
     var createdVoiceIndices: [Int] {
         withLock { recordedCreatedVoiceIndices }
+    }
+
+    var preparationFailureCount: Int {
+        withLock { recordedPreparationFailureCount }
     }
 
     var scheduledSoundIDs: [GameplaySoundID] {
@@ -459,12 +586,39 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         }
     }
 
+    var configuredAmbientSessionCount: Int {
+        withLock {
+            recordedCalls.count { $0 == .configureAmbientSession }
+        }
+    }
+
+    var lifecycleRecoveryCount: Int {
+        withLock {
+            recordedCalls.count { $0 == .lifecycleRecovery }
+        }
+    }
+
     func voiceOperations(for index: Int) -> [VoiceOperation] {
         withLock { recordedVoiceOperations[index, default: []] }
     }
 
+    func completeScheduledVoice(at index: Int, occurrence: Int) {
+        let completion = withLock { () -> (() -> Void)? in
+            let completions = recordedVoiceCompletions[index, default: []]
+            guard completions.indices.contains(occurrence) else {
+                return nil
+            }
+            return completions[occurrence]
+        }
+        completion?()
+    }
+
     func configureAmbientSession() throws {
         record(.configureAmbientSession)
+    }
+
+    func resetForLifecycleRecovery() {
+        record(.lifecycleRecovery)
     }
 
     func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {
@@ -478,20 +632,32 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         }
 
         if shouldFail {
+            beforeFailingActivation?()
             throw BackendError.activation
         }
     }
 
     func prepareSound(_ resource: GameplaySoundResource) throws -> GameplayPreparedSound {
-        let shouldBlock = withLock { () -> Bool in
+        let preparationDisposition = withLock { () -> (shouldBlock: Bool, shouldFail: Bool) in
             recordedCalls.append(.prepare(resource.id))
             recordedPreparedResourceIDs.append(resource.id)
-            return blockingPreparationCall == recordedPreparedResourceIDs.count
+            let call = recordedPreparedResourceIDs.count
+            return (
+                blockingPreparationCall == call,
+                preparationFailuresOnCalls.contains(call)
+            )
         }
 
-        if shouldBlock {
+        if preparationDisposition.shouldBlock {
             preparationDidBlock.signal()
             _ = continuePreparation.wait(timeout: .now() + .seconds(5))
+        }
+
+        if preparationDisposition.shouldFail {
+            withLock {
+                recordedPreparationFailureCount += 1
+            }
+            throw BackendError.preparation
         }
 
         return RecordingPreparedSound(id: resource.id)
@@ -503,9 +669,15 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
             recordedCreatedVoiceIndices.append(index)
         }
 
-        return RecordingAudioVoice(index: index) { [weak self] operation in
-            self?.recordVoiceOperation(operation, at: index)
-        }
+        return RecordingAudioVoice(
+            index: index,
+            record: { [weak self] operation in
+                self?.recordVoiceOperation(operation, at: index)
+            },
+            recordCompletion: { [weak self] completion in
+                self?.recordVoiceCompletion(completion, at: index)
+            }
+        )
     }
 
     func startEngine() throws {
@@ -542,6 +714,12 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         }
     }
 
+    private func recordVoiceCompletion(_ completion: @escaping () -> Void, at index: Int) {
+        withLock {
+            recordedVoiceCompletions[index, default: []].append(completion)
+        }
+    }
+
     private func withLock<T>(_ body: () -> T) -> T {
         lock.lock()
         defer { lock.unlock() }
@@ -552,17 +730,21 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
 private final class RecordingAudioVoice: GameplayAudioVoice {
     let index: Int
     private let record: (RecordingAudioBackend.VoiceOperation) -> Void
+    private let recordCompletion: (@escaping () -> Void) -> Void
 
     init(
         index: Int,
-        record: @escaping (RecordingAudioBackend.VoiceOperation) -> Void
+        record: @escaping (RecordingAudioBackend.VoiceOperation) -> Void,
+        recordCompletion: @escaping (@escaping () -> Void) -> Void
     ) {
         self.index = index
         self.record = record
+        self.recordCompletion = recordCompletion
     }
 
-    func schedule(_ sound: GameplayPreparedSound) {
+    func schedule(_ sound: GameplayPreparedSound, completion: @escaping () -> Void) {
         record(.schedule(sound.id))
+        recordCompletion(completion)
     }
 
     func stop() {

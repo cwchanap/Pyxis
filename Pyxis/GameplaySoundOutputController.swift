@@ -22,6 +22,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         let voice: GameplayAudioVoice
         var scheduledAt: TimeInterval?
         var soundClass: GameplaySoundClass?
+        var scheduleGeneration: UInt64?
 
         var isAutomaticCombat: Bool {
             soundClass == .automaticCombat
@@ -38,6 +39,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     private var preparationState: SoundPreparationState = .unprepared
     private var preparedSounds: [GameplaySoundID: GameplayPreparedSound] = [:]
     private var voiceSlots: [VoiceSlot] = []
+    private var nextVoiceScheduleGeneration: UInt64 = 0
     private var isOutputActive = false
     private var nextActivationAttemptAt: TimeInterval?
 
@@ -75,17 +77,30 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 return
             }
 
-            // The lifecycle owner stopped the engine on background/interruption.
-            // Do not activate here; the next ready, eligible sound owns that work.
             isOutputActive = false
             nextActivationAttemptAt = nil
+
+            switch preparationState {
+            case .preparing:
+                return
+            case .ready:
+                invalidateReadyOutputForLifecycleRecovery()
+            case .unprepared, .failed:
+                break
+            }
+
+            backend.resetForLifecycleRecovery()
+            preparationState = .unprepared
             beginPreparationIfNeeded()
         }
     }
 
     private func beginPreparationIfNeeded() {
-        guard preparationState != .ready, preparationState != .preparing else {
+        switch preparationState {
+        case .ready, .preparing:
             return
+        case .unprepared, .failed:
+            break
         }
 
         preparationState = .preparing
@@ -129,7 +144,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     }
 
     private func finishPreparation(with completedCatalog: [GameplaySoundID: GameplayPreparedSound]) {
-        guard preparationState == .preparing else {
+        guard case .preparing = preparationState else {
             return
         }
 
@@ -138,7 +153,8 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 index: index,
                 voice: backend.makeVoice(index: index),
                 scheduledAt: nil,
-                soundClass: nil
+                soundClass: nil,
+                scheduleGeneration: nil
             )
         }
 
@@ -149,7 +165,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     }
 
     private func finishPreparationFailure(message: String) {
-        guard preparationState == .preparing else {
+        guard case .preparing = preparationState else {
             return
         }
 
@@ -160,7 +176,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     }
 
     private func playReadySound(_ soundID: GameplaySoundID, soundClass: GameplaySoundClass) {
-        guard preparationState == .ready,
+        guard case .ready = preparationState,
               let preparedSound = preparedSounds[soundID]
         else {
             // The current event is intentionally dropped. A first-use retry may prepare a
@@ -169,8 +185,8 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             return
         }
 
-        let now = clock.now
-        if let nextActivationAttemptAt, now < nextActivationAttemptAt {
+        let activationAttemptAt = clock.now
+        if let nextActivationAttemptAt, activationAttemptAt < nextActivationAttemptAt {
             return
         }
 
@@ -178,20 +194,29 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             return
         }
 
-        guard activateOutputIfNeeded(at: now) else {
+        guard activateOutputIfNeeded() else {
             return
         }
+
+        let scheduledAt = clock.now
+        nextVoiceScheduleGeneration &+= 1
+        let scheduleGeneration = nextVoiceScheduleGeneration
 
         if voiceSlots[voiceIndex].scheduledAt != nil {
             voiceSlots[voiceIndex].voice.stop()
         }
 
-        voiceSlots[voiceIndex].voice.schedule(preparedSound)
-        voiceSlots[voiceIndex].scheduledAt = now
+        voiceSlots[voiceIndex].scheduledAt = scheduledAt
         voiceSlots[voiceIndex].soundClass = soundClass
+        voiceSlots[voiceIndex].scheduleGeneration = scheduleGeneration
+        voiceSlots[voiceIndex].voice.schedule(preparedSound) { [weak self] in
+            self?.outputQueue.async { [weak self] in
+                self?.markVoiceIdle(at: voiceIndex, generation: scheduleGeneration)
+            }
+        }
     }
 
-    private func activateOutputIfNeeded(at now: TimeInterval) -> Bool {
+    private func activateOutputIfNeeded() -> Bool {
         guard !isOutputActive else {
             return true
         }
@@ -213,7 +238,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 }
             }
 
-            nextActivationAttemptAt = now + 1.0
+            nextActivationAttemptAt = clock.now + 1.0
             log("Gameplay sound activation failed: \(error)")
             return false
         }
@@ -266,11 +291,34 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         return selectedIndex
     }
 
+    private func markVoiceIdle(at index: Int, generation: UInt64) {
+        guard voiceSlots.indices.contains(index),
+              voiceSlots[index].scheduleGeneration == generation
+        else {
+            return
+        }
+
+        voiceSlots[index].scheduledAt = nil
+        voiceSlots[index].soundClass = nil
+        voiceSlots[index].scheduleGeneration = nil
+    }
+
+    private func invalidateReadyOutputForLifecycleRecovery() {
+        for index in voiceSlots.indices where voiceSlots[index].scheduledAt != nil {
+            voiceSlots[index].voice.stop()
+        }
+
+        backend.stopEngine()
+        preparedSounds = [:]
+        voiceSlots = []
+    }
+
     private func stopAllAndDeactivateOnOutputQueue() {
         for index in voiceSlots.indices where voiceSlots[index].scheduledAt != nil {
             voiceSlots[index].voice.stop()
             voiceSlots[index].scheduledAt = nil
             voiceSlots[index].soundClass = nil
+            voiceSlots[index].scheduleGeneration = nil
         }
 
         backend.stopEngine()
