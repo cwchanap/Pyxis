@@ -401,6 +401,41 @@ struct GameViewControllerTests {
         #expect(soundEffectsElement.accessibilityValue == "Off")
     }
 
+    @Test func sharedAccessibilityAdapterRebindsAnActionableMapAfterBattleConquest() throws {
+        let backgroundAt = Date(timeIntervalSince1970: 1_000)
+        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: backgroundAt)
+            == .built(cost: 15, remainingGold: 85))
+        let store = try makeStore(initialState: initialState)
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        let battleGear = try #require(battle.feedbackSettingsGearFrameForTesting)
+
+        battle.handleTouchForTesting(at: CGPoint(x: battleGear.midX, y: battleGear.midY))
+        #expect(battle.isFeedbackSettingsVisibleForTesting)
+        battle.enterBackgroundForTesting(at: backgroundAt)
+        battle.enterForegroundForTesting(at: Date(timeIntervalSince1970: 10_000))
+        #expect(battle.isConquestPopupVisibleForTesting)
+
+        battle.tapConquestContinueForTesting()
+        let map = try #require(view.scene as? CountryMapScene)
+        map.didMove(to: view)
+        let mapGear = try #require(accessibilityElements(in: view).onlyElement as? ActionAccessibilityElement)
+
+        #expect(mapGear.accessibilityLabel == "Settings")
+        #expect(mapGear.accessibilityActivate())
+        #expect(map.isFeedbackSettingsVisibleForTesting)
+        #expect(context.accessibilityAdapterFactoryCallCount == 1)
+    }
+
     @Test func mapUnavailableIsDistinctFromSupportedGeometry() throws {
         let store = try makeStore(initialState: .init(
             cityRemainingPower: 0,

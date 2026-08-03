@@ -549,6 +549,62 @@ struct BattleSceneTests {
         #expect(feedback.calls.isEmpty)
     }
 
+    @Test("Restored Battle report hides Settings accessibility and uses system-default focus")
+    func restoredBattleReportHidesSettingsAccessibilityWhenSettingsWasClosed() throws {
+        let size = CGSize(width: 390, height: 844)
+        let containerView = UIView(frame: CGRect(origin: .zero, size: size))
+        var posts: [AccessibilityPost] = []
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { $0 },
+            postNotification: { notification, target in
+                posts.append(AccessibilityPost(notification: notification, target: target))
+            }
+        )
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState()),
+            size: size,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(accessibilityElements(in: containerView).isEmpty)
+        #expect(posts.count == 1)
+        let post = try #require(posts.first)
+        #expect(post.notification == .screenChanged)
+        #expect(post.target == nil)
+    }
+
+    @Test("Fresh Battle conquest hides Settings accessibility when Settings was closed")
+    func freshBattleConquestHidesSettingsAccessibilityWhenSettingsWasClosed() throws {
+        let size = CGSize(width: 390, height: 844)
+        let containerView = UIView(frame: CGRect(origin: .zero, size: size))
+        var posts: [AccessibilityPost] = []
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { $0 },
+            postNotification: { notification, target in
+                posts.append(AccessibilityPost(notification: notification, target: target))
+            }
+        )
+        let scene = makeScene(
+            store: try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1)),
+            size: size,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+
+        #expect(accessibilityElements(in: containerView).count == 1)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(accessibilityElements(in: containerView).isEmpty)
+        #expect(posts.count == 1)
+        let post = try #require(posts.first)
+        #expect(post.notification == .screenChanged)
+        #expect(post.target == nil)
+    }
+
     @Test func tappingSpawnCreatesLiveCombatSoldierWithoutImmediateCityDamage() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)

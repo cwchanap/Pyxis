@@ -110,7 +110,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         #expect(closeActivations == 1)
     }
 
-    @Test func closingFocusesAnAccessibleOutcomeOrTheOpeningGear() throws {
+    @Test func closingFocusesAnAccessibleOutcomeThenTheGearAfterOutcomeDismissal() throws {
         let context = makeAccessibilityContext()
         let layout = try layoutFixture()
         context.adapter.configureActions(
@@ -134,6 +134,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
             outcome
         ))
 
+        context.adapter.setSceneGearActionable(true)
         context.adapter.present(layout: layout, preferences: .defaultValue)
         context.adapter.dismiss(focusTarget: .openingGear)
 
@@ -145,7 +146,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         ))
     }
 
-    @Test func blockedOrInaccessibleOutcomePostsSystemDefaultInsteadOfTheGear() throws {
+    @Test func blockedOrInaccessibleOutcomePostsSystemDefaultWithoutTheGear() throws {
         let context = makeAccessibilityContext()
         let layout = try layoutFixture()
         context.adapter.configureActions(
@@ -158,12 +159,16 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         let gear = try #require(accessibilityElements(in: context.containerView).onlyElement)
 
         context.adapter.present(layout: layout, preferences: .defaultValue)
+        context.adapter.setSceneGearActionable(false)
         context.adapter.dismiss(focusTarget: .systemDefault)
 
         #expect(context.posts.last?.notification == .screenChanged)
         #expect(context.posts.last?.target == nil)
         #expect(accessibilityElements(in: context.containerView).isEmpty)
         #expect(!targetsSameObject(context.posts.last?.target, gear))
+
+        context.adapter.present(layout: layout, preferences: .defaultValue)
+        #expect(accessibilityElements(in: context.containerView).isEmpty)
     }
 }
 

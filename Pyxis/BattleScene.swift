@@ -413,6 +413,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                     self?.activateFeedbackSettings(.close)
                 }
             )
+            feedbackSettingsController?.rebindAccessibilityForScene()
+            if state.pendingBattleResult != nil {
+                feedbackSettingsController?.setSettingsAccessibilityActionable(false)
+            }
         }
 
         guard let feedbackSettingsController else {
@@ -1951,6 +1955,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let damageText = CompactNumberFormatter.string(from: damageResult.damageDealt)
 
         if conqueredCity {
+            feedbackSettingsController?.setSettingsAccessibilityActionable(false)
             closeFeedbackSettings(focusTarget: .systemDefault)
             clearLiveCombat()
             // The conquest popup communicates the result; clear any stale
@@ -2966,6 +2971,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
+                feedbackSettingsController?.setSettingsAccessibilityActionable(false)
                 closeFeedbackSettings(focusTarget: .systemDefault)
                 emitFreshOutcomeFeedback(
                     goldEarned: result.goldEarned,
@@ -3096,6 +3102,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     @discardableResult
     private func applyPendingConquestReport(resetsContinueState: Bool) -> Bool {
         guard let result = pendingResultForPresentation() else { return false }
+        feedbackSettingsController?.setSettingsAccessibilityActionable(false)
         if resetsContinueState { isConquestContinueEnabled = true }
         let content = conquestReportContent(for: result)
         lastAppliedConquestReportContent = content

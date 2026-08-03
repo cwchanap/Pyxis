@@ -45,7 +45,7 @@ final class FeedbackSettingsController {
 
     @discardableResult
     func open() -> Bool {
-        guard let layout else { return false }
+        guard let layout, accessibilityAdapter.canPresentSettings else { return false }
 
         isVisible = true
         modal.apply(layout: layout, preferences: preferences)
@@ -74,6 +74,14 @@ final class FeedbackSettingsController {
     func applyGearFrame(_ frame: CGRect) {
         gear.apply(frame: frame)
         accessibilityAdapter.applyGear(frame: resolvedGearFrame(from: frame))
+    }
+
+    func rebindAccessibilityForScene(isSettingsActionable: Bool = true) {
+        accessibilityAdapter.rebindScene(isSettingsActionable: isSettingsActionable)
+    }
+
+    func setSettingsAccessibilityActionable(_ isActionable: Bool) {
+        accessibilityAdapter.setSceneGearActionable(isActionable)
     }
 
     func reapply(layout: FeedbackSettingsLayout?) {

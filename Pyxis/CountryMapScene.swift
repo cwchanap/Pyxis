@@ -351,6 +351,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                     self?.activateFeedbackSettings(.close)
                 }
             )
+            feedbackSettingsController?.rebindAccessibilityForScene()
         }
 
         guard let feedbackSettingsController else {

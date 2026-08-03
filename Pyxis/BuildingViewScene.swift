@@ -253,6 +253,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
                     self?.activateFeedbackSettings(.close)
                 }
             )
+            feedbackSettingsController?.rebindAccessibilityForScene()
         }
 
         guard let feedbackSettingsController else {
