@@ -27,6 +27,19 @@ struct CountryMapLayoutConstraints: Equatable {
     let sceneSize: CGSize
     let environment: CountryMapLayoutEnvironment
     let definition: CountryMapLayoutDefinition
+    let showsCurrentCityControl: Bool
+
+    init(
+        sceneSize: CGSize,
+        environment: CountryMapLayoutEnvironment,
+        definition: CountryMapLayoutDefinition,
+        showsCurrentCityControl: Bool = false
+    ) {
+        self.sceneSize = sceneSize
+        self.environment = environment
+        self.definition = definition
+        self.showsCurrentCityControl = showsCurrentCityControl
+    }
 }
 
 struct CountryMapRouteLayout: Equatable {
@@ -55,10 +68,26 @@ enum CountryMapLayoutResult: Equatable {
 }
 
 struct CountryMapLayout: Equatable {
+    private enum TitleControlMetrics {
+        static let sideInset: CGFloat = 10
+        static let gearHitSize: CGFloat = 44
+        static let gearToTitleGap: CGFloat = 8
+        static let titleToCurrentCityGap: CGFloat = 8
+        static let currentCityWidth: CGFloat = 82
+        static let minimumTitleTextWidth: CGFloat = 160
+        static let minimumTitleFontSize: CGFloat = 16
+    }
+
+    static let minimumTitleTextWidth = TitleControlMetrics.minimumTitleTextWidth
+    static let minimumTitleFontSize = TitleControlMetrics.minimumTitleFontSize
+
     let sceneFrame: CGRect
     let displayedBackdropFrame: CGRect
     let titleControlRegionFrame: CGRect
-    let currentCityControlFrame: CGRect
+    let showsCurrentCityControl: Bool
+    let settingsControlFrame: CGRect
+    let currentCityControlFrame: CGRect?
+    let titleTextFrame: CGRect
     let informationRegionFrame: CGRect
     let illustratedMapRegionFrame: CGRect
     let cityPositions: [Int: CGPoint]
@@ -131,11 +160,32 @@ struct CountryMapLayout: Equatable {
             width: titleWidth,
             height: 66
         )
-        let currentCityControlFrame = CGRect(
-            x: titleControlRegionFrame.maxX - 10 - 82,
-            y: titleControlRegionFrame.midY - 22,
-            width: 82,
-            height: 44
+        let settingsControlFrame = CGRect(
+            x: titleControlRegionFrame.minX + TitleControlMetrics.sideInset,
+            y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
+            width: TitleControlMetrics.gearHitSize,
+            height: TitleControlMetrics.gearHitSize
+        )
+        let currentCityControlFrame = constraints.showsCurrentCityControl
+            ? CGRect(
+                x: titleControlRegionFrame.maxX
+                    - TitleControlMetrics.sideInset
+                    - TitleControlMetrics.currentCityWidth,
+                y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
+                width: TitleControlMetrics.currentCityWidth,
+                height: TitleControlMetrics.gearHitSize
+            )
+            : nil
+        let titleTextMaxX = (currentCityControlFrame?.minX
+            ?? (titleControlRegionFrame.maxX - TitleControlMetrics.sideInset))
+            - (currentCityControlFrame == nil ? 0 : TitleControlMetrics.titleToCurrentCityGap)
+        let titleTextFrame = CGRect(
+            x: settingsControlFrame.maxX + TitleControlMetrics.gearToTitleGap,
+            y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
+            width: titleTextMaxX
+                - settingsControlFrame.maxX
+                - TitleControlMetrics.gearToTitleGap,
+            height: TitleControlMetrics.gearHitSize
         )
 
         let informationWidth = min(constraints.sceneSize.width - 32, 600)
@@ -153,8 +203,14 @@ struct CountryMapLayout: Equatable {
         )
 
         guard sceneFrame.contains(titleControlRegionFrame),
-              sceneFrame.contains(currentCityControlFrame),
-              titleControlRegionFrame.contains(currentCityControlFrame),
+              sceneFrame.contains(settingsControlFrame),
+              titleControlRegionFrame.contains(settingsControlFrame),
+              titleControlRegionFrame.contains(titleTextFrame),
+              titleTextFrame.width >= TitleControlMetrics.minimumTitleTextWidth,
+              (currentCityControlFrame.map {
+                  sceneFrame.contains($0)
+                      && titleControlRegionFrame.contains($0)
+              } ?? true),
               sceneFrame.contains(informationRegionFrame),
               isFinite(displayedBackdropFrame),
               isFinite(illustratedMapRegionFrame),
@@ -176,8 +232,13 @@ struct CountryMapLayout: Equatable {
         let safeContentMaxX = sceneFrame.maxX - insets.right
         guard titleControlRegionFrame.minX >= safeContentMinX,
               titleControlRegionFrame.maxX <= safeContentMaxX,
-              currentCityControlFrame.minX >= safeContentMinX,
-              currentCityControlFrame.maxX <= safeContentMaxX,
+              settingsControlFrame.minX >= safeContentMinX,
+              settingsControlFrame.maxX <= safeContentMaxX,
+              titleTextFrame.minX >= safeContentMinX,
+              titleTextFrame.maxX <= safeContentMaxX,
+              (currentCityControlFrame.map {
+                  $0.minX >= safeContentMinX && $0.maxX <= safeContentMaxX
+              } ?? true),
               informationRegionFrame.minX >= safeContentMinX,
               informationRegionFrame.maxX <= safeContentMaxX
         else {
@@ -244,7 +305,10 @@ struct CountryMapLayout: Equatable {
             sceneFrame: sceneFrame,
             displayedBackdropFrame: displayedBackdropFrame,
             titleControlRegionFrame: titleControlRegionFrame,
+            showsCurrentCityControl: constraints.showsCurrentCityControl,
+            settingsControlFrame: settingsControlFrame,
             currentCityControlFrame: currentCityControlFrame,
+            titleTextFrame: titleTextFrame,
             informationRegionFrame: informationRegionFrame,
             illustratedMapRegionFrame: illustratedMapRegionFrame,
             cityPositions: cityPositions,

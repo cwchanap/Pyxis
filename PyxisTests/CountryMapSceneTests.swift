@@ -10,6 +10,272 @@ import Testing
 
 @MainActor
 struct CountryMapSceneTests {
+    private enum CountryMapFeedbackCall: Equatable {
+        case discrete(GameplayFeedbackEvent)
+        case automatic([GameplayFeedbackEvent])
+    }
+
+    private final class CountryMapFeedbackRecorder: GameplayFeedbackProviding {
+        private(set) var calls: [CountryMapFeedbackCall] = []
+
+        func emit(_ event: GameplayFeedbackEvent) {
+            calls.append(.discrete(event))
+        }
+
+        func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
+            calls.append(.automatic(orderedEvents))
+        }
+
+        var discreteEvents: [GameplayFeedbackEvent] {
+            calls.compactMap {
+                guard case .discrete(let event) = $0 else { return nil }
+                return event
+            }
+        }
+
+        func reset() {
+            calls.removeAll()
+        }
+    }
+
+    @Test("Country Map uses injected feedback and Settings dependencies")
+    func countryMapUsesInjectedFeedbackAndSettingsDependencies() throws {
+        let feedback = CountryMapFeedbackRecorder()
+        let preferences = RecordingFeedbackPreferencesManager()
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(
+            store: store,
+            router: RouteSpy(),
+            feedback: feedback,
+            feedbackPreferences: preferences
+        )
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        ))
+
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        scene.handleTouchForTesting(at: settingsLayout.soundRowFrame.center)
+        #expect(preferences.current.soundEffectsEnabled == false)
+        scene.handleTouchForTesting(at: settingsLayout.closeFrame.center)
+
+        scene.enterCityForTesting(3)
+
+        #expect(feedback.discreteEvents == [.invalidAction])
+    }
+
+    @Test("Country Map Settings consumes every underlying map target")
+    func countryMapSettingsBlocksScoutCurrentCityCityAndGearTouches() throws {
+        let feedback = CountryMapFeedbackRecorder()
+        let initialState = KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 50,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router, feedback: feedback)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        let scoutAttackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
+        let scoutCardFrame = try #require(scene.scoutCardHitFrameForTesting)
+        let currentCityFrame = scene.currentCityButtonFrameForTesting
+        let cityPoint = try #require(scene.cityNodePositionForTesting(4))
+
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        for point in [
+            gearFrame.center,
+            scoutAttackFrame.center,
+            CGPoint(x: scoutCardFrame.minX + 2, y: scoutCardFrame.maxY - 2),
+            currentCityFrame.center,
+            cityPoint
+        ] {
+            scene.handleTouchForTesting(at: point)
+        }
+
+        #expect(store.load() == initialState)
+        #expect(router.battleRequestCount == 0)
+        #expect(feedback.calls.isEmpty)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Country Map Settings gear wins over an overlapping scout attack")
+    func countryMapGearPrecedesScoutAttack() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let attackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
+        let gear = try #require(
+            scene.childNode(withName: SettingsGearNode.semanticName) as? SettingsGearNode
+        )
+        gear.position = attackFrame.center
+
+        scene.handleTouchForTesting(at: attackFrame.center)
+
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(router.battleRequestCount == 0)
+        #expect(store.load().stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test("Country Map routing guard wins over Settings gear")
+    func countryMapRoutingGuardPreventsOpeningSettings() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let scoutAttack = try #require(scene.scoutCardAttackHitFrameForTesting)
+        let gear = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.handleTouchForTesting(at: scoutAttack.center)
+        scene.handleTouchForTesting(at: gear.center)
+
+        #expect(scene.isRoutingToBattleForTesting)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(router.battleRequestCount == 1)
+    }
+
+    @Test("Country Map title uses the layout title frame and fails at the 16-point floor")
+    func countryMapTitleUsesLayoutFrameAndNeverShrinksToEightPoints() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 50,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        ))
+        let scene = makeScene(
+            size: CGSize(width: 375, height: 667),
+            store: store,
+            router: RouteSpy(),
+            environment: .init(safeAreaInsets: .zero, layoutClass: .phone)
+        )
+        let layout = try #require(scene.countryMapLayoutForTesting)
+        let titleFrame = scene.titleLabelFrameForTesting
+        let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        label.text = "A title too long for this narrow test region"
+        label.fontSize = 28
+
+        #expect(layout.titleTextFrame.contains(titleFrame))
+        #expect(scene.titleLabelFontSizeForTesting >= 16)
+        #expect(!scene.fitTitleLabelForTesting(label, maxWidth: 160))
+        #expect(label.fontSize == 16)
+    }
+
+    @Test("Fresh Country Map idle conquest stays on map and emits reward before one city outcome")
+    func countryMapFreshIdleConquestEmitsRewardThenCityOutcomeWithoutReplay() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let preferences = RecordingFeedbackPreferencesManager()
+        let sound = RecordingGameplaySoundOutput()
+        let haptics = RecordingGameplayHapticOutput()
+        let feedback = DefaultGameplayFeedbackCoordinator(
+            preferences: preferences,
+            soundOutput: sound,
+            hapticOutput: haptics,
+            clock: ManualMonotonicClock(now: 0)
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(
+            store: store,
+            router: router,
+            feedback: feedback,
+            feedbackPreferences: preferences
+        )
+
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_000))
+
+        #expect(store.load().stageStatus == .cityConqueredPendingMap)
+        #expect(router.battleRequestCount == 0)
+        #expect(scene.visibleFeedbackTextForTesting == "City 4: Spiked Gate")
+        #expect(sound.calls == [
+            .play(.goldReward, .nonAutomatic),
+            .play(.cityConquest, .nonAutomatic)
+        ])
+        #expect(haptics.played == [.strongSuccess])
+
+        let preservedText = scene.visibleFeedbackTextForTesting
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: scene.size)))
+        scene.refreshLayoutForCurrentEnvironment()
+
+        #expect(scene.visibleFeedbackTextForTesting == preservedText)
+        #expect(sound.calls == [
+            .play(.goldReward, .nonAutomatic),
+            .play(.cityConquest, .nonAutomatic)
+        ])
+        #expect(haptics.played == [.strongSuccess])
+    }
+
+    @Test("Final Country Map idle conquest emits country completion instead of city conquest")
+    func countryMapFinalIdleConquestEmitsExactlyOneCountryOutcome() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityLevel: 15,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 15,
+            completedCityCount: 14,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let preferences = RecordingFeedbackPreferencesManager()
+        let sound = RecordingGameplaySoundOutput()
+        let haptics = RecordingGameplayHapticOutput()
+        let feedback = DefaultGameplayFeedbackCoordinator(
+            preferences: preferences,
+            soundOutput: sound,
+            hapticOutput: haptics,
+            clock: ManualMonotonicClock(now: 0)
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(
+            store: store,
+            router: router,
+            feedback: feedback,
+            feedbackPreferences: preferences
+        )
+
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_000))
+
+        #expect(store.load().stageStatus == .countryComplete)
+        #expect(router.battleRequestCount == 0)
+        #expect(scene.visibleFeedbackTextForTesting == "Country 1 conquered.")
+        #expect(sound.calls == [
+            .play(.goldReward, .nonAutomatic),
+            .play(.countryCompletion, .nonAutomatic)
+        ])
+        #expect(haptics.played == [.strongSuccess])
+    }
+
     @Test func enteringUnlockedCitySavesStateAndRoutesToBattle() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -918,8 +1184,9 @@ struct CountryMapSceneTests {
             router: RouteSpy()
         )
         let layout = try #require(scene.countryMapLayoutForTesting)
-        #expect(layout.titleControlRegionFrame.contains(layout.currentCityControlFrame))
-        #expect(scene.currentCityButtonFrameForTesting == layout.currentCityControlFrame)
+        let currentCityControlFrame = try #require(layout.currentCityControlFrame)
+        #expect(layout.titleControlRegionFrame.contains(currentCityControlFrame))
+        #expect(scene.currentCityButtonFrameForTesting == currentCityControlFrame)
     }
 
     @Test func UIKitAdapterUsesIdiomAndPreservesSemanticInsets() throws {
@@ -1688,14 +1955,18 @@ struct CountryMapSceneTests {
             safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
             layoutClass: .phone
         ),
-        imageLoader: ((String) -> UIImage?)? = nil
+        imageLoader: ((String) -> UIImage?)? = nil,
+        feedback: GameplayFeedbackProviding? = nil,
+        feedbackPreferences: FeedbackPreferencesManaging? = nil
     ) -> CountryMapScene {
         let scene = CountryMapScene(
             size: size,
             store: store,
             router: router,
             layoutEnvironmentOverride: environment,
-            imageLoaderOverride: imageLoader
+            imageLoaderOverride: imageLoader,
+            feedback: feedback ?? NoOpGameplayFeedbackProvider(),
+            feedbackPreferences: feedbackPreferences ?? RecordingFeedbackPreferencesManager()
         )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
@@ -1736,5 +2007,11 @@ struct CountryMapSceneTests {
         store.save(initialState)
         defaults.resetStateSaveCount()
         return (store, defaults)
+    }
+}
+
+private extension CGRect {
+    var center: CGPoint {
+        CGPoint(x: midX, y: midY)
     }
 }
