@@ -422,6 +422,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         if feedbackSettingsController.gear.parent !== leftHUDPanel {
             leftHUDPanel.addChild(feedbackSettingsController.gear)
         }
+        // The shared gear defaults to a scene-level HUD z position for the
+        // Map and Building scenes. Battle parents it under this HUD panel, so
+        // it needs the local offset to keep its effective z at hud + 2.
+        feedbackSettingsController.gear.zPosition = 2
         if feedbackSettingsController.modal.parent !== self {
             addChild(feedbackSettingsController.modal)
         }
@@ -1947,10 +1951,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if conqueredCity {
             closeFeedbackSettings(focusTarget: .systemDefault)
-            emitFreshOutcomeFeedback(
-                goldEarned: damageResult.goldEarned,
-                conqueredCities: damageResult.conqueredCities
-            )
             clearLiveCombat()
             // The conquest popup communicates the result; clear any stale
             // feedback so the tooltip doesn't present behind the overlay and
@@ -1962,7 +1962,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             feedbackText = "Soldiers dealt \(damageText) damage."
         }
 
-        store.save(state)
+        persistLiveCombatStateAndEmitFreshOutcomeFeedback(
+            goldEarned: damageResult.goldEarned,
+            conqueredCities: damageResult.conqueredCities
+        )
         redraw(shouldLayout: conqueredCity)
 
         if conqueredCity {
@@ -1974,6 +1977,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint)
             playCityHitFeedback()
         }
+    }
+
+    private func persistLiveCombatStateAndEmitFreshOutcomeFeedback(
+        goldEarned: Int,
+        conqueredCities: Int
+    ) {
+        store.save(state)
+        emitFreshOutcomeFeedback(
+            goldEarned: goldEarned,
+            conqueredCities: conqueredCities
+        )
     }
 
     private func emitFreshOutcomeFeedback(
