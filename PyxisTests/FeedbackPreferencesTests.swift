@@ -73,3 +73,53 @@ struct FeedbackPreferencesTests {
         #expect(decoded.hapticsEnabled == false)
     }
 }
+
+@inline(never)
+private func assertHPA389ConsumerContract(
+    defaults: UserDefaults,
+    manager: FeedbackPreferencesManaging,
+    observation: FeedbackPreferencesObservation,
+    provider: GameplayFeedbackProviding,
+    clock: MonotonicClock
+) {
+    _ = FeedbackPreferences()
+    _ = FeedbackPreferences.defaultValue
+    _ = FeedbackPreferences(
+        soundEffectsEnabled: false,
+        hapticsEnabled: false
+    )
+    _ = FeedbackPreferencesStore(
+        defaults: defaults,
+        key: "compile-only.feedback"
+    )
+
+    _ = manager.current
+    _ = manager.setSoundEffectsEnabled(true)
+    _ = manager.setHapticsEnabled(true)
+    let returnedObservation = manager.observe { _ in }
+    returnedObservation.cancel()
+    observation.cancel()
+
+    let discreteEvents: [GameplayFeedbackEvent] = [
+        .manualDeployment,
+        .buildingChanged,
+        .invalidAction,
+        .goldReward,
+        .cityConquest,
+        .countryCompletion,
+        .fortifiedLaneWarning
+    ]
+    discreteEvents.forEach { provider.emit($0) }
+
+    provider.emitAutomaticCombat([
+        .soldierDamage(.death),
+        .towerFire,
+        .soldierAttack(.siege),
+        .soldierAttack(.ranged),
+        .soldierAttack(.melee),
+        .soldierDamage(.hit)
+    ])
+
+    _ = SoldierAttackSoundCategory.allCases
+    _ = clock.now
+}
