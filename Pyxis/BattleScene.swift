@@ -482,7 +482,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func openFeedbackSettings() {
-        guard !isConquestReportVisible,
+        guard !isLayoutGatePaused,
+              !isConquestReportVisible,
               !isConquestReportFitFailed,
               let feedbackSettingsController,
               !feedbackSettingsController.isVisible else {
