@@ -321,6 +321,41 @@ struct BattleSceneTests {
         #expect(scene.isFeedbackSettingsVisibleForTesting)
     }
 
+    @Test("Battle layout gate refuses retained Settings accessibility activation")
+    func battleLayoutGateRefusesRetainedSettingsAccessibilityActivation() throws {
+        let size = CGSize(width: 390, height: 844)
+        let accessibilityContainer = UIView(frame: CGRect(origin: .zero, size: size))
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: accessibilityContainer,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let feedback = BattleFeedbackRecorder()
+        let router = BattleRouterSpy()
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
+        let scene = makeScene(
+            store: store,
+            router: router,
+            size: size,
+            feedback: feedback,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+        let retainedGear = try #require(accessibilityElements(in: accessibilityContainer).onlyElement)
+        let stateBeforeActivation = scene.gameStateForTesting
+
+        #expect(retainedGear.accessibilityLabel == "Settings")
+        scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 11))
+        #expect(retainedGear.accessibilityActivate())
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(accessibilityElements(in: accessibilityContainer).onlyElement === retainedGear)
+        #expect(feedback.calls.isEmpty)
+        #expect(!router.didRequestCountryMap)
+        #expect(!router.didRequestBuildingView)
+        #expect(scene.gameStateForTesting == stateBeforeActivation)
+        #expect(store.load() == stateBeforeActivation)
+    }
+
     @Test("Battle preserves feedback Settings, report, and reward-effect Z tiers")
     func battlePreservesSettingsAndConquestPresentationZOrder() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
@@ -3036,7 +3071,8 @@ struct BattleSceneTests {
         combatSeed: UInt64? = nil,
         size: CGSize = CGSize(width: 390, height: 844),
         feedback: GameplayFeedbackProviding? = nil,
-        feedbackPreferences: FeedbackPreferencesManaging? = nil
+        feedbackPreferences: FeedbackPreferencesManaging? = nil,
+        feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil
     ) -> BattleScene {
         let resolvedFeedback = feedback ?? NoOpGameplayFeedbackProvider()
         let resolvedFeedbackPreferences = feedbackPreferences ?? FeedbackPreferencesStore.shared
@@ -3046,6 +3082,7 @@ struct BattleSceneTests {
             router: router,
             feedback: resolvedFeedback,
             feedbackPreferences: resolvedFeedbackPreferences,
+            feedbackSettingsAccessibilityAdapter: feedbackSettingsAccessibilityAdapter,
             combatSeed: combatSeed
         )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
