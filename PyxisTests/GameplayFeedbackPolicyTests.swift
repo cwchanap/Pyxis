@@ -150,4 +150,41 @@ struct GameplayFeedbackPolicyTests {
             #expect(GameplayFeedbackPolicy.directive(for: mapping.event) == mapping.directive)
         }
     }
+
+    @Test func preferenceManagerSkipsStaleOuterSnapshotAfterReentrantUpdate() {
+        let manager = RecordingFeedbackPreferencesManager()
+        let outerSnapshot = FeedbackPreferences(
+            soundEffectsEnabled: false,
+            hapticsEnabled: true
+        )
+        let newestSnapshot = FeedbackPreferences(
+            soundEffectsEnabled: false,
+            hapticsEnabled: false
+        )
+        var firstObserverHasTriggeredUpdate = false
+        var snapshotsReceivedByLaterObserver: [FeedbackPreferences] = []
+
+        let firstObservation = manager.observe { preferences in
+            guard preferences == outerSnapshot,
+                  !firstObserverHasTriggeredUpdate
+            else {
+                return
+            }
+
+            firstObserverHasTriggeredUpdate = true
+            _ = manager.setHapticsEnabled(false)
+        }
+        let laterObservation = manager.observe { preferences in
+            snapshotsReceivedByLaterObserver.append(preferences)
+        }
+
+        withExtendedLifetime((firstObservation, laterObservation)) {
+            _ = manager.setSoundEffectsEnabled(false)
+        }
+
+        #expect(snapshotsReceivedByLaterObserver == [
+            .defaultValue,
+            newestSnapshot
+        ])
+    }
 }
