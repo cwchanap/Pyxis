@@ -39,6 +39,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     private var preparationState: SoundPreparationState = .unprepared
     private var preparedSounds: [GameplaySoundID: GameplayPreparedSound] = [:]
     private var voiceSlots: [VoiceSlot] = []
+    private var preparationGeneration: UInt64 = 0
     private var nextVoiceScheduleGeneration: UInt64 = 0
     private var isOutputActive = false
     private var nextActivationAttemptAt: TimeInterval?
@@ -80,13 +81,10 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             isOutputActive = false
             nextActivationAttemptAt = nil
 
-            switch preparationState {
-            case .preparing:
-                return
-            case .ready:
+            preparationGeneration &+= 1
+
+            if case .ready = preparationState {
                 invalidateReadyOutputForLifecycleRecovery()
-            case .unprepared, .failed:
-                break
             }
 
             backend.resetForLifecycleRecovery()
@@ -103,6 +101,8 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             break
         }
 
+        preparationGeneration &+= 1
+        let generation = preparationGeneration
         preparationState = .preparing
 
         do {
@@ -132,19 +132,24 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             } catch {
                 let message = "Gameplay sound preparation failed: \(error)"
                 self?.outputQueue.async { [weak self] in
-                    self?.finishPreparationFailure(message: message)
+                    self?.finishPreparationFailure(message: message, generation: generation)
                 }
                 return
             }
 
             self?.outputQueue.async { [weak self, completedCatalog] in
-                self?.finishPreparation(with: completedCatalog)
+                self?.finishPreparation(with: completedCatalog, generation: generation)
             }
         }
     }
 
-    private func finishPreparation(with completedCatalog: [GameplaySoundID: GameplayPreparedSound]) {
-        guard case .preparing = preparationState else {
+    private func finishPreparation(
+        with completedCatalog: [GameplaySoundID: GameplayPreparedSound],
+        generation: UInt64
+    ) {
+        guard case .preparing = preparationState,
+              generation == preparationGeneration
+        else {
             return
         }
 
@@ -164,8 +169,10 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         preparationState = .ready
     }
 
-    private func finishPreparationFailure(message: String) {
-        guard case .preparing = preparationState else {
+    private func finishPreparationFailure(message: String, generation: UInt64) {
+        guard case .preparing = preparationState,
+              generation == preparationGeneration
+        else {
             return
         }
 
