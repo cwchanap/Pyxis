@@ -74,6 +74,11 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
             forResource: resource.resourceName,
             withExtension: resource.fileExtension
         ) else {
+#if DEBUG
+            assertionFailure(
+                "Missing gameplay audio resource: \(resource.resourceName).\(resource.fileExtension)"
+            )
+#endif
             throw PreparationError.missingResource(resource.resourceName)
         }
 
