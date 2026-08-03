@@ -72,6 +72,15 @@ struct FeedbackPreferencesTests {
         #expect(decoded.soundEffectsEnabled == true)
         #expect(decoded.hapticsEnabled == false)
     }
+
+    @Test func systemMonotonicClockReadsAreNonnegativeAndNondecreasing() {
+        let clock = SystemMonotonicClock()
+        let firstRead = clock.now
+        let secondRead = clock.now
+
+        #expect(firstRead >= 0)
+        #expect(secondRead >= firstRead)
+    }
 }
 
 @inline(never)
@@ -92,6 +101,9 @@ private func assertHPA389ConsumerContract(
         defaults: defaults,
         key: "compile-only.feedback"
     )
+    _ = FeedbackPreferencesStore.shared
+    _ = NoOpGameplayFeedbackProvider()
+    _ = SystemMonotonicClock()
 
     _ = manager.current
     _ = manager.setSoundEffectsEnabled(true)

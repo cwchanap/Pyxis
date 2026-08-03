@@ -311,6 +311,27 @@ struct FeedbackPreferencesStoreTests {
         withExtendedLifetime((firstToken, secondToken)) {}
     }
 
+    @Test func monotonicityHelperRejectsUnknownSnapshots() {
+        let versionOne = FeedbackPreferences(
+            soundEffectsEnabled: false,
+            hapticsEnabled: true
+        )
+        let versionTwo = FeedbackPreferences(
+            soundEffectsEnabled: false,
+            hapticsEnabled: false
+        )
+        let unexpectedSnapshot = FeedbackPreferences(
+            soundEffectsEnabled: true,
+            hapticsEnabled: false
+        )
+
+        #expect(!isNondecreasing(
+            [.defaultValue, versionOne, unexpectedSnapshot, versionTwo],
+            versionOne: versionOne,
+            versionTwo: versionTwo
+        ))
+    }
+
     @Test func callbackArgumentRemainsVersionSpecificWhileCurrentIsLatest() throws {
         let context = try makeStore()
         let versionOne = FeedbackPreferences(
@@ -441,6 +462,7 @@ private func isNondecreasing(
         if snapshot == versionTwo { return 2 }
         return nil
     }
+    guard ranks.count == snapshots.count else { return false }
     return zip(ranks, ranks.dropFirst()).allSatisfy { pair in
         pair.0 <= pair.1
     }
