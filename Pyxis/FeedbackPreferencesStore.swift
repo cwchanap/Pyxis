@@ -5,14 +5,39 @@
 
 import Foundation
 
-final class FeedbackPreferencesStore {
+final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
     static let shared = FeedbackPreferencesStore(defaults: .standard)
+
+    private struct ObserverRecord {
+        let callback: (FeedbackPreferences) -> Void
+        var lastDeliveredVersion: UInt64
+    }
 
     private(set) var current: FeedbackPreferences
 
     private let defaults: UserDefaults
     private let key: String
     private let encode: (FeedbackPreferences) throws -> Data
+    private var version: UInt64 = 0
+    private var observers: [UUID: ObserverRecord] = [:]
+
+    private final class ObservationToken: FeedbackPreferencesObservation {
+        private var cancellation: (() -> Void)?
+
+        init(cancellation: @escaping () -> Void) {
+            self.cancellation = cancellation
+        }
+
+        func cancel() {
+            let action = cancellation
+            cancellation = nil
+            action?()
+        }
+
+        deinit {
+            cancel()
+        }
+    }
 
     convenience init(
         defaults: UserDefaults,
@@ -61,6 +86,22 @@ final class FeedbackPreferencesStore {
         return current
     }
 
+    func observe(
+        _ observer: @escaping (FeedbackPreferences) -> Void
+    ) -> FeedbackPreferencesObservation {
+        let id = UUID()
+        observers[id] = ObserverRecord(
+            callback: observer,
+            lastDeliveredVersion: version
+        )
+        let snapshot = current
+        observer(snapshot)
+
+        return ObservationToken { [weak self] in
+            self?.observers.removeValue(forKey: id)
+        }
+    }
+
     private func commit(_ updated: FeedbackPreferences) {
         current = updated
         do {
@@ -70,6 +111,23 @@ final class FeedbackPreferencesStore {
                 "[Pyxis] Failed to encode FeedbackPreferences: %@",
                 error.localizedDescription
             )
+        }
+
+        version += 1
+        let deliveryVersion = version
+        let snapshot = updated
+        let observerIDs = Array(observers.keys)
+
+        for id in observerIDs {
+            guard var record = observers[id],
+                  record.lastDeliveredVersion < deliveryVersion
+            else {
+                continue
+            }
+
+            record.lastDeliveredVersion = deliveryVersion
+            observers[id] = record
+            record.callback(snapshot)
         }
     }
 
