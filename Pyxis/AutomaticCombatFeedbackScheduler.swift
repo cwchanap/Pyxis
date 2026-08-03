@@ -58,13 +58,12 @@ struct AutomaticCombatFeedbackScheduler {
             return nil
         }
 
-        let selectedEvent: GameplayFeedbackEvent
-        if attackSkippedEligibleWindows >= 2,
-           let reservedAttack = nextEligibleAttack(in: eligibleEvents) {
-            selectedEvent = reservedAttack
-        } else {
-            selectedEvent = eligibleEvents[0]
-        }
+        let defaultEvent = eligibleEvents[0]
+        let shouldSelectRotatedAttack =
+            attackSkippedEligibleWindows >= 2 || attackCategory(for: defaultEvent) != nil
+        let selectedEvent = shouldSelectRotatedAttack
+            ? nextEligibleAttack(in: eligibleEvents) ?? defaultEvent
+            : defaultEvent
 
         if let attackCategory = attackCategory(for: selectedEvent) {
             attackSkippedEligibleWindows = 0

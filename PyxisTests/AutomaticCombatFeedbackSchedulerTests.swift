@@ -102,6 +102,19 @@ struct AutomaticCombatFeedbackSchedulerTests {
         #expect(scheduler.select(from: dense, at: 0.300) == .soldierDamage(.death))
     }
 
+    @Test func rotatesAttackOnlyEligibleBatchesAcrossAllCategories() {
+        let attacks: [GameplayFeedbackEvent] = [
+            .soldierAttack(.siege),
+            .soldierAttack(.ranged),
+            .soldierAttack(.melee)
+        ]
+        var scheduler = AutomaticCombatFeedbackScheduler()
+
+        #expect(scheduler.select(from: attacks, at: 0.000) == .soldierAttack(.siege))
+        #expect(scheduler.select(from: attacks, at: 0.200) == .soldierAttack(.ranged))
+        #expect(scheduler.select(from: attacks, at: 0.400) == .soldierAttack(.melee))
+    }
+
     @Test func reservesEveryThirdEligibleWindowAndRotatesAttackCategories() {
         let dense = denseEvents
         var scheduler = AutomaticCombatFeedbackScheduler()
