@@ -99,7 +99,3 @@ private final class RecordingGameplayFeedbackProvider: GameplayFeedbackProviding
         calls.append(.automatic(orderedEvents))
     }
 }
-
-private struct ManualMonotonicClock: MonotonicClock {
-    var now: TimeInterval
-}
