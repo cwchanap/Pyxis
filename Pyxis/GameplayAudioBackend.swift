@@ -10,7 +10,11 @@ protocol GameplayPreparedSound: AnyObject {
 protocol GameplayAudioVoice: AnyObject {
     var index: Int { get }
 
-    func schedule(_ sound: GameplayPreparedSound)
+    /// Calls `completion` when this scheduled sound no longer occupies the voice.
+    func schedule(
+        _ sound: GameplayPreparedSound,
+        completion: @escaping () -> Void
+    )
     func stop()
 }
 
@@ -21,4 +25,8 @@ protocol GameplayAudioBackend: AnyObject {
     func makeVoice(index: Int) -> GameplayAudioVoice
     func startEngine() throws
     func stopEngine()
+
+    /// Discards invalid lifecycle-recovery state without activating the session or playing sound.
+    /// The controller reconfigures and prepares a fresh output graph afterward.
+    func resetForLifecycleRecovery()
 }
