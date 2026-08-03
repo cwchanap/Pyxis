@@ -64,9 +64,16 @@ struct GameplaySoundCatalogTests {
             #expect(manifest.contains(requiredField))
         }
 
-        for resource in expectedResources.values {
+        let manifestRows = manifest.split(separator: "\n").filter { line in
+            line.hasPrefix("| `")
+        }
+        #expect(manifestRows.count == GameplaySoundID.allCases.count)
+        #expect(Set(expectedManifestEntries.keys) == Set(GameplaySoundID.allCases))
+
+        for resource in GameplaySoundCatalog.all.values {
+            let expectedEntry = try #require(expectedManifestEntries[resource.id])
             let rowPrefix = "| `\(resource.resourceName).\(resource.fileExtension)` |"
-            let row = try #require(manifest.split(separator: "\n").first { line in
+            let row = try #require(manifestRows.first { line in
                 line.hasPrefix(rowPrefix)
             })
             let cells = row
@@ -75,12 +82,31 @@ struct GameplaySoundCatalogTests {
 
             #expect(cells.count == 11)
             #expect(cells[0] == "`\(resource.resourceName).\(resource.fileExtension)`")
-            #expect(cells[3].contains("Kenney"))
-            #expect(cells[4] == "Kenney")
-            #expect(cells[6] == "CC0-1.0")
-            #expect(cells[7] == "`docs/licenses/audio/CC0-1.0.txt`")
-            #expect(cells[8].contains("Yes"))
-            #expect(cells[10].hasSuffix("s"))
+            #expect(cells[1] == expectedEntry.semanticUse)
+            #expect(cells[2] == "`\(expectedEntry.originalSourceFile)`")
+            #expect(cells[3] == sourcePack)
+            #expect(cells[4] == creator)
+            #expect(cells[5] == sourceReference)
+            #expect(cells[6] == spdxIdentifier)
+            #expect(cells[7] == localLicensePath)
+            #expect(cells[8] == redistributionConfirmation)
+            #expect(cells[9] == processingDescription)
+
+            let durationParts = cells[10].split(separator: " ")
+            #expect(durationParts.count == 2)
+            #expect(durationParts[1] == "s")
+            let manifestDuration = try #require(durationParts.first.flatMap { Double($0) })
+            let resourceURL = try #require(
+                Bundle.main.url(
+                    forResource: resource.resourceName,
+                    withExtension: resource.fileExtension
+                )
+            )
+            let file = try AVAudioFile(forReading: resourceURL)
+            let onDiskDuration = Double(file.length) / file.processingFormat.sampleRate
+
+            #expect(manifestDuration >= 0)
+            #expect(abs(manifestDuration - onDiskDuration) <= 0.000_001)
         }
 
         let licenseURL = repositoryRoot.appendingPathComponent("docs/licenses/audio/CC0-1.0.txt")
@@ -180,4 +206,73 @@ struct GameplaySoundCatalogTests {
             maximumDuration: nil
         )
     ]
+
+    private struct ManifestEntry {
+        let semanticUse: String
+        let originalSourceFile: String
+    }
+
+    private let expectedManifestEntries: [GameplaySoundID: ManifestEntry] = [
+        .deployment: ManifestEntry(
+            semanticUse: "Manual soldier deployment",
+            originalSourceFile: "drawKnife3.ogg"
+        ),
+        .attackMelee: ManifestEntry(
+            semanticUse: "Automatic melee attack",
+            originalSourceFile: "knifeSlice.ogg"
+        ),
+        .attackRanged: ManifestEntry(
+            semanticUse: "Automatic ranged or magic attack",
+            originalSourceFile: "drawKnife2.ogg"
+        ),
+        .attackSiege: ManifestEntry(
+            semanticUse: "Automatic siege attack",
+            originalSourceFile: "chop.ogg"
+        ),
+        .towerFire: ManifestEntry(
+            semanticUse: "Automatic enemy-tower shot",
+            originalSourceFile: "metalClick.ogg"
+        ),
+        .soldierHit: ManifestEntry(
+            semanticUse: "Automatic soldier-damage hit",
+            originalSourceFile: "cloth2.ogg"
+        ),
+        .soldierDeath: ManifestEntry(
+            semanticUse: "Automatic soldier-damage death",
+            originalSourceFile: "dropLeather.ogg"
+        ),
+        .construction: ManifestEntry(
+            semanticUse: "Building constructed or upgraded",
+            originalSourceFile: "metalPot3.ogg"
+        ),
+        .blocked: ManifestEntry(
+            semanticUse: "Invalid or unaffordable action",
+            originalSourceFile: "metalLatch.ogg"
+        ),
+        .goldReward: ManifestEntry(
+            semanticUse: "Gold reward",
+            originalSourceFile: "handleCoins.ogg"
+        ),
+        .cityConquest: ManifestEntry(
+            semanticUse: "City-conquest outcome",
+            originalSourceFile: "doorOpen_1.ogg"
+        ),
+        .countryCompletion: ManifestEntry(
+            semanticUse: "Country-completion outcome",
+            originalSourceFile: "doorOpen_2.ogg"
+        ),
+        .fortifiedWarning: ManifestEntry(
+            semanticUse: "Fortified-lane warning",
+            originalSourceFile: "creak2.ogg"
+        )
+    ]
+
+    private let sourcePack = "Kenney RPG Audio v1.0"
+    private let creator = "Kenney"
+    private let sourceReference = "[Official archive](https://www.kenney.nl/media/pages/assets/" +
+        "rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip)"
+    private let spdxIdentifier = "CC0-1.0"
+    private let localLicensePath = "`docs/licenses/audio/CC0-1.0.txt`"
+    private let redistributionConfirmation = "Yes — CC0 permits modification and binary-app redistribution."
+    private let processingDescription = "Decoded OGG; 48 kHz stereo to 44.1 kHz mono LEI16 CAF; no trim."
 }
