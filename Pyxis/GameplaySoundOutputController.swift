@@ -347,3 +347,15 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         case mismatchedPreparedSoundID
     }
 }
+
+#if DEBUG
+extension GameplaySoundOutputController {
+    /// Creates a deterministic happens-before edge for tests that need every
+    /// previously enqueued output operation to finish before inspecting state.
+    /// Calling this from the output queue would deadlock, so reject that use.
+    func drainOutputQueueForTesting() {
+        dispatchPrecondition(condition: .notOnQueue(outputQueue))
+        outputQueue.sync {}
+    }
+}
+#endif
