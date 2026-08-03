@@ -95,9 +95,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private let store: KingdomGameStore
     private weak var router: BattleSceneRouting?
+    private let feedback: GameplayFeedbackProviding
+    private let feedbackPreferences: FeedbackPreferencesManaging
+    private let feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter?
+    private var feedbackSettingsController: FeedbackSettingsController?
     private var state: KingdomGameState
     private var combat: BattleCombatState
     private var lastUpdateTime: TimeInterval?
+    private var isLayoutGatePaused = false
     #if DEBUG
     private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
     #endif
@@ -110,6 +115,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private let battlefieldLayer = SKNode()
     private let environmentLayer = SKNode()
+    /// Keeps simulation-coupled SpriteKit actions in one origin-aligned subtree
+    /// so Settings can freeze them without pausing HUD or modal interaction.
+    private let battlefieldActionLayer = SKNode()
     private let soldierLayer = SKNode()
     private let effectsLayer = SKNode()
     private var playerCastleNode: SKNode?
@@ -236,6 +244,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         size: CGSize,
         store: KingdomGameStore = .shared,
         router: BattleSceneRouting? = nil,
+        feedback: GameplayFeedbackProviding = NoOpGameplayFeedbackProvider(),
+        feedbackPreferences: FeedbackPreferencesManaging = MainActor.assumeIsolated {
+            FeedbackPreferencesStore.shared
+        },
+        feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil,
         combatSeed: UInt64? = nil
     ) {
         let loadedState = store.load()
@@ -244,6 +257,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.combatSeed = combatSeed
         self.combat = Self.makeCombat(for: loadedState, seed: combatSeed)
         self.router = router
+        self.feedback = feedback
+        self.feedbackPreferences = feedbackPreferences
+        self.feedbackSettingsAccessibilityAdapter = feedbackSettingsAccessibilityAdapter
         super.init(size: size)
     }
 
@@ -254,6 +270,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.combatSeed = nil
         self.combat = Self.makeCombat(for: loadedState, seed: nil)
         self.router = nil
+        self.feedback = NoOpGameplayFeedbackProvider()
+        self.feedbackPreferences = FeedbackPreferencesStore.shared
+        self.feedbackSettingsAccessibilityAdapter = nil
         super.init(coder: aDecoder)
     }
 
@@ -281,6 +300,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             didBuildInterface = true
         }
 
+        configureFeedbackSettingsIfNeeded(in: view)
+
         observeLifecycleNotificationsIfNeeded()
         redraw()
 
@@ -305,20 +326,29 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        guard state.stageStatus == .battleActive, !isConquestReportVisible else {
+        guard state.stageStatus == .battleActive,
+              !isConquestReportVisible,
+              !isFeedbackSettingsVisible else {
             return
         }
 
         advanceCombat(deltaTime: currentTime - lastUpdateTime)
     }
 
-    func layoutGateWillPause(at date: Date) {}
+    func layoutGateWillPause(at date: Date) {
+        isLayoutGatePaused = true
+    }
 
     func layoutGateWillResume(at date: Date) {
+        guard isLayoutGatePaused else {
+            return
+        }
+        isLayoutGatePaused = false
         lastUpdateTime = nil
         #if DEBUG
         lastAdvanceCombatDeltaForTestingStorage = nil
         #endif
+        layoutInterface()
     }
 
     func refreshLayoutForCurrentEnvironment() {
@@ -341,7 +371,158 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             continueFromConquestReport()
             return
         }
+
+        if let feedbackSettingsController,
+           feedbackSettingsController.isVisible {
+            _ = feedbackSettingsController.handleTouch(at: point)
+            synchronizeBattlefieldActionPause()
+            return
+        }
+
+        if feedbackSettingsController?.gear.contains(point, in: self) == true {
+            openFeedbackSettings()
+            return
+        }
+
         handleTouch(named: buttonName(at: point))
+    }
+
+    private var isFeedbackSettingsVisible: Bool {
+        feedbackSettingsController?.isVisible == true
+    }
+
+    private func configureFeedbackSettingsIfNeeded(in view: SKView) {
+        if feedbackSettingsController == nil {
+            let accessibilityAdapter = feedbackSettingsAccessibilityAdapter
+                ?? makeFeedbackSettingsAccessibilityAdapter(for: view)
+            feedbackSettingsController = FeedbackSettingsController(
+                preferences: feedbackPreferences,
+                accessibilityAdapter: accessibilityAdapter
+            )
+            accessibilityAdapter.configureActions(
+                onGearActivate: { [weak self] in
+                    self?.openFeedbackSettings()
+                },
+                onToggleSoundEffects: { [weak self] in
+                    self?.activateFeedbackSettings(.toggleSoundEffects)
+                },
+                onToggleHaptics: { [weak self] in
+                    self?.activateFeedbackSettings(.toggleHaptics)
+                },
+                onClose: { [weak self] in
+                    self?.activateFeedbackSettings(.close)
+                }
+            )
+        }
+
+        guard let feedbackSettingsController else {
+            return
+        }
+
+        if feedbackSettingsController.gear.parent !== leftHUDPanel {
+            leftHUDPanel.addChild(feedbackSettingsController.gear)
+        }
+        if feedbackSettingsController.modal.parent !== self {
+            addChild(feedbackSettingsController.modal)
+        }
+    }
+
+    private func makeFeedbackSettingsAccessibilityAdapter(
+        for view: SKView
+    ) -> FeedbackSettingsAccessibilityAdapter {
+        FeedbackSettingsAccessibilityAdapter(
+            containerView: view,
+            sceneToScreenFrame: { [weak self, weak view] sceneFrame in
+                guard let self else {
+                    return .zero
+                }
+
+                let viewFrame = CGRect(
+                    x: sceneFrame.minX,
+                    y: (view?.bounds.height ?? self.size.height) - sceneFrame.maxY,
+                    width: sceneFrame.width,
+                    height: sceneFrame.height
+                )
+
+                // Unit-test scenes are deliberately detached from a UIWindow.
+                // Their local view coordinates are still finite and let the
+                // Settings controller exercise its real accessibility wiring;
+                // an attached production scene converts to screen coordinates.
+                guard let view, view.window != nil else {
+                    return viewFrame
+                }
+                return Self.feedbackSettingsAccessibilityFrame(
+                    viewLocalFrame: viewFrame,
+                    screenFrame: view.convert(viewFrame, to: nil)
+                )
+            },
+            postNotification: { notification, target in
+                UIAccessibility.post(notification: notification, argument: target)
+            }
+        )
+    }
+
+    static func feedbackSettingsAccessibilityFrame(
+        viewLocalFrame: CGRect,
+        screenFrame: CGRect
+    ) -> CGRect {
+        guard screenFrame.origin.x.isFinite,
+              screenFrame.origin.y.isFinite,
+              screenFrame.width.isFinite,
+              screenFrame.height.isFinite,
+              screenFrame.width > 0,
+              screenFrame.height > 0 else {
+            return viewLocalFrame
+        }
+        return screenFrame
+    }
+
+    private func openFeedbackSettings() {
+        guard !isConquestReportVisible,
+              !isConquestReportFitFailed,
+              let feedbackSettingsController,
+              !feedbackSettingsController.isVisible else {
+            return
+        }
+
+        hideManualTypeMenuWithoutLayoutIfNeeded()
+        guard feedbackSettingsController.open() else {
+            return
+        }
+        synchronizeBattlefieldActionPause()
+    }
+
+    private func closeFeedbackSettings(
+        focusTarget: FeedbackSettingsFocusTarget = .openingGear
+    ) {
+        feedbackSettingsController?.close(focusTarget: focusTarget)
+        synchronizeBattlefieldActionPause()
+    }
+
+    private func activateFeedbackSettings(_ action: FeedbackSettingsAction) {
+        guard let feedbackSettingsController,
+              feedbackSettingsController.isVisible,
+              let layout = feedbackSettingsLayoutForCurrentEnvironment() else {
+            return
+        }
+
+        let point: CGPoint
+        switch action {
+        case .toggleSoundEffects:
+            point = CGPoint(x: layout.soundRowFrame.midX, y: layout.soundRowFrame.midY)
+        case .toggleHaptics:
+            point = CGPoint(x: layout.hapticsRowFrame.midX, y: layout.hapticsRowFrame.midY)
+        case .close:
+            point = CGPoint(x: layout.closeFrame.midX, y: layout.closeFrame.midY)
+        case .consumed:
+            return
+        }
+        _ = feedbackSettingsController.handleTouch(at: point)
+        synchronizeBattlefieldActionPause()
+    }
+
+    private func synchronizeBattlefieldActionPause() {
+        battlefieldActionLayer.isPaused = isFeedbackSettingsVisible
     }
 
     private func handleTouch(named touchedButtonName: String?) {
@@ -412,13 +593,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func buildInterface() {
         battlefieldLayer.zPosition = 0
         environmentLayer.zPosition = 10
+        battlefieldActionLayer.position = .zero
+        battlefieldActionLayer.zPosition = 0
         soldierLayer.zPosition = 20
         effectsLayer.zPosition = 30
 
         addChild(battlefieldLayer)
         battlefieldLayer.addChild(environmentLayer)
-        battlefieldLayer.addChild(soldierLayer)
-        battlefieldLayer.addChild(effectsLayer)
+        battlefieldLayer.addChild(battlefieldActionLayer)
+        battlefieldActionLayer.addChild(soldierLayer)
+        battlefieldActionLayer.addChild(effectsLayer)
 
         buildBattlefield()
 
@@ -631,12 +815,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         leftHUDPanel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY)
         rightHUDPanel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY)
         layoutStatusIcons(metrics)
+        layoutFeedbackSettings(
+            leftHUDCenterX: leftHUDCenterX,
+            hudCenterY: hudCenterY,
+            metrics: metrics
+        )
 
         goldLabel.horizontalAlignmentMode = .left
         liveCombatStatusLabel.horizontalAlignmentMode = .left
         cityLevelLabel.horizontalAlignmentMode = .left
         cityHPLabel.horizontalAlignmentMode = .left
-        let resourceValueX = leftHUDCenterX - metrics.leftHUDWidth * 0.10
+        let resourceValueX = leftHUDCenterX
+            - metrics.leftHUDWidth / 2
+            + LayoutMetrics.leftHUDLeadingContentInset
+            + metrics.resourceIconMaximum
+            + LayoutMetrics.iconValueGap
         goldLabel.position = CGPoint(
             x: resourceValueX,
             y: hudCenterY + metrics.hudHeight * 0.20
@@ -748,13 +941,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             feedbackY: feedbackY
         )
 
-        currentLeftHUDLabelWidth = metrics.leftHUDLabelWidth
+        currentLeftHUDLabelWidth = metrics.leftHUDResourceValueWidth
         cachedContentWidth = metrics.contentWidth
-        fitLabel(goldLabel, maxWidth: metrics.leftHUDWidth * 0.58)
+        fitLabel(goldLabel, maxWidth: metrics.leftHUDResourceValueWidth)
         fitLabel(cityLevelLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
         fitLabel(defenseTraitLabel, maxWidth: metrics.rightHUDLabelWidth)
         fitLabel(cityHPLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
-        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDLabelWidth)
+        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDResourceValueWidth)
         fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
         fitLabel(manualTypeButtonLabel, maxWidth: manualTypeButtonSize.width - 18)
         for bundle in manualTypeButtonBundles.values {
@@ -791,6 +984,36 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private struct LayoutMetrics {
+        static let leftHUDLeadingContentInset: CGFloat = 6
+        static let leftHUDTrailingInset: CGFloat = 4
+        static let settingsGearSize: CGFloat = 44
+        static let statusToGearGap: CGFloat = 4
+        static let iconValueGap: CGFloat = 6
+        static let minimumResourceValueWidth: CGFloat = 48
+
+        static func resourceValueWidth(
+            leftHUDWidth: CGFloat,
+            resourceIconMaximum: CGFloat
+        ) -> CGFloat {
+            leftHUDWidth
+                - leftHUDLeadingContentInset
+                - leftHUDTrailingInset
+                - settingsGearSize
+                - statusToGearGap
+                - resourceIconMaximum
+                - iconValueGap
+        }
+
+        static func minimumLeftHUDWidth(resourceIconMaximum: CGFloat) -> CGFloat {
+            leftHUDLeadingContentInset
+                + leftHUDTrailingInset
+                + settingsGearSize
+                + statusToGearGap
+                + resourceIconMaximum
+                + iconValueGap
+                + minimumResourceValueWidth
+        }
+
         let compactHeight: Bool
         let horizontalMargin: CGFloat
         let topMargin: CGFloat
@@ -810,6 +1033,24 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             leftHUDWidth - 20
         }
 
+        var resourceIconMaximum: CGFloat {
+            compactHeight ? 26 : 30
+        }
+
+        var leftHUDStatusColumnWidth: CGFloat {
+            leftHUDWidth
+                - LayoutMetrics.leftHUDLeadingContentInset
+                - LayoutMetrics.leftHUDTrailingInset
+                - LayoutMetrics.settingsGearSize
+                - LayoutMetrics.statusToGearGap
+        }
+
+        var leftHUDResourceValueWidth: CGFloat {
+            leftHUDStatusColumnWidth
+                - resourceIconMaximum
+                - LayoutMetrics.iconValueGap
+        }
+
         var rightHUDLabelWidth: CGFloat {
             rightHUDWidth - 20
         }
@@ -826,7 +1067,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let hudGap: CGFloat = compactHeight ? 10 : 12
         let availableHUDWidth = max(0, size.width - horizontalMargin * 2 - hudGap)
         let preferredLeftHUDWidth = min(180, availableHUDWidth * 0.44)
-        let leftHUDWidth = max(0, preferredLeftHUDWidth)
+        let resourceIconMaximum: CGFloat = compactHeight ? 26 : 30
+        let leftHUDWidth = min(
+            availableHUDWidth,
+            max(
+                preferredLeftHUDWidth,
+                LayoutMetrics.minimumLeftHUDWidth(resourceIconMaximum: resourceIconMaximum)
+            )
+        )
         let rightHUDWidth = max(0, availableHUDWidth - leftHUDWidth)
         let hudHeight: CGFloat = compactHeight ? 58 : 66
         let safeTopInset = GameUITheme.topUnsafeInset(sceneSize: size, view: view)
@@ -871,21 +1119,68 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func layoutStatusIcons(_ metrics: LayoutMetrics) {
-        let resourceIconSize = metrics.compactHeight
-            ? CGSize(width: 30, height: 30)
-            : CGSize(width: 36, height: 36)
+        let resourceIconSize = CGSize(
+            width: metrics.resourceIconMaximum,
+            height: metrics.resourceIconMaximum
+        )
         let cityIconSize = metrics.compactHeight ? CGSize(width: 28, height: 28) : CGSize(width: 36, height: 36)
         layoutIcon(goldStatusIcon, maximumSize: resourceIconSize)
         layoutIcon(soldierStatusIcon, maximumSize: resourceIconSize)
         layoutIcon(cityStatusIcon, maximumSize: cityIconSize)
 
-        goldStatusIcon.position = CGPoint(x: -metrics.leftHUDWidth * 0.36, y: metrics.hudHeight * 0.20)
-        soldierStatusIcon.position = CGPoint(x: -metrics.leftHUDWidth * 0.36, y: -metrics.hudHeight * 0.20)
+        let resourceIconX = -metrics.leftHUDWidth / 2
+            + LayoutMetrics.leftHUDLeadingContentInset
+            + metrics.resourceIconMaximum / 2
+        goldStatusIcon.position = CGPoint(x: resourceIconX, y: metrics.hudHeight * 0.20)
+        soldierStatusIcon.position = CGPoint(x: resourceIconX, y: -metrics.hudHeight * 0.20)
         cityStatusIcon.position = CGPoint(x: -metrics.rightHUDWidth * 0.42, y: metrics.hudHeight * 0.12)
 
         let traitScale = (metrics.compactHeight ? 0.78 : 0.92)
         traitStatusIcon.setScale(traitScale)
         traitStatusIcon.position = CGPoint(x: -metrics.rightHUDWidth * 0.42, y: -metrics.hudHeight * 0.18)
+    }
+
+    private func layoutFeedbackSettings(
+        leftHUDCenterX: CGFloat,
+        hudCenterY: CGFloat,
+        metrics: LayoutMetrics
+    ) {
+        guard let feedbackSettingsController else {
+            return
+        }
+
+        let gearSize = LayoutMetrics.settingsGearSize
+        let gearFrame = CGRect(
+            x: leftHUDCenterX + metrics.leftHUDWidth / 2
+                - LayoutMetrics.leftHUDTrailingInset
+                - gearSize,
+            y: hudCenterY + metrics.hudHeight / 2
+                - LayoutMetrics.leftHUDTrailingInset
+                - gearSize,
+            width: gearSize,
+            height: gearSize
+        )
+        feedbackSettingsController.applyGearFrame(gearFrame)
+        feedbackSettingsController.gear.position = leftHUDPanel.convert(
+            CGPoint(x: gearFrame.midX, y: gearFrame.midY),
+            from: self
+        )
+
+        feedbackSettingsController.reapply(layout: feedbackSettingsLayoutForCurrentEnvironment())
+        synchronizeBattlefieldActionPause()
+    }
+
+    private func feedbackSettingsLayoutForCurrentEnvironment() -> FeedbackSettingsLayout? {
+        let safeAreaInsets = view?.safeAreaInsets ?? .zero
+        return FeedbackSettingsLayout.compute(
+            sceneSize: size,
+            safeAreaInsets: .init(
+                top: safeAreaInsets.top,
+                left: safeAreaInsets.left,
+                bottom: safeAreaInsets.bottom,
+                right: safeAreaInsets.right
+            )
+        )
     }
 
     private func layoutIcon(_ icon: SKSpriteNode, maximumSize: CGSize) {
@@ -1508,7 +1803,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func advanceCombat(deltaTime: TimeInterval) {
-        guard state.stageStatus == .battleActive, !isConquestReportVisible else {
+        guard state.stageStatus == .battleActive,
+              !isConquestReportVisible,
+              !isFeedbackSettingsVisible else {
             return
         }
 
@@ -1571,6 +1868,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // `deltaTime` so production reflects real elapsed time during stalls.
         decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
+        feedback.emitAutomaticCombat(CombatFeedbackProjector.events(from: result))
         applyCombatResult(result)
         syncSoldierNodes()
         if !buildingSpawns.isEmpty {
@@ -1642,6 +1940,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let damageText = CompactNumberFormatter.string(from: damageResult.damageDealt)
 
         if conqueredCity {
+            closeFeedbackSettings(focusTarget: .systemDefault)
+            emitFreshOutcomeFeedback(
+                goldEarned: damageResult.goldEarned,
+                conqueredCities: damageResult.conqueredCities
+            )
             clearLiveCombat()
             // The conquest popup communicates the result; clear any stale
             // feedback so the tooltip doesn't present behind the overlay and
@@ -1667,12 +1970,35 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
+    private func emitFreshOutcomeFeedback(
+        goldEarned: Int,
+        conqueredCities: Int
+    ) {
+        guard conqueredCities > 0 else {
+            return
+        }
+
+        if goldEarned > 0 {
+            feedback.emit(.goldReward)
+        }
+
+        switch state.stageStatus {
+        case .countryComplete:
+            feedback.emit(.countryCompletion)
+        case .cityConqueredPendingMap:
+            feedback.emit(.cityConquest)
+        case .battleActive:
+            assertionFailure("Fresh Battle outcome did not advance stage status")
+        }
+    }
+
     private func spawnSoldier() {
         guard !isConquestReportVisible, state.stageStatus == .battleActive else {
             return
         }
 
         guard let manualSoldierLevel = state.manualSoldierLevel(for: selectedManualSoldierType) else {
+            feedback.emit(.invalidAction)
             feedbackText = manualSpawnableSoldierTypes.isEmpty
                 ? "Build a unit building first."
                 : "Build \(selectedManualSoldierType.displayName) first."
@@ -1681,6 +2007,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         guard combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap else {
+            feedback.emit(.invalidAction)
             feedbackText = "Manual squad is full."
             redraw()
             return
@@ -1697,6 +2024,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
         if let soldier = combat.soldier(id: soldierID) {
             state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
+            feedback.emit(.manualDeployment)
         }
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
@@ -1709,6 +2037,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         if manualSpawnableSoldierTypes.isEmpty {
+            feedback.emit(.invalidAction)
             feedbackText = "Build a unit building first."
             isManualTypeMenuOpen = false
             redraw(shouldLayout: false)
@@ -1725,6 +2054,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         guard manualSpawnableSoldierTypes.contains(type) else {
+            feedback.emit(.invalidAction)
             feedbackText = "Build \(type.displayName) first."
             isManualTypeMenuOpen = false
             redraw(shouldLayout: false)
@@ -1762,6 +2092,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         guard combat.livingSoldierCount(source: .manual) == 0 else {
+            feedback.emit(.invalidAction)
             feedbackText = "Finish the current squad before viewing world."
             redraw()
             return
@@ -1780,6 +2111,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // BuildingViewScene does not carry over BattleCombatState's live soldier roster.
         // Transitioning with living manual soldiers would lose them without refund.
         guard combat.livingSoldierCount(source: .manual) == 0 else {
+            feedback.emit(.invalidAction)
             feedbackText = "Finish the current squad before building."
             redraw()
             return
@@ -2613,6 +2945,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
+                closeFeedbackSettings(focusTarget: .systemDefault)
+                emitFreshOutcomeFeedback(
+                    goldEarned: result.goldEarned,
+                    conqueredCities: result.conqueredCities
+                )
                 clearLiveCombat()
                 // The conquest popup communicates the result; clear any stale
                 // feedback so the tooltip doesn't present behind the overlay and
@@ -2860,6 +3197,48 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 extension BattleScene {
     var lastUpdateTimeForTesting: TimeInterval? {
         lastUpdateTime
+    }
+
+    var isFeedbackSettingsVisibleForTesting: Bool {
+        isFeedbackSettingsVisible
+    }
+
+    var feedbackSettingsGearFrameForTesting: CGRect? {
+        feedbackSettingsController?.gear.hitFrameForTesting
+    }
+
+    var feedbackSettingsModalZPositionForTesting: CGFloat? {
+        feedbackSettingsController?.modal.zPosition
+    }
+
+    var feedbackSettingsGearZPositionForTesting: CGFloat? {
+        feedbackSettingsController?.gear.zPosition
+    }
+
+    var leftHUDResourceValueWidthForTesting: CGFloat {
+        currentLeftHUDLabelWidth
+    }
+
+    static func supportsLeftHUDResourceValueForTesting(
+        leftHUDWidth: CGFloat,
+        resourceIconMaximum: CGFloat
+    ) -> Bool {
+        LayoutMetrics.resourceValueWidth(
+            leftHUDWidth: leftHUDWidth,
+            resourceIconMaximum: resourceIconMaximum
+        ) >= LayoutMetrics.minimumResourceValueWidth
+    }
+
+    var battlefieldActionLayerPositionForTesting: CGPoint {
+        battlefieldActionLayer.position
+    }
+
+    var isBattlefieldActionLayerPausedForTesting: Bool {
+        battlefieldActionLayer.isPaused
+    }
+
+    var isBattlefieldLayerPausedForTesting: Bool {
+        battlefieldLayer.isPaused
     }
 
     var lastAdvanceCombatDeltaForTesting: TimeInterval? {
