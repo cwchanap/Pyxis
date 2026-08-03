@@ -16,6 +16,47 @@ struct BattleSceneTests {
         let maxXExclusive: Int
     }
 
+    private enum BattleFeedbackCall: Equatable {
+        case discrete(GameplayFeedbackEvent)
+        case automatic([GameplayFeedbackEvent])
+    }
+
+    private struct HUDFixture {
+        let size: CGSize
+        let resourceIconMaximum: CGFloat
+        let cityIconMaximum: CGFloat
+    }
+
+    private final class BattleFeedbackRecorder: GameplayFeedbackProviding {
+        private(set) var calls: [BattleFeedbackCall] = []
+
+        func emit(_ event: GameplayFeedbackEvent) {
+            calls.append(.discrete(event))
+        }
+
+        func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
+            calls.append(.automatic(orderedEvents))
+        }
+
+        func reset() {
+            calls.removeAll()
+        }
+
+        var discreteEvents: [GameplayFeedbackEvent] {
+            calls.compactMap {
+                guard case .discrete(let event) = $0 else { return nil }
+                return event
+            }
+        }
+
+        var automaticBatches: [[GameplayFeedbackEvent]] {
+            calls.compactMap {
+                guard case .automatic(let events) = $0 else { return nil }
+                return events
+            }
+        }
+    }
+
     @Test func battleSceneDisplaysCampaignCityTitle() throws {
         let store = try makeStore(
             initialState: KingdomGameState(
@@ -50,6 +91,333 @@ struct BattleSceneTests {
 
         #expect(scene.liveCombatStatusTextForTesting == "1")
         #expect(scene.liveSoldierCountForTesting == 1)
+    }
+
+    @Test("Battle reserves the left HUD status column for Settings without shrinking resource values")
+    func battleHUDReservesSettingsSpaceAcrossPhoneFixtures() throws {
+        let fixtures: [HUDFixture] = [
+            HUDFixture(
+                size: CGSize(width: 375, height: 499),
+                resourceIconMaximum: 26,
+                cityIconMaximum: 28
+            ),
+            HUDFixture(
+                size: CGSize(width: 375, height: 667),
+                resourceIconMaximum: 30,
+                cityIconMaximum: 36
+            )
+        ]
+
+        for fixture in fixtures {
+            let store = try makeStore(initialState: stateWithBarracks(gold: 123_456_789, cityRemainingPower: 20))
+            let scene = makeScene(store: store, size: fixture.size)
+            let frames = try #require(scene.battleLayoutFramesForTesting)
+            let resourceIcons = visibleSpriteFrames(in: scene, named: scene.goldInfoButtonNameForTesting)
+            let cityIcon = try #require(
+                visibleSpriteFrames(in: scene, named: scene.cityInfoButtonNameForTesting).first
+            )
+            let gear = try #require(firstNode(named: SettingsGearNode.semanticName, in: scene))
+            let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+            #expect(resourceIcons.count == 2)
+            #expect(resourceIcons.allSatisfy {
+                max($0.width, $0.height) <= fixture.resourceIconMaximum + 0.001
+            })
+            #expect(max(cityIcon.width, cityIcon.height) <= fixture.cityIconMaximum + 0.001)
+            #expect(gear.parent?.name == scene.goldInfoButtonNameForTesting)
+            #expect(gearFrame.size == CGSize(width: 44, height: 44))
+
+            let goldIcon = try #require(resourceIcons.max { $0.midY < $1.midY })
+            #expect(abs(frames.goldLabel.minX - (goldIcon.maxX + 6)) <= 0.5)
+            #expect(frames.goldLabel.maxX <= gearFrame.minX - 4 + 0.5)
+            #expect(scene.leftHUDResourceValueWidthForTesting >= 48)
+        }
+
+        #expect(!BattleScene.supportsLeftHUDResourceValueForTesting(
+            leftHUDWidth: 137.9,
+            resourceIconMaximum: 26
+        ))
+        #expect(BattleScene.supportsLeftHUDResourceValueForTesting(
+            leftHUDWidth: 138,
+            resourceIconMaximum: 26
+        ))
+    }
+
+    @Test("Battle uses injected feedback and preferences for Settings and manual deployment")
+    func battleUsesInjectedFeedbackAndSettingsDependencies() throws {
+        let feedback = BattleFeedbackRecorder()
+        let preferences = RecordingFeedbackPreferencesManager()
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(
+            store: store,
+            feedback: feedback,
+            feedbackPreferences: preferences
+        )
+
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        let layout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .zero
+        ))
+        scene.handleTouchForTesting(at: layout.soundRowFrame.center)
+
+        #expect(preferences.current.soundEffectsEnabled == false)
+
+        scene.handleTouchForTesting(at: layout.closeFrame.center)
+        scene.spawnSoldierForTesting()
+
+        #expect(feedback.discreteEvents == [.manualDeployment])
+    }
+
+    @Test("Battle Settings uses finite view-local accessibility coordinates when screen conversion is invalid")
+    func battleSettingsAccessibilityFallsBackFromNonfiniteScreenConversion() {
+        let viewLocalFrame = CGRect(x: 12, y: 34, width: 44, height: 44)
+        let validScreenFrame = CGRect(x: 212, y: 334, width: 44, height: 44)
+        let invalidScreenFrame = CGRect(x: CGFloat.nan, y: 334, width: 44, height: 44)
+
+        #expect(BattleScene.feedbackSettingsAccessibilityFrame(
+            viewLocalFrame: viewLocalFrame,
+            screenFrame: invalidScreenFrame
+        ) == viewLocalFrame)
+        #expect(BattleScene.feedbackSettingsAccessibilityFrame(
+            viewLocalFrame: viewLocalFrame,
+            screenFrame: validScreenFrame
+        ) == validScreenFrame)
+    }
+
+    @Test("Battle Settings consumes underlying controls and pauses only combat actions")
+    func battleSettingsBlocksInputAndPausesTheBattlefieldActionLayer() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
+        let router = BattleRouterSpy()
+        let scene = makeScene(store: store, router: router)
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+
+        scene.openManualTypeMenuForTesting()
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(!scene.isManualTypeMenuOpenForTesting)
+        #expect(scene.isBattlefieldActionLayerPausedForTesting)
+        #expect(!scene.isBattlefieldLayerPausedForTesting)
+        #expect(scene.battlefieldActionLayerPositionForTesting == .zero)
+
+        for point in [
+            CGPoint(x: frames.spawnButton.midX, y: frames.spawnButton.midY),
+            CGPoint(x: frames.worldButton.midX, y: frames.worldButton.midY),
+            CGPoint(x: frames.buildButton.midX, y: frames.buildButton.midY),
+            CGPoint(x: frames.leftHUD.midX, y: frames.leftHUD.midY)
+        ] {
+            scene.handleTouchForTesting(at: point)
+        }
+
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(!router.didRequestCountryMap)
+        #expect(!router.didRequestBuildingView)
+
+        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .zero
+        ))
+        scene.handleTouchForTesting(at: settingsLayout.closeFrame.center)
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(!scene.isBattlefieldActionLayerPausedForTesting)
+    }
+
+    @Test("Battle Settings blocks updates without resetting the battle clock")
+    func battleSettingsRefreshesTheClockAndResumesWithoutCatchUp() throws {
+        let scene = try makeScene()
+
+        scene.update(10)
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        scene.update(20)
+
+        #expect(scene.lastUpdateTimeForTesting == 20)
+        #expect(scene.lastAdvanceCombatDeltaForTesting == nil)
+
+        let layout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .zero
+        ))
+        scene.handleTouchForTesting(at: layout.closeFrame.center)
+        #expect(scene.lastUpdateTimeForTesting == 20)
+
+        scene.update(21)
+        #expect(scene.lastAdvanceCombatDeltaForTesting == 1)
+    }
+
+    @Test("Only an actual Battle layout-gate recovery clears the battle clock")
+    func battleLayoutGateRecoveryResetsTheClockOnceAndPreservesSettings() throws {
+        let scene = try makeScene()
+
+        scene.update(10)
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 11))
+        scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 12))
+
+        #expect(scene.lastUpdateTimeForTesting == nil)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        scene.update(20)
+        scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 21))
+
+        #expect(scene.lastUpdateTimeForTesting == 20)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Battle preserves feedback Settings, report, and reward-effect Z tiers")
+    func battlePreservesSettingsAndConquestPresentationZOrder() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
+        let scene = makeScene(store: store)
+
+        #expect(scene.feedbackSettingsGearZPositionForTesting == GameUITheme.Z.hud + 2)
+        #expect(scene.feedbackSettingsModalZPositionForTesting == GameUITheme.Z.modal - 10)
+        #expect(scene.conquestReportNodeZPositionForTesting == GameUITheme.Z.modal)
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.goldBurstZPositionForTesting == GameUITheme.Z.modal + 0.5)
+        #expect(scene.goldBurstZPositionForTesting > scene.conquestReportNodeZPositionForTesting)
+    }
+
+    @Test("A successful manual Battle deployment emits exactly one discrete event")
+    func battleManualDeploymentEmitsOnceAfterTheAuthoritativeMutation() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store, feedback: feedback)
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.gameStateForTesting.activeSiegeSession?.deployments.count == 1)
+        #expect(feedback.calls == [.discrete(.manualDeployment)])
+    }
+
+    @Test("An automatically spawned Battle soldier does not emit deployment feedback")
+    func battleBuildingSpawnRemainsSilent() throws {
+        let feedback = BattleFeedbackRecorder()
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: 9.95)]
+        )
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 100,
+            cityBattleStates: [cityKey.storageKey: cityState]
+        ))
+        let scene = makeScene(store: store, feedback: feedback)
+
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+
+        #expect(scene.buildingLiveSoldierCountForTesting == 1)
+        #expect(feedback.discreteEvents.isEmpty)
+        #expect(feedback.automaticBatches.count == 1)
+    }
+
+    @Test("A rejected Battle deployment emits one invalid action event")
+    func battleRejectedManualDeploymentEmitsInvalidOnce() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
+        let scene = makeScene(store: store, feedback: feedback)
+
+        for _ in 0..<KingdomGameState.manualSoldierCap {
+            scene.spawnSoldierForTesting()
+        }
+        feedback.reset()
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+        #expect(feedback.calls == [.discrete(.invalidAction)])
+    }
+
+    @Test("Battle submits one automatic feedback batch for every combat tick")
+    func battleSubmitsOneAutomaticFeedbackBatchPerTickResult() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 500))
+        let scene = makeScene(store: store, feedback: feedback)
+        scene.spawnSoldierForTesting()
+        feedback.reset()
+
+        for _ in 0..<30 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        }
+
+        #expect(feedback.automaticBatches.count == 30)
+        #expect(feedback.automaticBatches.contains { $0.contains(.soldierAttack(.melee)) })
+    }
+
+    @Test("Fresh live Battle conquest emits reward before city outcome and never replays")
+    func battleFreshLiveOutcomeEmitsRewardThenConquestOnce() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
+        let scene = makeScene(store: store, feedback: feedback)
+        scene.spawnSoldierForTesting()
+        feedback.reset()
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(scene.gameStateForTesting.pendingBattleResult != nil)
+        #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+
+        scene.repeatDidMoveForTesting()
+        scene.refreshLayoutForCurrentEnvironment()
+        scene.redrawForTesting(shouldLayout: true)
+
+        #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+    }
+
+    @Test("Fresh idle Battle conquest emits reward before city outcome")
+    func battleFreshIdleOutcomeEmitsRewardThenConquest() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: idleConquestReadyState())
+        let scene = makeScene(store: store, feedback: feedback)
+
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        feedback.reset()
+        scene.enterForegroundForTesting(at: Date(timeIntervalSince1970: 10_000))
+
+        #expect(scene.gameStateForTesting.pendingBattleResult != nil)
+        #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+    }
+
+    @Test("A final-city Battle outcome emits reward before country completion")
+    func battleFinalCityOutcomeEmitsRewardThenCountryCompletion() throws {
+        let feedback = BattleFeedbackRecorder()
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 15)
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 15,
+            cityRemainingPower: 1,
+            cityNumberInCountry: 15,
+            completedCityCount: 14,
+            cityBattleStates: [
+                cityKey.storageKey: CityBattleState(
+                    // A level-6 infantry survives City 15's first fortified
+                    // tower shot long enough to produce the live conquest.
+                    slots: [1: CityBuilding(type: .barracks, level: 6)]
+                )
+            ]
+        ))
+        let scene = makeScene(store: store, feedback: feedback)
+        scene.spawnSoldierForTesting()
+        feedback.reset()
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(feedback.discreteEvents == [.goldReward, .countryCompletion])
+    }
+
+    @Test("Restored Battle reports are silent across reapplication and resize")
+    func battleRestoredOutcomeNeverEmitsFeedback() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: pendingConqueredState())
+        let scene = makeScene(store: store, feedback: feedback)
+
+        scene.repeatDidMoveForTesting()
+        scene.refreshLayoutForCurrentEnvironment()
+        scene.redrawForTesting(shouldLayout: true)
+
+        #expect(feedback.calls.isEmpty)
     }
 
     @Test func tappingSpawnCreatesLiveCombatSoldierWithoutImmediateCityDamage() throws {
@@ -2513,6 +2881,7 @@ struct BattleSceneTests {
         scene.update(10)
         #expect(scene.lastUpdateTimeForTesting == 10)
 
+        scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 19))
         scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 20))
         #expect(scene.lastUpdateTimeForTesting == nil)
 
@@ -2570,10 +2939,21 @@ struct BattleSceneTests {
     private func makeScene(
         store: KingdomGameStore,
         router: BattleSceneRouting? = nil,
-        combatSeed: UInt64? = nil
+        combatSeed: UInt64? = nil,
+        size: CGSize = CGSize(width: 390, height: 844),
+        feedback: GameplayFeedbackProviding? = nil,
+        feedbackPreferences: FeedbackPreferencesManaging? = nil
     ) -> BattleScene {
-        let size = CGSize(width: 390, height: 844)
-        let scene = BattleScene(size: size, store: store, router: router, combatSeed: combatSeed)
+        let resolvedFeedback = feedback ?? NoOpGameplayFeedbackProvider()
+        let resolvedFeedbackPreferences = feedbackPreferences ?? FeedbackPreferencesStore.shared
+        let scene = BattleScene(
+            size: size,
+            store: store,
+            router: router,
+            feedback: resolvedFeedback,
+            feedbackPreferences: resolvedFeedbackPreferences,
+            combatSeed: combatSeed
+        )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene
@@ -2861,6 +3241,20 @@ struct BattleSceneTests {
         }
     }
 
+    private func firstNode(named name: String, in node: SKNode) -> SKNode? {
+        if node.name == name {
+            return node
+        }
+
+        for child in node.children {
+            if let match = firstNode(named: name, in: child) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
     private func visibleNodeHasAction(
         in node: SKNode,
         namePrefix: String,
@@ -3127,5 +3521,11 @@ struct BattleSceneTests {
         scene.requestCountryMapForTesting()
 
         #expect(!router.didRequestCountryMap)
+    }
+}
+
+private extension CGRect {
+    var center: CGPoint {
+        CGPoint(x: midX, y: midY)
     }
 }
