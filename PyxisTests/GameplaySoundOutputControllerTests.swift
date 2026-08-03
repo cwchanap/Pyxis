@@ -213,7 +213,10 @@ struct GameplaySoundOutputControllerTests {
         // deliberately blocked after the stale completion has been enqueued.
         backend.releaseBlockedPreparation()
         #expect(backend.waitForBlockedPreparation())
-        try await settleOutput()
+        // The stale completion was queued before the fresh preparation raised
+        // its block signal. This synchronous marker therefore proves it has
+        // finished before the assertions below run.
+        controller.drainOutputQueueForTesting()
 
         #expect(backend.preparedResourceIDs == [.attackMelee, .deployment, .attackMelee])
         #expect(backend.createdVoiceIndices.isEmpty)
