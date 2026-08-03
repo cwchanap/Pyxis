@@ -29,9 +29,11 @@ struct BattleSceneTests {
 
     private final class BattleFeedbackRecorder: GameplayFeedbackProviding {
         private(set) var calls: [BattleFeedbackCall] = []
+        var onDiscreteEvent: ((GameplayFeedbackEvent) -> Void)?
 
         func emit(_ event: GameplayFeedbackEvent) {
             calls.append(.discrete(event))
+            onDiscreteEvent?(event)
         }
 
         func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
@@ -323,16 +325,27 @@ struct BattleSceneTests {
     func battlePreservesSettingsAndConquestPresentationZOrder() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
         let scene = makeScene(store: store)
+        let gear = try #require(firstNode(of: SettingsGearNode.self, in: scene))
+        let gearHitTarget = try #require(
+            gear.children.first(where: { $0.name == SettingsGearNode.semanticName })
+        )
+        let hudPanel = try #require(gear.parent)
+        let settingsModal = try #require(firstNode(of: FeedbackSettingsNode.self, in: scene))
+        let conquestReport = try #require(firstNode(of: ConquestReportNode.self, in: scene))
 
-        #expect(scene.feedbackSettingsGearZPositionForTesting == GameUITheme.Z.hud + 2)
-        #expect(scene.feedbackSettingsModalZPositionForTesting == GameUITheme.Z.modal - 10)
-        #expect(scene.conquestReportNodeZPositionForTesting == GameUITheme.Z.modal)
+        #expect(effectiveZPosition(of: gear) == GameUITheme.Z.hud + 2)
+        #expect(effectiveZPosition(of: gearHitTarget) == GameUITheme.Z.hud + 2)
+        #expect(effectiveZPosition(of: gear) > effectiveZPosition(of: hudPanel))
+        #expect(effectiveZPosition(of: gear) < effectiveZPosition(of: settingsModal))
+        #expect(effectiveZPosition(of: settingsModal) < effectiveZPosition(of: conquestReport))
 
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
-        #expect(scene.goldBurstZPositionForTesting == GameUITheme.Z.modal + 0.5)
-        #expect(scene.goldBurstZPositionForTesting > scene.conquestReportNodeZPositionForTesting)
+        let goldBurst = try #require(firstNode(named: "goldBurst", in: scene))
+        #expect(effectiveZPosition(of: goldBurst) == GameUITheme.Z.modal + 0.5)
+        #expect(effectiveZPosition(of: goldBurst) > effectiveZPosition(of: conquestReport))
+        #expect(effectiveZPosition(of: gear) < effectiveZPosition(of: goldBurst))
     }
 
     @Test("A successful manual Battle deployment emits exactly one discrete event")
@@ -418,6 +431,34 @@ struct BattleSceneTests {
         scene.redrawForTesting(shouldLayout: true)
 
         #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+    }
+
+    @Test("Fresh live Battle outcome is durable before each semantic feedback event")
+    func battleFreshLiveOutcomePersistsBeforeEachSemanticFeedbackEvent() throws {
+        let feedback = BattleFeedbackRecorder()
+        let initialGold = 100
+        let store = try makeStore(
+            initialState: stateWithBarracks(gold: initialGold, cityRemainingPower: 1)
+        )
+        let scene = makeScene(store: store, feedback: feedback)
+        scene.spawnSoldierForTesting()
+        feedback.reset()
+
+        var persistedStatesAtFeedback: [KingdomGameState] = []
+        feedback.onDiscreteEvent = { _ in
+            persistedStatesAtFeedback.append(store.load())
+        }
+
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+        #expect(persistedStatesAtFeedback.count == 2)
+        #expect(persistedStatesAtFeedback.allSatisfy { state in
+            state.gold == initialGold + 8
+                && state.stageStatus == .cityConqueredPendingMap
+                && state.pendingBattleResult?.conquestMode == .live
+                && state.pendingBattleResult?.goldEarned == 8
+        })
     }
 
     @Test("Fresh idle Battle conquest emits reward before city outcome")
@@ -3306,6 +3347,30 @@ struct BattleSceneTests {
         }
 
         return nil
+    }
+
+    private func firstNode<T: SKNode>(of type: T.Type, in node: SKNode) -> T? {
+        if let typedNode = node as? T {
+            return typedNode
+        }
+
+        for child in node.children {
+            if let match = firstNode(of: type, in: child) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    private func effectiveZPosition(of node: SKNode) -> CGFloat {
+        var effectiveZPosition: CGFloat = 0
+        var currentNode: SKNode? = node
+        while let current = currentNode {
+            effectiveZPosition += current.zPosition
+            currentNode = current.parent
+        }
+        return effectiveZPosition
     }
 
     private func visibleNodeHasAction(
