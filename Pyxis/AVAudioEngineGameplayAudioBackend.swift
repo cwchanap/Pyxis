@@ -21,9 +21,9 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
 
     private let audioSession: AVAudioSession
     private let bundle: Bundle
-    private let engine: AVAudioEngine
-    private let playerNodes: [AVAudioPlayerNode]
-    private let voices: [AVAudioEngineGameplayAudioVoice]
+    private var engine: AVAudioEngine
+    private var playerNodes: [AVAudioPlayerNode]
+    private var voices: [AVAudioEngineGameplayAudioVoice]
     private let notificationCenter: NotificationCenter
     private var notificationObservers: [NSObjectProtocol] = []
     private var isGraphConfigured = false
@@ -44,13 +44,9 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
         let engine = AVAudioEngine()
         self.engine = engine
 
-        let playerNodes = (0..<Self.voiceCount).map { _ in
-            AVAudioPlayerNode()
-        }
+        let playerNodes = Self.makePlayerNodes()
         self.playerNodes = playerNodes
-        voices = playerNodes.enumerated().map { index, playerNode in
-            AVAudioEngineGameplayAudioVoice(index: index, playerNode: playerNode)
-        }
+        voices = Self.makeVoices(from: playerNodes)
 
         registerForAudioSessionLifecycleNotifications()
     }
@@ -119,6 +115,19 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
     func resetForLifecycleRecovery() {
         stopEngine()
         engine.reset()
+
+        // Media-services reset invalidates the old audio objects. This method is called only
+        // from Task 6's serialized output boundary, so clearing the old references before
+        // installing this fully configured replacement graph cannot expose a mixed graph.
+        voices = []
+        playerNodes = []
+        engine = AVAudioEngine()
+
+        let replacementNodes = Self.makePlayerNodes()
+        playerNodes = replacementNodes
+        voices = Self.makeVoices(from: replacementNodes)
+        isGraphConfigured = false
+        configureGraphIfNeeded()
     }
 
     private func registerForAudioSessionLifecycleNotifications() {
@@ -151,6 +160,20 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
         }
 
         isGraphConfigured = true
+    }
+
+    private static func makePlayerNodes() -> [AVAudioPlayerNode] {
+        (0..<voiceCount).map { _ in
+            AVAudioPlayerNode()
+        }
+    }
+
+    private static func makeVoices(
+        from playerNodes: [AVAudioPlayerNode]
+    ) -> [AVAudioEngineGameplayAudioVoice] {
+        playerNodes.enumerated().map { index, playerNode in
+            AVAudioEngineGameplayAudioVoice(index: index, playerNode: playerNode)
+        }
     }
 
     private func handleInterruption(_ notification: Notification) {
