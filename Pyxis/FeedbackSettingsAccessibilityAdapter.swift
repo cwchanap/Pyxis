@@ -44,7 +44,7 @@ final class FeedbackSettingsAccessibilityAdapter {
 
     private var isModalVisible = false
     private var isGearAccessible = false
-    private var allowsOpeningGearExposure = true
+    private var isSceneGearActionable = true
 
     convenience init(
         containerView: UIView,
@@ -100,11 +100,51 @@ final class FeedbackSettingsAccessibilityAdapter {
         closeElement.setAction(onClose)
     }
 
+    var canPresentSettings: Bool {
+        isSceneGearActionable && !isModalVisible
+    }
+
+    /// Rebinds the shared adapter to a newly mounted scene. The previous
+    /// scene's modal elements and geometry must never remain exposed while
+    /// the new scene is laying out its own Settings gear.
+    func rebindScene(isSettingsActionable: Bool = true) {
+        isModalVisible = false
+        isGearAccessible = false
+        isSceneGearActionable = isSettingsActionable
+        gearElement.accessibilityFrame = .zero
+        soundEffectsElement.accessibilityFrame = .zero
+        hapticsElement.accessibilityFrame = .zero
+        closeElement.accessibilityFrame = .zero
+        expose([])
+    }
+
+    /// A blocking outcome owns accessibility until it is dismissed or the
+    /// shared adapter is rebound to a newly actionable scene. This is separate
+    /// from the Settings modal's own visibility so a report can block the gear
+    /// even when Settings was never opened.
+    func setSceneGearActionable(_ isActionable: Bool) {
+        guard isSceneGearActionable != isActionable else {
+            return
+        }
+
+        isSceneGearActionable = isActionable
+        guard !isModalVisible else {
+            return
+        }
+
+        if isActionable {
+            exposeGearIfAvailable()
+        } else {
+            expose([])
+            postScreenChange(target: nil)
+        }
+    }
+
     func applyGear(frame: CGRect) {
         guard let accessibilityFrame = convertedFrame(from: frame) else {
             isGearAccessible = false
             gearElement.accessibilityFrame = .zero
-            if !isModalVisible && allowsOpeningGearExposure {
+            if !isModalVisible && isSceneGearActionable {
                 expose([])
             }
             return
@@ -112,12 +152,15 @@ final class FeedbackSettingsAccessibilityAdapter {
 
         isGearAccessible = true
         gearElement.accessibilityFrame = accessibilityFrame
-        if !isModalVisible && allowsOpeningGearExposure {
+        if !isModalVisible && isSceneGearActionable {
             exposeGearIfAvailable()
         }
     }
 
     func present(layout: FeedbackSettingsLayout, preferences: FeedbackPreferences) {
+        guard canPresentSettings else {
+            return
+        }
         isModalVisible = true
         applyModal(layout: layout, preferences: preferences)
         expose([soundEffectsElement, hapticsElement, closeElement])
@@ -135,13 +178,12 @@ final class FeedbackSettingsAccessibilityAdapter {
 
         switch focusTarget {
         case .outcome(let outcome):
-            allowsOpeningGearExposure = false
+            isSceneGearActionable = false
             expose([outcome])
             postScreenChange(target: outcome)
 
         case .openingGear:
-            allowsOpeningGearExposure = true
-            guard isGearAccessible else {
+            guard isSceneGearActionable, isGearAccessible else {
                 expose([])
                 postScreenChange(target: nil)
                 return
@@ -150,8 +192,11 @@ final class FeedbackSettingsAccessibilityAdapter {
             postScreenChange(target: gearElement)
 
         case .systemDefault:
-            allowsOpeningGearExposure = false
-            expose([])
+            if isSceneGearActionable {
+                exposeGearIfAvailable()
+            } else {
+                expose([])
+            }
             postScreenChange(target: nil)
         }
     }

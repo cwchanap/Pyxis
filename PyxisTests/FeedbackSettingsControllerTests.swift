@@ -112,8 +112,9 @@ struct FeedbackSettingsControllerTests {
         #expect(targetsSameObject(context.posts.last?.target, outcome))
     }
 
-    @Test func systemDefaultFocusRemainsBlockedWhenGearAndLayoutAreReapplied() throws {
+    @Test func systemDefaultFocusKeepsAnActionableGearAvailableWhenItIsReapplied() throws {
         let context = try makeControllerContext()
+        let gear = try #require(accessibilityElements(in: context.containerView).onlyElement)
 
         #expect(context.controller.open())
         context.controller.close(focusTarget: .systemDefault)
@@ -123,7 +124,10 @@ struct FeedbackSettingsControllerTests {
         context.controller.reapply(layout: try refreshedLayout())
 
         #expect(!context.controller.isVisible)
-        #expect(accessibilityElements(in: context.containerView).isEmpty)
+        #expect(targetsSameObject(
+            accessibilityElements(in: context.containerView).onlyElement,
+            gear
+        ))
         #expect(context.posts.count == postsAfterClose.count)
         #expect(context.posts.last?.target == nil)
     }
