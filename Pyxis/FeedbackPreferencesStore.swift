@@ -5,6 +5,7 @@
 
 import Foundation
 
+@MainActor
 final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
     static let shared = FeedbackPreferencesStore(defaults: .standard)
 
@@ -20,24 +21,7 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
     private let encode: (FeedbackPreferences) throws -> Data
     private var version: UInt64 = 0
     private var observers: [UUID: ObserverRecord] = [:]
-
-    private final class ObservationToken: FeedbackPreferencesObservation {
-        private var cancellation: (() -> Void)?
-
-        init(cancellation: @escaping () -> Void) {
-            self.cancellation = cancellation
-        }
-
-        func cancel() {
-            let action = cancellation
-            cancellation = nil
-            action?()
-        }
-
-        deinit {
-            cancel()
-        }
-    }
+    private var observerOrder: [UUID] = []
 
     convenience init(
         defaults: UserDefaults,
@@ -94,11 +78,13 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
             callback: observer,
             lastDeliveredVersion: version
         )
+        observerOrder.append(id)
         let snapshot = current
         observer(snapshot)
 
         return ObservationToken { [weak self] in
             self?.observers.removeValue(forKey: id)
+            self?.observerOrder.removeAll { $0 == id }
         }
     }
 
@@ -116,7 +102,7 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
         version += 1
         let deliveryVersion = version
         let snapshot = updated
-        let observerIDs = Array(observers.keys)
+        let observerIDs = observerOrder
 
         for id in observerIDs {
             guard var record = observers[id],
@@ -150,5 +136,23 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
             defaults.set(data, forKey: "\(key).corrupt")
             return .defaultValue
         }
+    }
+}
+
+private final class ObservationToken: FeedbackPreferencesObservation {
+    private var cancellation: (() -> Void)?
+
+    init(cancellation: @escaping () -> Void) {
+        self.cancellation = cancellation
+    }
+
+    func cancel() {
+        let action = cancellation
+        cancellation = nil
+        action?()
+    }
+
+    deinit {
+        cancel()
     }
 }

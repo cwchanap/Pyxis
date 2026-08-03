@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct FeedbackPreferences: Codable, Equatable {
+struct FeedbackPreferences: Codable, Equatable, Sendable {
     static let defaultValue = FeedbackPreferences()
 
     var soundEffectsEnabled: Bool
@@ -26,10 +26,13 @@ struct FeedbackPreferences: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = FeedbackPreferences()
         soundEffectsEnabled =
-            (try? container.decode(Bool.self, forKey: .soundEffectsEnabled)) ?? true
+            (try? container.decode(Bool.self, forKey: .soundEffectsEnabled))
+                ?? defaults.soundEffectsEnabled
         hapticsEnabled =
-            (try? container.decode(Bool.self, forKey: .hapticsEnabled)) ?? true
+            (try? container.decode(Bool.self, forKey: .hapticsEnabled))
+                ?? defaults.hapticsEnabled
     }
 }
 
