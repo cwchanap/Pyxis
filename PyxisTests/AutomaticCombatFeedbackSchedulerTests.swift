@@ -16,6 +16,19 @@ struct AutomaticCombatFeedbackSchedulerTests {
         #expect(scheduler.select(from: [.soldierAttack(.siege)], at: 0.150) == .soldierAttack(.siege))
     }
 
+    @Test func keepsGlobalGateClosedImmediatelyBeforeTheExact150MillisecondBoundary() {
+        var scheduler = AutomaticCombatFeedbackScheduler()
+
+        #expect(scheduler.select(from: [.towerFire], at: 0.000) == .towerFire)
+        #expect(
+            scheduler.select(
+                from: [.soldierAttack(.siege)],
+                at: 0.14999999999999997
+            ) == nil
+        )
+        #expect(scheduler.select(from: [.soldierAttack(.siege)], at: 0.150) == .soldierAttack(.siege))
+    }
+
     @Test func keepsEveryAttackCategoryClosedUntilItsExact200MillisecondBoundary() {
         var meleeScheduler = AutomaticCombatFeedbackScheduler()
         #expect(meleeScheduler.select(from: [.soldierAttack(.melee)], at: 0.000) == .soldierAttack(.melee))

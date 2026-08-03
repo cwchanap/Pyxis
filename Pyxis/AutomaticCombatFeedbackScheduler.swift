@@ -88,10 +88,7 @@ struct AutomaticCombatFeedbackScheduler {
         guard let lastOutputAt else {
             return true
         }
-
-        let magnitude = max(1, max(abs(now), abs(lastOutputAt)))
-        let roundingTolerance = magnitude * TimeInterval.ulpOfOne * 4
-        return now - lastOutputAt + roundingTolerance >= interval
+        return now >= lastOutputAt + interval
     }
 
     private func gate(for event: GameplayFeedbackEvent) -> Gate? {
