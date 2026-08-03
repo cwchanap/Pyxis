@@ -7,10 +7,13 @@ private enum FeedbackSettingsNodeTestError: Error {
     case layoutUnavailable
 }
 
-private func nodeTestLayout() throws -> FeedbackSettingsLayout {
+private func nodeTestLayout(
+    sceneSize: CGSize = .init(width: 375, height: 667),
+    safeAreaInsets: FeedbackSettingsSafeAreaInsets = .zero
+) throws -> FeedbackSettingsLayout {
     guard let layout = FeedbackSettingsLayout.compute(
-        sceneSize: .init(width: 375, height: 667),
-        safeAreaInsets: .zero
+        sceneSize: sceneSize,
+        safeAreaInsets: safeAreaInsets
     ) else {
         throw FeedbackSettingsNodeTestError.layoutUnavailable
     }
@@ -18,8 +21,47 @@ private func nodeTestLayout() throws -> FeedbackSettingsLayout {
 }
 
 @MainActor
+private func allNodes(in root: SKNode) -> [SKNode] {
+    var nodes: [SKNode] = []
+
+    func visit(_ node: SKNode) {
+        nodes.append(node)
+        for child in node.children {
+            visit(child)
+        }
+    }
+
+    visit(root)
+    return nodes
+}
+
+@MainActor
+private func renderedControlFrames(in node: FeedbackSettingsNode, panelFrame: CGRect) -> [CGRect] {
+    allNodes(in: node).compactMap { child in
+        guard let shape = child as? SKShapeNode else { return nil }
+        return shape.path?.boundingBox
+    }.filter { frame in
+        frame != panelFrame && panelFrame.contains(frame)
+    }
+}
+
+@MainActor
+private func renderedLabelTexts(in node: FeedbackSettingsNode) -> [String] {
+    allNodes(in: node).compactMap { child in
+        guard let label = child as? SKLabelNode,
+              !label.isHidden,
+              label.alpha > 0,
+              let text = label.text,
+              !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+}
+
+@MainActor
 struct FeedbackSettingsNodeTests {
-    @Test func modalUsesExactCopyAndExpectedControlCount() throws {
+    @Test func modalUsesExactCopyAndRendersOnlyTwoTogglesAndClose() throws {
         let node = FeedbackSettingsNode()
         let layout = try nodeTestLayout()
 
@@ -28,35 +70,76 @@ struct FeedbackSettingsNodeTests {
             preferences: .init(soundEffectsEnabled: true, hapticsEnabled: false)
         )
 
-        #expect(node.soundEffectsLabelForTesting == "Sound Effects")
-        #expect(node.hapticsLabelForTesting == "Haptics")
-        #expect(node.closeLabelForTesting == "Close")
-        #expect(node.soundEffectsStateForTesting == "On")
-        #expect(node.hapticsStateForTesting == "Off")
-        #expect(node.toggleControlCountForTesting == 2)
-        #expect(node.controlCountForTesting == 3)
+        #expect(renderedControlFrames(in: node, panelFrame: layout.panelFrame) == [
+            layout.soundRowFrame,
+            layout.hapticsRowFrame,
+            layout.closeFrame
+        ])
+        #expect(renderedLabelTexts(in: node) == [
+            "Sound Effects",
+            "Haptics",
+            "On",
+            "Off",
+            "Close"
+        ])
         #expect(node.zPosition == GameUITheme.Z.modal - 10)
     }
 
-    @Test func reapplyChangesOnlyStatesAndReusesTheExistingTree() throws {
+    @Test func reapplyUpdatesResizedVisualAndHitFramesWithoutDuplicatingTree() throws {
         let node = FeedbackSettingsNode()
-        let layout = try nodeTestLayout()
+        let initialLayout = try nodeTestLayout()
         node.apply(
-            layout: layout,
+            layout: initialLayout,
             preferences: .init(soundEffectsEnabled: true, hapticsEnabled: true)
         )
-        let originalNodeCount = node.nodeCountForTesting
+        let originalNodeCount = allNodes(in: node).count
+        let initialControlFrames = renderedControlFrames(in: node, panelFrame: initialLayout.panelFrame)
+        let resizedLayout = try nodeTestLayout(
+            sceneSize: .init(width: 834, height: 1194),
+            safeAreaInsets: .init(top: 24, left: 50, bottom: 20, right: 50)
+        )
 
         node.apply(
-            layout: layout,
+            layout: resizedLayout,
             preferences: .init(soundEffectsEnabled: false, hapticsEnabled: false)
         )
 
         #expect(node.soundEffectsStateForTesting == "Off")
         #expect(node.hapticsStateForTesting == "Off")
-        #expect(node.nodeCountForTesting == originalNodeCount)
-        #expect(node.toggleControlCountForTesting == 2)
-        #expect(node.controlCountForTesting == 3)
+        #expect(allNodes(in: node).count == originalNodeCount)
+        #expect(renderedControlFrames(in: node, panelFrame: resizedLayout.panelFrame) == [
+            resizedLayout.soundRowFrame,
+            resizedLayout.hapticsRowFrame,
+            resizedLayout.closeFrame
+        ])
+        #expect(renderedControlFrames(in: node, panelFrame: resizedLayout.panelFrame) != initialControlFrames)
+        #expect(node.soundRowHitFrameForTesting == resizedLayout.soundRowFrame)
+        #expect(node.hapticsRowHitFrameForTesting == resizedLayout.hapticsRowFrame)
+        #expect(node.closeHitFrameForTesting == resizedLayout.closeFrame)
+        #expect(node.action(at: CGPoint(
+            x: resizedLayout.soundRowFrame.midX,
+            y: resizedLayout.soundRowFrame.midY
+        )) == .toggleSoundEffects)
+        #expect(node.action(at: CGPoint(
+            x: resizedLayout.hapticsRowFrame.midX,
+            y: resizedLayout.hapticsRowFrame.midY
+        )) == .toggleHaptics)
+        #expect(node.action(at: CGPoint(
+            x: resizedLayout.closeFrame.midX,
+            y: resizedLayout.closeFrame.midY
+        )) == .close)
+        #expect(node.action(at: CGPoint(
+            x: initialLayout.soundRowFrame.midX,
+            y: initialLayout.soundRowFrame.midY
+        )) == .consumed)
+        #expect(node.action(at: CGPoint(
+            x: initialLayout.hapticsRowFrame.midX,
+            y: initialLayout.hapticsRowFrame.midY
+        )) == .consumed)
+        #expect(node.action(at: CGPoint(
+            x: initialLayout.closeFrame.midX,
+            y: initialLayout.closeFrame.midY
+        )) == .consumed)
     }
 
     @Test func fullRowsResolveToTheirActionsAndEveryOtherPointIsConsumed() throws {
