@@ -915,13 +915,13 @@ Append these tests inside `FeedbackPreferencesStoreTests`:
         key: "feedback.\(UUID().uuidString)"
     )
     weak var weakStore = store
-    let strongStore = try #require(store)
-    let token = strongStore.observe { _ in }
+    var token: FeedbackPreferencesObservation? = store?.observe { _ in }
 
     store = nil
 
     #expect(weakStore == nil)
-    withExtendedLifetime(token) {}
+    token?.cancel()
+    token = nil
 }
 
 @Test func crossCancellationCanRemoveObserverBeforeFutureUpdates() throws {
