@@ -522,7 +522,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func synchronizeBattlefieldActionPause() {
-        battlefieldActionLayer.isPaused = isFeedbackSettingsVisible
+        let shouldPauseCombatActions = isFeedbackSettingsVisible
+        battlefieldActionLayer.isPaused = shouldPauseCombatActions
+
+        // The city itself stays in the static environment layer, but its hit
+        // and conquest feedback actions run directly on that node. Pausing the
+        // action host freezes those transient effects without hiding the city.
+        enemyCityNode?.isPaused = shouldPauseCombatActions
     }
 
     private func handleTouch(named touchedButtonName: String?) {
