@@ -10,6 +10,353 @@ import Testing
 
 @MainActor
 struct BuildingViewSceneTests {
+    private enum BuildingViewFeedbackCall: Equatable {
+        case discrete(GameplayFeedbackEvent)
+        case automatic([GameplayFeedbackEvent])
+    }
+
+    private final class BuildingViewFeedbackRecorder: GameplayFeedbackProviding {
+        private(set) var calls: [BuildingViewFeedbackCall] = []
+        var onDiscreteEvent: ((GameplayFeedbackEvent) -> Void)?
+
+        func emit(_ event: GameplayFeedbackEvent) {
+            onDiscreteEvent?(event)
+            calls.append(.discrete(event))
+        }
+
+        func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
+            calls.append(.automatic(orderedEvents))
+        }
+
+        func reset() {
+            calls.removeAll()
+        }
+
+        var discreteEvents: [GameplayFeedbackEvent] {
+            calls.compactMap {
+                guard case .discrete(let event) = $0 else { return nil }
+                return event
+            }
+        }
+    }
+
+    @Test("Building View reserves a 200-point header column for Settings or fails closed")
+    func buildingViewHeaderReservesSettingsSpaceAndFailsClosedWhenTooNarrow() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 123_456_789))
+        let scene = makeScene(
+            size: CGSize(width: 375, height: 667),
+            store: store,
+            router: RouteSpy()
+        )
+        let frames = try #require(scene.buildingLayoutFramesForTesting)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        #expect(scene.isHeaderLayoutSupportedForTesting)
+        #expect(gearFrame.size == CGSize(width: 44, height: 44))
+        #expect(abs(gearFrame.minX - (frames.headerContent.minX + 8)) < 0.5)
+        #expect(abs(frames.titleTextColumn.minX - (gearFrame.maxX + 8)) < 0.5)
+        #expect(abs(frames.titleTextColumn.maxX - (frames.headerContent.maxX - 8)) < 0.5)
+        #expect(abs(frames.titleTextColumn.width - (frames.headerContent.width - 68)) < 0.5)
+        #expect(frames.titleTextColumn.width >= 200)
+        #expect(!gearFrame.intersects(frames.titleLabel))
+        #expect(!gearFrame.intersects(frames.goldLabel))
+
+        let narrowScene = makeScene(
+            size: CGSize(width: 250, height: 844),
+            store: try makeStore(initialState: KingdomGameState(gold: 100)),
+            router: RouteSpy()
+        )
+
+        #expect(!narrowScene.isHeaderLayoutSupportedForTesting)
+        #expect(narrowScene.isHeaderTextHiddenForTesting)
+        #expect(narrowScene.feedbackSettingsGearFrameForTesting == .zero)
+    }
+
+    @Test("Building View injects shared Settings dependencies without generating feedback for Settings controls")
+    func buildingViewUsesInjectedSettingsDependenciesWithoutSettingsFeedback() throws {
+        let feedback = BuildingViewFeedbackRecorder()
+        let preferences = RecordingFeedbackPreferencesManager()
+        let scene = makeScene(
+            store: try makeStore(initialState: KingdomGameState(gold: 100)),
+            router: RouteSpy(),
+            feedback: feedback,
+            feedbackPreferences: preferences
+        )
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .zero
+        ))
+
+        scene.handleTouchForTesting(at: center(of: gearFrame))
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        scene.handleTouchForTesting(at: center(of: settingsLayout.soundRowFrame))
+        scene.handleTouchForTesting(at: center(of: settingsLayout.hapticsRowFrame))
+        scene.handleTouchForTesting(at: center(of: settingsLayout.closeFrame))
+
+        #expect(!preferences.current.soundEffectsEnabled)
+        #expect(!preferences.current.hapticsEnabled)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(feedback.calls.isEmpty)
+    }
+
+    @Test("Building View layout and routing gates take priority over Settings")
+    func buildingViewLayoutAndRoutingGatesPreventSettingsTouches() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 10))
+        scene.handleTouchForTesting(at: center(of: gearFrame))
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 11))
+
+        scene.requestBattleForTesting()
+        scene.handleTouchForTesting(at: center(of: gearFrame))
+
+        #expect(router.battleRequestCount == 1)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Building View gives Settings and controls precedence over overlapping lots")
+    func buildingViewInputPriorityKeepsControlActionsAboveSlots() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let overlapPoint = try #require(scene.slotHitAreaCenterPointForTesting(1))
+        let gear = try #require(
+            scene.childNode(withName: SettingsGearNode.semanticName) as? SettingsGearNode
+        )
+        let originalGearPosition = gear.position
+
+        gear.position = overlapPoint
+        scene.handleTouchForTesting(at: overlapPoint)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.selectedSlotForTesting == nil)
+
+        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .zero
+        ))
+        scene.handleTouchForTesting(at: center(of: settingsLayout.closeFrame))
+
+        scene.selectSlotForTesting(2)
+        let buildButton = try #require(scene.childNode(withName: "build-barracks-button"))
+        let originalBuildButtonPosition = buildButton.position
+        gear.position = originalGearPosition
+        buildButton.position = overlapPoint
+        scene.handleTouchForTesting(at: overlapPoint)
+
+        #expect(store.load().cityBattleStateForCurrentCity.building(inSlot: 2)?.type == .barracks)
+        #expect(scene.selectedSlotForTesting == 2)
+
+        let upgradeButton = try #require(scene.childNode(withName: "upgradeBuildingButton"))
+        buildButton.position = originalBuildButtonPosition
+        let originalUpgradeButtonPosition = upgradeButton.position
+        upgradeButton.position = overlapPoint
+        scene.handleTouchForTesting(at: overlapPoint)
+
+        #expect(store.load().cityBattleStateForCurrentCity.building(inSlot: 2)?.level == 2)
+        #expect(scene.selectedSlotForTesting == 2)
+
+        let battleButton = try #require(scene.childNode(withName: "buildingViewBattleButton"))
+        upgradeButton.position = originalUpgradeButtonPosition
+        battleButton.position = overlapPoint
+        scene.handleTouchForTesting(at: overlapPoint)
+
+        #expect(router.battleRequestCount == 1)
+        #expect(scene.selectedSlotForTesting == 2)
+    }
+
+    @Test("Building View Settings consumes every underlying target")
+    func buildingViewSettingsBlocksPaletteActionsBattleAndSlots() throws {
+        let feedback = BuildingViewFeedbackRecorder()
+        let initialState = KingdomGameState(gold: 100)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router, feedback: feedback)
+        let frames = try #require(scene.buildingLayoutFramesForTesting)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        let slotPoint = try #require(scene.slotHitAreaCenterPointForTesting(1))
+
+        scene.handleTouchForTesting(at: center(of: gearFrame))
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        let buildFrame = try #require(frames.buildButtonFrames[.barracks])
+        for point in [
+            center(of: gearFrame),
+            center(of: buildFrame),
+            center(of: frames.upgradeButton),
+            center(of: frames.battleButton),
+            slotPoint
+        ] {
+            scene.handleTouchForTesting(at: point)
+        }
+
+        #expect(store.load() == initialState)
+        #expect(router.battleRequestCount == 0)
+        #expect(scene.selectedSlotForTesting == nil)
+        #expect(feedback.calls.isEmpty)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Building View saves a successful construction before emitting construction feedback")
+    func buildingViewSuccessfulMutationsSaveBeforeConstructionFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let feedback = BuildingViewFeedbackRecorder()
+        var persistedBuildingAtFeedback: CityBuilding?
+        feedback.onDiscreteEvent = { event in
+            guard event == .buildingChanged else { return }
+            persistedBuildingAtFeedback = store.load().cityBattleStateForCurrentCity.building(inSlot: 2)
+        }
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.barracks)
+
+        #expect(persistedBuildingAtFeedback?.type == .barracks)
+        #expect(persistedBuildingAtFeedback?.level == 1)
+        #expect(feedback.discreteEvents == [.buildingChanged])
+
+        feedback.reset()
+        feedback.onDiscreteEvent = { event in
+            guard event == .buildingChanged else { return }
+            persistedBuildingAtFeedback = store.load().cityBattleStateForCurrentCity.building(inSlot: 2)
+        }
+        scene.upgradeSelectedSlotForTesting()
+
+        #expect(persistedBuildingAtFeedback?.level == 2)
+        #expect(feedback.discreteEvents == [.buildingChanged])
+    }
+
+    @Test("Building View emits one invalid event for each rejected manual mutation")
+    func buildingViewRejectedMutationsEmitInvalidExactlyOnce() throws {
+        let feedback = BuildingViewFeedbackRecorder()
+        let store = try makeStore(initialState: KingdomGameState(gold: 0))
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+
+        scene.buildSelectedSlotForTesting(.barracks)
+        #expect(feedback.discreteEvents == [.invalidAction])
+
+        feedback.reset()
+        scene.selectSlotForTesting(1)
+        scene.buildSelectedSlotForTesting(.barracks)
+        #expect(feedback.discreteEvents == [.invalidAction])
+
+        feedback.reset()
+        scene.upgradeSelectedSlotForTesting()
+        #expect(feedback.discreteEvents == [.invalidAction])
+    }
+
+    @Test("Building View settlement conquest emits only fresh reward and city outcome")
+    func buildingViewSettlementConquestEmitsRewardThenCityOutcomeWithoutConstruction() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let preferences = RecordingFeedbackPreferencesManager()
+        let sound = RecordingGameplaySoundOutput()
+        let haptics = RecordingGameplayHapticOutput()
+        let feedback = DefaultGameplayFeedbackCoordinator(
+            preferences: preferences,
+            soundOutput: sound,
+            hapticOutput: haptics,
+            clock: ManualMonotonicClock(now: 0)
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(
+            store: store,
+            router: RouteSpy(),
+            feedback: feedback,
+            feedbackPreferences: preferences
+        )
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.barracks)
+
+        #expect(store.load().stageStatus == .cityConqueredPendingMap)
+        #expect(sound.calls == [
+            .play(.goldReward, .nonAutomatic),
+            .play(.cityConquest, .nonAutomatic)
+        ])
+        #expect(haptics.played == [.strongSuccess])
+    }
+
+    @Test("Building View emits request and lifecycle settlement outcomes only once")
+    func buildingViewRequestAndLifecycleSettlementFeedbackIsFreshOnly() throws {
+        let start = Date.distantPast
+        var lifecycleState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        #expect(lifecycleState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let lifecyclePreferences = RecordingFeedbackPreferencesManager()
+        let lifecycleSound = RecordingGameplaySoundOutput()
+        let lifecycleHaptics = RecordingGameplayHapticOutput()
+        let lifecycleFeedback = DefaultGameplayFeedbackCoordinator(
+            preferences: lifecyclePreferences,
+            soundOutput: lifecycleSound,
+            hapticOutput: lifecycleHaptics,
+            clock: ManualMonotonicClock(now: 0)
+        )
+        let lifecycleScene = makeScene(
+            store: try makeStore(initialState: lifecycleState),
+            router: RouteSpy(),
+            feedback: lifecycleFeedback,
+            feedbackPreferences: lifecyclePreferences
+        )
+
+        lifecycleScene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_000))
+        lifecycleScene.redrawForTesting()
+        lifecycleScene.repeatDidMoveForTesting()
+        lifecycleScene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(20_000))
+
+        #expect(lifecycleSound.calls == [
+            .play(.goldReward, .nonAutomatic),
+            .play(.cityConquest, .nonAutomatic)
+        ])
+        #expect(lifecycleHaptics.played == [.strongSuccess])
+
+        var requestState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        #expect(requestState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        let requestPreferences = RecordingFeedbackPreferencesManager()
+        let requestSound = RecordingGameplaySoundOutput()
+        let requestHaptics = RecordingGameplayHapticOutput()
+        let requestFeedback = DefaultGameplayFeedbackCoordinator(
+            preferences: requestPreferences,
+            soundOutput: requestSound,
+            hapticOutput: requestHaptics,
+            clock: ManualMonotonicClock(now: 0)
+        )
+        let requestScene = makeScene(
+            store: try makeStore(initialState: requestState),
+            router: RouteSpy(),
+            feedback: requestFeedback,
+            feedbackPreferences: requestPreferences
+        )
+
+        requestScene.requestBattleForTesting()
+        requestScene.redrawForTesting()
+        requestScene.repeatDidMoveForTesting()
+
+        #expect(requestSound.calls == [
+            .play(.goldReward, .nonAutomatic),
+            .play(.cityConquest, .nonAutomatic)
+        ])
+        #expect(requestHaptics.played == [.strongSuccess])
+    }
+
     @Test func gridRendersTwentyFiveSelectableSlots() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let scene = makeScene(store: store, router: RouteSpy())
@@ -678,12 +1025,24 @@ struct BuildingViewSceneTests {
     private func makeScene(
         size: CGSize = CGSize(width: 390, height: 844),
         store: KingdomGameStore,
-        router: BuildingViewSceneRouting? = nil
+        router: BuildingViewSceneRouting? = nil,
+        feedback: GameplayFeedbackProviding? = nil,
+        feedbackPreferences: FeedbackPreferencesManaging = RecordingFeedbackPreferencesManager()
     ) -> BuildingViewScene {
-        let scene = BuildingViewScene(size: size, store: store, router: router)
+        let scene = BuildingViewScene(
+            size: size,
+            store: store,
+            router: router,
+            feedback: feedback ?? NoOpGameplayFeedbackProvider(),
+            feedbackPreferences: feedbackPreferences
+        )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
         return scene
+    }
+
+    private func center(of frame: CGRect) -> CGPoint {
+        CGPoint(x: frame.midX, y: frame.midY)
     }
 
     private func makeIdleAccruingState(since date: Date) -> KingdomGameState {

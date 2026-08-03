@@ -5,12 +5,22 @@
 
 import Foundation
 import SpriteKit
+import UIKit
 
 protocol BuildingViewSceneRouting: AnyObject {
     func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene)
 }
 
 final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
+    private enum HeaderLayout {
+        static let sideInset: CGFloat = 8
+        static let gearSize: CGFloat = 44
+        static let gearToTextGap: CGFloat = 8
+        static let minimumTextColumnWidth: CGFloat = 200
+
+        static let reservedWidth = sideInset * 2 + gearSize + gearToTextGap
+    }
+
     private enum ButtonName {
         static let upgrade = "upgradeBuildingButton"
         static let battle = "buildingViewBattleButton"
@@ -83,11 +93,16 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
 
     private let store: KingdomGameStore
     private weak var router: BuildingViewSceneRouting?
+    private let feedback: GameplayFeedbackProviding
+    private let feedbackPreferences: FeedbackPreferencesManaging
+    private let feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter?
+    private var feedbackSettingsController: FeedbackSettingsController?
     private var state: KingdomGameState
     private var didBuildInterface = false
     private var isObservingLifecycle = false
     private var isLayoutGatePaused = false
     private var isSystemBackgrounded = false
+    private var isRoutingToBattle = false
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
     private var selectedSlot: Int?
     private var feedbackText = "Select a city lot."
@@ -109,13 +124,27 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private var buildButtonBundles: [BuildingType: BuildButtonBundle] = [:]
     private var slotNodes: [Int: SlotNodeBundle] = [:]
     private var layoutFrames = LayoutFrames()
+    private var headerTextColumnFrame = CGRect.zero
+    private var isHeaderLayoutSupported = false
     #if DEBUG
     private var layoutInterfaceCallCount = 0
     #endif
 
-    init(size: CGSize, store: KingdomGameStore = .shared, router: BuildingViewSceneRouting? = nil) {
+    init(
+        size: CGSize,
+        store: KingdomGameStore = .shared,
+        router: BuildingViewSceneRouting? = nil,
+        feedback: GameplayFeedbackProviding = NoOpGameplayFeedbackProvider(),
+        feedbackPreferences: FeedbackPreferencesManaging = MainActor.assumeIsolated {
+            FeedbackPreferencesStore.shared
+        },
+        feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil
+    ) {
         self.store = store
         self.router = router
+        self.feedback = feedback
+        self.feedbackPreferences = feedbackPreferences
+        self.feedbackSettingsAccessibilityAdapter = feedbackSettingsAccessibilityAdapter
         self.state = store.load()
         super.init(size: size)
     }
@@ -123,6 +152,9 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     required init?(coder aDecoder: NSCoder) {
         self.store = .shared
         self.router = nil
+        self.feedback = NoOpGameplayFeedbackProvider()
+        self.feedbackPreferences = FeedbackPreferencesStore.shared
+        self.feedbackSettingsAccessibilityAdapter = nil
         self.state = KingdomGameStore.shared.load()
         super.init(coder: aDecoder)
     }
@@ -140,6 +172,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             didBuildInterface = true
         }
 
+        configureFeedbackSettingsIfNeeded(in: view)
         observeLifecycleNotificationsIfNeeded()
         redraw()
         layoutInterface()
@@ -155,27 +188,180 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             return
         }
 
-        let point = touch.location(in: self)
-        if let slot = slot(at: point) {
-            selectSlot(slot)
+        handleTouch(at: touch.location(in: self))
+    }
+
+    private func handleTouch(at point: CGPoint) {
+        guard !isLayoutGatePaused, !isRoutingToBattle else {
             return
         }
 
-        let tappedButtonName = buttonName(at: point)
-        if let tappedButtonName,
-           let type = buildingType(forButtonName: tappedButtonName) {
+        if let feedbackSettingsController,
+           feedbackSettingsController.isVisible {
+            _ = feedbackSettingsController.handleTouch(at: point)
+            return
+        }
+
+        if feedbackSettingsController?.gear.contains(point, in: self) == true {
+            openFeedbackSettings()
+            return
+        }
+
+        if let type = buildingType(at: point) {
             buildSelectedSlot(type)
             return
         }
 
-        switch tappedButtonName {
-        case ButtonName.upgrade:
+        if buttonContains(upgradeButton, point: point) {
             upgradeSelectedSlot()
-        case ButtonName.battle:
-            requestBattle()
-        default:
-            break
+            return
         }
+
+        if buttonContains(battleButton, point: point) {
+            requestBattle()
+            return
+        }
+
+        if let slot = slot(at: point) {
+            selectSlot(slot)
+        }
+    }
+
+    private var isFeedbackSettingsVisible: Bool {
+        feedbackSettingsController?.isVisible == true
+    }
+
+    private func configureFeedbackSettingsIfNeeded(in view: SKView) {
+        if feedbackSettingsController == nil {
+            let accessibilityAdapter = feedbackSettingsAccessibilityAdapter
+                ?? makeFeedbackSettingsAccessibilityAdapter(for: view)
+            feedbackSettingsController = FeedbackSettingsController(
+                preferences: feedbackPreferences,
+                accessibilityAdapter: accessibilityAdapter
+            )
+            accessibilityAdapter.configureActions(
+                onGearActivate: { [weak self] in
+                    self?.openFeedbackSettings()
+                },
+                onToggleSoundEffects: { [weak self] in
+                    self?.activateFeedbackSettings(.toggleSoundEffects)
+                },
+                onToggleHaptics: { [weak self] in
+                    self?.activateFeedbackSettings(.toggleHaptics)
+                },
+                onClose: { [weak self] in
+                    self?.activateFeedbackSettings(.close)
+                }
+            )
+        }
+
+        guard let feedbackSettingsController else {
+            return
+        }
+
+        if feedbackSettingsController.gear.parent !== self {
+            addChild(feedbackSettingsController.gear)
+        }
+        if feedbackSettingsController.modal.parent !== self {
+            addChild(feedbackSettingsController.modal)
+        }
+    }
+
+    private func makeFeedbackSettingsAccessibilityAdapter(
+        for view: SKView
+    ) -> FeedbackSettingsAccessibilityAdapter {
+        FeedbackSettingsAccessibilityAdapter(
+            containerView: view,
+            sceneToScreenFrame: { [weak self, weak view] sceneFrame in
+                guard let self else {
+                    return .zero
+                }
+
+                let viewFrame = CGRect(
+                    x: sceneFrame.minX,
+                    y: (view?.bounds.height ?? self.size.height) - sceneFrame.maxY,
+                    width: sceneFrame.width,
+                    height: sceneFrame.height
+                )
+
+                guard let view, view.window != nil else {
+                    return viewFrame
+                }
+                return Self.feedbackSettingsAccessibilityFrame(
+                    viewLocalFrame: viewFrame,
+                    screenFrame: view.convert(viewFrame, to: nil)
+                )
+            },
+            postNotification: { notification, target in
+                UIAccessibility.post(notification: notification, argument: target)
+            }
+        )
+    }
+
+    private static func feedbackSettingsAccessibilityFrame(
+        viewLocalFrame: CGRect,
+        screenFrame: CGRect
+    ) -> CGRect {
+        guard screenFrame.origin.x.isFinite,
+              screenFrame.origin.y.isFinite,
+              screenFrame.width.isFinite,
+              screenFrame.height.isFinite,
+              screenFrame.width > 0,
+              screenFrame.height > 0 else {
+            return viewLocalFrame
+        }
+        return screenFrame
+    }
+
+    private func openFeedbackSettings() {
+        guard !isLayoutGatePaused,
+              !isRoutingToBattle,
+              isHeaderLayoutSupported,
+              let feedbackSettingsController,
+              !feedbackSettingsController.isVisible else {
+            return
+        }
+        _ = feedbackSettingsController.open()
+    }
+
+    private func closeFeedbackSettings(
+        focusTarget: FeedbackSettingsFocusTarget = .openingGear
+    ) {
+        feedbackSettingsController?.close(focusTarget: focusTarget)
+    }
+
+    private func activateFeedbackSettings(_ action: FeedbackSettingsAction) {
+        guard let feedbackSettingsController,
+              feedbackSettingsController.isVisible,
+              let layout = feedbackSettingsLayoutForCurrentEnvironment() else {
+            return
+        }
+
+        let point: CGPoint
+        switch action {
+        case .toggleSoundEffects:
+            point = CGPoint(x: layout.soundRowFrame.midX, y: layout.soundRowFrame.midY)
+        case .toggleHaptics:
+            point = CGPoint(x: layout.hapticsRowFrame.midX, y: layout.hapticsRowFrame.midY)
+        case .close:
+            point = CGPoint(x: layout.closeFrame.midX, y: layout.closeFrame.midY)
+        case .consumed:
+            return
+        }
+        _ = feedbackSettingsController.handleTouch(at: point)
+    }
+
+    private func feedbackSettingsLayoutForCurrentEnvironment() -> FeedbackSettingsLayout? {
+        let safeAreaInsets = view?.safeAreaInsets ?? .zero
+        return FeedbackSettingsLayout.compute(
+            sceneSize: size,
+            safeAreaInsets: .init(
+                top: safeAreaInsets.top,
+                left: safeAreaInsets.left,
+                bottom: safeAreaInsets.bottom,
+                right: safeAreaInsets.right
+            )
+        )
     }
 
     private func buildInterface() {
@@ -352,8 +538,24 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         "build-\(type.rawValue)-button"
     }
 
-    private func buildingType(forButtonName name: String) -> BuildingType? {
-        BuildingType.allCases.first { buttonName(for: $0) == name }
+    private func buildingType(at point: CGPoint) -> BuildingType? {
+        for type in BuildingType.allCases {
+            guard let button = buildButtonBundles[type]?.button else {
+                continue
+            }
+            if buttonContains(button, point: point) {
+                return type
+            }
+        }
+        return nil
+    }
+
+    private func buttonContains(_ button: SKNode, point: CGPoint) -> Bool {
+        guard let frame = sceneFrame(for: button),
+              !frame.isEmpty else {
+            return false
+        }
+        return frame.contains(point)
     }
 
     private func buildColor(for type: BuildingType) -> SKColor {
@@ -402,8 +604,45 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         actionPanel.update(size: CGSize(width: contentWidth, height: actionHeight))
         actionPanel.position = CGPoint(x: size.width / 2, y: actionCenterY)
 
-        titleLabel.position = CGPoint(x: size.width / 2, y: titleCenterY + titleHeight * 0.20)
-        goldLabel.position = CGPoint(x: size.width / 2, y: titleCenterY - titleHeight * 0.22)
+        let titlePanelFrame = CGRect(
+            x: size.width / 2 - contentWidth / 2,
+            y: titleCenterY - titleHeight / 2,
+            width: contentWidth,
+            height: titleHeight
+        )
+        let gearFrame = CGRect(
+            x: titlePanelFrame.minX + HeaderLayout.sideInset,
+            y: titlePanelFrame.midY - HeaderLayout.gearSize / 2,
+            width: HeaderLayout.gearSize,
+            height: HeaderLayout.gearSize
+        )
+        headerTextColumnFrame = CGRect(
+            x: gearFrame.maxX + HeaderLayout.gearToTextGap,
+            y: titlePanelFrame.minY + HeaderLayout.sideInset,
+            width: contentWidth - HeaderLayout.reservedWidth,
+            height: titleHeight - HeaderLayout.sideInset * 2
+        )
+        isHeaderLayoutSupported = headerTextColumnFrame.width >= HeaderLayout.minimumTextColumnWidth
+
+        if isHeaderLayoutSupported {
+            titleLabel.isHidden = false
+            goldLabel.isHidden = false
+            titleLabel.position = CGPoint(
+                x: headerTextColumnFrame.midX,
+                y: titleCenterY + titleHeight * 0.20
+            )
+            goldLabel.position = CGPoint(
+                x: headerTextColumnFrame.midX,
+                y: titleCenterY - titleHeight * 0.22
+            )
+            feedbackSettingsController?.applyGearFrame(gearFrame)
+        } else {
+            titleLabel.isHidden = true
+            goldLabel.isHidden = true
+            feedbackSettingsController?.applyGearFrame(.zero)
+        }
+        feedbackSettingsController?.reapply(layout: feedbackSettingsLayoutForCurrentEnvironment())
+
         feedbackLabel.position = CGPoint(x: size.width / 2, y: actionCenterY + actionHeight * 0.33)
 
         let gridTop = titleCenterY - titleHeight / 2 - panelGridGap
@@ -516,8 +755,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             position: CGPoint(x: rightX, y: bottomButtonY)
         )
 
-        fitLabel(titleLabel, maxWidth: contentWidth - 28)
-        fitLabel(goldLabel, maxWidth: contentWidth - 28)
+        if isHeaderLayoutSupported {
+            fitLabel(titleLabel, maxWidth: headerTextColumnFrame.width)
+            fitLabel(goldLabel, maxWidth: headerTextColumnFrame.width)
+        }
         fitLabel(feedbackLabel, maxWidth: contentWidth - 28)
         fitLabel(upgradeLabel, maxWidth: bottomButtonWidth - 18)
         fitLabel(battleLabel, maxWidth: bottomButtonWidth - 18)
@@ -525,6 +766,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         layoutFrames = LayoutFrames(
             scene: CGRect(origin: .zero, size: size),
             titlePanel: sceneFrame(for: titlePanel) ?? .zero,
+            headerContent: titlePanelFrame,
+            titleTextColumn: headerTextColumnFrame,
+            titleLabel: sceneFrame(for: titleLabel) ?? .zero,
+            goldLabel: sceneFrame(for: goldLabel) ?? .zero,
             actionPanel: sceneFrame(for: actionPanel) ?? .zero,
             grid: gridFrameForSlots(),
             buildButtonFrames: buildButtonFrameMap(),
@@ -701,6 +946,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private func buildSelectedSlot(_ type: BuildingType) {
         guard let selectedSlot else {
             feedbackText = "Select a city lot first."
+            feedback.emit(.invalidAction)
             redraw()
             return
         }
@@ -710,21 +956,30 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         case .built:
             feedbackText = "\(type.displayName) built."
             store.save(state)
+            feedback.emit(.buildingChanged)
         case let .insufficientGold(cost, currentGold):
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
+            feedback.emit(.invalidAction)
         case .invalidSlot:
             feedbackText = "Select a city lot first."
+            feedback.emit(.invalidAction)
         case let .lockedBuilding(unlocksAtCity):
             feedbackText = "\(type.displayName) unlocks at City \(unlocksAtCity)."
+            feedback.emit(.invalidAction)
         case .slotOccupied:
             feedbackText = "That lot is occupied."
+            feedback.emit(.invalidAction)
         case .typeCapReached:
             feedbackText = "\(type.displayName) limit reached."
+            feedback.emit(.invalidAction)
         case let .cityConqueredDuringSettlement(goldEarned, _):
             feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
             store.save(state)
+            closeFeedbackSettings(focusTarget: .systemDefault)
+            emitFreshOutcomeFeedback(goldEarned: goldEarned, conqueredCities: 1)
         case .unavailable:
             feedbackText = "Enter a city before building."
+            feedback.emit(.invalidAction)
         }
         redraw()
     }
@@ -732,6 +987,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private func upgradeSelectedSlot() {
         guard let selectedSlot else {
             feedbackText = "Select a building first."
+            feedback.emit(.invalidAction)
             redraw()
             return
         }
@@ -741,24 +997,35 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         case let .upgraded(_, newLevel, _):
             feedbackText = "Upgraded to level \(newLevel)."
             store.save(state)
+            feedback.emit(.buildingChanged)
         case let .insufficientGold(cost, currentGold):
             feedbackText = "Need \(cost) gold. You have \(currentGold)."
+            feedback.emit(.invalidAction)
         case .invalidSlot, .missingBuilding:
             feedbackText = "Select a building first."
+            feedback.emit(.invalidAction)
         case let .cityConqueredDuringSettlement(goldEarned, _):
             feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
             store.save(state)
+            closeFeedbackSettings(focusTarget: .systemDefault)
+            emitFreshOutcomeFeedback(goldEarned: goldEarned, conqueredCities: 1)
         case .unavailable:
             feedbackText = "Enter a city before upgrading."
+            feedback.emit(.invalidAction)
         }
         redraw()
     }
 
     private func requestBattle() {
+        guard !isLayoutGatePaused, !isRoutingToBattle else {
+            return
+        }
+
         let result = state.returnFromBackground(at: Date())
         store.save(state)
         applyIdleProgressFeedback(result)
         redraw()
+        isRoutingToBattle = true
         router?.buildingViewSceneDidRequestBattle(self)
     }
 
@@ -843,11 +1110,38 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         guard result.elapsedSeconds > 0 else { return }
 
         if result.conqueredCities > 0 {
+            closeFeedbackSettings(focusTarget: .systemDefault)
+            emitFreshOutcomeFeedback(
+                goldEarned: result.goldEarned,
+                conqueredCities: result.conqueredCities
+            )
             feedbackText = "Buildings conquered \(state.displayCityTitle)."
         } else if result.damageDealt > 0 {
             feedbackText = "Buildings dealt \(result.damageDealt) idle damage."
         } else {
             feedbackText = "No building damage while away."
+        }
+    }
+
+    private func emitFreshOutcomeFeedback(
+        goldEarned: Int,
+        conqueredCities: Int
+    ) {
+        guard conqueredCities > 0 else {
+            return
+        }
+
+        if goldEarned > 0 {
+            feedback.emit(.goldReward)
+        }
+
+        switch state.stageStatus {
+        case .countryComplete:
+            feedback.emit(.countryCompletion)
+        case .cityConqueredPendingMap:
+            feedback.emit(.cityConquest)
+        case .battleActive:
+            assertionFailure("Fresh Building View outcome did not advance stage status")
         }
     }
 
@@ -865,20 +1159,6 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             let pointInHitArea = convert(point, to: hitArea)
             if path.contains(pointInHitArea) {
                 return slot
-            }
-        }
-
-        return nil
-    }
-
-    private func buttonName(at point: CGPoint) -> String? {
-        for node in nodes(at: point) {
-            guard let name = node.name else {
-                continue
-            }
-
-            if buildingType(forButtonName: name) != nil || name == ButtonName.upgrade || name == ButtonName.battle {
-                return name
             }
         }
 
@@ -915,6 +1195,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private struct LayoutFrames {
         var scene = CGRect.zero
         var titlePanel = CGRect.zero
+        var headerContent = CGRect.zero
+        var titleTextColumn = CGRect.zero
+        var titleLabel = CGRect.zero
+        var goldLabel = CGRect.zero
         var actionPanel = CGRect.zero
         var grid = CGRect.zero
         var buildButtonFrames: [BuildingType: CGRect] = [:]
@@ -978,6 +1262,10 @@ extension BuildingViewScene {
     struct BuildingLayoutFrames {
         let scene: CGRect
         let titlePanel: CGRect
+        let headerContent: CGRect
+        let titleTextColumn: CGRect
+        let titleLabel: CGRect
+        let goldLabel: CGRect
         let actionPanel: CGRect
         let grid: CGRect
         let buildButtonFrames: [BuildingType: CGRect]
@@ -989,6 +1277,10 @@ extension BuildingViewScene {
         BuildingLayoutFrames(
             scene: layoutFrames.scene,
             titlePanel: layoutFrames.titlePanel,
+            headerContent: layoutFrames.headerContent,
+            titleTextColumn: layoutFrames.titleTextColumn,
+            titleLabel: layoutFrames.titleLabel,
+            goldLabel: layoutFrames.goldLabel,
             actionPanel: layoutFrames.actionPanel,
             grid: layoutFrames.grid,
             buildButtonFrames: layoutFrames.buildButtonFrames,
@@ -1003,6 +1295,22 @@ extension BuildingViewScene {
     /// sibling `battlefieldLayoutCountForTesting` on `BattleScene`.
     var layoutInterfaceCallCountForTesting: Int {
         layoutInterfaceCallCount
+    }
+
+    var isFeedbackSettingsVisibleForTesting: Bool {
+        isFeedbackSettingsVisible
+    }
+
+    var feedbackSettingsGearFrameForTesting: CGRect? {
+        feedbackSettingsController?.gear.hitFrameForTesting
+    }
+
+    var isHeaderLayoutSupportedForTesting: Bool {
+        isHeaderLayoutSupported
+    }
+
+    var isHeaderTextHiddenForTesting: Bool {
+        titleLabel.isHidden && goldLabel.isHidden
     }
 
     var buildingSlotCountForTesting: Int {
@@ -1100,6 +1408,21 @@ extension BuildingViewScene {
 
     func requestBattleForTesting() {
         requestBattle()
+    }
+
+    func handleTouchForTesting(at point: CGPoint) {
+        handleTouch(at: point)
+    }
+
+    func redrawForTesting() {
+        redraw()
+    }
+
+    func repeatDidMoveForTesting() {
+        guard let view else {
+            return
+        }
+        didMove(to: view)
     }
 
     func slotTextForTesting(_ slot: Int) -> String? {
