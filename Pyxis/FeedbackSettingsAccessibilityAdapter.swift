@@ -44,6 +44,7 @@ final class FeedbackSettingsAccessibilityAdapter {
 
     private var isModalVisible = false
     private var isGearAccessible = false
+    private var allowsOpeningGearExposure = true
 
     convenience init(
         containerView: UIView,
@@ -103,7 +104,7 @@ final class FeedbackSettingsAccessibilityAdapter {
         guard let accessibilityFrame = convertedFrame(from: frame) else {
             isGearAccessible = false
             gearElement.accessibilityFrame = .zero
-            if !isModalVisible {
+            if !isModalVisible && allowsOpeningGearExposure {
                 expose([])
             }
             return
@@ -111,7 +112,7 @@ final class FeedbackSettingsAccessibilityAdapter {
 
         isGearAccessible = true
         gearElement.accessibilityFrame = accessibilityFrame
-        if !isModalVisible {
+        if !isModalVisible && allowsOpeningGearExposure {
             exposeGearIfAvailable()
         }
     }
@@ -134,10 +135,12 @@ final class FeedbackSettingsAccessibilityAdapter {
 
         switch focusTarget {
         case .outcome(let outcome):
+            allowsOpeningGearExposure = false
             expose([outcome])
             postScreenChange(target: outcome)
 
         case .openingGear:
+            allowsOpeningGearExposure = true
             guard isGearAccessible else {
                 expose([])
                 postScreenChange(target: nil)
@@ -147,6 +150,7 @@ final class FeedbackSettingsAccessibilityAdapter {
             postScreenChange(target: gearElement)
 
         case .systemDefault:
+            allowsOpeningGearExposure = false
             expose([])
             postScreenChange(target: nil)
         }

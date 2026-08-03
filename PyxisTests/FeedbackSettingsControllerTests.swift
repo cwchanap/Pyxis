@@ -92,6 +92,42 @@ struct FeedbackSettingsControllerTests {
         ))
     }
 
+    @Test func outcomeFocusRemainsContainedWhenGearAndLayoutAreReapplied() throws {
+        let context = try makeControllerContext()
+        let outcome = UIAccessibilityElement(accessibilityContainer: context.containerView)
+        outcome.accessibilityLabel = "Conquest complete"
+
+        #expect(context.controller.open())
+        context.controller.close(focusTarget: .outcome(outcome))
+        let postsAfterClose = context.posts
+
+        context.controller.applyGearFrame(CGRect(x: 300, y: 560, width: 44, height: 44))
+        context.controller.reapply(layout: try refreshedLayout())
+
+        let elements = accessibilityElements(in: context.containerView)
+        #expect(!context.controller.isVisible)
+        #expect(elements.count == 1)
+        #expect(targetsSameObject(elements.onlyElement, outcome))
+        #expect(context.posts.count == postsAfterClose.count)
+        #expect(targetsSameObject(context.posts.last?.target, outcome))
+    }
+
+    @Test func systemDefaultFocusRemainsBlockedWhenGearAndLayoutAreReapplied() throws {
+        let context = try makeControllerContext()
+
+        #expect(context.controller.open())
+        context.controller.close(focusTarget: .systemDefault)
+        let postsAfterClose = context.posts
+
+        context.controller.applyGearFrame(CGRect(x: 300, y: 560, width: 44, height: 44))
+        context.controller.reapply(layout: try refreshedLayout())
+
+        #expect(!context.controller.isVisible)
+        #expect(accessibilityElements(in: context.containerView).isEmpty)
+        #expect(context.posts.count == postsAfterClose.count)
+        #expect(context.posts.last?.target == nil)
+    }
+
     @Test func externallyObservedPreferenceChangesReapplyTheVisibleModal() throws {
         let context = try makeControllerContext()
         #expect(context.controller.open())
@@ -146,6 +182,13 @@ private func makeControllerContext() throws -> FeedbackSettingsControllerTestCon
         layout: layout,
         posts: { posts }
     )
+}
+
+private func refreshedLayout() throws -> FeedbackSettingsLayout {
+    try #require(FeedbackSettingsLayout.compute(
+        sceneSize: CGSize(width: 834, height: 1194),
+        safeAreaInsets: .init(top: 24, left: 50, bottom: 20, right: 50)
+    ))
 }
 
 @MainActor
