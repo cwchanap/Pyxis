@@ -225,6 +225,59 @@ struct BattleSceneTests {
         #expect(!scene.isBattlefieldActionLayerPausedForTesting)
     }
 
+    @Test("Battle Settings pauses an active city-hit action until Settings closes")
+    func battleSettingsPausesCityHitFeedbackUntilClose() async throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 500))
+        let size = CGSize(width: 390, height: 844)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        let controller = UIViewController()
+        controller.view = view
+        let windowScene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        )
+        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: windowScene)
+        window.frame = CGRect(origin: .zero, size: size)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            view.presentScene(nil)
+            window.isHidden = true
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+
+        let scene = BattleScene(size: size, store: store, combatSeed: 1)
+        view.presentScene(scene)
+        try await Task.sleep(for: .milliseconds(100))
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        let city = try #require(firstNode(named: "enemy-city", in: scene))
+        #expect(city.action(forKey: "cityHitFeedback") != nil)
+
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(city.action(forKey: "cityHitFeedback") != nil)
+
+        let safeAreaInsets = view.safeAreaInsets
+        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .init(
+                top: safeAreaInsets.top,
+                left: safeAreaInsets.left,
+                bottom: safeAreaInsets.bottom,
+                right: safeAreaInsets.right
+            )
+        ))
+        scene.handleTouchForTesting(at: settingsLayout.closeFrame.center)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        try await pollUntil(timeout: .seconds(1), interval: .milliseconds(20)) {
+            city.action(forKey: "cityHitFeedback") == nil
+        }
+    }
+
     @Test("Battle Settings blocks updates without resetting the battle clock")
     func battleSettingsRefreshesTheClockAndResumesWithoutCatchUp() throws {
         let scene = try makeScene()
