@@ -7,6 +7,7 @@ import Foundation
 import Testing
 @testable import Pyxis
 
+@MainActor
 struct FeedbackPreferencesStoreTests {
     @Test func missingDataLoadsEnabledDefaults() throws {
         let context = try makeStore()
@@ -451,6 +452,7 @@ private enum TestEncodingError: Error {
     case failed
 }
 
+@MainActor
 private func isNondecreasing(
     _ snapshots: [FeedbackPreferences],
     versionOne: FeedbackPreferences,

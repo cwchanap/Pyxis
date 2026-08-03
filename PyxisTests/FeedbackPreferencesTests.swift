@@ -7,6 +7,7 @@ import Foundation
 import Testing
 @testable import Pyxis
 
+@MainActor
 struct FeedbackPreferencesTests {
     @Test func defaultsEnableBothChannels() {
         #expect(FeedbackPreferences() == FeedbackPreferences(
@@ -83,6 +84,16 @@ struct FeedbackPreferencesTests {
     }
 }
 
+/// Compile-time type-check for the HPA-389 consumer surface.
+///
+/// This function is intentionally never called at runtime. It exists solely so the
+/// compiler verifies that the HPA-364 foundation types (`FeedbackPreferences`,
+/// `FeedbackPreferencesStore`, `FeedbackPreferencesManaging`,
+/// `FeedbackPreferencesObservation`, `GameplayFeedbackProviding`, `MonotonicClock`)
+/// expose the API surface that the HPA-389 consumer will depend on. Keeping it
+/// uncalled avoids dead-code elimination stripping the references before the
+/// type-checker validates them.
+@MainActor
 @inline(never)
 private func assertHPA389ConsumerContract(
     defaults: UserDefaults,
