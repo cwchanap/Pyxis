@@ -6,6 +6,7 @@
 import Foundation
 import SpriteKit
 import Testing
+import UIKit
 @testable import Pyxis
 
 @MainActor
@@ -151,6 +152,55 @@ struct CountryMapSceneTests {
         #expect(scene.isRoutingToBattleForTesting)
         #expect(!scene.isFeedbackSettingsVisibleForTesting)
         #expect(router.battleRequestCount == 1)
+    }
+
+    @Test("Country Map layout gate refuses a retained Settings accessibility activation")
+    func countryMapLayoutGateRefusesRetainedAccessibilityGearActivation() throws {
+        let initialState = KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let countingStore = try makeCountingStore(initialState: initialState)
+        let store = countingStore.store
+        let router = RouteSpy()
+        let feedback = CountryMapFeedbackRecorder()
+        let preferences = RecordingFeedbackPreferencesManager()
+        let size = CGSize(width: 393, height: 852)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: view,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let scene = CountryMapScene(
+            size: size,
+            store: store,
+            router: router,
+            layoutEnvironmentOverride: .init(
+                safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            ),
+            feedback: feedback,
+            feedbackPreferences: preferences,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+        scene.didMove(to: view)
+        let elements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let gear = try #require(elements.onlyElement as? ActionAccessibilityElement)
+
+        scene.layoutGateWillPause(at: .init(timeIntervalSinceReferenceDate: 1_000))
+        let stateAfterGatePause = store.load()
+        countingStore.defaults.resetStateSaveCount()
+
+        #expect(gear.accessibilityActivate())
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(feedback.calls.isEmpty)
+        #expect(router.battleRequestCount == 0)
+        #expect(store.load() == stateAfterGatePause)
+        #expect(countingStore.defaults.stateSaveCount == 0)
     }
 
     @Test("Country Map title uses the layout title frame and fails at the 16-point floor")
