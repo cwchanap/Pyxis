@@ -3,6 +3,7 @@
 //  PyxisTests
 //
 
+import AVFoundation
 import Foundation
 import Testing
 @testable import Pyxis
@@ -188,6 +189,138 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.scheduledSoundIDs.isEmpty)
         #expect(backend.activeSessionRequests.isEmpty)
         #expect(backend.engineStartCount == 0)
+    }
+
+    @Test func interruptionBeginStopsOutputAndDropsNewSounds() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.play(.attackMelee, soundClass: .automaticCombat)
+        try await waitUntil { backend.scheduledSoundIDs == [.attackMelee] }
+
+        controller.handleAudioInterruptionBegan()
+        try await waitUntil {
+            backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
+        }
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.drainOutputQueueForTesting()
+
+        #expect(backend.scheduledSoundIDs == [.attackMelee])
+        #expect(backend.engineStartCount == 1)
+    }
+
+    @Test func resumableInterruptionEndRestoresEligibilityWithoutRebuildingOrReplaying() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.handleAudioInterruptionBegan()
+        try await waitUntil {
+            backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
+        }
+        controller.handleAudioInterruptionEnded(shouldResume: true)
+        controller.drainOutputQueueForTesting()
+
+        #expect(backend.createdVoiceIndices == Array(0...7))
+        #expect(backend.configuredAmbientSessionCount == 1)
+        #expect(backend.lifecycleRecoveryCount == 0)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+    }
+
+    @Test func nonResumableInterruptionEndKeepsImmediateEventsBlocked() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.handleAudioInterruptionBegan()
+        try await waitUntil {
+            backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
+        }
+        controller.handleAudioInterruptionEnded(shouldResume: false)
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.drainOutputQueueForTesting()
+
+        #expect(backend.scheduledSoundIDs.isEmpty)
+        #expect(backend.activeSessionRequests == [.init(active: false, notifyOthers: true)])
+    }
+
+    @Test func laterForegroundReleasesNonResumableInterruptionWithoutRebuildingReadyOutput() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.handleAudioInterruptionBegan()
+        try await waitUntil {
+            backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
+        }
+        controller.handleAudioInterruptionEnded(shouldResume: false)
+        controller.drainOutputQueueForTesting()
+
+        controller.handleAppWillEnterForeground()
+        controller.drainOutputQueueForTesting()
+
+        #expect(backend.createdVoiceIndices == Array(0...7))
+        #expect(backend.configuredAmbientSessionCount == 1)
+        #expect(backend.lifecycleRecoveryCount == 0)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+    }
+
+    @Test func audioBackendForwardsInterruptionEndsWithoutTreatingThemAsMediaResets() {
+        let notificationCenter = NotificationCenter()
+        let audioSession = AVAudioSession.sharedInstance()
+        let backend = AVAudioEngineGameplayAudioBackend(
+            audioSession: audioSession,
+            notificationCenter: notificationCenter
+        )
+        var beganCount = 0
+        var endedShouldResume: [Bool] = []
+        var lifecycleRecoveryCount = 0
+        backend.interruptionBeganHandler = {
+            beganCount += 1
+        }
+        backend.interruptionEndedHandler = { shouldResume in
+            endedShouldResume.append(shouldResume)
+        }
+        backend.lifecycleRecoveryHandler = {
+            lifecycleRecoveryCount += 1
+        }
+
+        notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: audioSession,
+            userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue
+            ]
+        )
+        notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: audioSession,
+            userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue
+            ]
+        )
+        notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: audioSession,
+            userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+                AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue
+            ]
+        )
+
+        #expect(beganCount == 1)
+        #expect(endedShouldResume == [false, true])
+        #expect(lifecycleRecoveryCount == 0)
+
+        notificationCenter.post(
+            name: AVAudioSession.mediaServicesWereResetNotification,
+            object: audioSession
+        )
+        #expect(lifecycleRecoveryCount == 1)
     }
 
     @Test func lifecycleRecoveryDuringPreparationInvalidatesStaleCompletionAndBuildsOnlyFreshOutput() async throws {

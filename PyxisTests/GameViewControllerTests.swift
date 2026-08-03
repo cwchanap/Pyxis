@@ -155,7 +155,7 @@ struct GameViewControllerTests {
         #expect(context.accessibilityAdapterFactoryCallCount == 1)
     }
 
-    @Test func controllerStopsOnBackgroundAndOnlyRecoversReadinessAfterForegroundOrInterruption() throws {
+    @Test func controllerStopsOnBackgroundAndLightlyPreparesOnForegroundOrInterruption() throws {
         let store = try makeStore(initialState: .init(stageStatus: .battleActive))
         let context = GameViewControllerRuntimeTestContext()
         let controller = GameViewController(
@@ -167,24 +167,62 @@ struct GameViewControllerTests {
         controller.viewDidLoad()
 
         NotificationCenter.default.post(name: .pyxisSceneDidEnterBackground, object: nil)
-        #expect(context.sound.calls == [.prepareIfNeeded, .stopAllAndDeactivate])
+        #expect(context.sound.calls == [.prepareIfNeeded, .handleAppDidEnterBackground])
 
         NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
         #expect(context.sound.calls == [
             .prepareIfNeeded,
-            .stopAllAndDeactivate,
-            .handleLifecycleRecovery
+            .handleAppDidEnterBackground,
+            .handleAppWillEnterForeground
         ])
 
-        context.runtime.stopAndDeactivateForLifecycle()
+        context.runtime.handleAudioInterruptionBegan()
+        context.runtime.handleAudioInterruptionEnded(shouldResume: true)
         context.runtime.recoverSoundAfterLifecycle()
         #expect(context.sound.calls == [
             .prepareIfNeeded,
-            .stopAllAndDeactivate,
-            .handleLifecycleRecovery,
-            .stopAllAndDeactivate,
+            .handleAppDidEnterBackground,
+            .handleAppWillEnterForeground,
+            .handleAudioInterruptionBegan,
+            .handleAudioInterruptionEnded(true),
             .handleLifecycleRecovery
         ])
+    }
+
+    @Test func ordinaryForegroundPreservesReadySoundOutputForFreshIdleConquest() throws {
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
+            cost: 15,
+            remainingGold: 85
+        ))
+
+        let store = try makeStore(initialState: initialState)
+        let context = GameViewOutputRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+
+        #expect(context.sound.calls == [
+            .prepareIfNeeded,
+            .handleAppWillEnterForeground,
+            .play(.goldReward, .nonAutomatic),
+            .play(.cityConquest, .nonAutomatic)
+        ])
+        #expect(!context.sound.calls.contains(.handleLifecycleRecovery))
+        #expect(store.load().pendingBattleResult?.conquestMode == .idle)
     }
 
     @Test func layoutGateRecoveryKeepsSettingsOpenAndReappliesTheSharedAdapterWithoutCatchUp() throws {
@@ -715,8 +753,13 @@ private final class RecordingControllerFeedback: GameplayFeedbackProviding {
 private final class RecordingControllerSound: GameplayFeedbackRuntimeSoundControlling {
     enum Call: Equatable {
         case prepareIfNeeded
-        case stopAllAndDeactivate
+        case handleAppDidEnterBackground
+        case handleAppWillEnterForeground
+        case handleAudioInterruptionBegan
+        case handleAudioInterruptionEnded(Bool)
         case handleLifecycleRecovery
+        case stopAllAndDeactivate
+        case play(GameplaySoundID, GameplaySoundClass)
     }
 
     private(set) var calls: [Call] = []
@@ -725,11 +768,61 @@ private final class RecordingControllerSound: GameplayFeedbackRuntimeSoundContro
         calls.append(.prepareIfNeeded)
     }
 
-    func stopAllAndDeactivate() {
-        calls.append(.stopAllAndDeactivate)
+    func handleAppDidEnterBackground() {
+        calls.append(.handleAppDidEnterBackground)
+    }
+
+    func handleAppWillEnterForeground() {
+        calls.append(.handleAppWillEnterForeground)
+    }
+
+    func handleAudioInterruptionBegan() {
+        calls.append(.handleAudioInterruptionBegan)
+    }
+
+    func handleAudioInterruptionEnded(shouldResume: Bool) {
+        calls.append(.handleAudioInterruptionEnded(shouldResume))
     }
 
     func handleLifecycleRecovery() {
         calls.append(.handleLifecycleRecovery)
+    }
+
+    func play(_ sound: GameplaySoundID, soundClass: GameplaySoundClass) {
+        calls.append(.play(sound, soundClass))
+    }
+}
+
+extension RecordingControllerSound: GameplaySoundOutput {
+    func stopAllAndDeactivate() {
+        calls.append(.stopAllAndDeactivate)
+    }
+}
+
+@MainActor
+private final class GameViewOutputRuntimeTestContext {
+    let preferences = RecordingFeedbackPreferencesManager()
+    let sound = RecordingControllerSound()
+    let runtime: GameViewControllerFeedbackRuntime
+
+    init() {
+        let feedback = DefaultGameplayFeedbackCoordinator(
+            preferences: preferences,
+            soundOutput: sound,
+            hapticOutput: RecordingGameplayHapticOutput(),
+            clock: ManualMonotonicClock(now: 0)
+        )
+        runtime = GameViewControllerFeedbackRuntime(
+            preferences: preferences,
+            feedback: feedback,
+            sound: sound,
+            makeAccessibilityAdapter: { view in
+                FeedbackSettingsAccessibilityAdapter(
+                    containerView: view,
+                    sceneToScreenFrame: { $0 },
+                    postNotification: { _, _ in }
+                )
+            }
+        )
     }
 }

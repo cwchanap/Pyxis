@@ -30,6 +30,7 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
 
     /// Task 13 supplies these controller callbacks at the composition boundary.
     var interruptionBeganHandler: (() -> Void)?
+    var interruptionEndedHandler: ((Bool) -> Void)?
     var lifecycleRecoveryHandler: (() -> Void)?
 
     init(
@@ -190,9 +191,7 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
         case .ended:
             let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
-            if options.contains(.shouldResume) {
-                lifecycleRecoveryHandler?()
-            }
+            interruptionEndedHandler?(options.contains(.shouldResume))
 
         @unknown default:
             break
