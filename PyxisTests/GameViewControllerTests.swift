@@ -45,7 +45,7 @@ struct GameViewControllerTests {
     @Test func unsupportedGeometryPausesAndBlocksThenResumesWithoutBattleStateMutation() throws {
         let initialState = KingdomGameState(gold: 37)
         let store = try makeStore(initialState: initialState)
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -82,7 +82,7 @@ struct GameViewControllerTests {
 
     @Test func normallyMountedBuildingViewUsesTheAppWideGate() throws {
         let store = try makeStore(initialState: .init(stageStatus: .battleActive))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -101,12 +101,183 @@ struct GameViewControllerTests {
         #expect(view.scene?.isUserInteractionEnabled == false)
     }
 
+    @Test func controllerPreparesAndBindsItsSharedFeedbackRuntimeAfterSKViewExists() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        #expect(context.sound.calls == [.prepareIfNeeded])
+        #expect(context.accessibilityAdapterFactoryCallCount == 1)
+        #expect(context.runtime.accessibilityAdapter === context.accessibilityAdapter)
+        #expect(view.scene is BattleScene)
+    }
+
+    @Test func controllerInjectsOneRuntimeIntoBattleMapAndBuildingScenes() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        let battleFrameConversions = context.accessibilityFrameConversionCount
+        #expect(battleFrameConversions > 0)
+        battle.advanceCombatForTesting(deltaTime: 0.1)
+        #expect(context.feedback.automaticCombatBatches.count == 1)
+
+        controller.battleSceneDidRequestBuildingView(battle)
+        let building = try #require(view.scene as? BuildingViewScene)
+        building.didMove(to: view)
+        let buildingFrameConversions = context.accessibilityFrameConversionCount
+        #expect(buildingFrameConversions > battleFrameConversions)
+        building.buildSelectedSlotForTesting(.barracks)
+        #expect(context.feedback.events.count == 1)
+
+        controller.buildingViewSceneDidRequestBattle(building)
+        let returnedBattle = try #require(view.scene as? BattleScene)
+        controller.battleSceneDidRequestCountryMap(returnedBattle)
+        let map = try #require(view.scene as? CountryMapScene)
+        map.didMove(to: view)
+        #expect(context.accessibilityFrameConversionCount > buildingFrameConversions)
+        map.enterCityForTesting(3)
+        #expect(context.feedback.events.count == 2)
+        #expect(context.accessibilityAdapterFactoryCallCount == 1)
+    }
+
+    @Test func controllerStopsOnBackgroundAndOnlyRecoversReadinessAfterForegroundOrInterruption() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        NotificationCenter.default.post(name: .pyxisSceneDidEnterBackground, object: nil)
+        #expect(context.sound.calls == [.prepareIfNeeded, .stopAllAndDeactivate])
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+        #expect(context.sound.calls == [
+            .prepareIfNeeded,
+            .stopAllAndDeactivate,
+            .handleLifecycleRecovery
+        ])
+
+        context.runtime.stopAndDeactivateForLifecycle()
+        context.runtime.recoverSoundAfterLifecycle()
+        #expect(context.sound.calls == [
+            .prepareIfNeeded,
+            .stopAllAndDeactivate,
+            .handleLifecycleRecovery,
+            .stopAllAndDeactivate,
+            .handleLifecycleRecovery
+        ])
+    }
+
+    @Test func layoutGateRecoveryKeepsSettingsOpenAndReappliesTheSharedAdapterWithoutCatchUp() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+
+        let gearFrame = try #require(battle.feedbackSettingsGearFrameForTesting)
+        battle.handleTouchForTesting(at: CGPoint(x: gearFrame.midX, y: gearFrame.midY))
+        #expect(battle.isFeedbackSettingsVisibleForTesting)
+        let frameConversionsBeforeGate = context.accessibilityFrameConversionCount
+
+        view.frame.size = CGSize(width: 667, height: 375)
+        controller.refreshLayoutSupportForTesting(environment: .init(
+            safeAreaInsets: .zero,
+            layoutClass: .phone
+        ))
+        #expect(controller.isLayoutGateVisibleForTesting)
+        #expect(view.isPaused)
+        #expect(battle.isFeedbackSettingsVisibleForTesting)
+
+        view.frame.size = CGSize(width: 393, height: 852)
+        controller.refreshLayoutSupportForTesting(environment: .init(
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        ))
+
+        #expect(!controller.isLayoutGateVisibleForTesting)
+        #expect(!view.isPaused)
+        #expect(battle.isFeedbackSettingsVisibleForTesting)
+        #expect(context.accessibilityFrameConversionCount > frameConversionsBeforeGate)
+        #expect(battle.lastUpdateTimeForTesting == nil)
+        #expect(context.feedback.events.isEmpty)
+        #expect(context.feedback.automaticCombatBatches.isEmpty)
+        #expect(context.sound.calls == [.prepareIfNeeded])
+    }
+
+    @Test func controllerKeepsFeedbackPreferencesAcrossSceneReplacement() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: battle.size,
+            safeAreaInsets: .zero
+        ))
+        let battleGear = try #require(battle.feedbackSettingsGearFrameForTesting)
+        battle.handleTouchForTesting(at: CGPoint(x: battleGear.midX, y: battleGear.midY))
+        battle.handleTouchForTesting(at: CGPoint(
+            x: settingsLayout.soundRowFrame.midX,
+            y: settingsLayout.soundRowFrame.midY
+        ))
+        #expect(!context.preferences.current.soundEffectsEnabled)
+        battle.handleTouchForTesting(at: CGPoint(
+            x: settingsLayout.closeFrame.midX,
+            y: settingsLayout.closeFrame.midY
+        ))
+
+        controller.battleSceneDidRequestBuildingView(battle)
+        let building = try #require(view.scene as? BuildingViewScene)
+        building.didMove(to: view)
+        let buildingGear = try #require(building.feedbackSettingsGearFrameForTesting)
+        building.handleTouchForTesting(at: CGPoint(
+            x: buildingGear.midX,
+            y: buildingGear.midY
+        ))
+        let soundEffectsElement = try #require(view.accessibilityElements?.first as? UIAccessibilityElement)
+
+        #expect(soundEffectsElement.accessibilityLabel == "Sound Effects")
+        #expect(soundEffectsElement.accessibilityValue == "Off")
+    }
+
     @Test func mapUnavailableIsDistinctFromSupportedGeometry() throws {
         let store = try makeStore(initialState: .init(
             cityRemainingPower: 0,
             stageStatus: .cityConqueredPendingMap
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -124,7 +295,7 @@ struct GameViewControllerTests {
             cityRemainingPower: 0,
             stageStatus: .cityConqueredPendingMap
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -164,7 +335,7 @@ struct GameViewControllerTests {
             completedCityCount: 8,
             stageStatus: .cityConqueredPendingMap
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         // 400x956 .pad: outer layout supported, scout card footer doesn't fit
         // for City 9 (.arcaneWard, 3 favorable types).
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 400, height: 956))
@@ -201,7 +372,7 @@ struct GameViewControllerTests {
             cityRemainingPower: 0,
             stageStatus: .cityConqueredPendingMap
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let map = CountryMapScene(
             size: CGSize(width: 393, height: 852),
             store: store,
@@ -224,7 +395,7 @@ struct GameViewControllerTests {
             stageStatus: .battleActive
         )
         let store = try makeStore(initialState: savedState)
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         let map = CountryMapScene(
@@ -244,7 +415,7 @@ struct GameViewControllerTests {
 
     @Test func safeAreaInsetsDidChangeRefreshesBattleSceneLayout() throws {
         let store = try makeStore(initialState: .init(stageStatus: .battleActive))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -261,7 +432,7 @@ struct GameViewControllerTests {
 
     @Test func safeAreaInsetsDidChangeRefreshesBuildingViewSceneLayout() throws {
         let store = try makeStore(initialState: .init(stageStatus: .battleActive))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -280,7 +451,7 @@ struct GameViewControllerTests {
         for stage in [KingdomGameState.StageStatus.cityConqueredPendingMap, .countryComplete] {
             let city = stage == .countryComplete ? 15 : 3
             let store = try makeStore(initialState: pendingConqueredState(city: city, stage: stage))
-            let controller = GameViewController(store: store)
+            let controller = makeGameViewController(store: store)
             let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
             controller.view = view
             controller.viewDidLoad()
@@ -295,7 +466,7 @@ struct GameViewControllerTests {
             completedCityCount: 3,
             stageStatus: .cityConqueredPendingMap
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -306,7 +477,7 @@ struct GameViewControllerTests {
         let store = try makeStore(initialState: pendingConqueredState(
             city: 1, stage: .cityConqueredPendingMap, mode: .idle
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         let building = BuildingViewScene(size: view.bounds.size, store: store, router: controller)
@@ -335,7 +506,7 @@ struct GameViewControllerTests {
             stageStatus: .cityConqueredPendingMap,
             pendingBattleResult: pendingResult(city: 3)
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -349,7 +520,7 @@ struct GameViewControllerTests {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 1
         ))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SafeAreaOverridingSKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
@@ -393,7 +564,7 @@ struct GameViewControllerTests {
 
     @Test func conquestReportLayoutReadsHorizontalSafeAreaInsetsFromView() throws {
         let store = try makeStore(initialState: pendingConqueredState(city: 3, stage: .cityConqueredPendingMap))
-        let controller = GameViewController(store: store)
+        let controller = makeGameViewController(store: store)
         let view = SafeAreaOverridingSKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         view.overrideInsets = UIEdgeInsets(top: 0, left: 50, bottom: 0, right: 50)
         controller.view = view
@@ -407,7 +578,7 @@ struct GameViewControllerTests {
 
     @Test func compatiblePreReleasePendingResultDisplaysOnce() throws {
         let store = try makeStore(initialState: pendingConqueredState())
-        let first = GameViewController(store: store)
+        let first = makeGameViewController(store: store)
         let firstView = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         first.view = firstView
         first.viewDidLoad()
@@ -416,11 +587,18 @@ struct GameViewControllerTests {
         battle.tapConquestContinueForTesting()
         #expect(store.load().pendingBattleResult == nil)
 
-        let second = GameViewController(store: store)
+        let second = makeGameViewController(store: store)
         let secondView = SKView(frame: firstView.frame)
         second.view = secondView
         second.viewDidLoad()
         #expect(secondView.scene is CountryMapScene)
+    }
+
+    private func makeGameViewController(store: KingdomGameStore) -> GameViewController {
+        GameViewController(
+            store: store,
+            feedbackRuntime: GameViewControllerRuntimeTestContext().runtime
+        )
     }
 
     private func makeStore(
@@ -469,4 +647,89 @@ struct GameViewControllerTests {
 private final class SafeAreaOverridingSKView: SKView {
     var overrideInsets: UIEdgeInsets = .zero
     override var safeAreaInsets: UIEdgeInsets { overrideInsets }
+}
+
+@MainActor
+private final class GameViewControllerRuntimeTestContext {
+    let preferences = RecordingFeedbackPreferencesManager()
+    let feedback = RecordingControllerFeedback()
+    let sound = RecordingControllerSound()
+    private let accessibilityAdapterState = AccessibilityAdapterState()
+    let runtime: GameViewControllerFeedbackRuntime
+
+    var accessibilityAdapterFactoryCallCount: Int {
+        accessibilityAdapterState.factoryCallCount
+    }
+
+    var accessibilityAdapter: FeedbackSettingsAccessibilityAdapter? {
+        accessibilityAdapterState.adapter
+    }
+
+    var accessibilityFrameConversionCount: Int {
+        accessibilityAdapterState.frameConversionCount
+    }
+
+    init() {
+        let accessibilityAdapterState = accessibilityAdapterState
+        runtime = GameViewControllerFeedbackRuntime(
+            preferences: preferences,
+            feedback: feedback,
+            sound: sound,
+            makeAccessibilityAdapter: { view in
+                let adapter = FeedbackSettingsAccessibilityAdapter(
+                    containerView: view,
+                    sceneToScreenFrame: { frame in
+                        accessibilityAdapterState.frameConversionCount += 1
+                        return frame
+                    },
+                    postNotification: { _, _ in }
+                )
+                accessibilityAdapterState.factoryCallCount += 1
+                accessibilityAdapterState.adapter = adapter
+                return adapter
+            }
+        )
+    }
+}
+
+@MainActor
+private final class AccessibilityAdapterState {
+    var factoryCallCount = 0
+    var frameConversionCount = 0
+    var adapter: FeedbackSettingsAccessibilityAdapter?
+}
+
+private final class RecordingControllerFeedback: GameplayFeedbackProviding {
+    private(set) var events: [GameplayFeedbackEvent] = []
+    private(set) var automaticCombatBatches: [[GameplayFeedbackEvent]] = []
+
+    func emit(_ event: GameplayFeedbackEvent) {
+        events.append(event)
+    }
+
+    func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
+        automaticCombatBatches.append(orderedEvents)
+    }
+}
+
+private final class RecordingControllerSound: GameplayFeedbackRuntimeSoundControlling {
+    enum Call: Equatable {
+        case prepareIfNeeded
+        case stopAllAndDeactivate
+        case handleLifecycleRecovery
+    }
+
+    private(set) var calls: [Call] = []
+
+    func prepareIfNeeded() {
+        calls.append(.prepareIfNeeded)
+    }
+
+    func stopAllAndDeactivate() {
+        calls.append(.stopAllAndDeactivate)
+    }
+
+    func handleLifecycleRecovery() {
+        calls.append(.handleLifecycleRecovery)
+    }
 }
