@@ -8,25 +8,111 @@
 import UIKit
 import SpriteKit
 
+protocol GameplayFeedbackRuntimeSoundControlling: AnyObject {
+    func prepareIfNeeded()
+    func stopAllAndDeactivate()
+    func handleLifecycleRecovery()
+}
+
+extension GameplaySoundOutputController: GameplayFeedbackRuntimeSoundControlling {}
+
+@MainActor
+final class GameViewControllerFeedbackRuntime {
+    typealias AccessibilityAdapterFactory = @MainActor (SKView) -> FeedbackSettingsAccessibilityAdapter
+
+    let preferences: FeedbackPreferencesManaging
+    let feedback: GameplayFeedbackProviding
+    let sound: GameplayFeedbackRuntimeSoundControlling
+    private let makeAccessibilityAdapter: AccessibilityAdapterFactory
+    private(set) var accessibilityAdapter: FeedbackSettingsAccessibilityAdapter?
+
+    init(
+        preferences: FeedbackPreferencesManaging,
+        feedback: GameplayFeedbackProviding,
+        sound: GameplayFeedbackRuntimeSoundControlling,
+        makeAccessibilityAdapter: @escaping AccessibilityAdapterFactory
+    ) {
+        self.preferences = preferences
+        self.feedback = feedback
+        self.sound = sound
+        self.makeAccessibilityAdapter = makeAccessibilityAdapter
+    }
+
+    static func production() -> GameViewControllerFeedbackRuntime {
+        let preferences = FeedbackPreferencesStore.shared
+        let clock = SystemMonotonicClock()
+        let backend = AVAudioEngineGameplayAudioBackend()
+        let sound = GameplaySoundOutputController(
+            backend: backend,
+            catalog: GameplaySoundCatalog.all,
+            clock: clock
+        )
+        let haptics = UIKitGameplayHapticOutput()
+        let feedback = DefaultGameplayFeedbackCoordinator(
+            preferences: preferences,
+            soundOutput: sound,
+            hapticOutput: haptics,
+            clock: clock
+        )
+
+        let runtime = GameViewControllerFeedbackRuntime(
+            preferences: preferences,
+            feedback: feedback,
+            sound: sound,
+            makeAccessibilityAdapter: { view in
+                FeedbackSettingsAccessibilityAdapter(containerView: view)
+            }
+        )
+        backend.interruptionBeganHandler = { [weak runtime] in
+            runtime?.stopAndDeactivateForLifecycle()
+        }
+        backend.lifecycleRecoveryHandler = { [weak runtime] in
+            runtime?.recoverSoundAfterLifecycle()
+        }
+        return runtime
+    }
+
+    func bindAccessibilityAdapter(to view: SKView) {
+        guard accessibilityAdapter == nil else {
+            return
+        }
+        accessibilityAdapter = makeAccessibilityAdapter(view)
+    }
+
+    func stopAndDeactivateForLifecycle() {
+        sound.stopAllAndDeactivate()
+    }
+
+    func recoverSoundAfterLifecycle() {
+        sound.handleLifecycleRecovery()
+    }
+}
+
 final class GameViewController: UIViewController {
     private let store: KingdomGameStore
     private let layoutGateView = AppLayoutGateView()
     private var requestedMapGateReason: AppLayoutGateReason?
     private var activeLayoutGateReason: AppLayoutGateReason?
     private let now: () -> Date
+    private let feedbackRuntimeOverride: GameViewControllerFeedbackRuntime?
+    private lazy var feedbackRuntime = feedbackRuntimeOverride ?? .production()
+    private var feedbackLifecycleObservers: [NSObjectProtocol] = []
 
     init(
         store: KingdomGameStore = .shared,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        feedbackRuntime: GameViewControllerFeedbackRuntime? = nil
     ) {
         self.store = store
         self.now = now
+        feedbackRuntimeOverride = feedbackRuntime
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
         self.store = .shared
         self.now = Date.init
+        feedbackRuntimeOverride = nil
         super.init(coder: coder)
     }
 
@@ -38,7 +124,18 @@ final class GameViewController: UIViewController {
         }
 
         configure(view)
+        feedbackRuntime.bindAccessibilityAdapter(to: view)
+        // `GameplaySoundOutputController` enqueues preparation on its audio boundary;
+        // do not wait for decoding before presenting the initial SpriteKit scene.
+        feedbackRuntime.sound.prepareIfNeeded()
+        observeFeedbackLifecycleNotificationsIfNeeded()
         presentInitialScene(in: view)
+    }
+
+    deinit {
+        for observer in feedbackLifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -84,6 +181,35 @@ final class GameViewController: UIViewController {
         view.showsNodeCount = true
     }
 
+    private func observeFeedbackLifecycleNotificationsIfNeeded() {
+        guard feedbackLifecycleObservers.isEmpty else {
+            return
+        }
+
+        feedbackLifecycleObservers = [
+            NotificationCenter.default.addObserver(
+                forName: .pyxisSceneDidEnterBackground,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                // SceneDelegate posts this custom UIKit lifecycle notification on main.
+                MainActor.assumeIsolated {
+                    self?.feedbackRuntime.stopAndDeactivateForLifecycle()
+                }
+            },
+            NotificationCenter.default.addObserver(
+                forName: .pyxisSceneWillEnterForeground,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                // SceneDelegate posts this custom UIKit lifecycle notification on main.
+                MainActor.assumeIsolated {
+                    self?.feedbackRuntime.recoverSoundAfterLifecycle()
+                }
+            }
+        ]
+    }
+
     private func presentInitialScene(in view: SKView) {
         presentSceneForCurrentStage(in: view)
     }
@@ -106,7 +232,14 @@ final class GameViewController: UIViewController {
 
     private func presentBattleScene(in view: SKView) {
         requestedMapGateReason = nil
-        let scene = BattleScene(size: view.bounds.size, store: store, router: self)
+        let scene = BattleScene(
+            size: view.bounds.size,
+            store: store,
+            router: self,
+            feedback: feedbackRuntime.feedback,
+            feedbackPreferences: feedbackRuntime.preferences,
+            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
+        )
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
         refreshLayoutSupport()
@@ -114,7 +247,14 @@ final class GameViewController: UIViewController {
 
     private func presentCountryMapScene(in view: SKView) {
         requestedMapGateReason = nil
-        let scene = CountryMapScene(size: view.bounds.size, store: store, router: self)
+        let scene = CountryMapScene(
+            size: view.bounds.size,
+            store: store,
+            router: self,
+            feedback: feedbackRuntime.feedback,
+            feedbackPreferences: feedbackRuntime.preferences,
+            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
+        )
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
         refreshLayoutSupport()
@@ -122,7 +262,14 @@ final class GameViewController: UIViewController {
 
     private func presentBuildingViewScene(in view: SKView) {
         requestedMapGateReason = nil
-        let scene = BuildingViewScene(size: view.bounds.size, store: store, router: self)
+        let scene = BuildingViewScene(
+            size: view.bounds.size,
+            store: store,
+            router: self,
+            feedback: feedbackRuntime.feedback,
+            feedbackPreferences: feedbackRuntime.preferences,
+            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
+        )
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
         refreshLayoutSupport()
