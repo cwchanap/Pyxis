@@ -190,6 +190,50 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.engineStartCount == 0)
     }
 
+    @Test func lifecycleRecoveryDuringPreparationInvalidatesStaleCompletionAndBuildsOnlyFreshOutput() async throws {
+        let backend = RecordingAudioBackend(blockingPreparationCalls: [1, 3])
+        let controller = makeController(backend: backend)
+
+        controller.prepareIfNeeded()
+        #expect(backend.waitForBlockedPreparation())
+
+        // This pre-readiness event must remain dropped across recovery.
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.handleLifecycleRecovery()
+
+        try await waitUntil {
+            backend.lifecycleRecoveryCount == 1 && backend.configuredAmbientSessionCount == 2
+        }
+        #expect(backend.createdVoiceIndices.isEmpty)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+        #expect(backend.activeSessionRequests.isEmpty)
+        #expect(backend.engineStartCount == 0)
+
+        // Release the invalidated preparation. The next queued preparation is
+        // deliberately blocked after the stale completion has been enqueued.
+        backend.releaseBlockedPreparation()
+        #expect(backend.waitForBlockedPreparation())
+        try await settleOutput()
+
+        #expect(backend.preparedResourceIDs == [.attackMelee, .deployment, .attackMelee])
+        #expect(backend.createdVoiceIndices.isEmpty)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+        #expect(backend.activeSessionRequests.isEmpty)
+        #expect(backend.engineStartCount == 0)
+
+        backend.releaseBlockedPreparation()
+        try await waitUntil { backend.createdVoiceIndices == Array(0...7) }
+
+        #expect(backend.preparedResourceIDs == [
+            .attackMelee, .deployment, .attackMelee, .deployment
+        ])
+        #expect(backend.lifecycleRecoveryCount == 1)
+        #expect(backend.configuredAmbientSessionCount == 2)
+        #expect(backend.scheduledSoundIDs.isEmpty)
+        #expect(backend.activeSessionRequests.isEmpty)
+        #expect(backend.engineStartCount == 0)
+    }
+
     @Test func preparationCreatesExactlyEightFixedVoicesAndNeverAllocatesANinth() async throws {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
@@ -517,7 +561,7 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     }
 
     private let lock = NSLock()
-    private let blockingPreparationCall: Int?
+    private let blockingPreparationCalls: Set<Int>
     private let preparationFailuresOnCalls: Set<Int>
     private let preparationDidBlock = DispatchSemaphore(value: 0)
     private let continuePreparation = DispatchSemaphore(value: 0)
@@ -532,11 +576,16 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
 
     init(
         blockingPreparationCall: Int? = nil,
+        blockingPreparationCalls: Set<Int> = [],
         activationFailuresRemaining: Int = 0,
         beforeFailingActivation: (() -> Void)? = nil,
         preparationFailuresOnCalls: Set<Int> = []
     ) {
-        self.blockingPreparationCall = blockingPreparationCall
+        var allBlockingPreparationCalls = blockingPreparationCalls
+        if let blockingPreparationCall {
+            allBlockingPreparationCalls.insert(blockingPreparationCall)
+        }
+        self.blockingPreparationCalls = allBlockingPreparationCalls
         remainingActivationFailures = activationFailuresRemaining
         self.beforeFailingActivation = beforeFailingActivation
         self.preparationFailuresOnCalls = preparationFailuresOnCalls
@@ -643,7 +692,7 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
             recordedPreparedResourceIDs.append(resource.id)
             let call = recordedPreparedResourceIDs.count
             return (
-                blockingPreparationCall == call,
+                blockingPreparationCalls.contains(call),
                 preparationFailuresOnCalls.contains(call)
             )
         }
