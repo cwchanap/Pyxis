@@ -415,6 +415,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         guard !isMapUnavailable,
               countryMapLayout != nil,
               scoutCardLayout != nil,
+              !isLayoutGatePaused,
               !isRoutingToBattle,
               let feedbackSettingsController,
               !feedbackSettingsController.isVisible else {
