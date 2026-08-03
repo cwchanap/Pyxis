@@ -48,6 +48,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private let store: KingdomGameStore
     private weak var router: CountryMapSceneRouting?
+    private let feedback: GameplayFeedbackProviding
+    private let feedbackPreferences: FeedbackPreferencesManaging
+    private let feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter?
+    private var feedbackSettingsController: FeedbackSettingsController?
     private var state: KingdomGameState
     private let layoutEnvironmentOverride: CountryMapLayoutEnvironment?
     private let imageLoaderOverride: ((String) -> UIImage?)?
@@ -94,10 +98,18 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         store: KingdomGameStore = .shared,
         router: CountryMapSceneRouting? = nil,
         layoutEnvironmentOverride: CountryMapLayoutEnvironment? = nil,
-        imageLoaderOverride: ((String) -> UIImage?)? = nil
+        imageLoaderOverride: ((String) -> UIImage?)? = nil,
+        feedback: GameplayFeedbackProviding = NoOpGameplayFeedbackProvider(),
+        feedbackPreferences: FeedbackPreferencesManaging = MainActor.assumeIsolated {
+            FeedbackPreferencesStore.shared
+        },
+        feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil
     ) {
         self.store = store
         self.router = router
+        self.feedback = feedback
+        self.feedbackPreferences = feedbackPreferences
+        self.feedbackSettingsAccessibilityAdapter = feedbackSettingsAccessibilityAdapter
         self.state = store.load()
         self.layoutEnvironmentOverride = layoutEnvironmentOverride
         self.imageLoaderOverride = imageLoaderOverride
@@ -110,6 +122,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     required init?(coder aDecoder: NSCoder) {
         self.store = .shared
         self.router = nil
+        self.feedback = NoOpGameplayFeedbackProvider()
+        self.feedbackPreferences = FeedbackPreferencesStore.shared
+        self.feedbackSettingsAccessibilityAdapter = nil
         self.state = KingdomGameStore.shared.load()
         self.layoutEnvironmentOverride = nil
         self.imageLoaderOverride = nil
@@ -138,6 +153,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             didBuildInterface = true
         }
 
+        configureFeedbackSettingsIfNeeded(in: view)
         observeLifecycleNotificationsIfNeeded()
         layoutInterface()
     }
@@ -145,6 +161,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     override func update(_ currentTime: TimeInterval) {
         defer { previousUpdateTime = currentTime }
         guard let previousUpdateTime else {
+            return
+        }
+
+        guard !isFeedbackSettingsVisible else {
             return
         }
 
@@ -161,11 +181,23 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return
         }
 
-        let point = touch.location(in: self)
+        handleTouch(at: touch.location(in: self))
+    }
+
+    private func handleTouch(at point: CGPoint) {
         if isMapUnavailable || countryMapLayout == nil || scoutCardLayout == nil {
             return
         }
         if isRoutingToBattle {
+            return
+        }
+        if let feedbackSettingsController,
+           feedbackSettingsController.isVisible {
+            _ = feedbackSettingsController.handleTouch(at: point)
+            return
+        }
+        if feedbackSettingsController?.gear.contains(point, in: self) == true {
+            openFeedbackSettings()
             return
         }
         if scoutCardNode.overlayHitFrame?.contains(point) == true {
@@ -293,6 +325,148 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         button.addChild(label)
     }
 
+    private var isFeedbackSettingsVisible: Bool {
+        feedbackSettingsController?.isVisible == true
+    }
+
+    private func configureFeedbackSettingsIfNeeded(in view: SKView) {
+        if feedbackSettingsController == nil {
+            let accessibilityAdapter = feedbackSettingsAccessibilityAdapter
+                ?? makeFeedbackSettingsAccessibilityAdapter(for: view)
+            feedbackSettingsController = FeedbackSettingsController(
+                preferences: feedbackPreferences,
+                accessibilityAdapter: accessibilityAdapter
+            )
+            accessibilityAdapter.configureActions(
+                onGearActivate: { [weak self] in
+                    self?.openFeedbackSettings()
+                },
+                onToggleSoundEffects: { [weak self] in
+                    self?.activateFeedbackSettings(.toggleSoundEffects)
+                },
+                onToggleHaptics: { [weak self] in
+                    self?.activateFeedbackSettings(.toggleHaptics)
+                },
+                onClose: { [weak self] in
+                    self?.activateFeedbackSettings(.close)
+                }
+            )
+        }
+
+        guard let feedbackSettingsController else {
+            return
+        }
+
+        if feedbackSettingsController.gear.parent !== self {
+            addChild(feedbackSettingsController.gear)
+        }
+        if feedbackSettingsController.modal.parent !== self {
+            addChild(feedbackSettingsController.modal)
+        }
+    }
+
+    private func makeFeedbackSettingsAccessibilityAdapter(
+        for view: SKView
+    ) -> FeedbackSettingsAccessibilityAdapter {
+        FeedbackSettingsAccessibilityAdapter(
+            containerView: view,
+            sceneToScreenFrame: { [weak self, weak view] sceneFrame in
+                guard let self else {
+                    return .zero
+                }
+
+                let viewFrame = CGRect(
+                    x: sceneFrame.minX,
+                    y: (view?.bounds.height ?? self.size.height) - sceneFrame.maxY,
+                    width: sceneFrame.width,
+                    height: sceneFrame.height
+                )
+
+                guard let view, view.window != nil else {
+                    return viewFrame
+                }
+                return Self.feedbackSettingsAccessibilityFrame(
+                    viewLocalFrame: viewFrame,
+                    screenFrame: view.convert(viewFrame, to: nil)
+                )
+            },
+            postNotification: { notification, target in
+                UIAccessibility.post(notification: notification, argument: target)
+            }
+        )
+    }
+
+    private static func feedbackSettingsAccessibilityFrame(
+        viewLocalFrame: CGRect,
+        screenFrame: CGRect
+    ) -> CGRect {
+        guard screenFrame.origin.x.isFinite,
+              screenFrame.origin.y.isFinite,
+              screenFrame.width.isFinite,
+              screenFrame.height.isFinite,
+              screenFrame.width > 0,
+              screenFrame.height > 0 else {
+            return viewLocalFrame
+        }
+        return screenFrame
+    }
+
+    private func openFeedbackSettings() {
+        guard !isMapUnavailable,
+              countryMapLayout != nil,
+              scoutCardLayout != nil,
+              !isRoutingToBattle,
+              let feedbackSettingsController,
+              !feedbackSettingsController.isVisible else {
+            return
+        }
+        _ = feedbackSettingsController.open()
+    }
+
+    private func closeFeedbackSettings(
+        focusTarget: FeedbackSettingsFocusTarget = .openingGear
+    ) {
+        feedbackSettingsController?.close(focusTarget: focusTarget)
+    }
+
+    private func activateFeedbackSettings(_ action: FeedbackSettingsAction) {
+        guard let feedbackSettingsController,
+              feedbackSettingsController.isVisible,
+              let layout = feedbackSettingsLayoutForCurrentEnvironment() else {
+            return
+        }
+
+        let point: CGPoint
+        switch action {
+        case .toggleSoundEffects:
+            point = CGPoint(x: layout.soundRowFrame.midX, y: layout.soundRowFrame.midY)
+        case .toggleHaptics:
+            point = CGPoint(x: layout.hapticsRowFrame.midX, y: layout.hapticsRowFrame.midY)
+        case .close:
+            point = CGPoint(x: layout.closeFrame.midX, y: layout.closeFrame.midY)
+        case .consumed:
+            return
+        }
+        _ = feedbackSettingsController.handleTouch(at: point)
+    }
+
+    private func feedbackSettingsLayoutForCurrentEnvironment() -> FeedbackSettingsLayout? {
+        guard let environment = layoutEnvironmentOverride
+            ?? view.flatMap({ CountryMapLayoutUIKitAdapter.environment(for: $0) })
+        else {
+            return nil
+        }
+        return FeedbackSettingsLayout.compute(
+            sceneSize: size,
+            safeAreaInsets: .init(
+                top: environment.safeAreaInsets.top,
+                left: environment.safeAreaInsets.left,
+                bottom: environment.safeAreaInsets.bottom,
+                right: environment.safeAreaInsets.right
+            )
+        )
+    }
+
     private func layoutInterface() {
         guard didBuildInterface, !isMapUnavailable else { return }
         isScoutCardFitFailed = false
@@ -308,7 +482,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         let result = CountryMapLayout.compute(.init(
             sceneSize: size,
             environment: environment,
-            definition: .country1
+            definition: .country1,
+            showsCurrentCityControl: state.stageStatus == .battleActive
         ))
         lastLayoutResult = result
 
@@ -331,7 +506,11 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             in: layout.informationRegionFrame,
             layoutClass: environment.layoutClass
         )
-        apply(layout)
+        guard apply(layout, environment: environment) else {
+            clearLayoutGeometry()
+            router?.countryMapScene(self, didRequestLayoutGate: .unsupportedGeometry)
+            return
+        }
         redraw()
     }
 
@@ -382,6 +561,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         currentCityButton.isHidden = true
         currentCityButton.position = .zero
         currentCityButtonBackground.path = nil
+        feedbackSettingsController?.applyGearFrame(.zero)
 
         cityBaseScales.removeAll()
         cityVisualStates.removeAll()
@@ -400,8 +580,11 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
     }
 
-    private func apply(_ layout: CountryMapLayout) {
-        guard !isMapUnavailable else { return }
+    private func apply(
+        _ layout: CountryMapLayout,
+        environment: CountryMapLayoutEnvironment
+    ) -> Bool {
+        guard !isMapUnavailable else { return false }
 
         if let backdropNode {
             backdropNode.isHidden = false
@@ -426,25 +609,34 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             scoutCard: layout.informationRegionFrame
         )
 
-        let showsCurrentCityButton = state.stageStatus == .battleActive
-        titleLabel.position = CGPoint(x: showsCurrentCityButton ? -27.88 : 0, y: 0)
+        let showsCurrentCityButton = layout.currentCityControlFrame != nil
+        titleLabel.text = "Country \(state.countryNumber)"
         titleLabel.fontSize = 28
+        guard fitTitleLabel(titleLabel, maxWidth: layout.titleTextFrame.width) else {
+            return false
+        }
+        titleLabel.position = titlePanel.convert(
+            CGPoint(x: layout.titleTextFrame.midX, y: layout.titleTextFrame.midY),
+            from: self
+        )
         currentCityButtonLabel.fontSize = 15
         currentCityButton.isHidden = !showsCurrentCityButton
-        layoutButton(
-            currentCityButton,
-            background: currentCityButtonBackground,
-            size: layout.currentCityControlFrame.size,
-            position: CGPoint(
-                x: layout.currentCityControlFrame.midX,
-                y: layout.currentCityControlFrame.midY
+        if let currentCityControlFrame = layout.currentCityControlFrame {
+            layoutButton(
+                currentCityButton,
+                background: currentCityButtonBackground,
+                size: currentCityControlFrame.size,
+                position: CGPoint(
+                    x: currentCityControlFrame.midX,
+                    y: currentCityControlFrame.midY
+                )
             )
-        )
-        let titleLabelMaxWidth = layout.titleControlRegionFrame.width
-            - (showsCurrentCityButton ? layout.currentCityControlFrame.width + 34 : 24)
-        titleLabel.text = "Country \(state.countryNumber)"
-        fitLabel(titleLabel, maxWidth: titleLabelMaxWidth)
-        fitLabel(currentCityButtonLabel, maxWidth: layout.currentCityControlFrame.width - 18)
+            fitLabel(currentCityButtonLabel, maxWidth: currentCityControlFrame.width - 18)
+        } else {
+            currentCityButton.position = .zero
+            currentCityButtonBackground.path = nil
+        }
+        layoutFeedbackSettings(layout, environment: environment)
 
         drawRoutes(layout.routes)
 
@@ -466,6 +658,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             )
             conqueredMarkers[cityNumber]?.size = CGSize(width: 1.35 * 15, height: 1.35 * 15)
         }
+
+        return true
     }
 
     private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
@@ -486,6 +680,38 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         while label.frame.width > maxWidth && label.fontSize > 8 {
             label.fontSize -= 1
         }
+    }
+
+    private func fitTitleLabel(_ label: SKLabelNode, maxWidth: CGFloat) -> Bool {
+        guard maxWidth >= CountryMapLayout.minimumTitleTextWidth else {
+            return false
+        }
+
+        while label.frame.width > maxWidth,
+              label.fontSize > CountryMapLayout.minimumTitleFontSize {
+            label.fontSize -= 1
+        }
+        return label.frame.width <= maxWidth
+    }
+
+    private func layoutFeedbackSettings(
+        _ layout: CountryMapLayout,
+        environment: CountryMapLayoutEnvironment
+    ) {
+        guard let feedbackSettingsController else {
+            return
+        }
+
+        feedbackSettingsController.applyGearFrame(layout.settingsControlFrame)
+        feedbackSettingsController.reapply(layout: FeedbackSettingsLayout.compute(
+            sceneSize: size,
+            safeAreaInsets: .init(
+                top: environment.safeAreaInsets.top,
+                left: environment.safeAreaInsets.left,
+                bottom: environment.safeAreaInsets.bottom,
+                right: environment.safeAreaInsets.right
+            )
+        ))
     }
 
     private func drawRoutes(_ routes: [CountryMapRouteLayout]) {
@@ -517,13 +743,18 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func redraw() {
         titleLabel.text = "Country \(state.countryNumber)"
 
-        guard countryMapLayout != nil,
+        guard let countryMapLayout,
               let scoutCardLayout else {
             scoutCardNode.clearLayout()
             currentCityButton.isHidden = true
             for marker in conqueredMarkers.values {
                 marker.isHidden = true
             }
+            return
+        }
+        guard countryMapLayout.showsCurrentCityControl
+            == (state.stageStatus == .battleActive) else {
+            layoutInterface()
             return
         }
 
@@ -543,7 +774,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
         applyFeedbackPresentation()
 
-        currentCityButton.isHidden = (state.stageStatus != .battleActive)
+        currentCityButton.isHidden = countryMapLayout.currentCityControlFrame == nil
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             applyVisualState(visualState(for: cityNumber), to: cityNumber)
         }
@@ -720,11 +951,45 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func applyIdleProgressFeedback(
         _ result: KingdomGameState.IdleProgressResult
     ) {
+        guard result.elapsedSeconds > 0 else {
+            return
+        }
+
+        if result.conqueredCities > 0 {
+            closeFeedbackSettings(focusTarget: .systemDefault)
+            emitFreshOutcomeFeedback(
+                goldEarned: result.goldEarned,
+                conqueredCities: result.conqueredCities
+            )
+        }
+
         if let feedback = CountryMapTransientFeedback.idle(
             result: result,
             state: state
         ) {
             showFeedback(feedback)
+        }
+    }
+
+    private func emitFreshOutcomeFeedback(
+        goldEarned: Int,
+        conqueredCities: Int
+    ) {
+        guard conqueredCities > 0 else {
+            return
+        }
+
+        if goldEarned > 0 {
+            feedback.emit(.goldReward)
+        }
+
+        switch state.stageStatus {
+        case .countryComplete:
+            feedback.emit(.countryCompletion)
+        case .cityConqueredPendingMap:
+            feedback.emit(.cityConquest)
+        case .battleActive:
+            assertionFailure("Fresh Country Map outcome did not advance stage status")
         }
     }
 
@@ -736,9 +1001,11 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         case .unlocked:
             requestEntry(for: cityNumber)
         case .locked:
+            feedback.emit(.invalidAction)
             showFeedback(.locked(cityNumber: cityNumber))
             redraw()
         case .completed:
+            feedback.emit(.invalidAction)
             showFeedback(.completed(cityNumber: cityNumber))
             redraw()
         }
@@ -757,6 +1024,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         case .entered:
             guard let router else {
                 state = store.load()
+                feedback.emit(.invalidAction)
                 showFeedback(.cannotEnterCityYet())
                 redraw()
                 return
@@ -767,12 +1035,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             store.save(state)
 
             guard state.stageStatus == .battleActive else {
-                if let feedback = CountryMapTransientFeedback.idle(
-                    result: idleResult,
-                    state: state
-                ) {
-                    showFeedback(feedback)
-                }
+                applyIdleProgressFeedback(idleResult)
                 redraw()
                 return
             }
@@ -782,16 +1045,19 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
             guard router.countryMapSceneDidRequestBattle(self) else {
                 isRoutingToBattle = false
+                feedback.emit(.invalidAction)
                 showFeedback(.cannotEnterCityYet())
                 redraw()
                 return
             }
         case .locked:
             state = latestState
+            feedback.emit(.invalidAction)
             showFeedback(.locked(cityNumber: cityNumber))
             redraw()
         case .alreadyCompleted:
             state = latestState
+            feedback.emit(.invalidAction)
             showFeedback(.completed(cityNumber: cityNumber))
             redraw()
         case .countryComplete:
@@ -803,6 +1069,18 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
 #if DEBUG
 extension CountryMapScene {
+    var isFeedbackSettingsVisibleForTesting: Bool {
+        isFeedbackSettingsVisible
+    }
+
+    var feedbackSettingsGearFrameForTesting: CGRect? {
+        feedbackSettingsController?.gear.hitFrameForTesting
+    }
+
+    var titleLabelFrameForTesting: CGRect {
+        titlePanel.convert(titleLabel.frame, to: self)
+    }
+
     var lastIdleProgressResultForTesting: KingdomGameState.IdleProgressResult {
         lastIdleProgressResult
     }
@@ -979,6 +1257,14 @@ extension CountryMapScene {
 
     func fitLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) {
         fitLabel(label, maxWidth: maxWidth)
+    }
+
+    func fitTitleLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) -> Bool {
+        fitTitleLabel(label, maxWidth: maxWidth)
+    }
+
+    func handleTouchForTesting(at point: CGPoint) {
+        handleTouch(at: point)
     }
 
 }
