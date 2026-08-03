@@ -29,6 +29,12 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         }
     }
 
+    private enum InterruptionState {
+        case none
+        case active
+        case awaitingNextForeground
+    }
+
     private let backend: GameplayAudioBackend
     private let catalog: [GameplaySoundID: GameplaySoundResource]
     private let clock: MonotonicClock
@@ -43,6 +49,8 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     private var nextVoiceScheduleGeneration: UInt64 = 0
     private var isOutputActive = false
     private var nextActivationAttemptAt: TimeInterval?
+    private var isAppInForeground = true
+    private var interruptionState: InterruptionState = .none
 
     init(
         backend: GameplayAudioBackend,
@@ -69,6 +77,62 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     func stopAllAndDeactivate() {
         outputQueue.async { [weak self] in
             self?.stopAllAndDeactivateOnOutputQueue()
+        }
+    }
+
+    func handleAppDidEnterBackground() {
+        outputQueue.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            isAppInForeground = false
+            stopAllAndDeactivateOnOutputQueue()
+        }
+    }
+
+    func handleAppWillEnterForeground() {
+        outputQueue.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            isAppInForeground = true
+            if case .awaitingNextForeground = interruptionState {
+                interruptionState = .none
+            }
+            nextActivationAttemptAt = nil
+            beginPreparationIfNeeded()
+        }
+    }
+
+    func handleAudioInterruptionBegan() {
+        outputQueue.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            interruptionState = .active
+            stopAllAndDeactivateOnOutputQueue()
+        }
+    }
+
+    func handleAudioInterruptionEnded(shouldResume: Bool) {
+        outputQueue.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            if shouldResume {
+                interruptionState = .none
+                nextActivationAttemptAt = nil
+                beginPreparationIfNeeded()
+            } else if case .active = interruptionState {
+                // A non-resumable interruption drops every current event. A
+                // later app foreground is the explicit policy that releases
+                // this block; preparation remains cached in the meantime.
+                interruptionState = .awaitingNextForeground
+            }
         }
     }
 
@@ -183,6 +247,10 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     }
 
     private func playReadySound(_ soundID: GameplaySoundID, soundClass: GameplaySoundClass) {
+        guard isOutputEligible else {
+            return
+        }
+
         guard case .ready = preparationState,
               let preparedSound = preparedSounds[soundID]
         else {
@@ -224,6 +292,10 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     }
 
     private func activateOutputIfNeeded() -> Bool {
+        guard isOutputEligible else {
+            return false
+        }
+
         guard !isOutputActive else {
             return true
         }
@@ -337,6 +409,17 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         } catch {
             log("Gameplay sound deactivation failed: \(error)")
         }
+    }
+
+    private var isOutputEligible: Bool {
+        guard isAppInForeground else {
+            return false
+        }
+
+        if case .none = interruptionState {
+            return true
+        }
+        return false
     }
 
     private func log(_ message: String) {

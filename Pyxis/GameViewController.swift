@@ -10,7 +10,10 @@ import SpriteKit
 
 protocol GameplayFeedbackRuntimeSoundControlling: AnyObject {
     func prepareIfNeeded()
-    func stopAllAndDeactivate()
+    func handleAppDidEnterBackground()
+    func handleAppWillEnterForeground()
+    func handleAudioInterruptionBegan()
+    func handleAudioInterruptionEnded(shouldResume: Bool)
     func handleLifecycleRecovery()
 }
 
@@ -64,7 +67,10 @@ final class GameViewControllerFeedbackRuntime {
             }
         )
         backend.interruptionBeganHandler = { [weak runtime] in
-            runtime?.stopAndDeactivateForLifecycle()
+            runtime?.handleAudioInterruptionBegan()
+        }
+        backend.interruptionEndedHandler = { [weak runtime] shouldResume in
+            runtime?.handleAudioInterruptionEnded(shouldResume: shouldResume)
         }
         backend.lifecycleRecoveryHandler = { [weak runtime] in
             runtime?.recoverSoundAfterLifecycle()
@@ -79,8 +85,20 @@ final class GameViewControllerFeedbackRuntime {
         accessibilityAdapter = makeAccessibilityAdapter(view)
     }
 
-    func stopAndDeactivateForLifecycle() {
-        sound.stopAllAndDeactivate()
+    func handleAppDidEnterBackground() {
+        sound.handleAppDidEnterBackground()
+    }
+
+    func handleAppWillEnterForeground() {
+        sound.handleAppWillEnterForeground()
+    }
+
+    func handleAudioInterruptionBegan() {
+        sound.handleAudioInterruptionBegan()
+    }
+
+    func handleAudioInterruptionEnded(shouldResume: Bool) {
+        sound.handleAudioInterruptionEnded(shouldResume: shouldResume)
     }
 
     func recoverSoundAfterLifecycle() {
@@ -194,7 +212,7 @@ final class GameViewController: UIViewController {
             ) { [weak self] _ in
                 // SceneDelegate posts this custom UIKit lifecycle notification on main.
                 MainActor.assumeIsolated {
-                    self?.feedbackRuntime.stopAndDeactivateForLifecycle()
+                    self?.feedbackRuntime.handleAppDidEnterBackground()
                 }
             },
             NotificationCenter.default.addObserver(
@@ -204,7 +222,7 @@ final class GameViewController: UIViewController {
             ) { [weak self] _ in
                 // SceneDelegate posts this custom UIKit lifecycle notification on main.
                 MainActor.assumeIsolated {
-                    self?.feedbackRuntime.recoverSoundAfterLifecycle()
+                    self?.feedbackRuntime.handleAppWillEnterForeground()
                 }
             }
         ]
