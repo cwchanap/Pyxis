@@ -3,8 +3,8 @@
 **Issue:** HPA-364  
 **Consumer:** HPA-389  
 **Related producer:** HPA-362 — adds direct manual lane deployment and emits the fortified-lane warning when a successful deployment uses the fortified lane.  
-**Implementation plan:** Maintained in Linear and intentionally not duplicated in this design-only PR; a repository-local plan may be added with the implementation PR after this design merges.  
-**Status:** Third-pass review incorporated  
+**Implementation plan:** `docs/superpowers/plans/2026-08-02-semantic-gameplay-feedback-foundation-implementation.md`, paired with this design and mirrored by the HPA-364 Linear implementation-plan document.  
+**Status:** Third-pass review and implementation-plan reconciliation complete  
 **Date:** 2026-08-02
 
 ## Summary
