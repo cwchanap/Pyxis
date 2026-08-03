@@ -7,6 +7,11 @@
 
 import UIKit
 
+protocol SceneLifecycleHandoff: AnyObject {
+    func handleSceneDidEnterBackground()
+    func handleSceneWillEnterForeground()
+}
+
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
@@ -39,6 +44,9 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         // Called as the scene transitions from the background to the foreground.
         // Use this method to undo the changes made on entering the background.
+        // Scene observers resolve idle progress synchronously from this
+        // notification, so restore output eligibility before publishing it.
+        lifecycleHandoff()?.handleSceneWillEnterForeground()
         NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: scene)
     }
 
@@ -46,8 +54,34 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Called as the scene transitions from the foreground to the background.
         // Use this method to save data, release shared resources, and store enough scene-specific state information
         // to restore the scene back to its current state.
+        lifecycleHandoff()?.handleSceneDidEnterBackground()
         NotificationCenter.default.post(name: .pyxisSceneDidEnterBackground, object: scene)
     }
 
+    private func lifecycleHandoff() -> SceneLifecycleHandoff? {
+        findLifecycleHandoff(in: window?.rootViewController)
+    }
+
+    private func findLifecycleHandoff(
+        in viewController: UIViewController?
+    ) -> SceneLifecycleHandoff? {
+        guard let viewController else {
+            return nil
+        }
+
+        if let handoff = viewController as? SceneLifecycleHandoff {
+            return handoff
+        }
+
+        if let navigationController = viewController as? UINavigationController {
+            return findLifecycleHandoff(in: navigationController.visibleViewController)
+        }
+
+        if let tabBarController = viewController as? UITabBarController {
+            return findLifecycleHandoff(in: tabBarController.selectedViewController)
+        }
+
+        return nil
+    }
 
 }

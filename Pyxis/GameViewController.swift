@@ -114,7 +114,6 @@ final class GameViewController: UIViewController {
     private let now: () -> Date
     private let feedbackRuntimeOverride: GameViewControllerFeedbackRuntime?
     private lazy var feedbackRuntime = feedbackRuntimeOverride ?? .production()
-    private var feedbackLifecycleObservers: [NSObjectProtocol] = []
 
     init(
         store: KingdomGameStore = .shared,
@@ -146,14 +145,7 @@ final class GameViewController: UIViewController {
         // `GameplaySoundOutputController` enqueues preparation on its audio boundary;
         // do not wait for decoding before presenting the initial SpriteKit scene.
         feedbackRuntime.sound.prepareIfNeeded()
-        observeFeedbackLifecycleNotificationsIfNeeded()
         presentInitialScene(in: view)
-    }
-
-    deinit {
-        for observer in feedbackLifecycleObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -197,35 +189,6 @@ final class GameViewController: UIViewController {
         view.ignoresSiblingOrder = true
         view.showsFPS = true
         view.showsNodeCount = true
-    }
-
-    private func observeFeedbackLifecycleNotificationsIfNeeded() {
-        guard feedbackLifecycleObservers.isEmpty else {
-            return
-        }
-
-        feedbackLifecycleObservers = [
-            NotificationCenter.default.addObserver(
-                forName: .pyxisSceneDidEnterBackground,
-                object: nil,
-                queue: nil
-            ) { [weak self] _ in
-                // SceneDelegate posts this custom UIKit lifecycle notification on main.
-                MainActor.assumeIsolated {
-                    self?.feedbackRuntime.handleAppDidEnterBackground()
-                }
-            },
-            NotificationCenter.default.addObserver(
-                forName: .pyxisSceneWillEnterForeground,
-                object: nil,
-                queue: nil
-            ) { [weak self] _ in
-                // SceneDelegate posts this custom UIKit lifecycle notification on main.
-                MainActor.assumeIsolated {
-                    self?.feedbackRuntime.handleAppWillEnterForeground()
-                }
-            }
-        ]
     }
 
     private func presentInitialScene(in view: SKView) {
@@ -359,6 +322,16 @@ final class GameViewController: UIViewController {
         activeLayoutGateReason = nil
         skView.scene?.isUserInteractionEnabled = true
         skView.isPaused = false
+    }
+}
+
+extension GameViewController: SceneLifecycleHandoff {
+    func handleSceneDidEnterBackground() {
+        feedbackRuntime.handleAppDidEnterBackground()
+    }
+
+    func handleSceneWillEnterForeground() {
+        feedbackRuntime.handleAppWillEnterForeground()
     }
 }
 

@@ -165,11 +165,15 @@ struct GameViewControllerTests {
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
+        let lifecycle = try makeSceneLifecycleFixture(rootViewController: controller)
+        defer {
+            lifecycle.window.rootViewController = nil
+        }
 
-        NotificationCenter.default.post(name: .pyxisSceneDidEnterBackground, object: nil)
+        lifecycle.delegate.sceneDidEnterBackground(lifecycle.windowScene)
         #expect(context.sound.calls == [.prepareIfNeeded, .handleAppDidEnterBackground])
 
-        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+        lifecycle.delegate.sceneWillEnterForeground(lifecycle.windowScene)
         #expect(context.sound.calls == [
             .prepareIfNeeded,
             .handleAppDidEnterBackground,
@@ -212,8 +216,13 @@ struct GameViewControllerTests {
         controller.viewDidLoad()
         let battle = try #require(view.scene as? BattleScene)
         battle.didMove(to: view)
+        let lifecycle = try makeSceneLifecycleFixture(rootViewController: controller)
+        defer {
+            view.presentScene(nil)
+            lifecycle.window.rootViewController = nil
+        }
 
-        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+        lifecycle.delegate.sceneWillEnterForeground(lifecycle.windowScene)
 
         #expect(context.sound.calls == [
             .prepareIfNeeded,
@@ -223,6 +232,88 @@ struct GameViewControllerTests {
         ])
         #expect(!context.sound.calls.contains(.handleLifecycleRecovery))
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
+    }
+
+    @Test func sceneDelegatePreflightsForegroundBeforeMountedBattleEmitsIdleConquest() throws {
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
+            cost: 15,
+            remainingGold: 85
+        ))
+
+        let store = try makeStore(initialState: initialState)
+        let context = GameViewOutputRuntimeTestContext()
+        let controller = GameViewController(
+            store: store,
+            feedbackRuntime: context.runtime
+        )
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        let battle = BattleScene(
+            size: view.bounds.size,
+            store: store,
+            router: controller,
+            feedback: context.runtime.feedback,
+            feedbackPreferences: context.preferences
+        )
+        view.presentScene(battle)
+        battle.didMove(to: view)
+
+        let lifecycle = try makeSceneLifecycleFixture(rootViewController: controller)
+        defer {
+            view.presentScene(nil)
+            lifecycle.window.rootViewController = nil
+        }
+
+        lifecycle.delegate.sceneDidEnterBackground(lifecycle.windowScene)
+        // Simulate elapsed time after the real background handoff without
+        // coupling SceneDelegate's production clock to the test.
+        battle.enterBackgroundForTesting(at: start)
+        lifecycle.delegate.sceneWillEnterForeground(lifecycle.windowScene)
+
+        #expect(context.sound.calls == [
+            .handleAppDidEnterBackground,
+            .handleAppWillEnterForeground,
+            .play(.goldReward, .nonAutomatic),
+            .play(.cityConquest, .nonAutomatic)
+        ])
+        #expect(context.sound.droppedSounds.isEmpty)
+        #expect(store.load().pendingBattleResult?.conquestMode == .idle)
+    }
+
+    @Test func sceneDelegateFindsGameControllerInsideNavigationRoot() throws {
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(feedbackRuntime: context.runtime)
+        let navigation = UINavigationController(rootViewController: controller)
+        let lifecycle = try makeSceneLifecycleFixture(rootViewController: navigation)
+        defer {
+            lifecycle.window.rootViewController = nil
+        }
+
+        lifecycle.delegate.sceneWillEnterForeground(lifecycle.windowScene)
+
+        #expect(context.sound.calls == [.handleAppWillEnterForeground])
+    }
+
+    @Test func sceneDelegateFindsGameControllerInsideSelectedTabRoot() throws {
+        let context = GameViewControllerRuntimeTestContext()
+        let controller = GameViewController(feedbackRuntime: context.runtime)
+        let tabBar = UITabBarController()
+        tabBar.viewControllers = [UIViewController(), controller]
+        tabBar.selectedViewController = controller
+        let lifecycle = try makeSceneLifecycleFixture(rootViewController: tabBar)
+        defer {
+            lifecycle.window.rootViewController = nil
+        }
+
+        lifecycle.delegate.sceneWillEnterForeground(lifecycle.windowScene)
+
+        #expect(context.sound.calls == [.handleAppWillEnterForeground])
     }
 
     @Test func layoutGateRecoveryKeepsSettingsOpenAndReappliesTheSharedAdapterWithoutCatchUp() throws {
@@ -650,6 +741,23 @@ struct GameViewControllerTests {
         return store
     }
 
+    private func makeSceneLifecycleFixture(
+        rootViewController: UIViewController
+    ) throws -> SceneLifecycleFixture {
+        let windowScene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        )
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = rootViewController
+        let sceneDelegate = SceneDelegate()
+        sceneDelegate.window = window
+        return SceneLifecycleFixture(
+            delegate: sceneDelegate,
+            windowScene: windowScene,
+            window: window
+        )
+    }
+
     private func pendingResult(city: Int, mode: BattleConquestMode = .live) -> BattleResult {
         BattleResult(
             cityKey: CityKey(countryNumber: 1, cityNumber: city),
@@ -685,6 +793,12 @@ struct GameViewControllerTests {
 private final class SafeAreaOverridingSKView: SKView {
     var overrideInsets: UIEdgeInsets = .zero
     override var safeAreaInsets: UIEdgeInsets { overrideInsets }
+}
+
+private struct SceneLifecycleFixture {
+    let delegate: SceneDelegate
+    let windowScene: UIWindowScene
+    let window: UIWindow
 }
 
 @MainActor
@@ -763,16 +877,20 @@ private final class RecordingControllerSound: GameplayFeedbackRuntimeSoundContro
     }
 
     private(set) var calls: [Call] = []
+    private(set) var droppedSounds: [GameplaySoundID] = []
+    private var isOutputEligible = true
 
     func prepareIfNeeded() {
         calls.append(.prepareIfNeeded)
     }
 
     func handleAppDidEnterBackground() {
+        isOutputEligible = false
         calls.append(.handleAppDidEnterBackground)
     }
 
     func handleAppWillEnterForeground() {
+        isOutputEligible = true
         calls.append(.handleAppWillEnterForeground)
     }
 
@@ -789,6 +907,10 @@ private final class RecordingControllerSound: GameplayFeedbackRuntimeSoundContro
     }
 
     func play(_ sound: GameplaySoundID, soundClass: GameplaySoundClass) {
+        guard isOutputEligible else {
+            droppedSounds.append(sound)
+            return
+        }
         calls.append(.play(sound, soundClass))
     }
 }
