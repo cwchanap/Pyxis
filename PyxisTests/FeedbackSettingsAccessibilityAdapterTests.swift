@@ -170,6 +170,62 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         context.adapter.present(layout: layout, preferences: .defaultValue)
         #expect(accessibilityElements(in: context.containerView).isEmpty)
     }
+
+    @Test func convenienceInitUsesDefaultFrameConverterAndRealNotificationPoster() throws {
+        let containerView = UIView(frame: CGRect(x: 0, y: 0, width: 375, height: 667))
+        let adapter = FeedbackSettingsAccessibilityAdapter(containerView: containerView)
+        adapter.configureActions(
+            onGearActivate: {},
+            onToggleSoundEffects: {},
+            onToggleHaptics: {},
+            onClose: {}
+        )
+        let gearFrame = CGRect(x: 16, y: 24, width: 44, height: 44)
+        adapter.applyGear(frame: gearFrame)
+
+        let gear = try #require(accessibilityElements(in: containerView).onlyElement)
+        #expect(gear.accessibilityLabel == "Settings")
+        #expect(gear.accessibilityFrame.width > 0)
+        #expect(gear.accessibilityFrame.height > 0)
+    }
+
+    @Test func dismissingWithOpeningGearFallsBackToEmptyWhenGearIsNotAccessible() throws {
+        let context = makeAccessibilityContext()
+        let layout = try layoutFixture()
+        context.adapter.configureActions(
+            onGearActivate: {},
+            onToggleSoundEffects: {},
+            onToggleHaptics: {},
+            onClose: {}
+        )
+
+        context.adapter.present(layout: layout, preferences: .defaultValue)
+        context.adapter.dismiss(focusTarget: .openingGear)
+
+        #expect(context.posts.last?.notification == .screenChanged)
+        #expect(context.posts.last?.target == nil)
+        #expect(accessibilityElements(in: context.containerView).isEmpty)
+    }
+
+    @Test func dismissingWithOpeningGearFallsBackToEmptyWhenGearIsNotActionable() throws {
+        let context = makeAccessibilityContext()
+        let layout = try layoutFixture()
+        context.adapter.configureActions(
+            onGearActivate: {},
+            onToggleSoundEffects: {},
+            onToggleHaptics: {},
+            onClose: {}
+        )
+        context.adapter.applyGear(frame: CGRect(x: 16, y: 24, width: 44, height: 44))
+
+        context.adapter.present(layout: layout, preferences: .defaultValue)
+        context.adapter.setSceneGearActionable(false)
+        context.adapter.dismiss(focusTarget: .openingGear)
+
+        #expect(context.posts.last?.notification == .screenChanged)
+        #expect(context.posts.last?.target == nil)
+        #expect(accessibilityElements(in: context.containerView).isEmpty)
+    }
 }
 
 @MainActor

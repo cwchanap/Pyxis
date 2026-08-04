@@ -198,4 +198,19 @@ struct FeedbackSettingsNodeTests {
         #expect(gear.nodeCountForTesting == initialNodeCount)
         #expect(gear.hitFrameForTesting == CGRect(x: 78, y: 98, width: 44, height: 44))
     }
+
+    @Test func testingHelpersExposeLabel_textsAndControlCounts() throws {
+        let node = FeedbackSettingsNode()
+        let layout = try nodeTestLayout()
+        node.apply(
+            layout: layout,
+            preferences: .init(soundEffectsEnabled: true, hapticsEnabled: true)
+        )
+
+        #expect(node.soundEffectsLabelForTesting == "Sound Effects")
+        #expect(node.hapticsLabelForTesting == "Haptics")
+        #expect(node.closeLabelForTesting == "Close")
+        #expect(node.toggleControlCountForTesting == 2)
+        #expect(node.controlCountForTesting == 3)
+    }
 }

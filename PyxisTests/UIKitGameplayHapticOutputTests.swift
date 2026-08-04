@@ -84,6 +84,39 @@ struct UIKitGameplayHapticOutputTests {
         #expect(generators.mediumImpact.impactCount == 0)
         #expect(generators.notification.feedbacks.isEmpty)
     }
+
+    @Test func defaultInitDoesNotCrashAndPlaysAllKindsWithoutThrowing() {
+        let output = UIKitGameplayHapticOutput()
+
+        output.play(.lightImpact)
+        output.play(.mediumImpact)
+        output.play(.warning)
+        output.play(.strongSuccess)
+    }
+
+    @Test func defaultInitAccessesCoreHapticsCapabilityProvider() {
+        let output = UIKitGameplayHapticOutput()
+        // The default init uses CoreHapticsCapabilityProvider which queries
+        // CHHapticEngine.capabilitiesForHardware().supportsHaptics. On the
+        // simulator this may return false, in which case generators are nil
+        // and play() is a no-op. Either way, init and play must not crash.
+        output.play(.lightImpact)
+    }
+
+    @Test func realGeneratorFactoryCreatesAndPlaysAllKindsWhenCapabilityIsTrue() {
+        // Use the default UIKitHapticGeneratorFactory (private to the file)
+        // by injecting only a capability that reports true. This exercises
+        // UIKitHapticGeneratorFactory, UIKitImpactHapticGenerator, and
+        // UIKitNotificationHapticGenerator on the simulator.
+        let output = UIKitGameplayHapticOutput(
+            capability: FixedHapticCapability(supportsHaptics: true)
+        )
+
+        output.play(.lightImpact)
+        output.play(.mediumImpact)
+        output.play(.warning)
+        output.play(.strongSuccess)
+    }
 }
 
 private final class FixedHapticCapability: HapticCapabilityProviding {

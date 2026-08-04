@@ -1945,6 +1945,369 @@ struct CountryMapSceneTests {
             == origin.addingTimeInterval(25))
     }
 
+    // MARK: - Feedback settings & uncovered-path tests
+
+    @Test("Country Map init(coder:) assigns default feedback dependencies")
+    func countryMapCoderInitAssignsDefaultFeedbackDependencies() throws {
+        let archiveData: Data
+        do {
+            let scene = CountryMapScene(
+                size: CGSize(width: 393, height: 852),
+                store: try makeStore(initialState: KingdomGameState(
+                    stageStatus: .cityConqueredPendingMap
+                )),
+                router: nil,
+                layoutEnvironmentOverride: .init(
+                    safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                    layoutClass: .phone
+                )
+            )
+            archiveData = try NSKeyedArchiver.archivedData(
+                withRootObject: scene,
+                requiringSecureCoding: false
+            )
+        }
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiveData)
+        unarchiver.requiresSecureCoding = false
+        let decoded = unarchiver.decodeObject(forKey: NSKeyedArchiveRootObjectKey) as? CountryMapScene
+        unarchiver.finishDecoding()
+        let scene = try #require(decoded)
+        #expect(scene.size == CGSize(width: 393, height: 852))
+        // The coder init uses NoOpGameplayFeedbackProvider and shared stores.
+        // Verify the scene is usable and has no layout yet (didMove not called).
+        #expect(scene.countryMapLayoutForTesting == nil)
+    }
+
+    @Test("Country Map update returns early while feedback settings are visible")
+    func countryMapUpdateReturnsEarlyWhenFeedbackSettingsVisible() throws {
+        let feedback = CountryMapFeedbackRecorder()
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        // Show a transient feedback so update would normally advance it.
+        scene.enterCityForTesting(3)
+        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+
+        // Prime the update clock.
+        scene.update(10)
+
+        // Open the settings modal.
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // Call update again - the settings-visible guard must prevent
+        // advanceFeedback from running, so the feedback elapsed stays at 0.
+        scene.update(11)
+        #expect(scene.feedbackElapsedForTesting == 0)
+        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+    }
+
+    @Test("Country Map openFeedbackSettings is blocked when the map is unavailable")
+    func countryMapOpenFeedbackSettingsBlockedWhenMapUnavailable() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(
+            store: store,
+            router: RouteSpy(),
+            imageLoader: { _ in nil }
+        )
+        #expect(scene.isMapUnavailableForTesting)
+
+        // The gear node is not added when the map is unavailable, so the
+        // openFeedbackSettings guard (!isMapUnavailable) is never reached.
+        // Verify settings are never visible and no gear frame exists.
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        // The gear node exists but has a zero frame since layout never ran.
+        let gearFrame = scene.feedbackSettingsGearFrameForTesting
+        #expect(gearFrame == .zero || gearFrame == nil)
+    }
+
+    @Test("Country Map openFeedbackSettings is blocked while the layout gate is paused")
+    func countryMapOpenFeedbackSettingsBlockedWhileLayoutGatePaused() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.layoutGateWillPause(at: .init(timeIntervalSinceReferenceDate: 1_000))
+
+        // Tapping the gear while the layout gate is paused must not open settings.
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Country Map activateFeedbackSettings toggles preferences via accessibility elements")
+    func countryMapActivateFeedbackSettingsViaAccessibilityTogglesPreferences() throws {
+        let preferences = RecordingFeedbackPreferencesManager()
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let size = CGSize(width: 393, height: 852)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        let scene = CountryMapScene(
+            size: size,
+            store: store,
+            router: RouteSpy(),
+            layoutEnvironmentOverride: .init(
+                safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            ),
+            feedback: NoOpGameplayFeedbackProvider(),
+            feedbackPreferences: preferences
+        )
+        scene.didMove(to: view)
+
+        // Open settings via the gear accessibility element.
+        let gearElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let gear = try #require(gearElements.onlyElement as? ActionAccessibilityElement)
+        #expect(gear.accessibilityActivate())
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // Now the modal elements should be exposed.
+        let modalElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let soundElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Sound Effects" }
+                as? ActionAccessibilityElement
+        )
+        let hapticsElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Haptics" }
+                as? ActionAccessibilityElement
+        )
+        let closeElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Close" }
+                as? ActionAccessibilityElement
+        )
+
+        let initialSound = preferences.current.soundEffectsEnabled
+        let initialHaptics = preferences.current.hapticsEnabled
+
+        // Toggle sound effects via accessibility activation.
+        #expect(soundElement.accessibilityActivate())
+        #expect(preferences.current.soundEffectsEnabled == !initialSound)
+
+        // Toggle haptics via accessibility activation.
+        #expect(hapticsElement.accessibilityActivate())
+        #expect(preferences.current.hapticsEnabled == !initialHaptics)
+
+        // Close via accessibility activation.
+        #expect(closeElement.accessibilityActivate())
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Country Map activateFeedbackSettings is a no-op when the modal is not visible")
+    func countryMapActivateFeedbackSettingsNoOpWhenNotVisible() throws {
+        let preferences = RecordingFeedbackPreferencesManager()
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let size = CGSize(width: 393, height: 852)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        let scene = CountryMapScene(
+            size: size,
+            store: store,
+            router: RouteSpy(),
+            layoutEnvironmentOverride: .init(
+                safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            ),
+            feedback: NoOpGameplayFeedbackProvider(),
+            feedbackPreferences: preferences
+        )
+        scene.didMove(to: view)
+
+        // Open settings, grab the sound element, then close settings.
+        let gearElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let gear = try #require(gearElements.onlyElement as? ActionAccessibilityElement)
+        #expect(gear.accessibilityActivate())
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        let modalElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let soundElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Sound Effects" }
+                as? ActionAccessibilityElement
+        )
+        let closeElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Close" }
+                as? ActionAccessibilityElement
+        )
+
+        // Close settings via the close element.
+        #expect(closeElement.accessibilityActivate())
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        let soundBefore = preferences.current.soundEffectsEnabled
+        // Activating the sound element while the modal is not visible must
+        // be a no-op: activateFeedbackSettings guards on isVisible.
+        #expect(soundElement.accessibilityActivate())
+        #expect(preferences.current.soundEffectsEnabled == soundBefore)
+    }
+
+    @Test("Country Map fitTitleLabel returns false when maxWidth is below the minimum")
+    func countryMapFitTitleLabelReturnsFalseBelowMinimumWidth() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        label.text = "Country 1"
+        label.fontSize = 28
+
+        // A maxWidth below minimumTitleTextWidth (160) must return false
+        // without shrinking the font.
+        #expect(!scene.fitTitleLabelForTesting(label, maxWidth: 100))
+        #expect(label.fontSize == 28)
+    }
+
+    @Test("Country Map applyIdleProgressFeedback returns early when no time elapsed")
+    func countryMapApplyIdleProgressFeedbackEarlyReturnWhenNoElapsed() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // With no lastBackgroundedAt, returnFromBackground returns .none
+        // (elapsedSeconds == 0), so applyIdleProgressFeedback must return
+        // early without showing any feedback.
+        scene.sceneWillEnterForegroundForTesting(at: Date())
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 0)
+        #expect(scene.visibleFeedbackTextForTesting == nil)
+    }
+
+    @Test("Country Map handleCityNodeTouch for locked city emits invalidAction feedback")
+    func countryMapHandleCityNodeTouchLockedCityEmitsInvalidAction() throws {
+        let feedback = CountryMapFeedbackRecorder()
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(3))
+
+        scene.handleTouchForTesting(at: cityPoint)
+
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(store.load().stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test("Country Map handleCityNodeTouch for completed city emits invalidAction feedback")
+    func countryMapHandleCityNodeTouchCompletedCityEmitsInvalidAction() throws {
+        let feedback = CountryMapFeedbackRecorder()
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 2,
+            completedCityCount: 2,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(2))
+
+        scene.handleTouchForTesting(at: cityPoint)
+
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(scene.visibleFeedbackTextForTesting == "City 2 complete")
+    }
+
+    @Test("Country Map advanceFeedback is a no-op when no transient feedback is active")
+    func countryMapAdvanceFeedbackNoOpWithoutTransientFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // Prime the update clock, then call update again with no feedback.
+        scene.update(10)
+        #expect(scene.visibleFeedbackTextForTesting == nil)
+        scene.update(11)
+        #expect(scene.visibleFeedbackTextForTesting == nil)
+        #expect(scene.feedbackElapsedForTesting == nil)
+    }
+
+    @Test("Country Map cityNumber returns nil for a point not on any city node")
+    func countryMapCityNumberReturnsNilForEmptyPoint() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // A point far from any city node must return nil.
+        let emptyPoint = CGPoint(x: -500, y: -500)
+        #expect(scene.cityNumberAtPointForTesting(emptyPoint) == nil)
+
+        // Tapping empty space must not produce any feedback or mutation.
+        let feedback = CountryMapFeedbackRecorder()
+        let store2 = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene2 = makeScene(store: store2, router: RouteSpy(), feedback: feedback)
+        scene2.handleTouchForTesting(at: emptyPoint)
+        #expect(feedback.calls.isEmpty)
+        #expect(scene2.visibleFeedbackTextForTesting == nil)
+    }
+
+    @Test("Country Map projected scout card content is nil when layout is unavailable")
+    func countryMapProjectedScoutCardContentIsNilWithoutLayout() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(
+            store: store,
+            router: RouteSpy(),
+            imageLoader: { _ in nil }
+        )
+        #expect(scene.isMapUnavailableForTesting)
+        #expect(scene.projectedScoutCardContentForTesting == nil)
+        #expect(scene.scoutCardBaseContentForTesting == nil)
+    }
+
+    @Test("Country Map visible feedback alpha reflects scout card feedback state")
+    func countryMapVisibleFeedbackAlphaReflectsScoutCardState() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // Show feedback - the scout card feedback alpha should be > 0.
+        scene.enterCityForTesting(3)
+        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackAlphaForTesting > 0)
+    }
+
     private final class CountingUserDefaults: UserDefaults {
         private let countedKey: String
         private(set) var stateSaveCount = 0

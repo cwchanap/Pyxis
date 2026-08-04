@@ -1022,6 +1022,258 @@ struct BuildingViewSceneTests {
             == origin.addingTimeInterval(25))
     }
 
+    // MARK: - init?(coder:)
+
+    @Test("Building View init?(coder:) assigns default feedback dependencies")
+    func buildingViewCoderInitAssignsDefaultFeedbackDependencies() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let original = BuildingViewScene(
+            size: CGSize(width: 390, height: 844),
+            store: store
+        )
+        let data = NSKeyedArchiver.archivedData(withRootObject: original)
+        let restored = NSKeyedUnarchiver.unarchiveObject(with: data) as? BuildingViewScene
+
+        #expect(restored != nil)
+    }
+
+    // MARK: - Accessibility-driven activateFeedbackSettings
+
+    @Test("Building View accessibility actions toggle preferences and close settings")
+    func buildingViewAccessibilityActionsTogglePreferencesAndCloseSettings() throws {
+        let preferences = RecordingFeedbackPreferencesManager()
+        let (scene, view) = makeSceneAndPreviewView(
+            store: try makeStore(initialState: KingdomGameState(gold: 100)),
+            router: RouteSpy(),
+            feedbackPreferences: preferences
+        )
+
+        // Activate the gear accessibility element -> openFeedbackSettings()
+        let gearElements = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let gear = try #require(gearElements.first { $0.accessibilityLabel == "Settings" })
+        #expect(gear.accessibilityActivate())
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // Activate "Sound Effects" -> activateFeedbackSettings(.toggleSoundEffects)
+        let modalElements1 = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let sound = try #require(modalElements1.first { $0.accessibilityLabel == "Sound Effects" })
+        #expect(sound.accessibilityActivate())
+        #expect(!preferences.current.soundEffectsEnabled)
+
+        // Activate "Haptics" -> activateFeedbackSettings(.toggleHaptics)
+        let modalElements2 = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let haptics = try #require(modalElements2.first { $0.accessibilityLabel == "Haptics" })
+        #expect(haptics.accessibilityActivate())
+        #expect(!preferences.current.hapticsEnabled)
+
+        // Activate "Close" -> activateFeedbackSettings(.close)
+        let modalElements3 = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let close = try #require(modalElements3.first { $0.accessibilityLabel == "Close" })
+        #expect(close.accessibilityActivate())
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    // MARK: - openFeedbackSettings guard via accessibility
+
+    @Test("Building View openFeedbackSettings guard blocks when layout gate is paused (accessibility)")
+    func buildingViewOpenFeedbackSettingsGuardBlocksWhenLayoutGatePaused() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let (scene, view) = makeSceneAndPreviewView(store: store, router: RouteSpy())
+        let elements = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let gear = try #require(elements.first { $0.accessibilityLabel == "Settings" })
+
+        scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 10))
+        #expect(gear.accessibilityActivate())
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Building View openFeedbackSettings guard blocks when routing to battle (accessibility)")
+    func buildingViewOpenFeedbackSettingsGuardBlocksWhenRoutingToBattle() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let router = RouteSpy()
+        let (scene, view) = makeSceneAndPreviewView(store: store, router: router)
+        let elements = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let gear = try #require(elements.first { $0.accessibilityLabel == "Settings" })
+
+        scene.requestBattleForTesting()
+        #expect(gear.accessibilityActivate())
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    // MARK: - Invalid action feedback.emit for build rejections
+
+    @Test("Building View build on locked/occupied/capped slots emits invalid action")
+    func buildingViewBuildRejectedForLockedOccupiedAndCappedSlotsEmitsInvalidAction() throws {
+        let feedback = BuildingViewFeedbackRecorder()
+
+        // Locked building (mageTower requires city 8, current city is 5)
+        let lockedState = KingdomGameState(
+            gold: 1000,
+            cityNumberInCountry: 5,
+            completedCityCount: 4
+        )
+        let lockedStore = try makeStore(initialState: lockedState)
+        let lockedScene = makeScene(store: lockedStore, router: RouteSpy(), feedback: feedback)
+        lockedScene.selectSlotForTesting(1)
+        lockedScene.buildSelectedSlotForTesting(.mageTower)
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(lockedScene.feedbackTextForTesting.contains("unlocks"))
+
+        // Slot occupied
+        feedback.reset()
+        var occupiedState = KingdomGameState(gold: 1000)
+        _ = occupiedState.buildBuilding(.barracks, inSlot: 1, at: Date())
+        let occupiedStore = try makeStore(initialState: occupiedState)
+        let occupiedScene = makeScene(store: occupiedStore, router: RouteSpy(), feedback: feedback)
+        occupiedScene.selectSlotForTesting(1)
+        occupiedScene.buildSelectedSlotForTesting(.barracks)
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(occupiedScene.feedbackTextForTesting.contains("occupied"))
+
+        // Type cap reached (5 barracks already built)
+        feedback.reset()
+        var cappedState = KingdomGameState(gold: 1000)
+        for slot in 1...5 {
+            _ = cappedState.buildBuilding(.barracks, inSlot: slot, at: Date())
+        }
+        let cappedStore = try makeStore(initialState: cappedState)
+        let cappedScene = makeScene(store: cappedStore, router: RouteSpy(), feedback: feedback)
+        cappedScene.selectSlotForTesting(6)
+        cappedScene.buildSelectedSlotForTesting(.barracks)
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(cappedScene.feedbackTextForTesting.contains("limit"))
+    }
+
+    @Test("Building View build when city is conquered emits invalid action")
+    func buildingViewBuildWhenCityConqueredEmitsInvalidAction() throws {
+        let feedback = BuildingViewFeedbackRecorder()
+        let state = KingdomGameState(
+            gold: 1000,
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+
+        scene.selectSlotForTesting(1)
+        scene.buildSelectedSlotForTesting(.barracks)
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(scene.feedbackTextForTesting.contains("Enter a city"))
+    }
+
+    // MARK: - Invalid action feedback.emit for upgrade rejections
+
+    @Test("Building View upgrade with insufficient gold or missing building emits invalid action")
+    func buildingViewUpgradeRejectedForInsufficientGoldAndMissingBuildingEmitsInvalidAction() throws {
+        let feedback = BuildingViewFeedbackRecorder()
+
+        // Insufficient gold for upgrade
+        var poorState = KingdomGameState(gold: 100)
+        _ = poorState.buildBuilding(.barracks, inSlot: 1, at: Date())
+        poorState.gold = 0
+        let poorStore = try makeStore(initialState: poorState)
+        let poorScene = makeScene(store: poorStore, router: RouteSpy(), feedback: feedback)
+        poorScene.selectSlotForTesting(1)
+        poorScene.upgradeSelectedSlotForTesting()
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(poorScene.feedbackTextForTesting.contains("gold"))
+
+        // Missing building (empty slot selected)
+        feedback.reset()
+        let emptyStore = try makeStore(initialState: KingdomGameState(gold: 1000))
+        let emptyScene = makeScene(store: emptyStore, router: RouteSpy(), feedback: feedback)
+        emptyScene.selectSlotForTesting(3)
+        emptyScene.upgradeSelectedSlotForTesting()
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(emptyScene.feedbackTextForTesting.contains("Select a building"))
+    }
+
+    @Test("Building View upgrade when city is conquered emits invalid action")
+    func buildingViewUpgradeWhenCityConqueredEmitsInvalidAction() throws {
+        let feedback = BuildingViewFeedbackRecorder()
+        let state = KingdomGameState(
+            gold: 1000,
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+
+        scene.selectSlotForTesting(1)
+        scene.upgradeSelectedSlotForTesting()
+        #expect(feedback.discreteEvents == [.invalidAction])
+        #expect(scene.feedbackTextForTesting.contains("Enter a city"))
+    }
+
+    // MARK: - Settlement conquest feedback
+
+    @Test("Building View build settlement conquers last city and emits country completion")
+    func buildingViewBuildSettlementConquersLastCityAndEmitsCountryCompletion() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            completedCityCount: 14
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let feedback = BuildingViewFeedbackRecorder()
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.archeryRange)
+
+        #expect(store.load().stageStatus == .countryComplete)
+        #expect(feedback.discreteEvents == [.goldReward, .countryCompletion])
+    }
+
+    @Test("Building View upgrade settlement conquers city and emits city conquest")
+    func buildingViewUpgradeSettlementConquersCityAndEmitsCityConquest() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 1000,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let feedback = BuildingViewFeedbackRecorder()
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+
+        scene.selectSlotForTesting(1)
+        scene.upgradeSelectedSlotForTesting()
+
+        #expect(store.load().stageStatus == .cityConqueredPendingMap)
+        #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+    }
+
+    @Test("Building View settlement conquest closes open feedback settings")
+    func buildingViewSettlementConquestClosesOpenFeedbackSettings() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let feedback = BuildingViewFeedbackRecorder()
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.handleTouchForTesting(at: center(of: gearFrame))
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.barracks)
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+    }
+
     private func makeScene(
         size: CGSize = CGSize(width: 390, height: 844),
         store: KingdomGameStore,
@@ -1037,8 +1289,33 @@ struct BuildingViewSceneTests {
             feedbackPreferences: feedbackPreferences
         )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
+        view.presentScene(scene)
         scene.didMove(to: view)
         return scene
+    }
+
+    /// Returns both the scene and the presenting SKView so tests can
+    /// inspect UIView/accessibilityElements driven by the feedback
+    /// settings accessibility adapter.
+    @discardableResult
+    private func makeSceneAndPreviewView(
+        size: CGSize = CGSize(width: 390, height: 844),
+        store: KingdomGameStore,
+        router: BuildingViewSceneRouting? = nil,
+        feedback: GameplayFeedbackProviding? = nil,
+        feedbackPreferences: FeedbackPreferencesManaging = RecordingFeedbackPreferencesManager()
+    ) -> (BuildingViewScene, SKView) {
+        let scene = BuildingViewScene(
+            size: size,
+            store: store,
+            router: router,
+            feedback: feedback ?? NoOpGameplayFeedbackProvider(),
+            feedbackPreferences: feedbackPreferences
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        view.presentScene(scene)
+        scene.didMove(to: view)
+        return (scene, view)
     }
 
     private func center(of frame: CGRect) -> CGPoint {

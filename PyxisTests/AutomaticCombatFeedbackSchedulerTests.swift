@@ -130,6 +130,31 @@ struct AutomaticCombatFeedbackSchedulerTests {
         #expect(scheduler.select(from: dense, at: 1.200) == .soldierAttack(.melee))
     }
 
+    @Test func nonGatedEventsAreFilteredOutWithoutBlockingEligibleEvents() {
+        var scheduler = AutomaticCombatFeedbackScheduler()
+
+        #expect(
+            scheduler.select(from: [.manualDeployment, .towerFire], at: 0.000) == .towerFire
+        )
+    }
+
+    @Test func rotatedAttackFallsBackToDefaultWhenNoAttackIsEligible() {
+        var scheduler = AutomaticCombatFeedbackScheduler()
+        let dense = denseEvents
+
+        // Build up attackSkippedEligibleWindows to 2 by selecting non-attacks
+        #expect(scheduler.select(from: dense, at: 0.000) == .soldierDamage(.death))
+        #expect(scheduler.select(from: dense, at: 0.150) == .towerFire)
+
+        // At t=0.300, pass events without any attacks. attackSkippedEligibleWindows
+        // is 2 so shouldSelectRotatedAttack is true, but nextEligibleAttack returns
+        // nil (no attacks in eligibleEvents), so the default event is selected.
+        // death is eligible (0.300 >= 0.300), towerFire is not (0.300 < 0.400).
+        #expect(
+            scheduler.select(from: [.soldierDamage(.death), .towerFire], at: 0.300) == .soldierDamage(.death)
+        )
+    }
+
     private var denseEvents: [GameplayFeedbackEvent] {
         [
             .soldierDamage(.death),
