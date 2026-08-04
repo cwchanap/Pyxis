@@ -157,6 +157,29 @@ struct FeedbackSettingsControllerTests {
         #expect(context.preferences.current.soundEffectsEnabled == false)
         #expect(context.posts.allSatisfy { $0.notification == .screenChanged })
     }
+
+    @Test func initConfiguredAccessibilityActionsFireThroughControllerClosures() throws {
+        let context = try makeControllerContext()
+        let elements = accessibilityElements(in: context.containerView)
+
+        // The gear element's action should open the modal
+        #expect(elements.count == 1)
+        #expect(elements[0].accessibilityActivate())
+        #expect(context.controller.isVisible)
+
+        // The sound effects element's action should toggle sound
+        let modalElements = accessibilityElements(in: context.containerView)
+        #expect(modalElements[0].accessibilityActivate())
+        #expect(context.preferences.current.soundEffectsEnabled == false)
+
+        // The haptics element's action should toggle haptics
+        #expect(modalElements[1].accessibilityActivate())
+        #expect(context.preferences.current.hapticsEnabled == false)
+
+        // The close element's action should close the modal
+        #expect(modalElements[2].accessibilityActivate())
+        #expect(!context.controller.isVisible)
+    }
 }
 
 @MainActor

@@ -3733,6 +3733,305 @@ struct BattleSceneTests {
 
         #expect(!router.didRequestCountryMap)
     }
+
+    // MARK: - Feedback Settings (HPA-389)
+
+    @Test("init?(coder:) assigns default feedback providers")
+    func initCoderAssignsDefaultFeedbackProviders() throws {
+        let original = BattleScene(size: CGSize(width: 390, height: 844))
+        let data = try NSKeyedArchiver.archivedData(
+            withRootObject: original,
+            requiringSecureCoding: false
+        )
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: data)
+        unarchiver.requiresSecureCoding = false
+        let scene = try #require(
+            unarchiver.decodeObject(forKey: NSKeyedArchiveRootObjectKey) as? BattleScene
+        )
+
+        // init?(coder:) should produce a valid scene that can lay out feedback
+        // settings when moved to a view, proving the default providers were set.
+        let view = SKView(frame: CGRect(origin: .zero, size: scene.size))
+        scene.didMove(to: view)
+
+        #expect(scene.feedbackSettingsGearFrameForTesting != nil)
+        #expect(scene.feedbackSettingsGearZPositionForTesting == 2)
+    }
+
+    @Test("Tapping the Settings gear opens the feedback settings modal")
+    func tappingSettingsGearOpensFeedbackSettings() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.isBattlefieldActionLayerPausedForTesting)
+    }
+
+    @Test("Feedback settings modal blocks touch handling to game elements")
+    func feedbackSettingsModalBlocksTouchesToGameElements() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // Open settings
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // Tap the spawn button area while settings are visible
+        let frames = try #require(scene.battleLayoutFramesForTesting)
+        scene.handleTouchForTesting(at: CGPoint(
+            x: frames.spawnButton.midX,
+            y: frames.spawnButton.midY
+        ))
+
+        // No soldier should have been spawned
+        #expect(scene.liveSoldierCountForTesting == 0)
+        // Settings should still be visible
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Feedback settings modal blocks the update loop")
+    func feedbackSettingsModalBlocksUpdateLoop() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 500))
+        let scene = makeScene(store: store)
+
+        // Prime the battle clock without advancing combat
+        scene.update(10)
+        #expect(scene.lastAdvanceCombatDeltaForTesting == nil)
+
+        // Open settings
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        scene.update(11)
+
+        // Update loop should be blocked — no combat advance occurred
+        #expect(scene.lastAdvanceCombatDeltaForTesting == nil)
+        #expect(scene.lastUpdateTimeForTesting == 11)
+    }
+
+    @Test("Closing feedback settings resumes the update loop and unpauses the battlefield")
+    func closingFeedbackSettingsResumesUpdateLoop() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 500))
+        let scene = makeScene(store: store)
+
+        scene.update(10)
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.isBattlefieldActionLayerPausedForTesting)
+
+        let layout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .zero
+        ))
+        scene.handleTouchForTesting(at: layout.closeFrame.center)
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(!scene.isBattlefieldActionLayerPausedForTesting)
+
+        scene.update(11)
+        #expect(scene.lastAdvanceCombatDeltaForTesting == 1)
+    }
+
+    @Test("openFeedbackSettings returns early when gear accessibility is disabled")
+    func openFeedbackSettingsFailsWhenGearNotActionable() throws {
+        let size = CGSize(width: 390, height: 844)
+        let containerView = UIView(frame: CGRect(origin: .zero, size: size))
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(
+            store: store,
+            size: size,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+
+        // Disable gear actionable after didMove configured it
+        accessibilityAdapter.setSceneGearActionable(false)
+
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("activateFeedbackSettings toggleSoundEffects toggles the preference via accessibility")
+    func activateFeedbackSettingsToggleSoundEffectsViaAccessibility() throws {
+        let size = CGSize(width: 390, height: 844)
+        let containerView = UIView(frame: CGRect(origin: .zero, size: size))
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let suiteName = "PyxisTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let prefsStore = FeedbackPreferencesStore(defaults: defaults, key: "prefs")
+        let initialSoundEnabled = prefsStore.current.soundEffectsEnabled
+
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(
+            store: store,
+            size: size,
+            feedbackPreferences: prefsStore,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+
+        // Open settings
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // The modal exposes sound, haptics, and close accessibility elements
+        let elements = accessibilityElements(in: containerView)
+        #expect(elements.count == 3)
+
+        let soundElement = try #require(
+            elements.first(where: { $0.accessibilityLabel == "Sound Effects" })
+        )
+        #expect(soundElement.accessibilityActivate())
+
+        // The preference should have been toggled
+        #expect(prefsStore.current.soundEffectsEnabled != initialSoundEnabled)
+        // Settings should still be visible (toggling doesn't close)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("activateFeedbackSettings toggleHaptics toggles the preference via accessibility")
+    func activateFeedbackSettingsToggleHapticsViaAccessibility() throws {
+        let size = CGSize(width: 390, height: 844)
+        let containerView = UIView(frame: CGRect(origin: .zero, size: size))
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let suiteName = "PyxisTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let prefsStore = FeedbackPreferencesStore(defaults: defaults, key: "prefs")
+        let initialHapticsEnabled = prefsStore.current.hapticsEnabled
+
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(
+            store: store,
+            size: size,
+            feedbackPreferences: prefsStore,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+
+        let elements = accessibilityElements(in: containerView)
+        let hapticsElement = try #require(
+            elements.first(where: { $0.accessibilityLabel == "Haptics" })
+        )
+        #expect(hapticsElement.accessibilityActivate())
+
+        #expect(prefsStore.current.hapticsEnabled != initialHapticsEnabled)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("activateFeedbackSettings close dismisses the modal via accessibility")
+    func activateFeedbackSettingsCloseViaAccessibility() throws {
+        let size = CGSize(width: 390, height: 844)
+        let containerView = UIView(frame: CGRect(origin: .zero, size: size))
+        let accessibilityAdapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(
+            store: store,
+            size: size,
+            feedbackSettingsAccessibilityAdapter: accessibilityAdapter
+        )
+
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        let elements = accessibilityElements(in: containerView)
+        let closeElement = try #require(
+            elements.first(where: { $0.accessibilityLabel == "Close" })
+        )
+        #expect(closeElement.accessibilityActivate())
+
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Feedback settings layout applies gear z-position and modal z-position")
+    func feedbackSettingsLayoutAppliesZPositions() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        // The gear is parented under the left HUD panel with a local z of 2,
+        // so its effective z is hud + 2.
+        #expect(scene.feedbackSettingsGearZPositionForTesting == 2)
+        // The modal z-position should be above the HUD tier.
+        let modalZ = try #require(scene.feedbackSettingsModalZPositionForTesting)
+        #expect(modalZ > GameUITheme.Z.hud)
+    }
+
+    @Test("Selecting an unavailable soldier type emits invalidAction feedback")
+    func selectingUnavailableSoldierTypeEmitsInvalidAction() throws {
+        let feedback = BattleFeedbackRecorder()
+        // Only barracks → only infantry is spawnable
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store, feedback: feedback)
+
+        #expect(scene.manualSpawnableSoldierTypesForTesting == [.infantry])
+
+        feedback.reset()
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+
+        #expect(feedback.calls == [.discrete(.invalidAction)])
+        #expect(scene.feedbackTextForTesting == "Build Cavalry first.")
+        #expect(scene.selectedManualSoldierTypeForTesting == .infantry)
+    }
+
+    @Test("Tapping inside the settings modal scrim is consumed without spawning")
+    func tappingSettingsScrimIsConsumed() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // Tap at the center of the scene (inside the modal scrim area)
+        scene.handleTouchForTesting(at: CGPoint(
+            x: scene.size.width / 2,
+            y: scene.size.height / 2
+        ))
+
+        // The touch should be consumed by the settings modal, not reach game elements
+        #expect(scene.liveSoldierCountForTesting == 0)
+        // Settings should still be open (scrim doesn't close on tap)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
 }
 
 private extension CGRect {

@@ -540,6 +540,122 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.voiceOperations(for: 2) == [.schedule(.attackMelee)])
     }
 
+    @Test func handleAppDidEnterBackgroundStopsOutputAndDeactivatesSession() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+
+        controller.handleAppDidEnterBackground()
+        try await waitUntil { backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true)) }
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.drainOutputQueueForTesting()
+
+        #expect(backend.scheduledSoundIDs == [.deployment])
+    }
+
+    @Test func handleAppDidEnterBackgroundThenForegroundRestoresEligibility() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.handleAppDidEnterBackground()
+        try await waitUntil { backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true)) }
+
+        controller.handleAppWillEnterForeground()
+        controller.drainOutputQueueForTesting()
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+    }
+
+    @Test func sessionConfigurationFailureTransitionsToFailedState() async throws {
+        let backend = FailingSessionBackend()
+        let controller = GameplaySoundOutputController(
+            backend: backend,
+            catalog: testCatalog,
+            clock: MutableMonotonicClock(now: 0)
+        )
+
+        controller.prepareIfNeeded()
+        try await waitUntil { backend.configureAmbientSessionCount == 1 }
+        try await settleOutput()
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await settleOutput()
+
+        #expect(backend.stopEngineCount == 0)
+    }
+
+    @Test func mismatchedPreparedSoundIDFailsPreparation() async throws {
+        let backend = MismatchedIDBackend()
+        let controller = GameplaySoundOutputController(
+            backend: backend,
+            catalog: testCatalog,
+            clock: MutableMonotonicClock(now: 0)
+        )
+
+        controller.prepareIfNeeded()
+        try await settleOutput()
+
+        // Preparation should fail due to mismatched ID, no voices created
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await settleOutput()
+    }
+
+    @Test func activationFailureAfterSessionActivationDeactivatesBeforeReturning() async throws {
+        let backend = EngineStartFailingBackend()
+        let controller = GameplaySoundOutputController(
+            backend: backend,
+            catalog: testCatalog,
+            clock: MutableMonotonicClock(now: 0)
+        )
+
+        controller.prepareIfNeeded()
+        try await waitUntil { backend.createdVoiceIndices == Array(0...7) }
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.sessionRequests.count >= 2 }
+
+        let requests = backend.sessionRequests
+        #expect(requests.contains(.init(active: true, notifyOthers: false)))
+        #expect(requests.contains(.init(active: false, notifyOthers: true)))
+    }
+
+    @Test func interruptionBlocksOutputEligibilityEvenWhenPrepared() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.handleAudioInterruptionBegan()
+        try await waitUntil {
+            backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
+        }
+
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.drainOutputQueueForTesting()
+
+        #expect(backend.scheduledSoundIDs.isEmpty)
+    }
+
+    @Test func stopAllAndDeactivateLogsWhenSessionDeactivationFails() async throws {
+        let backend = DeactivationFailingBackend()
+        let clock = MutableMonotonicClock(now: 0)
+        let controller = GameplaySoundOutputController(
+            backend: backend,
+            catalog: testCatalog,
+            clock: clock
+        )
+
+        controller.prepareIfNeeded()
+        try await settleOutput()
+
+        controller.stopAllAndDeactivate()
+        try await settleOutput()
+
+        #expect(backend.stopEngineCount >= 1)
+    }
+
     @Test func stopAllAndDeactivateStopsPlaybackBeforeDeactivatingTheSession() async throws {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
@@ -934,5 +1050,175 @@ private final class RecordingAudioVoice: GameplayAudioVoice {
 
     func stop() {
         record(.stop)
+    }
+}
+
+private final class FailingSessionBackend: GameplayAudioBackend {
+    private let lock = NSLock()
+    private var _configureAmbientSessionCount = 0
+    private var _stopEngineCount = 0
+
+    var configureAmbientSessionCount: Int {
+        withLock { _configureAmbientSessionCount }
+    }
+
+    var stopEngineCount: Int {
+        withLock { _stopEngineCount }
+    }
+
+    enum SessionError: Error { case failed }
+
+    func configureAmbientSession() throws {
+        withLock { _configureAmbientSessionCount += 1 }
+        throw SessionError.failed
+    }
+
+    func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {}
+
+    func prepareSound(_ resource: GameplaySoundResource) throws -> GameplayPreparedSound {
+        RecordingPreparedSound(id: resource.id)
+    }
+
+    func makeVoice(index: Int) -> GameplayAudioVoice {
+        StubAudioVoice(index: index)
+    }
+
+    func startEngine() throws {}
+
+    func stopEngine() {
+        withLock { _stopEngineCount += 1 }
+    }
+
+    func resetForLifecycleRecovery() {}
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+}
+
+private final class MismatchedIDBackend: GameplayAudioBackend {
+    func configureAmbientSession() throws {}
+
+    func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {}
+
+    func prepareSound(_ resource: GameplaySoundResource) throws -> GameplayPreparedSound {
+        RecordingPreparedSound(id: .blocked)
+    }
+
+    func makeVoice(index: Int) -> GameplayAudioVoice {
+        StubAudioVoice(index: index)
+    }
+
+    func startEngine() throws {}
+
+    func stopEngine() {}
+
+    func resetForLifecycleRecovery() {}
+}
+
+private final class DeactivationFailingBackend: GameplayAudioBackend {
+    private let lock = NSLock()
+    private var _stopEngineCount = 0
+
+    var stopEngineCount: Int {
+        withLock { _stopEngineCount }
+    }
+
+    enum DeactivationError: Error { case failed }
+
+    func configureAmbientSession() throws {}
+
+    func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {
+        if !active {
+            throw DeactivationError.failed
+        }
+    }
+
+    func prepareSound(_ resource: GameplaySoundResource) throws -> GameplayPreparedSound {
+        RecordingPreparedSound(id: resource.id)
+    }
+
+    func makeVoice(index: Int) -> GameplayAudioVoice {
+        StubAudioVoice(index: index)
+    }
+
+    func startEngine() throws {}
+
+    func stopEngine() {
+        withLock { _stopEngineCount += 1 }
+    }
+
+    func resetForLifecycleRecovery() {}
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+}
+
+private final class StubAudioVoice: GameplayAudioVoice {
+    let index: Int
+
+    init(index: Int) {
+        self.index = index
+    }
+
+    func schedule(_ sound: GameplayPreparedSound, completion: @escaping () -> Void) {
+        completion()
+    }
+
+    func stop() {}
+}
+
+private final class EngineStartFailingBackend: GameplayAudioBackend {
+    private let lock = NSLock()
+    private var _sessionRequests: [SessionRequest] = []
+    private var _createdVoiceIndices: [Int] = []
+
+    struct SessionRequest: Equatable {
+        let active: Bool
+        let notifyOthers: Bool
+    }
+
+    enum EngineError: Error { case failed }
+
+    var sessionRequests: [SessionRequest] {
+        withLock { _sessionRequests }
+    }
+
+    var createdVoiceIndices: [Int] {
+        withLock { _createdVoiceIndices }
+    }
+
+    func configureAmbientSession() throws {}
+
+    func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {
+        withLock { _sessionRequests.append(.init(active: active, notifyOthers: notifyOthers)) }
+    }
+
+    func prepareSound(_ resource: GameplaySoundResource) throws -> GameplayPreparedSound {
+        RecordingPreparedSound(id: resource.id)
+    }
+
+    func makeVoice(index: Int) -> GameplayAudioVoice {
+        withLock { _createdVoiceIndices.append(index) }
+        return StubAudioVoice(index: index)
+    }
+
+    func startEngine() throws {
+        throw EngineError.failed
+    }
+
+    func stopEngine() {}
+
+    func resetForLifecycleRecovery() {}
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
     }
 }
