@@ -32,10 +32,8 @@ struct GameplaySoundCatalogTests {
         ]
         for event in events {
             let directive = GameplayFeedbackPolicy.directive(for: event)
-            guard let sound = directive.sound,
-                  let soundClass = directive.soundClass else {
-                continue
-            }
+            let sound = try #require(directive.sound)
+            let soundClass = try #require(directive.soundClass)
             let resource = try #require(GameplaySoundCatalog.all[sound])
             #expect(resource.soundClass == soundClass)
         }
