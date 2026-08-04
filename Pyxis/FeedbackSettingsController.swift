@@ -3,8 +3,6 @@ import SpriteKit
 
 @MainActor
 final class FeedbackSettingsController {
-    private static let minimumGearHitSize = CGSize(width: 44, height: 44)
-
     let gear = SettingsGearNode()
     let modal = FeedbackSettingsNode()
 
@@ -73,11 +71,13 @@ final class FeedbackSettingsController {
 
     func applyGearFrame(_ frame: CGRect) {
         gear.apply(frame: frame)
-        accessibilityAdapter.applyGear(frame: resolvedGearFrame(from: frame))
+        accessibilityAdapter.applyGear(frame: gear.resolvedHitFrame)
     }
 
     func rebindAccessibilityForScene(isSettingsActionable: Bool = true) {
         accessibilityAdapter.rebindScene(isSettingsActionable: isSettingsActionable)
+        isVisible = false
+        modal.isHidden = true
     }
 
     func setSettingsAccessibilityActionable(_ isActionable: Bool) {
@@ -85,7 +85,11 @@ final class FeedbackSettingsController {
     }
 
     func reapply(layout: FeedbackSettingsLayout?) {
-        guard let layout else { return }
+        guard let layout else {
+            close()
+            self.layout = nil
+            return
+        }
         self.layout = layout
         reapplyVisibleModal()
     }
@@ -118,27 +122,5 @@ final class FeedbackSettingsController {
         guard isVisible, let layout else { return }
         modal.apply(layout: layout, preferences: preferences)
         accessibilityAdapter.reapplyModal(layout: layout, preferences: preferences)
-    }
-
-    private func resolvedGearFrame(from frame: CGRect) -> CGRect {
-        guard frame.origin.x.isFinite,
-              frame.origin.y.isFinite,
-              frame.width.isFinite,
-              frame.height.isFinite,
-              frame.width > 0,
-              frame.height > 0 else {
-            return .zero
-        }
-
-        let size = CGSize(
-            width: max(frame.width, Self.minimumGearHitSize.width),
-            height: max(frame.height, Self.minimumGearHitSize.height)
-        )
-        return CGRect(
-            x: frame.midX - size.width / 2,
-            y: frame.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
     }
 }

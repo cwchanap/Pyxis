@@ -334,20 +334,21 @@ struct GameplaySoundOutputControllerTests {
         controller.play(.deployment, soundClass: .nonAutomatic)
         controller.handleLifecycleRecovery()
 
+        // The backend reset is serialized behind the in-flight (blocked)
+        // preparation and cannot overlap the stale prepareSound.
+        controller.drainOutputQueueForTesting()
+        #expect(backend.lifecycleRecoveryCount == 0)
+
+        // Release the invalidated preparation.  The reset runs only after the
+        // stale prepareSound completes, then the fresh preparation starts and
+        // blocks on its own first resource.
+        backend.releaseBlockedPreparation()
         try await waitUntil {
             backend.lifecycleRecoveryCount == 1 && backend.configuredAmbientSessionCount == 2
         }
-        #expect(backend.createdVoiceIndices.isEmpty)
-        #expect(backend.scheduledSoundIDs.isEmpty)
-        #expect(backend.activeSessionRequests.isEmpty)
-        #expect(backend.engineStartCount == 0)
-
-        // Release the invalidated preparation. The next queued preparation is
-        // deliberately blocked after the stale completion has been enqueued.
-        backend.releaseBlockedPreparation()
         #expect(backend.waitForBlockedPreparation())
         // The stale completion was queued before the fresh preparation raised
-        // its block signal. This synchronous marker therefore proves it has
+        // its block signal.  This synchronous marker therefore proves it has
         // finished before the assertions below run.
         controller.drainOutputQueueForTesting()
 
@@ -368,6 +369,25 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.scheduledSoundIDs.isEmpty)
         #expect(backend.activeSessionRequests.isEmpty)
         #expect(backend.engineStartCount == 0)
+    }
+
+    @Test func lifecycleRecoveryResetDoesNotOverlapInFlightPreparation() async throws {
+        let backend = RecordingAudioBackend(blockingPreparationCall: 1)
+        let controller = makeController(backend: backend)
+
+        controller.prepareIfNeeded()
+        #expect(backend.waitForBlockedPreparation())
+
+        controller.handleLifecycleRecovery()
+        // All outputQueue work (including the recovery dispatch) has settled,
+        // yet the reset must not have run: it is queued behind the blocked
+        // prepareSound on preparationQueue.
+        controller.drainOutputQueueForTesting()
+        #expect(backend.lifecycleRecoveryCount == 0)
+
+        // Once the stale preparation unblocks, the serialized reset runs.
+        backend.releaseBlockedPreparation()
+        try await waitUntil { backend.lifecycleRecoveryCount == 1 }
     }
 
     @Test func preparationCreatesExactlyEightFixedVoicesAndNeverAllocatesANinth() async throws {
@@ -602,6 +622,9 @@ struct GameplaySoundOutputControllerTests {
         // Preparation should fail due to mismatched ID, no voices created
         controller.play(.deployment, soundClass: .nonAutomatic)
         try await settleOutput()
+
+        #expect(backend.createdVoiceIndices.isEmpty)
+        #expect(backend.scheduledSoundIDs.isEmpty)
     }
 
     @Test func activationFailureAfterSessionActivationDeactivatesBeforeReturning() async throws {
@@ -1099,6 +1122,18 @@ private final class FailingSessionBackend: GameplayAudioBackend {
 }
 
 private final class MismatchedIDBackend: GameplayAudioBackend {
+    private let lock = NSLock()
+    private var _createdVoiceIndices: [Int] = []
+    private var _scheduledSoundIDs: [GameplaySoundID] = []
+
+    var createdVoiceIndices: [Int] {
+        withLock { _createdVoiceIndices }
+    }
+
+    var scheduledSoundIDs: [GameplaySoundID] {
+        withLock { _scheduledSoundIDs }
+    }
+
     func configureAmbientSession() throws {}
 
     func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {}
@@ -1108,7 +1143,13 @@ private final class MismatchedIDBackend: GameplayAudioBackend {
     }
 
     func makeVoice(index: Int) -> GameplayAudioVoice {
-        StubAudioVoice(index: index)
+        withLock { _createdVoiceIndices.append(index) }
+        return MismatchedIDVoice(
+            index: index,
+            recordSchedule: { [weak self] id in
+                self?.recordScheduledSound(id)
+            }
+        )
     }
 
     func startEngine() throws {}
@@ -1116,6 +1157,33 @@ private final class MismatchedIDBackend: GameplayAudioBackend {
     func stopEngine() {}
 
     func resetForLifecycleRecovery() {}
+
+    private func recordScheduledSound(_ id: GameplaySoundID) {
+        withLock { _scheduledSoundIDs.append(id) }
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+}
+
+private final class MismatchedIDVoice: GameplayAudioVoice {
+    let index: Int
+    private let recordSchedule: (GameplaySoundID) -> Void
+
+    init(index: Int, recordSchedule: @escaping (GameplaySoundID) -> Void) {
+        self.index = index
+        self.recordSchedule = recordSchedule
+    }
+
+    func schedule(_ sound: GameplayPreparedSound, completion: @escaping () -> Void) {
+        recordSchedule(sound.id)
+        completion()
+    }
+
+    func stop() {}
 }
 
 private final class DeactivationFailingBackend: GameplayAudioBackend {

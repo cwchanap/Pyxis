@@ -347,7 +347,7 @@ git commit -m "feat: add licensed gameplay sounds"
 protocol GameplayPreparedSound: AnyObject { var id: GameplaySoundID { get } }
 protocol GameplayAudioVoice: AnyObject {
     var index: Int { get }
-    func schedule(_ sound: GameplayPreparedSound)
+    func schedule(_ sound: GameplayPreparedSound, completion: @escaping () -> Void)
     func stop()
 }
 protocol GameplayAudioBackend: AnyObject {
@@ -357,12 +357,17 @@ protocol GameplayAudioBackend: AnyObject {
     func makeVoice(index: Int) -> GameplayAudioVoice
     func startEngine() throws
     func stopEngine()
+    func resetForLifecycleRecovery()
 }
 
 final class GameplaySoundOutputController: GameplaySoundOutput {
     func prepareIfNeeded()
     func play(_ sound: GameplaySoundID, soundClass: GameplaySoundClass)
     func stopAllAndDeactivate()
+    func handleAppDidEnterBackground()
+    func handleAppWillEnterForeground()
+    func handleAudioInterruptionBegan()
+    func handleAudioInterruptionEnded(shouldResume: Bool)
     func handleLifecycleRecovery()
 }
 ```

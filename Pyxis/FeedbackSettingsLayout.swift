@@ -13,7 +13,6 @@ struct FeedbackSettingsLayout: Equatable {
     private enum Metrics {
         static let safeHorizontalMargin: CGFloat = 16
         static let maximumPanelWidth: CGFloat = 320
-        static let panelHeight: CGFloat = 222
         static let horizontalPadding: CGFloat = 20
         static let verticalPadding: CGFloat = 20
         static let rowHeight: CGFloat = 52
@@ -21,6 +20,10 @@ struct FeedbackSettingsLayout: Equatable {
         static let closeGap: CGFloat = 18
         static let closeHeight: CGFloat = 48
         static let minimumInteractiveSize: CGFloat = 44
+
+        static var panelHeight: CGFloat {
+            verticalPadding * 2 + rowHeight * 2 + rowGap + closeGap + closeHeight
+        }
     }
 
     let scrimFrame: CGRect

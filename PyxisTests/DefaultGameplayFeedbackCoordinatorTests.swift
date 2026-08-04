@@ -102,7 +102,7 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         #expect(haptics.played == [.warning, .warning])
     }
 
-    @Test func constructionSoundUsesIts250MillisecondGateWithoutGatingHaptics() {
+    @Test func constructionFeedbackUsesIts250MillisecondGateForSoundAndHaptic() {
         let clock = AdjustableMonotonicClock(now: 0)
         let preferences = RecordingFeedbackPreferencesManager()
         let sound = RecordingGameplaySoundOutput()
@@ -125,7 +125,6 @@ struct DefaultGameplayFeedbackCoordinatorTests {
             .play(.construction, .nonAutomatic)
         ])
         #expect(haptics.played == [
-            .mediumImpact,
             .mediumImpact,
             .mediumImpact
         ])

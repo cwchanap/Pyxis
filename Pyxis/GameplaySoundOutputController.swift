@@ -151,9 +151,19 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 invalidateReadyOutputForLifecycleRecovery()
             }
 
-            backend.resetForLifecycleRecovery()
-            preparationState = .unprepared
-            beginPreparationIfNeeded()
+            // Serialize the backend reset through preparationQueue so it never
+            // overlaps an in-flight prepareSound.  When recovery arrives during
+            // .preparing the reset waits behind the stale preparation work; the
+            // generation bump above already invalidates its stale completion.
+            let backend = self.backend
+            preparationQueue.async { [weak self] in
+                backend.resetForLifecycleRecovery()
+                self?.outputQueue.async { [weak self] in
+                    guard let self else { return }
+                    preparationState = .unprepared
+                    beginPreparationIfNeeded()
+                }
+            }
         }
     }
 

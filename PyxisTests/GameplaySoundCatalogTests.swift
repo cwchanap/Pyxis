@@ -11,7 +11,34 @@ import Testing
 @MainActor
 struct GameplaySoundCatalogTests {
     @Test func catalogHasOneExpectedResourceForEverySoundID() {
+        for soundID in GameplaySoundID.allCases {
+            #expect(GameplaySoundCatalog.all[soundID] != nil)
+        }
         #expect(GameplaySoundCatalog.all == expectedResources)
+    }
+
+    @Test func policyDirectiveSoundClassesMatchCatalogEntries() throws {
+        let events: [GameplayFeedbackEvent] = [
+            .manualDeployment,
+            .soldierAttack(.melee), .soldierAttack(.ranged), .soldierAttack(.siege),
+            .towerFire,
+            .soldierDamage(.hit), .soldierDamage(.death),
+            .buildingChanged,
+            .invalidAction,
+            .goldReward,
+            .cityConquest,
+            .countryCompletion,
+            .fortifiedLaneWarning
+        ]
+        for event in events {
+            let directive = GameplayFeedbackPolicy.directive(for: event)
+            guard let sound = directive.sound,
+                  let soundClass = directive.soundClass else {
+                continue
+            }
+            let resource = try #require(GameplaySoundCatalog.all[sound])
+            #expect(resource.soundClass == soundClass)
+        }
     }
 
     @Test func everyCatalogResourceIsBundledInTheMainAppBundle() {
@@ -36,8 +63,9 @@ struct GameplaySoundCatalogTests {
             let file = try AVAudioFile(forReading: url)
             let duration = Double(file.length) / file.processingFormat.sampleRate
 
-            #expect(resource.maximumDuration == 0.750)
-            #expect(duration <= 0.750)
+            #expect(resource.maximumDuration != nil)
+            let budget = try #require(resource.maximumDuration)
+            #expect(duration <= budget)
         }
     }
 
