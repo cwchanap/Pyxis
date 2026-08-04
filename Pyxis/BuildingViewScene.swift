@@ -8,7 +8,7 @@ import SpriteKit
 import UIKit
 
 protocol BuildingViewSceneRouting: AnyObject {
-    func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene)
+    func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) -> Bool
 }
 
 final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
@@ -285,12 +285,17 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
                     height: sceneFrame.height
                 )
 
-                guard let view, view.window != nil else {
+                guard let view, let window = view.window else {
                     return viewFrame
                 }
+                let windowLocal = view.convert(viewFrame, to: window)
+                let screenFrame = windowLocal.offsetBy(
+                    dx: window.frame.origin.x,
+                    dy: window.frame.origin.y
+                )
                 return Self.feedbackSettingsAccessibilityFrame(
                     viewLocalFrame: viewFrame,
-                    screenFrame: view.convert(viewFrame, to: nil)
+                    screenFrame: screenFrame
                 )
             },
             postNotification: { notification, target in
@@ -1027,7 +1032,16 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         applyIdleProgressFeedback(result)
         redraw()
         isRoutingToBattle = true
-        router?.buildingViewSceneDidRequestBattle(self)
+        // The router reports whether it accepted the transition. A nil router
+        // (e.g. the coder initializer) or a failed presentation must not leave
+        // isRoutingToBattle latched, or the scene becomes permanently inert.
+        // Unlike the Country Map's locked-city case, a failed Battle transition
+        // is an internal routing failure rather than an invalid user action, so
+        // it resets the latch without emitting invalid-action feedback.
+        guard router?.buildingViewSceneDidRequestBattle(self) ?? false else {
+            isRoutingToBattle = false
+            return
+        }
     }
 
     func layoutGateWillPause(at date: Date) {
@@ -1409,6 +1423,10 @@ extension BuildingViewScene {
 
     func requestBattleForTesting() {
         requestBattle()
+    }
+
+    var isRoutingToBattleForTesting: Bool {
+        isRoutingToBattle
     }
 
     func handleTouchForTesting(at point: CGPoint) {

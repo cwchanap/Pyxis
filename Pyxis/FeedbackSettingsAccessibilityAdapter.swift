@@ -272,7 +272,18 @@ final class FeedbackSettingsAccessibilityAdapter {
                 width: sceneFrame.width,
                 height: sceneFrame.height
             )
-            return containerView.convert(viewFrame, to: nil)
+            // accessibilityFrame requires screen coordinates. Converting to
+            // the window only reaches the window's coordinate system, which
+            // differs from screen space whenever the window origin is not
+            // (0,0) (Stage Manager, external display, windowed configurations).
+            // UIWindow.frame is expressed in the screen coordinate space, so
+            // offsetting the window-local rect by the window's frame origin
+            // yields true screen coordinates.
+            guard let window = containerView.window else {
+                return viewFrame
+            }
+            let windowLocal = containerView.convert(viewFrame, to: window)
+            return windowLocal.offsetBy(dx: window.frame.origin.x, dy: window.frame.origin.y)
         }
     }
 }
