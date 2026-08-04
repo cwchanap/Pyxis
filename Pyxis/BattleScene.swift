@@ -456,12 +456,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 // Their local view coordinates are still finite and let the
                 // Settings controller exercise its real accessibility wiring;
                 // an attached production scene converts to screen coordinates.
-                guard let view, view.window != nil else {
+                guard let view, let window = view.window else {
                     return viewFrame
                 }
+                let windowLocal = view.convert(viewFrame, to: window)
+                let screenFrame = windowLocal.offsetBy(
+                    dx: window.frame.origin.x,
+                    dy: window.frame.origin.y
+                )
                 return Self.feedbackSettingsAccessibilityFrame(
                     viewLocalFrame: viewFrame,
-                    screenFrame: view.convert(viewFrame, to: nil)
+                    screenFrame: screenFrame
                 )
             },
             postNotification: { notification, target in

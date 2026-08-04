@@ -1045,6 +1045,36 @@ struct BuildingViewSceneTests {
         #expect(restored.feedbackSettingsGearFrameForTesting != nil)
     }
 
+    // MARK: - requestBattle routing latch
+
+    @Test("Building View requestBattle does not latch isRoutingToBattle when router is nil")
+    func buildingViewRequestBattleDoesNotLatchWhenRouterIsNil() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, stageStatus: .battleActive))
+        // router defaults to nil, mirroring the coder initializer path where a
+        // failed/absent transition must not permanently lock the scene.
+        let scene = makeScene(store: store, router: nil)
+
+        scene.requestBattleForTesting()
+
+        #expect(!scene.isRoutingToBattleForTesting)
+
+        // The scene must remain interactive: a second request is still accepted.
+        scene.requestBattleForTesting()
+        #expect(!scene.isRoutingToBattleForTesting)
+    }
+
+    @Test("Building View requestBattle resets isRoutingToBattle when router refuses transition")
+    func buildingViewRequestBattleResetsWhenRouterRefuses() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, stageStatus: .battleActive))
+        let router = RefusingRouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestBattleForTesting()
+
+        #expect(router.battleRequestCount == 1)
+        #expect(!scene.isRoutingToBattleForTesting)
+    }
+
     // MARK: - Accessibility-driven activateFeedbackSettings
 
     @Test("Building View accessibility actions toggle preferences and close settings")
@@ -1352,10 +1382,21 @@ struct BuildingViewSceneTests {
     private final class RouteSpy: BuildingViewSceneRouting {
         private(set) var didRequestBattle = false
         private(set) var battleRequestCount = 0
+        var transitionResult = true
 
-        func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) {
+        func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) -> Bool {
             didRequestBattle = true
             battleRequestCount += 1
+            return transitionResult
+        }
+    }
+
+    private final class RefusingRouteSpy: BuildingViewSceneRouting {
+        private(set) var battleRequestCount = 0
+
+        func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) -> Bool {
+            battleRequestCount += 1
+            return false
         }
     }
 }

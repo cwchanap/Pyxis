@@ -38,10 +38,16 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
     private let backend: GameplayAudioBackend
     private let catalog: [GameplaySoundID: GameplaySoundResource]
     private let clock: MonotonicClock
-    private let preparationQueue = DispatchQueue(label: "com.pyxis.gameplay-sound-preparation")
+    private let backendQueue = DispatchQueue(label: "com.pyxis.gameplay-audio-backend")
     private let outputQueue = DispatchQueue(label: "com.pyxis.gameplay-sound-output")
 
     // All mutable controller state is owned exclusively by `outputQueue`.
+    // Every mutating `GameplayAudioBackend` call (graph rebuild, engine
+    // start/stop, session activation, voice creation, sound preparation, and
+    // lifecycle reset) is routed through the single serial `backendQueue` so
+    // no two backend mutations can overlap — in particular a media-services
+    // reset can never replace the engine/playerNodes/voices graph while a
+    // background or interruption event on `outputQueue` calls stopEngine().
     private var preparationState: SoundPreparationState = .unprepared
     private var preparedSounds: [GameplaySoundID: GameplayPreparedSound] = [:]
     private var voiceSlots: [VoiceSlot] = []
@@ -151,12 +157,14 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 invalidateReadyOutputForLifecycleRecovery()
             }
 
-            // Serialize the backend reset through preparationQueue so it never
-            // overlaps an in-flight prepareSound.  When recovery arrives during
-            // .preparing the reset waits behind the stale preparation work; the
-            // generation bump above already invalidates its stale completion.
+            // Serialize the backend reset through the shared backendQueue so it
+            // never overlaps any other backend mutation (stopEngine,
+            // setSessionActive, startEngine, makeVoice, or an in-flight
+            // prepareSound).  When recovery arrives during .preparing the reset
+            // waits behind the stale preparation work; the generation bump
+            // above already invalidates its stale completion.
             let backend = self.backend
-            preparationQueue.async { [weak self] in
+            backendQueue.async { [weak self] in
                 backend.resetForLifecycleRecovery()
                 self?.outputQueue.async { [weak self] in
                     guard let self else { return }
@@ -180,7 +188,9 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         preparationState = .preparing
 
         do {
-            try backend.configureAmbientSession()
+            try backendQueue.sync {
+                try backend.configureAmbientSession()
+            }
         } catch {
             preparationState = .failed
             log("Gameplay sound session configuration failed: \(error)")
@@ -190,9 +200,8 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         let resources = catalog.values.sorted { lhs, rhs in
             lhs.id.rawValue < rhs.id.rawValue
         }
-        let backend = backend
 
-        preparationQueue.async { [weak self, backend, resources] in
+        backendQueue.async { [weak self, backend, resources] in
             var completedCatalog: [GameplaySoundID: GameplayPreparedSound] = [:]
 
             do {
@@ -227,14 +236,16 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             return
         }
 
-        let slots = (0..<Self.voiceCount).map { index in
-            VoiceSlot(
-                index: index,
-                voice: backend.makeVoice(index: index),
-                scheduledAt: nil,
-                soundClass: nil,
-                scheduleGeneration: nil
-            )
+        let slots = backendQueue.sync { () -> [VoiceSlot] in
+            (0..<Self.voiceCount).map { index in
+                VoiceSlot(
+                    index: index,
+                    voice: backend.makeVoice(index: index),
+                    scheduledAt: nil,
+                    soundClass: nil,
+                    scheduleGeneration: nil
+                )
+            }
         }
 
         // The complete catalog is built off-queue and assigned only once all resources succeed.
@@ -312,16 +323,20 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
 
         var sessionActivated = false
         do {
-            try backend.setSessionActive(true, notifyOthers: false)
-            sessionActivated = true
-            try backend.startEngine()
+            try backendQueue.sync {
+                try backend.setSessionActive(true, notifyOthers: false)
+                sessionActivated = true
+                try backend.startEngine()
+            }
             isOutputActive = true
             nextActivationAttemptAt = nil
             return true
         } catch {
             if sessionActivated {
                 do {
-                    try backend.setSessionActive(false, notifyOthers: true)
+                    try backendQueue.sync {
+                        try backend.setSessionActive(false, notifyOthers: true)
+                    }
                 } catch {
                     log("Gameplay sound session deactivation after start failure failed: \(error)")
                 }
@@ -397,7 +412,9 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             voiceSlots[index].voice.stop()
         }
 
-        backend.stopEngine()
+        backendQueue.sync {
+            backend.stopEngine()
+        }
         preparedSounds = [:]
         voiceSlots = []
     }
@@ -410,12 +427,16 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             voiceSlots[index].scheduleGeneration = nil
         }
 
-        backend.stopEngine()
+        backendQueue.sync {
+            backend.stopEngine()
+        }
         isOutputActive = false
         nextActivationAttemptAt = nil
 
         do {
-            try backend.setSessionActive(false, notifyOthers: true)
+            try backendQueue.sync {
+                try backend.setSessionActive(false, notifyOthers: true)
+            }
         } catch {
             log("Gameplay sound deactivation failed: \(error)")
         }

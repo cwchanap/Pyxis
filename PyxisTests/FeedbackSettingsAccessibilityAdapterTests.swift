@@ -189,6 +189,42 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         #expect(gear.accessibilityFrame.height > 0)
     }
 
+    @Test func defaultFrameConverterProducesScreenCoordinatesForNonZeroWindowOrigin() throws {
+        // accessibilityFrame requires screen-space geometry. A window whose
+        // origin is not (0,0) — Stage Manager, external display, or other
+        // windowed configurations — must offset the converted frame by the
+        // window origin so VoiceOver focus and activation land correctly.
+        let window = UIWindow(frame: CGRect(x: 100, y: 200, width: 375, height: 667))
+        let containerView = UIView(frame: CGRect(x: 0, y: 0, width: 375, height: 667))
+        window.addSubview(containerView)
+
+        let adapter = FeedbackSettingsAccessibilityAdapter(containerView: containerView)
+        adapter.configureActions(
+            onGearActivate: {},
+            onToggleSoundEffects: {},
+            onToggleHaptics: {},
+            onClose: {}
+        )
+        let gearFrame = CGRect(x: 16, y: 24, width: 44, height: 44)
+        adapter.applyGear(frame: gearFrame)
+
+        let gear = try #require(accessibilityElements(in: containerView).onlyElement)
+        let viewLocalFrame = CGRect(
+            x: 16,
+            y: containerView.bounds.height - (24 + 44),
+            width: 44,
+            height: 44
+        )
+        let windowLocal = containerView.convert(viewLocalFrame, to: window)
+        let expectedScreenFrame = windowLocal.offsetBy(
+            dx: window.frame.origin.x,
+            dy: window.frame.origin.y
+        )
+        #expect(gear.accessibilityFrame == expectedScreenFrame)
+        #expect(gear.accessibilityFrame.origin.x == 100 + viewLocalFrame.origin.x)
+        #expect(gear.accessibilityFrame.origin.y == 200 + viewLocalFrame.origin.y)
+    }
+
     @Test func dismissingWithOpeningGearFallsBackToEmptyWhenGearIsNotAccessible() throws {
         let context = makeAccessibilityContext()
         let layout = try layoutFixture()

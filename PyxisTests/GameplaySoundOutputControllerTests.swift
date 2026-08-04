@@ -381,13 +381,45 @@ struct GameplaySoundOutputControllerTests {
         controller.handleLifecycleRecovery()
         // All outputQueue work (including the recovery dispatch) has settled,
         // yet the reset must not have run: it is queued behind the blocked
-        // prepareSound on preparationQueue.
+        // prepareSound on the shared backend queue.
         controller.drainOutputQueueForTesting()
         #expect(backend.lifecycleRecoveryCount == 0)
 
         // Once the stale preparation unblocks, the serialized reset runs.
         backend.releaseBlockedPreparation()
         try await waitUntil { backend.lifecycleRecoveryCount == 1 }
+    }
+
+    @Test func lifecycleRecoveryResetDoesNotOverlapStopEngine() async throws {
+        // A media-services reset dispatches resetForLifecycleRecovery onto the
+        // shared backend queue. While that reset is in flight, a background or
+        // interruption event drives stopAllAndDeactivateOnOutputQueue, which
+        // calls backend.stopEngine() through the same serial backend queue.
+        // stopEngine must wait for the reset to finish — it can never run
+        // concurrently with the graph replacement.
+        let backend = RecordingAudioBackend(blockingLifecycleRecovery: true)
+        let controller = try await preparedController(backend: backend)
+
+        controller.handleLifecycleRecovery()
+        // The recovery's invalidate step runs stopEngine first (on the backend
+        // queue), then queues the blocked reset behind it.
+        try await waitUntil { backend.calls.firstIndex(of: .stopEngine) != nil }
+        #expect(backend.waitForBlockedLifecycleRecovery())
+
+        // A background event arrives while the reset holds the backend queue.
+        // Its stopEngine call is dispatched via backendQueue.sync and must block.
+        controller.handleAppDidEnterBackground()
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(backend.calls.count { $0 == .stopEngine } == 1)
+
+        // Releasing the reset lets the queued stopEngine run, strictly after.
+        backend.releaseBlockedLifecycleRecovery()
+        try await waitUntil { backend.calls.count { $0 == .stopEngine } >= 2 }
+
+        let calls = backend.calls
+        let recoveryIndex = try #require(calls.firstIndex(of: .lifecycleRecovery))
+        let lastStopIndex = try #require(calls.lastIndex(of: .stopEngine))
+        #expect(recoveryIndex < lastStopIndex)
     }
 
     @Test func preparationCreatesExactlyEightFixedVoicesAndNeverAllocatesANinth() async throws {
@@ -840,6 +872,9 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     private let preparationFailuresOnCalls: Set<Int>
     private let preparationDidBlock = DispatchSemaphore(value: 0)
     private let continuePreparation = DispatchSemaphore(value: 0)
+    private let blocksLifecycleRecovery: Bool
+    private let lifecycleRecoveryDidBlock = DispatchSemaphore(value: 0)
+    private let continueLifecycleRecovery = DispatchSemaphore(value: 0)
     private let beforeFailingActivation: (() -> Void)?
     private var remainingActivationFailures: Int
     private var recordedCalls: [Call] = []
@@ -854,7 +889,8 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         blockingPreparationCalls: Set<Int> = [],
         activationFailuresRemaining: Int = 0,
         beforeFailingActivation: (() -> Void)? = nil,
-        preparationFailuresOnCalls: Set<Int> = []
+        preparationFailuresOnCalls: Set<Int> = [],
+        blockingLifecycleRecovery: Bool = false
     ) {
         var allBlockingPreparationCalls = blockingPreparationCalls
         if let blockingPreparationCall {
@@ -864,6 +900,7 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         remainingActivationFailures = activationFailuresRemaining
         self.beforeFailingActivation = beforeFailingActivation
         self.preparationFailuresOnCalls = preparationFailuresOnCalls
+        self.blocksLifecycleRecovery = blockingLifecycleRecovery
     }
 
     var calls: [Call] {
@@ -943,6 +980,11 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
 
     func resetForLifecycleRecovery() {
         record(.lifecycleRecovery)
+        guard blocksLifecycleRecovery else {
+            return
+        }
+        lifecycleRecoveryDidBlock.signal()
+        _ = continueLifecycleRecovery.wait(timeout: .now() + .seconds(5))
     }
 
     func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {
@@ -1018,6 +1060,14 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
 
     func releaseBlockedPreparation() {
         continuePreparation.signal()
+    }
+
+    func waitForBlockedLifecycleRecovery() -> Bool {
+        lifecycleRecoveryDidBlock.wait(timeout: .now() + .seconds(1)) == .success
+    }
+
+    func releaseBlockedLifecycleRecovery() {
+        continueLifecycleRecovery.signal()
     }
 
     private func record(_ call: Call) {

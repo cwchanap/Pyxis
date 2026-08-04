@@ -383,12 +383,17 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                     height: sceneFrame.height
                 )
 
-                guard let view, view.window != nil else {
+                guard let view, let window = view.window else {
                     return viewFrame
                 }
+                let windowLocal = view.convert(viewFrame, to: window)
+                let screenFrame = windowLocal.offsetBy(
+                    dx: window.frame.origin.x,
+                    dy: window.frame.origin.y
+                )
                 return Self.feedbackSettingsAccessibilityFrame(
                     viewLocalFrame: viewFrame,
-                    screenFrame: view.convert(viewFrame, to: nil)
+                    screenFrame: screenFrame
                 )
             },
             postNotification: { notification, target in
