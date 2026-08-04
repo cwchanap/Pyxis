@@ -40,6 +40,10 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
     func emit(_ event: GameplayFeedbackEvent) {
         let directive = GameplayFeedbackPolicy.directive(for: event)
 
+        guard directive.soundClass != .automaticCombat else {
+            return
+        }
+
         if let sound = directive.sound,
            let soundClass = directive.soundClass {
             emitSound(sound, soundClass: soundClass, gate: directive.soundGate)
@@ -128,7 +132,7 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
         switch gate {
         case .deploymentSound, .deploymentHaptic:
             0.120
-        case .constructionSound:
+        case .constructionSound, .constructionHaptic:
             0.250
         case .invalidSound, .invalidHaptic:
             0.500

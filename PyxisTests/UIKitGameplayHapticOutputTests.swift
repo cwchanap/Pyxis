@@ -86,21 +86,16 @@ struct UIKitGameplayHapticOutputTests {
     }
 
     @Test func defaultInitDoesNotCrashAndPlaysAllKindsWithoutThrowing() {
+        // The default init uses CoreHapticsCapabilityProvider which queries
+        // CHHapticEngine.capabilitiesForHardware().supportsHaptics. On the
+        // simulator this may return false, in which case generators are nil
+        // and play() is a no-op. Either way, init and play must not crash.
         let output = UIKitGameplayHapticOutput()
 
         output.play(.lightImpact)
         output.play(.mediumImpact)
         output.play(.warning)
         output.play(.strongSuccess)
-    }
-
-    @Test func defaultInitAccessesCoreHapticsCapabilityProvider() {
-        let output = UIKitGameplayHapticOutput()
-        // The default init uses CoreHapticsCapabilityProvider which queries
-        // CHHapticEngine.capabilitiesForHardware().supportsHaptics. On the
-        // simulator this may return false, in which case generators are nil
-        // and play() is a no-op. Either way, init and play must not crash.
-        output.play(.lightImpact)
     }
 
     @Test func realGeneratorFactoryCreatesAndPlaysAllKindsWhenCapabilityIsTrue() {

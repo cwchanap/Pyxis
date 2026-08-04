@@ -2020,13 +2020,13 @@ struct CountryMapSceneTests {
         )
         #expect(scene.isMapUnavailableForTesting)
 
-        // The gear node is not added when the map is unavailable, so the
-        // openFeedbackSettings guard (!isMapUnavailable) is never reached.
-        // Verify settings are never visible and no gear frame exists.
-        #expect(!scene.isFeedbackSettingsVisibleForTesting)
         // The gear node exists but has a zero frame since layout never ran.
-        let gearFrame = scene.feedbackSettingsGearFrameForTesting
-        #expect(gearFrame == .zero || gearFrame == nil)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        #expect(gearFrame == .zero)
+
+        // Tapping the gear's nominal location must not open settings.
+        scene.handleTouchForTesting(at: .zero)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
     }
 
     @Test("Country Map openFeedbackSettings is blocked while the layout gate is paused")

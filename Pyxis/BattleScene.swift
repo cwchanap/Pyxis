@@ -1043,13 +1043,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let contentWidth: CGFloat
         let buttonGap: CGFloat
         let battlefieldWidth: CGFloat
+        let resourceIconMaximum: CGFloat
 
         var leftHUDLabelWidth: CGFloat {
             leftHUDWidth - 20
-        }
-
-        var resourceIconMaximum: CGFloat {
-            compactHeight ? 26 : 30
         }
 
         var leftHUDStatusColumnWidth: CGFloat {
@@ -1119,7 +1116,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             buildButtonWidth: buildButtonWidth,
             contentWidth: contentWidth,
             buttonGap: buttonGap,
-            battlefieldWidth: battlefieldWidth
+            battlefieldWidth: battlefieldWidth,
+            resourceIconMaximum: resourceIconMaximum
         )
     }
 

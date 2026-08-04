@@ -91,7 +91,7 @@ struct GameplayFeedbackPolicyTests {
                     soundClass: .nonAutomatic,
                     soundGate: .constructionSound,
                     haptic: .mediumImpact,
-                    hapticGate: nil
+                    hapticGate: .constructionHaptic
                 )
             ),
             Mapping(

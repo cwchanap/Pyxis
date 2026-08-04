@@ -92,7 +92,8 @@ struct CountryMapLayoutTests {
         let layout = try supportedLayout(
             size: fixture.size,
             insets: fixture.insets,
-            layoutClass: fixture.layoutClass
+            layoutClass: fixture.layoutClass,
+            showsCurrentCityControl: true
         )
 
         #expect(layout.sceneFrame.contains(layout.titleControlRegionFrame))
@@ -237,7 +238,8 @@ struct CountryMapLayoutTests {
         let layout = try supportedLayout(
             size: CGSize(width: 834, height: 1194),
             insets: .init(top: 24, left: 50, bottom: 20, right: 50),
-            layoutClass: .pad
+            layoutClass: .pad,
+            showsCurrentCityControl: true
         )
         let safeMinX = layout.sceneFrame.minX + 50
         let safeMaxX = layout.sceneFrame.maxX - 50

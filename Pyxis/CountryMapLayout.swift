@@ -176,9 +176,12 @@ struct CountryMapLayout: Equatable {
                 height: TitleControlMetrics.gearHitSize
             )
             : nil
-        let titleTextMaxX = (currentCityControlFrame?.minX
-            ?? (titleControlRegionFrame.maxX - TitleControlMetrics.sideInset))
-            - (currentCityControlFrame == nil ? 0 : TitleControlMetrics.titleToCurrentCityGap)
+        let titleTextMaxX: CGFloat
+        if let currentCityControlFrame {
+            titleTextMaxX = currentCityControlFrame.minX - TitleControlMetrics.titleToCurrentCityGap
+        } else {
+            titleTextMaxX = titleControlRegionFrame.maxX - TitleControlMetrics.sideInset
+        }
         let titleTextFrame = CGRect(
             x: settingsControlFrame.maxX + TitleControlMetrics.gearToTitleGap,
             y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,

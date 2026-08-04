@@ -71,6 +71,8 @@ final class SettingsGearNode: SKNode {
         return localHitFrame.contains(convert(point, from: coordinateNode))
     }
 
+    var resolvedHitFrame: CGRect { hitFrame }
+
     private func configureTree() {
         name = Self.semanticName
         zPosition = GameUITheme.Z.hud + 2

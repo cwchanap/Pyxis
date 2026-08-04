@@ -113,6 +113,10 @@ struct CombatFeedbackProjectorTests {
         #expect(CombatFeedbackProjector.events(from: siege) == [.soldierAttack(.siege)])
     }
 
+    @Test func emptyTickResultProducesNoFeedbackEvents() {
+        #expect(CombatFeedbackProjector.events(from: BattleCombatState.TickResult()) == [])
+    }
+
     @Test func excludesFatalDamagedSoldiersFromHitFeedback() {
         var result = BattleCombatState.TickResult()
         result.damagedSoldierIDs = [41, 42]

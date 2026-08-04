@@ -35,6 +35,7 @@ enum GameplayGateID: Hashable {
     case deploymentSound
     case deploymentHaptic
     case constructionSound
+    case constructionHaptic
     case invalidSound
     case invalidHaptic
     case fortifiedWarningSound

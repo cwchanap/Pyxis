@@ -3,7 +3,7 @@
 **Issue:** HPA-389  
 **Dependency:** HPA-364  
 **Related:** HPA-362, HPA-388  
-**Status:** Third-pass review incorporated; awaiting user approval  
+**Status:** Third-pass review incorporated; approved  
 **Date:** 2026-08-01
 
 ## Goal

@@ -68,7 +68,7 @@ enum GameplayFeedbackPolicy {
                 soundClass: .nonAutomatic,
                 soundGate: .constructionSound,
                 haptic: .mediumImpact,
-                hapticGate: nil
+                hapticGate: .constructionHaptic
             )
         case .invalidAction:
             GameplayFeedbackDirective(

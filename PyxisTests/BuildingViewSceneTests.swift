@@ -1031,10 +1031,18 @@ struct BuildingViewSceneTests {
             size: CGSize(width: 390, height: 844),
             store: store
         )
-        let data = NSKeyedArchiver.archivedData(withRootObject: original)
-        let restored = NSKeyedUnarchiver.unarchiveObject(with: data) as? BuildingViewScene
-
-        #expect(restored != nil)
+        let archiveData = try NSKeyedArchiver.archivedData(
+            withRootObject: original,
+            requiringSecureCoding: false
+        )
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiveData)
+        unarchiver.requiresSecureCoding = false
+        let decoded = unarchiver.decodeObject(forKey: NSKeyedArchiveRootObjectKey) as? BuildingViewScene
+        unarchiver.finishDecoding()
+        let restored = try #require(decoded)
+        let view = SKView(frame: CGRect(origin: .zero, size: restored.size))
+        restored.didMove(to: view)
+        #expect(restored.feedbackSettingsGearFrameForTesting != nil)
     }
 
     // MARK: - Accessibility-driven activateFeedbackSettings

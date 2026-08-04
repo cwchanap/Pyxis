@@ -3131,7 +3131,7 @@ struct BattleSceneTests {
         feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil
     ) -> BattleScene {
         let resolvedFeedback = feedback ?? NoOpGameplayFeedbackProvider()
-        let resolvedFeedbackPreferences = feedbackPreferences ?? FeedbackPreferencesStore.shared
+        let resolvedFeedbackPreferences = feedbackPreferences ?? makePreferencesStore()
         let scene = BattleScene(
             size: size,
             store: store,
@@ -3157,6 +3157,13 @@ struct BattleSceneTests {
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(initialState)
         return store
+    }
+
+    private func makePreferencesStore() -> FeedbackPreferencesStore {
+        let suiteName = "PyxisTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return FeedbackPreferencesStore(defaults: defaults, key: "prefs")
     }
 
     private func stateWithBarracks(
