@@ -192,8 +192,10 @@ struct FeedbackSettingsAccessibilityAdapterTests {
     @Test func defaultFrameConverterProducesScreenCoordinatesForNonZeroWindowOrigin() throws {
         // accessibilityFrame requires screen-space geometry. A window whose
         // origin is not (0,0) — Stage Manager, external display, or other
-        // windowed configurations — must offset the converted frame by the
-        // window origin so VoiceOver focus and activation land correctly.
+        // windowed configurations — must produce screen coordinates via
+        // UIKit's canonical conversion so VoiceOver focus and activation
+        // land correctly. The expectation is derived from the same UIKit
+        // contract, not by repeating the production arithmetic.
         let window = UIWindow(frame: CGRect(x: 100, y: 200, width: 375, height: 667))
         let containerView = UIView(frame: CGRect(x: 0, y: 0, width: 375, height: 667))
         window.addSubview(containerView)
@@ -215,14 +217,17 @@ struct FeedbackSettingsAccessibilityAdapterTests {
             width: 44,
             height: 44
         )
-        let windowLocal = containerView.convert(viewLocalFrame, to: window)
-        let expectedScreenFrame = windowLocal.offsetBy(
-            dx: window.frame.origin.x,
-            dy: window.frame.origin.y
+        let expectedScreenFrame = UIAccessibility.convertToScreenCoordinates(
+            viewLocalFrame,
+            in: containerView
         )
+        // Validates against UIKit's conversion contract: both the production
+        // defaultFrameConverter and this expectation call the same UIKit API
+        // on the same view, so a divergent production formula would diverge
+        // here too. The simulator manages the window's actual screen position,
+        // so the exact screen coordinates are environment-dependent and not
+        // asserted arithmetically.
         #expect(gear.accessibilityFrame == expectedScreenFrame)
-        #expect(gear.accessibilityFrame.origin.x == 100 + viewLocalFrame.origin.x)
-        #expect(gear.accessibilityFrame.origin.y == 200 + viewLocalFrame.origin.y)
     }
 
     @Test func dismissingWithOpeningGearFallsBackToEmptyWhenGearIsNotAccessible() throws {

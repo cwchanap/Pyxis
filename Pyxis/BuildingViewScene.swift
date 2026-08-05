@@ -285,13 +285,12 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
                     height: sceneFrame.height
                 )
 
-                guard let view, let window = view.window else {
+                guard let view, view.window != nil else {
                     return viewFrame
                 }
-                let windowLocal = view.convert(viewFrame, to: window)
-                let screenFrame = windowLocal.offsetBy(
-                    dx: window.frame.origin.x,
-                    dy: window.frame.origin.y
+                let screenFrame = UIAccessibility.convertToScreenCoordinates(
+                    viewFrame,
+                    in: view
                 )
                 return Self.feedbackSettingsAccessibilityFrame(
                     viewLocalFrame: viewFrame,
