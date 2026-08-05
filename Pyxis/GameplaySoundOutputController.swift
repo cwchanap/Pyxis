@@ -236,22 +236,42 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             return
         }
 
-        let slots = backendQueue.sync { () -> [VoiceSlot] in
-            (0..<Self.voiceCount).map { index in
-                VoiceSlot(
-                    index: index,
-                    voice: backend.makeVoice(index: index),
-                    scheduledAt: nil,
-                    soundClass: nil,
-                    scheduleGeneration: nil
-                )
+        // Create voices asynchronously on the backend queue so the output
+        // queue is not blocked during voice creation.  A play request that
+        // arrives in that window sees preparation still .preparing and is
+        // dropped by playReadySound rather than queued for post-readiness
+        // scheduling.  The generation is revalidated after creation completes
+        // so a lifecycle recovery or retry that bumped it discards the stale
+        // voices instead of publishing them.
+        backendQueue.async { [weak self, backend, completedCatalog] in
+            let voices: [GameplayAudioVoice] = (0..<Self.voiceCount).map { index in
+                backend.makeVoice(index: index)
+            }
+
+            self?.outputQueue.async { [weak self, voices, completedCatalog, generation] in
+                guard let self else { return }
+                guard case .preparing = preparationState,
+                      generation == preparationGeneration
+                else {
+                    return
+                }
+
+                let slots = voices.enumerated().map { index, voice in
+                    VoiceSlot(
+                        index: index,
+                        voice: voice,
+                        scheduledAt: nil,
+                        soundClass: nil,
+                        scheduleGeneration: nil
+                    )
+                }
+
+                // The complete catalog is built off-queue and assigned only once all resources succeed.
+                preparedSounds = completedCatalog
+                voiceSlots = slots
+                preparationState = .ready
             }
         }
-
-        // The complete catalog is built off-queue and assigned only once all resources succeed.
-        preparedSounds = completedCatalog
-        voiceSlots = slots
-        preparationState = .ready
     }
 
     private func finishPreparationFailure(message: String, generation: UInt64) {
