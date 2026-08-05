@@ -402,7 +402,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         )
     }
 
-    private static func feedbackSettingsAccessibilityFrame(
+    static func feedbackSettingsAccessibilityFrame(
         viewLocalFrame: CGRect,
         screenFrame: CGRect
     ) -> CGRect {
@@ -1082,6 +1082,10 @@ extension CountryMapScene {
 
     var feedbackSettingsGearFrameForTesting: CGRect? {
         feedbackSettingsController?.gear.hitFrameForTesting
+    }
+
+    func activateFeedbackSettingsForTesting(_ action: FeedbackSettingsAction) {
+        activateFeedbackSettings(action)
     }
 
     var titleLabelFrameForTesting: CGRect {

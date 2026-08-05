@@ -758,6 +758,28 @@ struct GameViewControllerTests {
         #expect(secondView.scene is CountryMapScene)
     }
 
+    @Test func bindAccessibilityAdapterIsNoOpWhenAdapterAlreadyExists() throws {
+        let context = GameViewControllerRuntimeTestContext()
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+        context.runtime.bindAccessibilityAdapter(to: view)
+        #expect(context.accessibilityAdapterFactoryCallCount == 1)
+        let firstAdapter = context.runtime.accessibilityAdapter
+
+        // A second bind must not create a new adapter.
+        context.runtime.bindAccessibilityAdapter(to: view)
+        #expect(context.accessibilityAdapterFactoryCallCount == 1)
+        #expect(context.runtime.accessibilityAdapter === firstAdapter)
+    }
+
+    @Test func productionRuntimeCreatesAllExpectedComponents() {
+        let runtime = GameViewControllerFeedbackRuntime.production()
+
+        #expect(runtime.accessibilityAdapter == nil)
+        #expect(runtime.sound is GameplaySoundOutputController)
+        #expect(runtime.feedback is DefaultGameplayFeedbackCoordinator)
+    }
+
     private func makeGameViewController(store: KingdomGameStore) -> GameViewController {
         GameViewController(
             store: store,

@@ -213,4 +213,14 @@ struct FeedbackSettingsNodeTests {
         #expect(node.toggleControlCountForTesting == 2)
         #expect(node.controlCountForTesting == 3)
     }
+
+    @Test func gearContainsUsesHitFrameWhenNoParent() {
+        let gear = SettingsGearNode()
+        let frame = CGRect(x: 20, y: 40, width: 44, height: 44)
+        gear.apply(frame: frame)
+
+        // Without a parent, contains(_:) must fall back to hitFrame.contains.
+        #expect(gear.contains(CGPoint(x: frame.midX, y: frame.midY)))
+        #expect(!gear.contains(CGPoint(x: frame.maxX + 10, y: frame.midY)))
+    }
 }

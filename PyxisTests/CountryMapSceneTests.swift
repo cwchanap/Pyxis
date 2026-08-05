@@ -2360,6 +2360,74 @@ struct CountryMapSceneTests {
         }
     }
 
+    @Test("Country Map feedbackSettingsAccessibilityFrame falls back from nonfinite screen conversion")
+    func countryMapFeedbackSettingsAccessibilityFrameFallsBackFromNonfinite() {
+        let viewLocalFrame = CGRect(x: 12, y: 34, width: 44, height: 44)
+        let validScreenFrame = CGRect(x: 212, y: 334, width: 44, height: 44)
+        let invalidScreenFrame = CGRect(x: CGFloat.nan, y: 334, width: 44, height: 44)
+
+        #expect(CountryMapScene.feedbackSettingsAccessibilityFrame(
+            viewLocalFrame: viewLocalFrame,
+            screenFrame: invalidScreenFrame
+        ) == viewLocalFrame)
+        #expect(CountryMapScene.feedbackSettingsAccessibilityFrame(
+            viewLocalFrame: viewLocalFrame,
+            screenFrame: validScreenFrame
+        ) == validScreenFrame)
+    }
+
+    @Test("Country Map activateFeedbackSettings with consumed does nothing when settings are visible")
+    func countryMapActivateFeedbackSettingsConsumedDoesNothing() throws {
+        let preferences = RecordingFeedbackPreferencesManager()
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = makeScene(store: store, router: RouteSpy(), feedbackPreferences: preferences)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // .consumed must not toggle any preference or close the modal.
+        scene.activateFeedbackSettingsForTesting(.consumed)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(preferences.current.soundEffectsEnabled)
+        #expect(preferences.current.hapticsEnabled)
+    }
+
+    @Test("Country Map accessibility adapter uses screen coordinates when the view has a window")
+    func countryMapAccessibilityAdapterUsesScreenCoordinatesWithWindow() throws {
+        let window = UIWindow(frame: CGRect(x: 100, y: 200, width: 393, height: 852))
+        let store = try makeStore(initialState: KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let scene = CountryMapScene(
+            size: CGSize(width: 393, height: 852),
+            store: store,
+            router: RouteSpy(),
+            layoutEnvironmentOverride: .init(
+                safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            )
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: scene.size))
+        window.addSubview(view)
+        view.presentScene(scene)
+        scene.didMove(to: view)
+
+        // The gear frame should be non-zero and in screen coordinates
+        // (offset by the window origin) rather than view-local coordinates.
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        #expect(gearFrame.width > 0)
+        #expect(gearFrame.height > 0)
+    }
+
     private func makeScene(
         size: CGSize = CGSize(width: 393, height: 852),
         store: KingdomGameStore,

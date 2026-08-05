@@ -262,6 +262,23 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         #expect(context.posts.last?.target == nil)
         #expect(accessibilityElements(in: context.containerView).isEmpty)
     }
+
+    @Test func setSceneGearActionableIsNoOpWhenValueDoesNotChange() throws {
+        let context = makeAccessibilityContext()
+        context.adapter.configureActions(
+            onGearActivate: {},
+            onToggleSoundEffects: {},
+            onToggleHaptics: {},
+            onClose: {}
+        )
+        context.adapter.applyGear(frame: CGRect(x: 16, y: 24, width: 44, height: 44))
+
+        let postsBefore = context.posts.count
+        // Setting the same value (true → true) must be a no-op: no screen
+        // change notification, no element exposure change.
+        context.adapter.setSceneGearActionable(true)
+        #expect(context.posts.count == postsBefore)
+    }
 }
 
 @MainActor

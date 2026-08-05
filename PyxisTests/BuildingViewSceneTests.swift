@@ -1312,6 +1312,63 @@ struct BuildingViewSceneTests {
         #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
     }
 
+    @Test("Building View feedbackSettingsAccessibilityFrame falls back from nonfinite screen conversion")
+    func buildingViewFeedbackSettingsAccessibilityFrameFallsBackFromNonfinite() {
+        let viewLocalFrame = CGRect(x: 12, y: 34, width: 44, height: 44)
+        let validScreenFrame = CGRect(x: 212, y: 334, width: 44, height: 44)
+        let invalidScreenFrame = CGRect(x: CGFloat.nan, y: 334, width: 44, height: 44)
+
+        #expect(BuildingViewScene.feedbackSettingsAccessibilityFrame(
+            viewLocalFrame: viewLocalFrame,
+            screenFrame: invalidScreenFrame
+        ) == viewLocalFrame)
+        #expect(BuildingViewScene.feedbackSettingsAccessibilityFrame(
+            viewLocalFrame: viewLocalFrame,
+            screenFrame: validScreenFrame
+        ) == validScreenFrame)
+    }
+
+    @Test("Building View activateFeedbackSettings with consumed does nothing when settings are visible")
+    func buildingViewActivateFeedbackSettingsConsumedDoesNothing() throws {
+        let preferences = RecordingFeedbackPreferencesManager()
+        let scene = makeScene(
+            store: try makeStore(initialState: KingdomGameState(gold: 100)),
+            router: RouteSpy(),
+            feedbackPreferences: preferences
+        )
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.handleTouchForTesting(at: center(of: gearFrame))
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // .consumed must not toggle any preference or close the modal.
+        scene.activateFeedbackSettingsForTesting(.consumed)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(preferences.current.soundEffectsEnabled)
+        #expect(preferences.current.hapticsEnabled)
+    }
+
+    @Test("Building View accessibility adapter uses screen coordinates when the view has a window")
+    func buildingViewAccessibilityAdapterUsesScreenCoordinatesWithWindow() throws {
+        let window = UIWindow(frame: CGRect(x: 100, y: 200, width: 390, height: 844))
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = BuildingViewScene(
+            size: CGSize(width: 390, height: 844),
+            store: store,
+            router: RouteSpy()
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: scene.size))
+        window.addSubview(view)
+        view.presentScene(scene)
+        scene.didMove(to: view)
+
+        // The gear frame should be non-zero and in screen coordinates
+        // (offset by the window origin) rather than view-local coordinates.
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        #expect(gearFrame.width > 0)
+        #expect(gearFrame.height > 0)
+    }
+
     private func makeScene(
         size: CGSize = CGSize(width: 390, height: 844),
         store: KingdomGameStore,

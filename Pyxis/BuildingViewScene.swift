@@ -304,7 +304,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         )
     }
 
-    private static func feedbackSettingsAccessibilityFrame(
+    static func feedbackSettingsAccessibilityFrame(
         viewLocalFrame: CGRect,
         screenFrame: CGRect
     ) -> CGRect {
@@ -1326,6 +1326,10 @@ extension BuildingViewScene {
 
     var isHeaderTextHiddenForTesting: Bool {
         titleLabel.isHidden && goldLabel.isHidden
+    }
+
+    func activateFeedbackSettingsForTesting(_ action: FeedbackSettingsAction) {
+        activateFeedbackSettings(action)
     }
 
     var buildingSlotCountForTesting: Int {

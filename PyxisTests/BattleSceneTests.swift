@@ -188,6 +188,23 @@ struct BattleSceneTests {
         ) == validScreenFrame)
     }
 
+    @Test("Battle Settings activateFeedbackSettings with consumed does nothing when settings are visible")
+    func battleSettingsActivateFeedbackSettingsConsumedDoesNothing() throws {
+        let preferences = RecordingFeedbackPreferencesManager()
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
+        let scene = makeScene(store: store, router: BattleRouterSpy(), feedbackPreferences: preferences)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // .consumed must not toggle any preference or close the modal.
+        scene.activateFeedbackSettingsForTesting(.consumed)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(preferences.current.soundEffectsEnabled)
+        #expect(preferences.current.hapticsEnabled)
+    }
+
     @Test("Battle Settings consumes underlying controls and pauses only combat actions")
     func battleSettingsBlocksInputAndPausesTheBattlefieldActionLayer() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))

@@ -284,6 +284,28 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         #expect(preferences.cancellationCount == 1)
     }
 
+    @Test func emitDropsAutomaticCombatEventsWithoutPlayingSoundOrHaptic() {
+        let clock = AdjustableMonotonicClock(now: 0)
+        let preferences = RecordingFeedbackPreferencesManager()
+        let sound = RecordingGameplaySoundOutput()
+        let haptics = RecordingGameplayHapticOutput()
+        let coordinator = makeCoordinator(
+            preferences: preferences,
+            sound: sound,
+            haptics: haptics,
+            clock: clock
+        )
+
+        // Automatic combat events sent through emit(_:) (not emitAutomaticCombat)
+        // must be dropped by the guard without playing any sound or haptic.
+        coordinator.emit(.soldierAttack(.melee))
+        coordinator.emit(.towerFire)
+        coordinator.emit(.soldierDamage(.death))
+
+        #expect(sound.calls.isEmpty)
+        #expect(haptics.played.isEmpty)
+    }
+
     private func makeCoordinator(
         preferences: FeedbackPreferencesManaging,
         sound: GameplaySoundOutput,
