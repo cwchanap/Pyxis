@@ -43,6 +43,32 @@ struct GameplaySoundOutputControllerTests {
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
+    @Test func playDuringVoiceCreationIsDroppedRatherThanScheduled() async throws {
+        let backend = RecordingAudioBackend(blockingVoiceCreationCall: 0)
+        let controller = makeController(backend: backend)
+
+        controller.prepareIfNeeded()
+        // Wait for every prepareSound call to finish so the only remaining
+        // blocked work is voice creation on the backend queue.
+        try await waitUntil { backend.preparedResourceIDs.count == testCatalog.count }
+        #expect(backend.waitForBlockedVoiceCreation())
+
+        // A play request arriving while voice creation is still in flight
+        // (preparation still .preparing) must be dropped, not queued for
+        // post-readiness scheduling.
+        controller.play(.deployment, soundClass: .nonAutomatic)
+
+        backend.releaseBlockedVoiceCreation()
+        try await waitUntil { backend.createdVoiceIndices == Array(0...7) }
+        controller.drainOutputQueueForTesting()
+
+        #expect(backend.scheduledSoundIDs.isEmpty)
+
+        // After readiness, a fresh play schedules normally.
+        controller.play(.deployment, soundClass: .nonAutomatic)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+    }
+
     @Test func preparationPublishesNoPartialCatalogBeforeEveryResourceSucceeds() async throws {
         let backend = RecordingAudioBackend(blockingPreparationCall: 2)
         let controller = makeController(backend: backend, catalog: partialCatalog)
@@ -875,6 +901,9 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     private let blocksLifecycleRecovery: Bool
     private let lifecycleRecoveryDidBlock = DispatchSemaphore(value: 0)
     private let continueLifecycleRecovery = DispatchSemaphore(value: 0)
+    private let blockingVoiceCreationCalls: Set<Int>
+    private let voiceCreationDidBlock = DispatchSemaphore(value: 0)
+    private let continueVoiceCreation = DispatchSemaphore(value: 0)
     private let beforeFailingActivation: (() -> Void)?
     private var remainingActivationFailures: Int
     private var recordedCalls: [Call] = []
@@ -890,7 +919,9 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         activationFailuresRemaining: Int = 0,
         beforeFailingActivation: (() -> Void)? = nil,
         preparationFailuresOnCalls: Set<Int> = [],
-        blockingLifecycleRecovery: Bool = false
+        blockingLifecycleRecovery: Bool = false,
+        blockingVoiceCreationCall: Int? = nil,
+        blockingVoiceCreationCalls: Set<Int> = []
     ) {
         var allBlockingPreparationCalls = blockingPreparationCalls
         if let blockingPreparationCall {
@@ -901,6 +932,11 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         self.beforeFailingActivation = beforeFailingActivation
         self.preparationFailuresOnCalls = preparationFailuresOnCalls
         self.blocksLifecycleRecovery = blockingLifecycleRecovery
+        var allBlockingVoiceCreationCalls = blockingVoiceCreationCalls
+        if let blockingVoiceCreationCall {
+            allBlockingVoiceCreationCalls.insert(blockingVoiceCreationCall)
+        }
+        self.blockingVoiceCreationCalls = allBlockingVoiceCreationCalls
     }
 
     var calls: [Call] {
@@ -1030,9 +1066,15 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     }
 
     func makeVoice(index: Int) -> GameplayAudioVoice {
-        withLock {
+        let shouldBlockVoice = withLock { () -> Bool in
             recordedCalls.append(.makeVoice(index))
             recordedCreatedVoiceIndices.append(index)
+            return blockingVoiceCreationCalls.contains(index)
+        }
+
+        if shouldBlockVoice {
+            voiceCreationDidBlock.signal()
+            _ = continueVoiceCreation.wait(timeout: .now() + .seconds(5))
         }
 
         return RecordingAudioVoice(
@@ -1068,6 +1110,14 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
 
     func releaseBlockedLifecycleRecovery() {
         continueLifecycleRecovery.signal()
+    }
+
+    func waitForBlockedVoiceCreation() -> Bool {
+        voiceCreationDidBlock.wait(timeout: .now() + .seconds(1)) == .success
+    }
+
+    func releaseBlockedVoiceCreation() {
+        continueVoiceCreation.signal()
     }
 
     private func record(_ call: Call) {
