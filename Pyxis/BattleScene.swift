@@ -3238,6 +3238,10 @@ extension BattleScene {
         feedbackSettingsController?.gear.hitFrameForTesting
     }
 
+    func activateFeedbackSettingsForTesting(_ action: FeedbackSettingsAction) {
+        activateFeedbackSettings(action)
+    }
+
     var feedbackSettingsModalZPositionForTesting: CGFloat? {
         feedbackSettingsController?.modal.zPosition
     }

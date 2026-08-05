@@ -217,6 +217,23 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.engineStartCount == 0)
     }
 
+    @Test func lifecycleRecoveryStopsScheduledVoicesBeforeRebuildingGraph() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.play(.attackMelee, soundClass: .automaticCombat)
+        try await waitUntil { backend.scheduledSoundIDs == [.attackMelee] }
+
+        controller.handleLifecycleRecovery()
+        try await waitUntil { backend.lifecycleRecoveryCount == 1 }
+        try await waitUntil { backend.createdVoiceIndices == Array(0...7) + Array(0...7) }
+
+        // The voice that was playing must have been stopped during
+        // invalidateReadyOutputForLifecycleRecovery, before the reset.
+        #expect(backend.voiceOperations(for: 0) == [.schedule(.attackMelee), .stop])
+        #expect(backend.configuredAmbientSessionCount == 2)
+    }
+
     @Test func interruptionBeginStopsOutputAndDropsNewSounds() async throws {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
