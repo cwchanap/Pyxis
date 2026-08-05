@@ -2421,11 +2421,31 @@ struct CountryMapSceneTests {
         view.presentScene(scene)
         scene.didMove(to: view)
 
-        // The gear frame should be non-zero and in screen coordinates
+        // The gear accessibility element's frame must be in screen coordinates
         // (offset by the window origin) rather than view-local coordinates.
-        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
-        #expect(gearFrame.width > 0)
-        #expect(gearFrame.height > 0)
+        let gearSceneFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        #expect(gearSceneFrame.width > 0)
+        #expect(gearSceneFrame.height > 0)
+
+        // Access the gear accessibility element exposed by the adapter (not
+        // just the scene-local hit frame) and verify its accessibilityFrame
+        // matches the scene-to-screen conversion including the window origin.
+        let gearElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let gear = try #require(gearElements.onlyElement as? ActionAccessibilityElement)
+
+        let viewLocalFrame = CGRect(
+            x: gearSceneFrame.minX,
+            y: view.bounds.height - gearSceneFrame.maxY,
+            width: gearSceneFrame.width,
+            height: gearSceneFrame.height
+        )
+        let windowLocalFrame = view.convert(viewLocalFrame, to: window)
+        let expectedScreenFrame = windowLocalFrame.offsetBy(
+            dx: window.frame.origin.x,
+            dy: window.frame.origin.y
+        )
+
+        #expect(gear.accessibilityFrame == expectedScreenFrame)
     }
 
     private func makeScene(
