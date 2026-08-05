@@ -455,14 +455,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 // Unit-test scenes are deliberately detached from a UIWindow.
                 // Their local view coordinates are still finite and let the
                 // Settings controller exercise its real accessibility wiring;
-                // an attached production scene converts to screen coordinates.
-                guard let view, let window = view.window else {
+                // an attached production scene converts to screen coordinates
+                // via UIKit's canonical conversion (full view→window→screen
+                // transform chain, not a translation-only offset).
+                guard let view, view.window != nil else {
                     return viewFrame
                 }
-                let windowLocal = view.convert(viewFrame, to: window)
-                let screenFrame = windowLocal.offsetBy(
-                    dx: window.frame.origin.x,
-                    dy: window.frame.origin.y
+                let screenFrame = UIAccessibility.convertToScreenCoordinates(
+                    viewFrame,
+                    in: view
                 )
                 return Self.feedbackSettingsAccessibilityFrame(
                     viewLocalFrame: viewFrame,
