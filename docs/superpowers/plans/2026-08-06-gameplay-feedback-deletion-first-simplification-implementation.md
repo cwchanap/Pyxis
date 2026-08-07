@@ -4,11 +4,11 @@
 
 **Issue:** HPA-566  
 **Design:** `docs/superpowers/specs/2026-08-06-gameplay-feedback-deletion-first-simplification-design.md`  
-**Start condition:** Do not begin implementation solely for cleanup until the HPA-566 Linear start condition is met.  
+**Start condition:** Do not begin implementation solely for cleanup until the HPA-566 Linear start condition is met.
 
-**Goal:** Delete unnecessary gameplay-feedback projection, policy, directive, gate, duplicated sound-class, speculative-warning, and preference-delivery machinery while preserving current player-visible SFX, haptics, settings, automatic-combat restraint, and interruption-safe playback.
+**Goal:** Delete unnecessary gameplay-feedback projection, policy, directive, generic gate, duplicated sound-class, speculative-warning, and preference-delivery machinery while preserving current player-visible SFX, haptics, settings, automatic-combat restraint, accessibility, and interruption-safe playback.
 
-**Architecture:** Keep a small scene-facing semantic API for discrete feedback. Pass `BattleCombatState.TickResult` directly to the automatic scheduler. Inline discrete mapping in `DefaultGameplayFeedbackCoordinator`. Make `GameplaySoundCatalog` the sole sound-class authority. Persist the two settings as direct Boolean `UserDefaults` values with one simple synchronous observer path for the coordinator.
+**Architecture:** Keep six scene-facing discrete semantic events. Pass `BattleCombatState.TickResult` directly to `AutomaticCombatFeedbackScheduler`, which projects/coalesces the tick and returns at most one `GameplaySoundID`. Inline discrete mapping in `DefaultGameplayFeedbackCoordinator`. Make `GameplaySoundCatalog` the sole sound-class authority. Persist two settings as Boolean `UserDefaults` values with a small synchronous cancellable observer registry used by the coordinator.
 
 **Tech Stack:** Swift 5, SpriteKit, UIKit, AVFoundation/AVAudioEngine, Swift Testing, UserDefaults, Xcode/xcodebuild, SwiftLint.
 
@@ -51,13 +51,22 @@
 - `Pyxis/FeedbackPreferencesStore.swift`
 - `Pyxis/FeedbackSettingsController.swift`
 - `Pyxis/BattleScene.swift`
-- related behavior tests
+- `PyxisTests/AutomaticCombatFeedbackSchedulerTests.swift`
+- `PyxisTests/DefaultGameplayFeedbackCoordinatorTests.swift`
+- `PyxisTests/FeedbackPreferencesStoreTests.swift`
+- `PyxisTests/FeedbackPreferencesTests.swift`
+- `PyxisTests/FeedbackSettingsControllerTests.swift`
+- `PyxisTests/GameplayFeedbackTestDoubles.swift`
+- `PyxisTests/GameplayFeedbackTests.swift`
+- `PyxisTests/GameplaySoundCatalogTests.swift`
+- `PyxisTests/GameplaySoundOutputControllerTests.swift`
+- `PyxisTests/GameViewControllerTests.swift`
 - `docs/audio-assets.md`
 - `CLAUDE.md`
 
 ---
 
-### Task 1: Lock behavior before deleting structure
+### Task 1: Lock player-visible behavior before deleting structure
 
 **Files:**
 - Modify: `PyxisTests/DefaultGameplayFeedbackCoordinatorTests.swift`
@@ -67,11 +76,11 @@
 
 **Interfaces:**
 - Consumes: current HPA-364/HPA-389 interfaces.
-- Produces: behavior-level regression coverage independent of policy/directive/projector shape.
+- Produces: behavior-level regression coverage that does not depend on policy/directive/projector shape.
 
-- [ ] **Step 1: Add one discrete mapping behavior test**
+- [ ] **Step 1: Add a permanent table-driven discrete mapping test**
 
-Add a table-driven coordinator test for the six reachable discrete events:
+Add this test to `DefaultGameplayFeedbackCoordinatorTests`:
 
 ```swift
 @Test func reachableDiscreteEventsEmitCurrentOutputs() {
@@ -102,17 +111,17 @@ Add a table-driven coordinator test for the six reachable discrete events:
 
         coordinator.emit(testCase.event)
 
-        #expect(sound.playedSoundIDs == [testCase.sound])
+        #expect(sound.calls == [.play(testCase.sound, .nonAutomatic)])
         #expect(haptics.played == testCase.haptic.map { [$0] } ?? [])
     }
 }
 ```
 
-If needed, implement `playedSoundIDs` as a test-only computed property over existing `.play` calls. Do not change production code in this step.
+This test is permanent. Later tasks update only the sound-call shape after `GameplaySoundOutput` loses the redundant class parameter.
 
-- [ ] **Step 2: Keep the existing independent cooldown tests**
+- [ ] **Step 2: Keep independent channel cooldown behavior tests**
 
-Retain behavior coverage for:
+Retain the existing assertions for:
 
 - deployment sound/haptic 120 ms gates when one channel is disabled/re-enabled;
 - construction 250 ms gates;
@@ -120,11 +129,18 @@ Retain behavior coverage for:
 - outcomes not time-gated;
 - disabling sound immediately calling `stopAllAndDeactivate()`.
 
-Delete no tests yet.
+Do not replace these with internal gate-ID tests.
 
-- [ ] **Step 3: Add reusable `TickResult` fixtures next to scheduler tests**
+- [ ] **Step 3: Add reusable `TickResult` fixtures beside scheduler tests**
 
-Add helpers for tower-only, siege-only, melee-only, ranged-only, hit-only, death-only, and dense ticks. The dense fixture must contain death, tower fire, all three attack families, and one non-fatal damaged soldier.
+Add helpers for tower-only, siege-only, ranged-only, melee-only, hit-only, death-only, attack-free, and dense ticks.
+
+The dense fixture must contain:
+
+- at least one death;
+- at least one tower shot;
+- siege, ranged, and melee attacks;
+- one surviving damaged soldier so `.soldierHit` is eligible independently of the fatal soldier.
 
 Representative fixture:
 
@@ -143,18 +159,36 @@ private func denseTickResult() -> BattleCombatState.TickResult {
         BattleCombatState.TowerShot(soldierID: 90, damage: 3)
     ]
     result.soldierAttacks = [
-        SoldierAttackEvent(soldierID: 1, type: .siege, source: .manual, lane: .left, appliedCityDamage: 2),
-        SoldierAttackEvent(soldierID: 2, type: .archer, source: .building, lane: .center, appliedCityDamage: 2),
-        SoldierAttackEvent(soldierID: 3, type: .infantry, source: .manual, lane: .right, appliedCityDamage: 2)
+        SoldierAttackEvent(
+            soldierID: 1,
+            type: .siege,
+            source: .manual,
+            lane: .left,
+            appliedCityDamage: 2
+        ),
+        SoldierAttackEvent(
+            soldierID: 2,
+            type: .archer,
+            source: .building,
+            lane: .center,
+            appliedCityDamage: 2
+        ),
+        SoldierAttackEvent(
+            soldierID: 3,
+            type: .infantry,
+            source: .manual,
+            lane: .right,
+            appliedCityDamage: 2
+        )
     ]
     result.damagedSoldierIDs = [90, 91]
     return result
 }
 ```
 
-Do not change the scheduler input yet.
+Do not change scheduler production input in this task.
 
-- [ ] **Step 4: Run focused tests**
+- [ ] **Step 4: Run focused tests before any deletion**
 
 ```bash
 xcodebuild test \
@@ -168,9 +202,9 @@ xcodebuild test \
   -only-testing:PyxisTests/GameViewControllerTests
 ```
 
-Expected: PASS before production deletion begins.
+Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit the characterization tests**
 
 ```bash
 git add \
@@ -181,7 +215,7 @@ git commit -m "test: lock gameplay feedback behavior"
 
 ---
 
-### Task 2: Collapse automatic combat projection into the scheduler
+### Task 2: Collapse automatic combat projection and shrink the semantic contract atomically
 
 **Files:**
 - Modify: `Pyxis/GameplayFeedback.swift`
@@ -197,12 +231,25 @@ git commit -m "test: lock gameplay feedback behavior"
 - Delete: `PyxisTests/CombatFeedbackProjectorTests.swift`
 
 **Interfaces:**
+- Consumes: `BattleCombatState.TickResult`.
 - Produces: `GameplayFeedbackProviding.emitAutomaticCombat(_ result: BattleCombatState.TickResult)`.
+- Produces: six-case discrete `GameplayFeedbackEvent`.
 - Produces: `AutomaticCombatFeedbackScheduler.selectSound(from:at:) -> GameplaySoundID?`.
 
-- [ ] **Step 1: Change the automatic provider signature**
+- [ ] **Step 1: Change the provider automatic signature and shrink `GameplayFeedbackEvent` in the same edit**
+
+Replace the semantic contract with:
 
 ```swift
+enum GameplayFeedbackEvent: Hashable {
+    case manualDeployment
+    case buildingChanged
+    case invalidAction
+    case goldReward
+    case cityConquest
+    case countryCompletion
+}
+
 protocol GameplayFeedbackProviding: AnyObject {
     func emit(_ event: GameplayFeedbackEvent)
     func emitAutomaticCombat(_ result: BattleCombatState.TickResult)
@@ -214,11 +261,22 @@ final class NoOpGameplayFeedbackProvider: GameplayFeedbackProviding {
 }
 ```
 
-Update recording providers to count automatic calls or record only the fields their tests actually inspect. Do not create an automatic-event replacement model.
+Delete from `GameplayFeedback.swift` in this step:
 
-- [ ] **Step 2: Change the scheduler to consume `TickResult` directly**
+- `.soldierAttack`;
+- `.towerFire`;
+- `.soldierDamage`;
+- `.fortifiedLaneWarning`;
+- `SoldierAttackSoundCategory`;
+- `SoldierDamageSoundKind`.
 
-Target signature:
+This ordering is required so Task 3 can use an exhaustive six-case switch without adding a catch-all `default`.
+
+Update recording providers so automatic calls accept `TickResult`. Record only what existing scene/runtime tests need, such as call count, rather than creating a replacement automatic event model.
+
+- [ ] **Step 2: Move projector coalescing into `AutomaticCombatFeedbackScheduler`**
+
+Change the scheduler API to:
 
 ```swift
 mutating func selectSound(
@@ -227,7 +285,7 @@ mutating func selectSound(
 ) -> GameplaySoundID?
 ```
 
-Use this candidate order:
+Derive candidates in this exact order:
 
 ```swift
 private func candidates(from result: BattleCombatState.TickResult) -> [GameplaySoundID] {
@@ -246,7 +304,7 @@ private func candidates(from result: BattleCombatState.TickResult) -> [GameplayS
 }
 ```
 
-Map soldier types directly:
+Map attack sounds directly:
 
 ```swift
 private func attackSound(for type: SoldierType) -> GameplaySoundID {
@@ -261,9 +319,49 @@ private func attackSound(for type: SoldierType) -> GameplaySoundID {
 }
 ```
 
-Use existing state for the global gate and fairness. Replace per-event timestamps with sound IDs. Keep one explicit shared `lastHitOrDeathAt` for `.soldierHit` and `.soldierDeath` rather than creating a new public/private gate type.
+- [ ] **Step 3: Retain the scheduler's private gate family representation**
 
-Attack rotation is exactly:
+Keep a private enum shaped like the existing scheduler:
+
+```swift
+private enum Gate {
+    case melee
+    case ranged
+    case siege
+    case tower
+    case hitDeath
+
+    var interval: TimeInterval {
+        switch self {
+        case .melee, .ranged, .siege:
+            0.200
+        case .tower:
+            0.250
+        case .hitDeath:
+            0.300
+        }
+    }
+}
+```
+
+Map sound IDs to gates:
+
+```swift
+private func gate(for sound: GameplaySoundID) -> Gate? {
+    switch sound {
+    case .attackMelee: .melee
+    case .attackRanged: .ranged
+    case .attackSiege: .siege
+    case .towerFire: .tower
+    case .soldierHit, .soldierDeath: .hitDeath
+    default: nil
+    }
+}
+```
+
+Retain one timestamp per private gate family. Do not key shared hit/death gating directly by sound ID, and do not create a public/general gate type.
+
+Attack fairness rotates concrete sounds:
 
 ```swift
 private static let attackOrder: [GameplaySoundID] = [
@@ -273,7 +371,9 @@ private static let attackOrder: [GameplaySoundID] = [
 ]
 ```
 
-- [ ] **Step 3: Update coordinator automatic flow**
+- [ ] **Step 4: Update coordinator and BattleScene automatic flow**
+
+Coordinator:
 
 ```swift
 func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
@@ -292,9 +392,7 @@ func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
 
 Keep the old sound-output signature until Task 3.
 
-- [ ] **Step 4: Update the single BattleScene call**
-
-Replace:
+In `BattleScene`, replace:
 
 ```swift
 feedback.emitAutomaticCombat(CombatFeedbackProjector.events(from: result))
@@ -308,21 +406,63 @@ feedback.emitAutomaticCombat(result)
 
 Do not otherwise restructure `advanceCombat`.
 
-- [ ] **Step 5: Rewrite scheduler tests around `TickResult`**
+- [ ] **Step 5: Port the complete fairness contract to `TickResult` tests**
 
-Retain exact boundary/fairness behavior. Dense sequence must still include:
+The dense fairness test must keep all current checkpoints:
 
 ```swift
-#expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
-#expect(scheduler.selectSound(from: dense, at: 0.150) == .towerFire)
-#expect(scheduler.selectSound(from: dense, at: 0.300) == .attackSiege)
-#expect(scheduler.selectSound(from: dense, at: 0.750) == .attackRanged)
-#expect(scheduler.selectSound(from: dense, at: 1.200) == .attackMelee)
+@Test func reservesEveryThirdEligibleWindowAndRotatesAttackSounds() {
+    let dense = denseTickResult()
+    var scheduler = AutomaticCombatFeedbackScheduler()
+
+    #expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
+    #expect(scheduler.selectSound(from: dense, at: 0.150) == .towerFire)
+    #expect(scheduler.selectSound(from: dense, at: 0.300) == .attackSiege)
+    #expect(scheduler.selectSound(from: dense, at: 0.450) == .soldierDeath)
+    #expect(scheduler.selectSound(from: dense, at: 0.600) == .towerFire)
+    #expect(scheduler.selectSound(from: dense, at: 0.750) == .attackRanged)
+    #expect(scheduler.selectSound(from: dense, at: 0.900) == .soldierDeath)
+    #expect(scheduler.selectSound(from: dense, at: 1.050) == .towerFire)
+    #expect(scheduler.selectSound(from: dense, at: 1.200) == .attackMelee)
+}
 ```
 
-Keep tests for:
+Port the current starvation-state test:
 
-- exact 150/200/250/300 ms boundaries;
+```swift
+@Test func closedGlobalGateDoesNotChangeStarvationState() {
+    let dense = denseTickResult()
+    var scheduler = AutomaticCombatFeedbackScheduler()
+
+    #expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
+    #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.075) == nil)
+    #expect(scheduler.selectSound(from: dense, at: 0.150) == .towerFire)
+    #expect(scheduler.selectSound(from: dense, at: 0.300) == .attackSiege)
+}
+```
+
+Port the starvation-reset test:
+
+```swift
+@Test func resetsStarvationWhenNoAttackFamilyIsOpen() {
+    let dense = denseTickResult()
+    var scheduler = AutomaticCombatFeedbackScheduler()
+
+    #expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
+    #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.150) == .towerFire)
+    #expect(scheduler.selectSound(from: dense, at: 0.300) == .soldierDeath)
+}
+```
+
+Also retain tests for:
+
+- exact 150 ms global boundary and immediately-before boundary;
+- exact 200 ms melee/ranged/siege boundaries;
+- exact 250 ms tower boundary;
+- shared 300 ms death->hit and hit->death boundaries;
+- global window not consumed when only a present family is closed;
+- attack-only rotation siege -> ranged -> melee;
+- rotated-attack fallback to a non-attack when no attack is eligible;
 - Infantry/Cavalry -> melee;
 - Archer/Mage -> ranged;
 - Siege -> siege;
@@ -330,6 +470,8 @@ Keep tests for:
 - fatal damaged soldiers not also yielding hit;
 - empty tick yielding nil;
 - disabled sound not advancing scheduler state at coordinator level.
+
+Delete `nonGatedEventsAreFilteredOutWithoutBlockingEligibleEvents`; mixed semantic arrays no longer exist with `TickResult` input.
 
 - [ ] **Step 6: Delete projector files**
 
@@ -339,7 +481,7 @@ git rm \
   PyxisTests/CombatFeedbackProjectorTests.swift
 ```
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 7: Run the scheduler/scene/runtime slice**
 
 ```bash
 xcodebuild test \
@@ -350,12 +492,13 @@ xcodebuild test \
   -only-testing:PyxisTests/AutomaticCombatFeedbackSchedulerTests \
   -only-testing:PyxisTests/DefaultGameplayFeedbackCoordinatorTests \
   -only-testing:PyxisTests/BattleSceneTests \
+  -only-testing:PyxisTests/GameplayFeedbackTests \
   -only-testing:PyxisTests/GameViewControllerTests
 ```
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Commit the automatic-pipeline collapse**
 
 ```bash
 git add Pyxis PyxisTests
@@ -364,7 +507,7 @@ git commit -m "refactor: collapse automatic combat feedback pipeline"
 
 ---
 
-### Task 3: Delete policy/directive/gates and make the catalog authoritative
+### Task 3: Delete policy/directive/generic gates and make the catalog authoritative
 
 **Files:**
 - Modify: `Pyxis/DefaultGameplayFeedbackCoordinator.swift`
@@ -380,10 +523,11 @@ git commit -m "refactor: collapse automatic combat feedback pipeline"
 - Delete: `PyxisTests/GameplayFeedbackPolicyTests.swift`
 
 **Interfaces:**
+- Consumes: six-case `GameplayFeedbackEvent` from Task 2.
 - Produces: `GameplaySoundOutput.play(_ sound: GameplaySoundID)`.
 - Keeps: `GameplaySoundClass` only inside catalog/output voice selection.
 
-- [ ] **Step 1: Remove transport types and simplify sound output**
+- [ ] **Step 1: Remove directive and generic gate transport types**
 
 Delete `GameplayGateID` and `GameplayFeedbackDirective` from `GameplayOutputProtocols.swift`.
 
@@ -399,9 +543,9 @@ to:
 func play(_ sound: GameplaySoundID)
 ```
 
-- [ ] **Step 2: Inline the six discrete mappings in the coordinator**
+- [ ] **Step 2: Inline the six discrete mappings with an exhaustive switch**
 
-Replace `GameplayFeedbackPolicy.directive(for:)` with one switch:
+Use this shape in `DefaultGameplayFeedbackCoordinator`:
 
 ```swift
 func emit(_ event: GameplayFeedbackEvent) {
@@ -409,17 +553,22 @@ func emit(_ event: GameplayFeedbackEvent) {
     case .manualDeployment:
         emitSound(.deployment, for: event, interval: 0.120)
         emitHaptic(.lightImpact, for: event, interval: 0.120)
+
     case .buildingChanged:
         emitSound(.construction, for: event, interval: 0.250)
         emitHaptic(.mediumImpact, for: event, interval: 0.250)
+
     case .invalidAction:
         emitSound(.blocked, for: event, interval: 0.500)
         emitHaptic(.warning, for: event, interval: 0.500)
+
     case .goldReward:
         emitSound(.goldReward)
+
     case .cityConquest:
         emitSound(.cityConquest)
         emitHaptic(.strongSuccess)
+
     case .countryCompletion:
         emitSound(.countryCompletion)
         emitHaptic(.strongSuccess)
@@ -427,18 +576,20 @@ func emit(_ event: GameplayFeedbackEvent) {
 }
 ```
 
-Use separate dictionaries so channel cooldowns stay independent:
+Do not add a `default` case.
+
+Use separate channel dictionaries:
 
 ```swift
 private var lastSoundAt: [GameplayFeedbackEvent: TimeInterval] = [:]
 private var lastHapticAt: [GameplayFeedbackEvent: TimeInterval] = [:]
 ```
 
-A helper must only record a timestamp after that channel passes its enabled check.
+Each helper must check its own preference first and record a timestamp only after that channel is eligible. This preserves independent cooldown state when one channel is disabled/re-enabled.
 
 - [ ] **Step 3: Remove sound class from automatic playback**
 
-Task 2's automatic method becomes:
+Automatic flow becomes:
 
 ```swift
 func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
@@ -455,9 +606,9 @@ func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
 }
 ```
 
-- [ ] **Step 4: Resolve sound class from catalog in `GameplaySoundOutputController`**
+- [ ] **Step 4: Resolve sound class from the catalog inside `GameplaySoundOutputController`**
 
-Public entry point:
+Public entry:
 
 ```swift
 func play(_ sound: GameplaySoundID) {
@@ -467,7 +618,7 @@ func play(_ sound: GameplaySoundID) {
 }
 ```
 
-Inside the existing ready-play path, resolve:
+At ready playback:
 
 ```swift
 guard let resource = catalog[soundID] else {
@@ -476,9 +627,11 @@ guard let resource = catalog[soundID] else {
 }
 ```
 
-Use `resource.soundClass` for `selectVoiceIndex(for:)` and the voice slot's `soundClass` value. Do not change any other voice/lifecycle logic.
+Use `resource.soundClass` for `selectVoiceIndex(for:)` and the voice slot's `soundClass`. Do not change preparation, activation, voice capacity, lifecycle, or interruption logic.
 
-- [ ] **Step 5: Simplify recording sound output and expectations**
+- [ ] **Step 5: Simplify recording sound output**
+
+Use:
 
 ```swift
 final class RecordingGameplaySoundOutput: GameplaySoundOutput {
@@ -490,15 +643,23 @@ final class RecordingGameplaySoundOutput: GameplaySoundOutput {
 
     private(set) var calls: [Call] = []
 
+    func prepareIfNeeded() {
+        calls.append(.prepareIfNeeded)
+    }
+
     func play(_ sound: GameplaySoundID) {
         calls.append(.play(sound))
+    }
+
+    func stopAllAndDeactivate() {
+        calls.append(.stopAllAndDeactivate)
     }
 }
 ```
 
-Update expected call arrays mechanically.
+Update the Task 1 permanent mapping test to expect `.play(testCase.sound)`.
 
-- [ ] **Step 6: Delete policy files and duplicate-authority test**
+- [ ] **Step 6: Delete policy files and duplicated-authority tests**
 
 ```bash
 git rm \
@@ -506,9 +667,11 @@ git rm \
   PyxisTests/GameplayFeedbackPolicyTests.swift
 ```
 
-Delete `GameplaySoundCatalogTests.policyDirectiveSoundClassesMatchCatalogEntries()`. Keep catalog completeness, bundle, duration, and license tests.
+Delete `GameplaySoundCatalogTests.policyDirectiveSoundClassesMatchCatalogEntries()`.
 
-- [ ] **Step 7: Run focused tests**
+Keep catalog completeness, bundle, duration, and license/manifest tests.
+
+- [ ] **Step 7: Run coordinator/catalog/output tests**
 
 ```bash
 xcodebuild test \
@@ -524,7 +687,7 @@ xcodebuild test \
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Commit the discrete/output collapse**
 
 ```bash
 git add Pyxis PyxisTests
@@ -547,10 +710,13 @@ git commit -m "refactor: inline gameplay feedback policy"
 - Modify: `PyxisTests/GameViewControllerTests.swift`
 
 **Interfaces:**
-- Produces: a two-field `FeedbackPreferences` value and `FeedbackPreferencesManaging` with one simple synchronous cancellable observer registry.
+- Consumes: two UI toggles and one coordinator observer.
+- Produces: two-field `FeedbackPreferences` and `FeedbackPreferencesManaging` with a simple synchronous cancellable callback registry.
 - Production keys: `pyxis.feedback.soundEffectsEnabled`, `pyxis.feedback.hapticsEnabled`.
 
-- [ ] **Step 1: Remove `Codable` from the preference value**
+- [ ] **Step 1: Remove Codable-specific preference machinery**
+
+Use:
 
 ```swift
 struct FeedbackPreferences: Equatable, Sendable {
@@ -569,11 +735,11 @@ struct FeedbackPreferences: Equatable, Sendable {
 }
 ```
 
-Delete custom decoding and coding keys.
+Delete custom `CodingKeys` and `init(from:)`.
 
-- [ ] **Step 2: Give the store an exact key-prefix interface**
+- [ ] **Step 2: Replace the JSON store with two exact Boolean keys**
 
-Use this initializer:
+Use:
 
 ```swift
 @MainActor
@@ -602,13 +768,13 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
 }
 ```
 
-Tests use a unique prefix such as `feedback.<UUID>`. Production uses the default prefix.
+Tests use an isolated `UserDefaults` suite and a unique prefix such as `feedback.<UUID>`.
 
-Do not read, migrate, rewrite, or delete the old `pyxis.feedbackPreferences` JSON key.
+Do not read, migrate, rewrite, or delete `pyxis.feedbackPreferences`.
 
-- [ ] **Step 3: Implement minimal setters and observation**
+- [ ] **Step 3: Implement minimal setters and cancellable observation**
 
-Setter:
+Sound setter:
 
 ```swift
 @discardableResult
@@ -622,7 +788,7 @@ func setSoundEffectsEnabled(_ enabled: Bool) -> FeedbackPreferences {
 }
 ```
 
-Implement the equivalent haptics setter.
+Use the same shape for haptics.
 
 Observation:
 
@@ -647,13 +813,13 @@ private func notifyObservers() {
 }
 ```
 
-Keep token cancellation idempotent. Do not track observer order, versions, or stale-delivery semantics.
+Keep token cancellation idempotent. Do not track observer order, delivery versions, stale snapshots, or nested registration semantics.
 
 - [ ] **Step 4: Remove settings-controller observation**
 
-Delete its observation property and registration.
+Delete the controller's observation property and `observe` registration.
 
-Refresh at modal open:
+Refresh at `open()`:
 
 ```swift
 @discardableResult
@@ -676,15 +842,21 @@ private func toggleSoundEffects() {
         preferencesManager.setSoundEffectsEnabled(!preferences.soundEffectsEnabled)
     )
 }
+
+private func toggleHaptics() {
+    applyPreferences(
+        preferencesManager.setHapticsEnabled(!preferences.hapticsEnabled)
+    )
+}
 ```
 
-Use the same shape for haptics. Rename `applyObservedPreferences` to `applyPreferences`.
+Rename `applyObservedPreferences` to `applyPreferences`.
 
-Delete the test that expects unrelated external changes to repaint an already open modal; no production caller requires that behavior.
+Delete `externallyObservedPreferenceChangesReapplyTheVisibleModal`; no production actor requires an already-open modal to repaint from an external preference mutation.
 
-- [ ] **Step 5: Replace preference store tests with the actual product contract**
+- [ ] **Step 5: Replace preference tests with the actual product contract**
 
-Keep exactly these behavior areas:
+Keep these tests:
 
 ```swift
 @Test func missingKeysLoadEnabledDefaults()
@@ -696,15 +868,41 @@ Keep exactly these behavior areas:
 @Test func persistedValuesRoundTripAcrossStoreRecreation()
 ```
 
-Delete tests for JSON field tolerance, corrupt backups, encoding failure, encoded key shape, observer delivery versions, nested registration, cross-cancellation ordering, callback/current divergence, duplicate registration semantics, and compile-only HPA-389 contract locking.
+Delete tests for:
+
+- JSON partial-field tolerance;
+- corrupt backups/non-keyed roots;
+- injected encoding failure;
+- encoded object key shape;
+- observer order/version monotonicity;
+- nested setters and re-entrant registration;
+- callback/current divergence;
+- duplicate registration semantics;
+- compile-only HPA-389 contract locking.
 
 - [ ] **Step 6: Simplify the recording preference manager**
 
-Use the same small dictionary-of-callbacks model as production. Do not keep a second versioned observer implementation in test code.
+Use the same small dictionary-of-callbacks behavior as production:
 
-- [ ] **Step 7: Retain immediate sound-stop behavior**
+```swift
+final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
+    private(set) var current: FeedbackPreferences
+    private var observers: [UUID: (FeedbackPreferences) -> Void] = [:]
 
-The coordinator keeps one store observation and this behavior:
+    init(current: FeedbackPreferences = .defaultValue) {
+        self.current = current
+    }
+
+    // Setters update current, notify Array(observers.values), and return current.
+    // observe registers, synchronously sends current, and returns an idempotent token.
+}
+```
+
+Do not reproduce the old versioned delivery implementation in test code.
+
+- [ ] **Step 7: Retain immediate sound-stop behavior at coordinator level**
+
+Keep:
 
 ```swift
 private func apply(_ updatedPreferences: FeedbackPreferences) {
@@ -719,9 +917,9 @@ private func apply(_ updatedPreferences: FeedbackPreferences) {
 }
 ```
 
-Delete tests that assert exact observer counts or token lifetime structure if the same user-visible behavior is already covered.
+Keep the behavior test that disabling sound stops active output immediately. Delete tests whose only purpose is exact observer-count/token-lifetime structure.
 
-- [ ] **Step 8: Run focused tests**
+- [ ] **Step 8: Run preference/settings/runtime tests**
 
 ```bash
 xcodebuild test \
@@ -738,7 +936,7 @@ xcodebuild test \
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Commit the preference simplification**
 
 ```bash
 git add Pyxis PyxisTests
@@ -747,10 +945,9 @@ git commit -m "refactor: simplify gameplay feedback preferences"
 
 ---
 
-### Task 5: Delete speculative warning and automatic-only semantic types
+### Task 5: Remove now-unused fortified sound artifacts and stale architecture tests
 
 **Files:**
-- Modify: `Pyxis/GameplayFeedback.swift`
 - Modify: `Pyxis/GameplayOutputProtocols.swift`
 - Modify: `Pyxis/GameplaySoundCatalog.swift`
 - Modify: `PyxisTests/GameplayFeedbackTests.swift`
@@ -760,33 +957,24 @@ git commit -m "refactor: simplify gameplay feedback preferences"
 - Delete: `Pyxis/Resources/Audio/Gameplay/fortified-warning.caf`
 
 **Interfaces:**
-- Produces: six-case reachable discrete `GameplayFeedbackEvent`.
+- Consumes: six-case semantic enum already established in Task 2.
+- Produces: catalog/assets containing only currently reachable sounds.
 
-- [ ] **Step 1: Shrink the semantic enum**
-
-```swift
-enum GameplayFeedbackEvent: Hashable {
-    case manualDeployment
-    case buildingChanged
-    case invalidAction
-    case goldReward
-    case cityConquest
-    case countryCompletion
-}
-```
-
-Delete `SoldierAttackSoundCategory` and `SoldierDamageSoundKind`; Task 2 already moved automatic combat to direct `TickResult` scheduling.
-
-- [ ] **Step 2: Remove fortified warning code and asset**
+- [ ] **Step 1: Remove fortified sound ID/catalog/resource data**
 
 Delete:
 
-- `GameplayFeedbackEvent.fortifiedLaneWarning`;
-- `GameplaySoundID.fortifiedWarning`;
-- its `GameplaySoundCatalog` entry;
-- the `fortified-warning.caf` manifest row.
+```swift
+case fortifiedWarning
+```
 
-Then:
+from `GameplaySoundID`.
+
+Delete its `GameplaySoundCatalog.all` resource entry.
+
+Delete the `fortified-warning.caf` row from `docs/audio-assets.md` and any fortified-only expected manifest fixture data.
+
+Then remove the asset:
 
 ```bash
 git rm Pyxis/Resources/Audio/Gameplay/fortified-warning.caf
@@ -794,28 +982,31 @@ git rm Pyxis/Resources/Audio/Gameplay/fortified-warning.caf
 
 Keep shared license files because remaining assets still use them.
 
-- [ ] **Step 3: Simplify semantic/catalog tests**
+- [ ] **Step 2: Delete architecture-only semantic tests rather than replacing them with a count assertion**
 
-Use a small semantic contract assertion:
+Do not add a `reachableDiscreteEventsRemainConstructible` test.
 
-```swift
-@Test func reachableDiscreteEventsRemainConstructible() {
-    let events: Set<GameplayFeedbackEvent> = [
-        .manualDeployment,
-        .buildingChanged,
-        .invalidAction,
-        .goldReward,
-        .cityConquest,
-        .countryCompletion
-    ]
+The permanent six-case behavior contract is `DefaultGameplayFeedbackCoordinatorTests.reachableDiscreteEventsEmitCurrentOutputs()` from Task 1.
 
-    #expect(events.count == 6)
-}
-```
+In `GameplayFeedbackTests`, keep only tests that still protect a useful public seam, such as:
 
-Remove fortified warning from expected catalog/manifest data. Keep tests that every remaining sound ID has a resource, every resource is bundled, automatic clips meet the duration budget, and the manifest/license evidence is complete.
+- no-op provider accepts a discrete event and `TickResult` automatic call;
+- monotonic clock test if it remains located in this file.
 
-- [ ] **Step 4: Run focused tests**
+Delete tests that merely enumerate semantic cases or verify removed automatic payload types.
+
+- [ ] **Step 3: Keep catalog/asset behavior coverage**
+
+Retain tests that:
+
+- every remaining `GameplaySoundID` has exactly one catalog resource;
+- every catalog resource is bundled;
+- automatic clips stay within their measured duration budget;
+- manifest rows and local license evidence cover every remaining resource.
+
+Remove only fortified-warning fixture entries.
+
+- [ ] **Step 4: Run catalog/feedback/output tests**
 
 ```bash
 xcodebuild test \
@@ -825,73 +1016,56 @@ xcodebuild test \
   -parallel-testing-enabled NO \
   -only-testing:PyxisTests/GameplayFeedbackTests \
   -only-testing:PyxisTests/GameplaySoundCatalogTests \
-  -only-testing:PyxisTests/GameplaySoundOutputControllerTests
+  -only-testing:PyxisTests/GameplaySoundOutputControllerTests \
+  -only-testing:PyxisTests/DefaultGameplayFeedbackCoordinatorTests
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit the unused-artifact deletion**
 
 ```bash
 git add Pyxis PyxisTests docs/audio-assets.md
-git commit -m "chore: delete speculative gameplay feedback support"
+git commit -m "chore: remove unused fortified feedback"
 ```
 
 ---
 
-### Task 6: Replace historical architecture mandates and verify the whole refactor
+### Task 6: Replace stale architectural mandates and prove net deletion
 
 **Files:**
 - Modify: `CLAUDE.md`
-- Modify only mechanically required tests left by deleted interfaces.
-- Do not modify historical HPA-364/HPA-389 specs/plans.
+- Verify: all production feedback files changed above.
+- Verify: all affected tests.
 
 **Interfaces:**
-- Produces: current repository guidance matching the simplified implementation.
+- Produces: stable repository guidance that describes product rules, not obsolete HPA-364/HPA-389 layer ownership.
 
 - [ ] **Step 1: Replace feedback-specific architecture mandates in `CLAUDE.md`**
 
-Remove requirements for the old foundation/consumer split, policy/directive structure, automatic semantic batch, versioned preference observation, and fortified warning.
+Remove guidance that requires:
 
-Keep concise stable rules:
+- the HPA-364 foundation/HPA-389 consumer split;
+- semantic automatic event arrays;
+- projector ownership;
+- directive/policy ownership;
+- versioned/re-entrant preference delivery semantics;
+- fortified-warning preservation.
+
+Keep concise stable rules equivalent to:
 
 ```markdown
-- Gameplay feedback is observational only: it must not mutate combat, economy, routing, or campaign state.
-- Keep feedback restrained. Automatic combat is coalesced/rate-limited rather than continuous, and suppressed SFX are dropped rather than queued or replayed.
-- Honor Sound Effects and Haptics preferences immediately and independently; keep those as the only settings until a concrete player need justifies another option.
-- Keep audio readiness, protected-vs-automatic voice behavior, background/interruption cleanup, and stale-output prevention inside the sound output implementation.
-- Do not add a feedback policy layer, category, manager, or extension point without a current shipping consumer.
+- Gameplay feedback is observational and restrained; it must not change combat, persistence, routing, or economy.
+- Sound Effects and Haptics are independent persisted preferences. Disabled channels are honored immediately.
+- Automatic combat feedback remains rate-limited and sound-only; suppressed or not-ready feedback is dropped rather than queued/replayed.
+- Backgrounding, interruption, lifecycle recovery, or disabling sound stops stale output and never replays old effects.
+- Settings expose only Sound Effects and Haptics unless a concrete player-facing ticket adds another control.
+- Do not add feedback categories, policy layers, registries, or extension points without a current shipping consumer.
 ```
 
-Leave historical design documents unchanged.
+Do not rewrite historical HPA-364/HPA-389 spec/plan documents.
 
-- [ ] **Step 2: Confirm deleted symbols are gone from live code/tests/guidance**
-
-```bash
-rg -n \
-  'GameplayFeedbackPolicy|GameplayFeedbackDirective|GameplayGateID|CombatFeedbackProjector|SoldierAttackSoundCategory|SoldierDamageSoundKind|fortifiedLaneWarning|fortifiedWarning|pyxis\.feedbackPreferences' \
-  Pyxis PyxisTests CLAUDE.md docs/audio-assets.md
-```
-
-Expected: no matches.
-
-Historical specs/plans are intentionally excluded.
-
-- [ ] **Step 3: Confirm the duplicated sound-class call is gone**
-
-```bash
-rg -n 'play\([^\n]*soundClass:' Pyxis PyxisTests
-```
-
-Expected: no matches.
-
-- [ ] **Step 4: Run lint and full tests**
-
-```bash
-swiftlint lint --no-cache
-```
-
-Expected: exit 0 without unrelated cleanup.
+- [ ] **Step 2: Run the full unit suite with parallel testing disabled**
 
 ```bash
 xcodebuild test \
@@ -902,9 +1076,9 @@ xcodebuild test \
   -only-testing:PyxisTests
 ```
 
-Expected: all unit tests pass.
+Expected: all `PyxisTests` PASS.
 
-If UI tests remain part of current CI:
+- [ ] **Step 3: Run UI tests that cover the shared app surface**
 
 ```bash
 xcodebuild test \
@@ -915,82 +1089,139 @@ xcodebuild test \
   -only-testing:PyxisUITests
 ```
 
-Expected: all UI tests pass.
+Expected: all `PyxisUITests` PASS.
 
-- [ ] **Step 5: Verify deletion-first diff quality**
+- [ ] **Step 4: Run SwiftLint and diff sanity checks**
 
 ```bash
+swiftlint lint --no-cache
 git diff --check origin/main...HEAD
-git diff --stat origin/main...HEAD
-git diff --numstat origin/main...HEAD -- 'Pyxis/*.swift'
+git diff --numstat origin/main...HEAD -- Pyxis | awk '
+  { added += $1; deleted += $2 }
+  END {
+    printf "Pyxis additions: %d\nPyxis deletions: %d\nNet: %d\n", added, deleted, added - deleted
+    exit !(deleted > added)
+  }
+'
 ```
 
-Required result:
+Expected:
 
-- `GameplayFeedbackPolicy.swift` deleted;
-- `CombatFeedbackProjector.swift` deleted;
-- their test files deleted;
-- fortified warning asset deleted;
-- no replacement policy/projector/framework file added;
-- feedback-related production Swift deletions exceed additions.
+- SwiftLint exits 0 under the repository's configured severity rules.
+- `git diff --check` exits 0.
+- the `awk` command exits 0 because production `Pyxis/` deletions exceed additions.
 
-- [ ] **Step 6: Manual smoke the preserved behavior**
+- [ ] **Step 5: Run the manual player-visible smoke**
 
-Verify:
+Verify on a supported device/simulator, using a physical device for haptics/audio-interruption checks when available:
 
-1. accepted manual deployment sound + light haptic;
-2. invalid action sound + warning haptic;
-3. construction/upgrade feedback;
-4. dense combat remains restrained with attack-family variety;
-5. reward precedes fresh city/country outcome feedback;
-6. disabling Sound Effects during active output immediately stops sound;
-7. haptics still work when only sound is disabled;
-8. haptics can be disabled independently;
-9. settings values follow Battle -> Building -> Map scene replacement;
+1. accepted manual deployment produces the existing deployment sound and light haptic;
+2. invalid action produces the existing blocked sound and warning haptic;
+3. building construction/upgrade produces the existing construction feedback;
+4. dense combat remains restrained and attack sounds rotate perceptibly;
+5. reward feedback precedes city/country outcome feedback as before;
+6. disabling Sound Effects during active output stops current sound immediately;
+7. haptics continue when only Sound Effects is disabled;
+8. disabling Haptics does not disable sound;
+9. settings values remain consistent after Battle -> Building -> Map scene replacement;
 10. relaunch preserves both Boolean settings;
-11. background/foreground and interruption do not replay stale sounds;
-12. settings modal still blocks scene input and VoiceOver remains usable.
+11. background/foreground and audio interruption do not replay stale sounds;
+12. settings modal still blocks underlying input and VoiceOver focus remains usable.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Review the final diff for forbidden replacement architecture**
+
+Run:
 
 ```bash
-git add CLAUDE.md Pyxis PyxisTests docs/audio-assets.md
+git grep -n "GameplayFeedbackDirective\|GameplayGateID\|CombatFeedbackProjector\|GameplayFeedbackPolicy" -- Pyxis PyxisTests || true
+git grep -n "fortifiedWarning\|fortifiedLaneWarning" -- Pyxis PyxisTests docs/audio-assets.md || true
+```
+
+Expected: no matches outside historical documentation that is intentionally retained.
+
+Inspect newly added production types manually. The implementation fails HPA-566 if it replaces a deleted layer with a new policy object, gate registry, automatic-event DTO, event bus, or generic preference framework.
+
+- [ ] **Step 7: Commit final repository guidance**
+
+```bash
+git add CLAUDE.md
 git commit -m "docs: align guidance with simplified feedback architecture"
 ```
 
 ---
 
-## Final Self-Review
+## Final self-review checklist
 
-Before marking the implementation PR ready:
+Before marking the implementation PR ready for review:
 
-- [ ] All six reachable discrete mappings still match the design.
-- [ ] Exact 150/200/250/300 ms automatic boundaries remain tested.
+- [ ] Every HPA-566 acceptance criterion maps to a completed task above.
+- [ ] No `TBD`, `TODO`, compatibility shim, speculative abstraction, or future feedback category was introduced.
+- [ ] Task 2 preserves the full nine-checkpoint dense fairness sequence.
+- [ ] Closed global windows do not change starvation state.
+- [ ] Starvation resets when no attack family is open.
+- [ ] Exact 150/200/250/300 ms automatic boundaries remain covered.
+- [ ] Scheduler uses only a private rate-limit `Gate`; no public/general gate type exists.
+- [ ] `GameplayFeedbackEvent` is already six-case discrete-only before Task 3 begins.
+- [ ] No catch-all `default` hides old automatic semantic cases in coordinator mapping.
 - [ ] Disabled sound does not advance automatic scheduler state.
-- [ ] Sound and haptic cooldown state remains independent.
-- [ ] Fatal damage does not also create hit-sound eligibility.
+- [ ] Sound/haptic discrete cooldowns remain independent when either channel is disabled/re-enabled.
+- [ ] Fatal damage does not also generate hit sound eligibility.
 - [ ] `GameplaySoundCatalog` is the only sound-class authority.
-- [ ] Sound disable still immediately stops active output.
-- [ ] Settings controller has no preference observer and refreshes on open.
+- [ ] Sound disable still immediately stops active output through the coordinator's simple preference observation.
+- [ ] Settings controller has no preference observer and refreshes from `current` on open.
+- [ ] Preference observation has no version/order/re-entrant-delivery machinery.
 - [ ] Campaign persistence is untouched.
-- [ ] Old feedback JSON is not migrated.
+- [ ] Old development preference JSON is not migrated.
 - [ ] Fortified-warning code, asset, manifest row, and tests are gone.
-- [ ] Historical HPA-364/HPA-389 docs remain unchanged.
-- [ ] Audio lifecycle/accessibility machinery was not opportunistically rewritten.
-- [ ] Production feedback Swift deletions exceed additions.
-- [ ] SwiftLint, full unit tests, applicable UI tests, manual smoke, and `git diff --check` pass.
+- [ ] No hollow semantic constructibility/count test replaced behavior coverage.
+- [ ] Historical HPA-364/HPA-389 design records remain unchanged.
+- [ ] Audio lifecycle/accessibility complexity was not opportunistically rewritten.
+- [ ] Production `Pyxis/` deletions exceed additions.
+- [ ] Full unit tests, UI tests, SwiftLint, and `git diff --check` pass.
 
-## Implementation PR Requirements
+## Implementation PR description template
 
-The implementation PR description must report, using the actual final diff/test outputs:
+```markdown
+## Summary
 
-- exactly which files/types/assets/tests were deleted;
-- which player-visible behaviors were deliberately retained;
-- that the old development JSON preference value is intentionally not migrated;
-- which audio/accessibility complexity was deliberately retained and why;
-- measured feedback-related production Swift additions, deletions, and net line change;
-- exact SwiftLint, unit-test, UI-test, and manual-smoke results.
+Implements HPA-566 as a deletion-first maintenance refactor. Player-visible gameplay feedback is unchanged; internal projection, policy, directive, generic gate, speculative-warning, duplicated sound-class, and preference-delivery machinery is reduced.
 
-## Execution Handoff
+## Deleted
 
-When the HPA-566 start condition is met, use **subagent-driven development** unless there is a concrete reason to execute inline. Each task above is independently reviewable and ends with focused verification before the next deletion slice begins.
+- `GameplayFeedbackPolicy` and `GameplayFeedbackDirective`.
+- `GameplayGateID`.
+- `CombatFeedbackProjector`.
+- Automatic-only semantic feedback cases/payload types.
+- Unreachable fortified-lane warning support and asset.
+- JSON/corrupt-backup/versioned observer preference machinery.
+- Tests that only froze the deleted internal architecture.
+
+## Retained behavior
+
+- Existing discrete SFX/haptic mapping and independent cooldowns.
+- 150/200/250/300 ms automatic combat gates and siege/ranged/melee fairness.
+- Immediate independent Sound Effects/Haptics toggles across scenes and relaunch.
+- Immediate sound stop on disable.
+- Async preparation, bounded voice allocation, protected outcome output, activation retry, background/interruption cleanup, and stale-output prevention.
+- Existing settings UI/accessibility behavior.
+
+## Intentionally retained complexity
+
+The AVAudioEngine backend, sound-controller queues/state, eight-voice allocation, interruption/lifecycle handling, settings accessibility adapter, and scene layout logic remain because they protect observed runtime behavior rather than speculative architecture.
+
+## Development compatibility
+
+The old `pyxis.feedbackPreferences` JSON object is not migrated. Pre-release development installs may see Sound Effects and Haptics default to enabled once after this change.
+
+## Deletion result
+
+Report the measured `git diff --numstat origin/main...HEAD -- Pyxis` totals and confirm deletions exceed additions.
+
+## Validation
+
+Report the exact full-suite, UI-test, SwiftLint, diff-check, and manual-smoke results produced by Task 6.
+```
+
+## Execution handoff
+
+When the HPA-566 start condition is met, use subagent-driven development unless there is a concrete reason to execute all tasks inline. Each task above is independently reviewable and ends with focused verification before the next deletion slice begins.
