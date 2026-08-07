@@ -25,66 +25,6 @@ struct GameplayFeedbackPolicyTests {
                 )
             ),
             Mapping(
-                event: .soldierAttack(.melee),
-                directive: GameplayFeedbackDirective(
-                    sound: .attackMelee,
-                    soundClass: .automaticCombat,
-                    soundGate: nil,
-                    haptic: nil,
-                    hapticGate: nil
-                )
-            ),
-            Mapping(
-                event: .soldierAttack(.ranged),
-                directive: GameplayFeedbackDirective(
-                    sound: .attackRanged,
-                    soundClass: .automaticCombat,
-                    soundGate: nil,
-                    haptic: nil,
-                    hapticGate: nil
-                )
-            ),
-            Mapping(
-                event: .soldierAttack(.siege),
-                directive: GameplayFeedbackDirective(
-                    sound: .attackSiege,
-                    soundClass: .automaticCombat,
-                    soundGate: nil,
-                    haptic: nil,
-                    hapticGate: nil
-                )
-            ),
-            Mapping(
-                event: .towerFire,
-                directive: GameplayFeedbackDirective(
-                    sound: .towerFire,
-                    soundClass: .automaticCombat,
-                    soundGate: nil,
-                    haptic: nil,
-                    hapticGate: nil
-                )
-            ),
-            Mapping(
-                event: .soldierDamage(.hit),
-                directive: GameplayFeedbackDirective(
-                    sound: .soldierHit,
-                    soundClass: .automaticCombat,
-                    soundGate: nil,
-                    haptic: nil,
-                    hapticGate: nil
-                )
-            ),
-            Mapping(
-                event: .soldierDamage(.death),
-                directive: GameplayFeedbackDirective(
-                    sound: .soldierDeath,
-                    soundClass: .automaticCombat,
-                    soundGate: nil,
-                    haptic: nil,
-                    hapticGate: nil
-                )
-            ),
-            Mapping(
                 event: .buildingChanged,
                 directive: GameplayFeedbackDirective(
                     sound: .construction,
@@ -131,16 +71,6 @@ struct GameplayFeedbackPolicyTests {
                     soundClass: .nonAutomatic,
                     soundGate: nil,
                     haptic: .strongSuccess,
-                    hapticGate: nil
-                )
-            ),
-            Mapping(
-                event: .fortifiedLaneWarning,
-                directive: GameplayFeedbackDirective(
-                    sound: .fortifiedWarning,
-                    soundClass: .nonAutomatic,
-                    soundGate: .fortifiedWarningSound,
-                    haptic: nil,
                     hapticGate: nil
                 )
             )

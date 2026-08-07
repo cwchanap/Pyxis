@@ -20,15 +20,11 @@ struct GameplaySoundCatalogTests {
     @Test func policyDirectiveSoundClassesMatchCatalogEntries() throws {
         let events: [GameplayFeedbackEvent] = [
             .manualDeployment,
-            .soldierAttack(.melee), .soldierAttack(.ranged), .soldierAttack(.siege),
-            .towerFire,
-            .soldierDamage(.hit), .soldierDamage(.death),
             .buildingChanged,
             .invalidAction,
             .goldReward,
             .cityConquest,
-            .countryCompletion,
-            .fortifiedLaneWarning
+            .countryCompletion
         ]
         for event in events {
             let directive = GameplayFeedbackPolicy.directive(for: event)

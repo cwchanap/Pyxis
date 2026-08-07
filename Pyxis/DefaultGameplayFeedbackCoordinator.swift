@@ -40,10 +40,6 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
     func emit(_ event: GameplayFeedbackEvent) {
         let directive = GameplayFeedbackPolicy.directive(for: event)
 
-        guard directive.soundClass != .automaticCombat else {
-            return
-        }
-
         if let sound = directive.sound,
            let soundClass = directive.soundClass {
             emitSound(sound, soundClass: soundClass, gate: directive.soundGate)
@@ -54,25 +50,17 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
         }
     }
 
-    func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
+    func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
         guard currentPreferences.soundEffectsEnabled,
-              let selectedEvent = automaticCombatScheduler.select(
-                  from: orderedEvents,
+              let sound = automaticCombatScheduler.selectSound(
+                  from: result,
                   at: clock.now
               )
         else {
             return
         }
 
-        let directive = GameplayFeedbackPolicy.directive(for: selectedEvent)
-        guard let sound = directive.sound,
-              let soundClass = directive.soundClass,
-              soundClass == .automaticCombat
-        else {
-            return
-        }
-
-        soundOutput.play(sound, soundClass: soundClass)
+        soundOutput.play(sound, soundClass: .automaticCombat)
     }
 
     private func apply(_ updatedPreferences: FeedbackPreferences) {

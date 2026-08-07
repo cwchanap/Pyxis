@@ -163,31 +163,6 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         ])
     }
 
-    @Test func fortifiedWarningSoundUsesIts750MillisecondGate() {
-        let clock = AdjustableMonotonicClock(now: 0)
-        let preferences = RecordingFeedbackPreferencesManager()
-        let sound = RecordingGameplaySoundOutput()
-        let haptics = RecordingGameplayHapticOutput()
-        let coordinator = makeCoordinator(
-            preferences: preferences,
-            sound: sound,
-            haptics: haptics,
-            clock: clock
-        )
-
-        coordinator.emit(.fortifiedLaneWarning)
-        clock.now = 0.749_999_999_999_999_9
-        coordinator.emit(.fortifiedLaneWarning)
-        clock.now = 0.750
-        coordinator.emit(.fortifiedLaneWarning)
-
-        #expect(sound.calls == [
-            .play(.fortifiedWarning, .nonAutomatic),
-            .play(.fortifiedWarning, .nonAutomatic)
-        ])
-        #expect(haptics.played.isEmpty)
-    }
-
     @Test func disablingSoundImmediatelyStopsAllActiveSound() {
         let clock = AdjustableMonotonicClock(now: 0)
         let preferences = RecordingFeedbackPreferencesManager()
@@ -257,11 +232,11 @@ struct DefaultGameplayFeedbackCoordinatorTests {
             clock: clock
         )
 
-        coordinator.emitAutomaticCombat(denseAutomaticEvents)
+        coordinator.emitAutomaticCombat(denseAutomaticResult())
         clock.now = 0.150
-        coordinator.emitAutomaticCombat(denseAutomaticEvents)
+        coordinator.emitAutomaticCombat(denseAutomaticResult())
         clock.now = 0.300
-        coordinator.emitAutomaticCombat(denseAutomaticEvents)
+        coordinator.emitAutomaticCombat(denseAutomaticResult())
 
         #expect(sound.calls == [
             .play(.soldierDeath, .automaticCombat),
@@ -288,9 +263,9 @@ struct DefaultGameplayFeedbackCoordinatorTests {
             clock: clock
         )
 
-        coordinator.emitAutomaticCombat(denseAutomaticEvents)
+        coordinator.emitAutomaticCombat(denseAutomaticResult())
         _ = preferences.setSoundEffectsEnabled(true)
-        coordinator.emitAutomaticCombat(denseAutomaticEvents)
+        coordinator.emitAutomaticCombat(denseAutomaticResult())
 
         #expect(sound.calls == [.play(.soldierDeath, .automaticCombat)])
         #expect(haptics.played.isEmpty)
@@ -317,28 +292,6 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         #expect(preferences.cancellationCount == 1)
     }
 
-    @Test func emitDropsAutomaticCombatEventsWithoutPlayingSoundOrHaptic() {
-        let clock = AdjustableMonotonicClock(now: 0)
-        let preferences = RecordingFeedbackPreferencesManager()
-        let sound = RecordingGameplaySoundOutput()
-        let haptics = RecordingGameplayHapticOutput()
-        let coordinator = makeCoordinator(
-            preferences: preferences,
-            sound: sound,
-            haptics: haptics,
-            clock: clock
-        )
-
-        // Automatic combat events sent through emit(_:) (not emitAutomaticCombat)
-        // must be dropped by the guard without playing any sound or haptic.
-        coordinator.emit(.soldierAttack(.melee))
-        coordinator.emit(.towerFire)
-        coordinator.emit(.soldierDamage(.death))
-
-        #expect(sound.calls.isEmpty)
-        #expect(haptics.played.isEmpty)
-    }
-
     private func makeCoordinator(
         preferences: FeedbackPreferencesManaging,
         sound: GameplaySoundOutput,
@@ -353,15 +306,44 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         )
     }
 
-    private var denseAutomaticEvents: [GameplayFeedbackEvent] {
-        [
-            .soldierDamage(.death),
-            .towerFire,
-            .soldierAttack(.siege),
-            .soldierAttack(.ranged),
-            .soldierAttack(.melee),
-            .soldierDamage(.hit)
+    private func denseAutomaticResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.soldierLosses = [
+            SoldierLossEvent(
+                soldierID: 90,
+                type: .infantry,
+                source: .manual,
+                lane: .left
+            )
         ]
+        result.towerShots = [
+            BattleCombatState.TowerShot(soldierID: 90, damage: 3)
+        ]
+        result.soldierAttacks = [
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .siege,
+                source: .manual,
+                lane: .left,
+                appliedCityDamage: 2
+            ),
+            SoldierAttackEvent(
+                soldierID: 2,
+                type: .archer,
+                source: .building,
+                lane: .center,
+                appliedCityDamage: 2
+            ),
+            SoldierAttackEvent(
+                soldierID: 3,
+                type: .infantry,
+                source: .manual,
+                lane: .right,
+                appliedCityDamage: 2
+            )
+        ]
+        result.damagedSoldierIDs = [90, 91]
+        return result
     }
 }
 

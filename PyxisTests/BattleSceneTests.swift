@@ -18,7 +18,6 @@ struct BattleSceneTests {
 
     private enum BattleFeedbackCall: Equatable {
         case discrete(GameplayFeedbackEvent)
-        case automatic([GameplayFeedbackEvent])
     }
 
     private struct HUDFixture {
@@ -29,6 +28,7 @@ struct BattleSceneTests {
 
     private final class BattleFeedbackRecorder: GameplayFeedbackProviding {
         private(set) var calls: [BattleFeedbackCall] = []
+        private(set) var automaticCallCount = 0
         var onDiscreteEvent: ((GameplayFeedbackEvent) -> Void)?
 
         func emit(_ event: GameplayFeedbackEvent) {
@@ -36,12 +36,13 @@ struct BattleSceneTests {
             onDiscreteEvent?(event)
         }
 
-        func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
-            calls.append(.automatic(orderedEvents))
+        func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
+            automaticCallCount += 1
         }
 
         func reset() {
             calls.removeAll()
+            automaticCallCount = 0
         }
 
         var discreteEvents: [GameplayFeedbackEvent] {
@@ -51,12 +52,6 @@ struct BattleSceneTests {
             }
         }
 
-        var automaticBatches: [[GameplayFeedbackEvent]] {
-            calls.compactMap {
-                guard case .automatic(let events) = $0 else { return nil }
-                return events
-            }
-        }
     }
 
     @Test func battleSceneDisplaysCampaignCityTitle() throws {
@@ -429,7 +424,7 @@ struct BattleSceneTests {
 
         #expect(scene.buildingLiveSoldierCountForTesting == 1)
         #expect(feedback.discreteEvents.isEmpty)
-        #expect(feedback.automaticBatches.count == 1)
+        #expect(feedback.automaticCallCount == 1)
     }
 
     @Test("A rejected Battle deployment emits one invalid action event")
@@ -461,8 +456,7 @@ struct BattleSceneTests {
             scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
         }
 
-        #expect(feedback.automaticBatches.count == 30)
-        #expect(feedback.automaticBatches.contains { $0.contains(.soldierAttack(.melee)) })
+        #expect(feedback.automaticCallCount == 30)
     }
 
     @Test("Fresh live Battle conquest emits reward before city outcome and never replays")

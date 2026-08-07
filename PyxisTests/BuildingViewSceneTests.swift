@@ -12,11 +12,11 @@ import Testing
 struct BuildingViewSceneTests {
     private enum BuildingViewFeedbackCall: Equatable {
         case discrete(GameplayFeedbackEvent)
-        case automatic([GameplayFeedbackEvent])
     }
 
     private final class BuildingViewFeedbackRecorder: GameplayFeedbackProviding {
         private(set) var calls: [BuildingViewFeedbackCall] = []
+        private(set) var automaticCallCount = 0
         var onDiscreteEvent: ((GameplayFeedbackEvent) -> Void)?
 
         func emit(_ event: GameplayFeedbackEvent) {
@@ -24,12 +24,13 @@ struct BuildingViewSceneTests {
             calls.append(.discrete(event))
         }
 
-        func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
-            calls.append(.automatic(orderedEvents))
+        func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
+            automaticCallCount += 1
         }
 
         func reset() {
             calls.removeAll()
+            automaticCallCount = 0
         }
 
         var discreteEvents: [GameplayFeedbackEvent] {
