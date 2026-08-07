@@ -1,248 +1,135 @@
 # Gameplay Feedback Deletion-First Simplification Design
 
-**Issue:** HPA-566 — Simplify gameplay feedback architecture through deletion-first refactoring  
-**Parent roadmap:** HPA-360 — Enrich Pyxis for casual players without increasing mechanical complexity  
-**Related delivered work:** HPA-364, HPA-389  
-**Implementation plan:** `docs/superpowers/plans/2026-08-06-gameplay-feedback-deletion-first-simplification-implementation.md`  
-**Status:** Design ready for implementation after the HPA-566 start condition is met  
-**Date:** 2026-08-06
+**Issue:** HPA-566  
+**Status:** Design approved for planning; implementation remains gated by the Linear start condition.  
+**Date:** 2026-08-06  
+**Implementation plan:** `docs/superpowers/plans/2026-08-06-gameplay-feedback-deletion-first-simplification-implementation.md`
 
 ## Summary
 
-HPA-566 reduces the production and test surface introduced by HPA-364 and HPA-389 without changing the feedback players already experience.
+HPA-566 reduces the maintenance surface introduced by HPA-364 and HPA-389 without changing what players can observe.
 
-This is a deletion-first maintenance refactor. It is not a new feedback system, not an audio-engine rewrite, and not a prerequisite for the next player-facing roadmap slice.
+The target keeps the parts that protect real product behavior:
 
-The target architecture keeps the boundaries that still protect real product behavior:
+- semantic discrete feedback from scenes;
+- restrained automatic-combat SFX with existing rate limits and fairness;
+- immediate independent Sound Effects and Haptics settings;
+- interruption-safe, drop-only audio playback;
+- the existing settings accessibility and scene composition behavior.
 
-- scenes emit a small set of semantic discrete events;
-- `BattleScene` hands the authoritative `BattleCombatState.TickResult` directly to one automatic-combat scheduler;
-- one coordinator owns discrete mapping, preference gating, and simple cooldowns;
-- one sound controller owns asynchronous playback, voice allocation, audio-session lifecycle, and interruption safety;
-- one two-toggle preference manager persists Sound Effects and Haptics independently of campaign state.
+It deletes layers that currently have one caller or no production responsibility:
 
-The refactor deletes intermediate policy, projection, directive, gate, and preference-delivery machinery that currently has no independent product responsibility.
+- `CombatFeedbackProjector`;
+- `GameplayFeedbackPolicy`;
+- `GameplayFeedbackDirective`;
+- `GameplayGateID`;
+- automatic-only semantic feedback payload types;
+- duplicated sound-class input at the playback call site;
+- JSON/corrupt-backup/versioned preference-delivery machinery;
+- unreachable fortified-lane warning support.
+
+This is a deletion-first maintenance refactor, not a new feedback architecture.
 
 ## Start condition
 
-HPA-566 remains maintenance work and must not interrupt HPA-366 or HPA-365 solely for cleanup.
+Do not start this implementation solely for cleanup until the HPA-566 Linear start condition is met.
 
-Start implementation only when either condition is true:
-
-1. the next higher-value player-facing slice has shipped; or
-2. gameplay feedback code must be changed for another justified reason.
-
-Preparing this design and implementation plan does not change that start condition.
-
-## Why simplify now
-
-The delivered feedback feature is valuable, but its internal architecture reflects requirements that were stronger than the current product needs.
-
-Current production behavior is small:
-
-- six reachable discrete feedback occurrences are emitted by scenes;
-- automatic combat feedback comes from exactly one `BattleCombatState.TickResult` per combat tick;
-- one coordinator consumes those occurrences;
-- one settings surface owns exactly two Boolean preferences;
-- one audio implementation performs all playback and lifecycle handling.
-
-Several intermediate layers have only one production caller and exist mainly because the original foundation and consumer tickets intentionally separated ownership:
-
-```text
-BattleCombatState.TickResult
-    -> CombatFeedbackProjector
-    -> [GameplayFeedbackEvent]
-    -> AutomaticCombatFeedbackScheduler
-    -> GameplayFeedbackPolicy
-    -> GameplayFeedbackDirective
-    -> GameplaySoundOutput.play(sound, soundClass)
-```
-
-For discrete feedback, the path is similarly indirect:
-
-```text
-Scene
-    -> GameplayFeedbackEvent
-    -> GameplayFeedbackPolicy
-    -> GameplayFeedbackDirective
-    -> DefaultGameplayFeedbackCoordinator
-    -> sound / haptic output
-```
-
-The preference implementation also maintains versioned, ordered, re-entrant observer-delivery semantics for two `@MainActor` toggles, even though only the coordinator and the currently mounted settings controller observe the store in production.
-
-These layers increase the number of types, tests, and invariants an implementation agent must preserve without adding player value.
+In particular, it must not interrupt HPA-366 or HPA-365. The documentation can merge earlier because it changes no production behavior.
 
 ## Goals
 
-- Preserve all currently observable SFX, haptic, settings, and interruption behavior.
-- Reduce production feedback types and lines, not merely move code between files.
-- Remove at least one full indirection layer; this design intentionally removes several.
-- Make automatic-combat feedback follow the authoritative `TickResult` directly.
-- Make `GameplaySoundCatalog` the single source of truth for sound class.
-- Reduce preference persistence and observation to what two shared toggles actually need.
-- Remove feedback-specific architectural mandates from `CLAUDE.md` while retaining stable product rules.
-- Replace implementation-detail tests with behavior-level tests where that enables deletion.
-- Leave the repository easier to change when the next real feedback requirement appears.
+- Preserve current player-visible SFX, haptics, settings, accessibility, and lifecycle behavior.
+- Reduce production feedback types and lines, not merely move them between files.
+- Remove at least one unnecessary production indirection based on real caller analysis.
+- Make tests protect emitted/suppressed behavior rather than internal queue, directive, observer-version, or projection structure.
+- Keep the resulting code easy to extend only when a concrete future feature actually needs extension.
 
 ## Non-goals
 
-This work does not:
+- New SFX, haptic events, settings, assets, or gameplay behavior.
+- Rewriting the audio engine.
+- Broad `BattleScene` cleanup.
+- New event buses, DI frameworks, policy registries, lifecycle abstractions, Combine publishers, or Swift Observation models.
+- Migration of the pre-release `pyxis.feedbackPreferences` JSON value.
+- Preparing feedback infrastructure for music, voice-over, multiplayer, live service, or hypothetical future feedback categories.
 
-- add any new sound, haptic, setting, asset, or player-visible feedback;
-- change combat, economy, routing, persistence, or progression rules;
-- rewrite the AVAudioEngine backend or sound controller from scratch;
-- redesign the settings UI, accessibility behavior, or layout;
-- broadly refactor `BattleScene`;
-- introduce Combine, Swift Observation, NotificationCenter, an event bus, dependency-injection framework, lifecycle framework, or generalized feedback registry;
-- preserve speculative APIs for music, voice-over, multiplayer, live-service, or unvalidated future mechanics;
-- add backward-compatibility migration for development-only feedback preferences.
-
-## Player-visible behavior contract
-
-The following behavior is authoritative for this refactor.
-
-### Discrete gameplay feedback
-
-| Occurrence | Sound | Haptic | Cooldown |
-| --- | --- | --- | --- |
-| Accepted manual deployment | `deployment` | light impact | 120 ms independently per channel |
-| Successful building construction/upgrade | `construction` | medium impact | 250 ms independently per channel |
-| Invalid/blocked player action | `blocked` | warning | 500 ms independently per channel |
-| Gold reward | `goldReward` | none | none |
-| City conquest | `cityConquest` | strong success | none |
-| Country completion | `countryCompletion` | strong success | none |
-
-Disabled sound suppresses only sound. Disabled haptics suppress only haptics. Re-enabling one channel must not incorrectly consume or reset the other channel's cooldown state.
-
-Fresh conquest keeps reward feedback before outcome feedback. Restored conquest reports, resize, background catch-up reconstruction, and other non-fresh presentation paths must not replay stale feedback.
-
-### Automatic combat feedback
-
-Automatic combat remains sound-only.
-
-One authoritative `BattleCombatState.TickResult` is processed per combat tick. Duplicate signals in that result are coalesced into these candidate families in this priority order:
-
-1. soldier death;
-2. tower fire;
-3. siege attack;
-4. ranged attack;
-5. melee attack;
-6. non-fatal soldier hit.
-
-The existing timing behavior remains:
-
-- 150 ms global successful-output gate;
-- 200 ms per attack category;
-- 250 ms tower-fire gate;
-- shared 300 ms soldier hit/death gate;
-- suppressed sounds are dropped and are never queued or replayed;
-- while attacks remain eligible, no more than two successful global windows may be consumed by non-attack sounds before an attack is reserved;
-- reserved attacks rotate siege -> ranged -> melee.
-
-Automatic combat does not produce haptics.
-
-### Preferences and settings
-
-The settings surface remains exactly:
-
-- Sound Effects on/off;
-- Haptics on/off;
-- Close.
-
-Both values default to enabled.
-
-Changes apply immediately, survive scene replacement, and persist across relaunch. Disabling sound while sound is active immediately stops and deactivates current SFX output.
-
-The settings modal continues to block underlying scene input and retains current accessibility behavior.
-
-### Audio lifecycle
-
-The following behavior remains owned by the existing sound output implementation:
-
-- preparation remains asynchronous;
-- sound received before readiness is dropped, not queued;
-- automatic and protected/non-automatic voice capacity remains bounded;
-- activation failures drop the current sound and use the existing retry cooldown;
-- backgrounding, interruption, and sound disable stop active output and clear scheduled buffers;
-- recovery never replays stale effects;
-- ordinary foreground recovery preserves the existing fresh-output path.
-
-These rules justify keeping the audio controller's queueing and lifecycle state even though other feedback layers are deleted.
-
-## Caller analysis
+## Current caller analysis
 
 ### `GameplayFeedbackPolicy`
 
-Production caller: `DefaultGameplayFeedbackCoordinator` only.
+Production caller: `DefaultGameplayFeedbackCoordinator.emit(_:)` only.
 
-It maps one semantic event to one `GameplayFeedbackDirective`, and the coordinator immediately unpacks that directive. It has no independent product responsibility.
+The coordinator immediately unpacks the returned `GameplayFeedbackDirective`.
 
-**Decision:** delete the policy type and file. Inline the small discrete switch into the coordinator.
+**Decision:** delete the policy type/file and inline the six reachable discrete mappings into the coordinator.
 
 ### `GameplayFeedbackDirective`
 
-Production use: transport object between the policy and coordinator only.
+Production use: transport object between policy and coordinator only.
 
 **Decision:** delete it.
 
 ### `GameplayGateID`
 
-Production use: keys a coordinator dictionary and converts back to an interval through another switch.
+Production use: keys one coordinator dictionary and then maps back to an interval in the same coordinator.
 
-**Decision:** delete it. Store timestamps directly by discrete event/channel or use two small dictionaries keyed by `GameplayFeedbackEvent`.
+**Decision:** delete it. The coordinator keeps separate sound and haptic timestamp dictionaries keyed by the six discrete events.
 
 ### `CombatFeedbackProjector`
 
 Production caller: `BattleScene` only.
 
-It converts one `TickResult` into automatic-only semantic events that are immediately consumed by one scheduler.
+It converts one `BattleCombatState.TickResult` into an automatic-only `[GameplayFeedbackEvent]`, which is immediately consumed by one scheduler.
 
-**Decision:** delete it. The scheduler consumes `TickResult` directly and derives automatic sound candidates internally.
+**Decision:** delete it. `AutomaticCombatFeedbackScheduler` consumes `TickResult` directly and derives its sound candidates internally.
 
-### Automatic-only semantic payload types
+### Automatic-only semantic types
 
-`SoldierAttackSoundCategory` and `SoldierDamageSoundKind` exist to carry data between the projector, scheduler, and policy.
+`SoldierAttackSoundCategory`, `SoldierDamageSoundKind`, and the automatic cases on `GameplayFeedbackEvent` exist only to transport data from the projector through the scheduler/policy stack.
 
-After the projector/policy collapse, they have no scene-facing product responsibility.
+**Decision:** remove them from the scene-facing semantic contract as part of the same implementation slice that changes the scheduler to return `GameplaySoundID`.
 
-**Decision:** delete them from the public feedback contract. The scheduler may use a private attack-category enum if useful, but the preferred implementation rotates concrete `GameplaySoundID` attack cases directly.
+This ordering is deliberate: once automatic scheduling no longer returns semantic events, the public enum immediately becomes the six reachable discrete cases so later exhaustive switches compile without a temporary default case.
 
 ### `fortifiedLaneWarning`
 
 No production producer exists. Its intended producer is HPA-362, which remains an evidence-gated experiment and may never ship.
 
-**Decision:** remove `.fortifiedLaneWarning`, `.fortifiedWarning`, the unused asset/catalog row, related manifest row, and tests. If HPA-362 later ships and needs a warning, that ticket reintroduces the smallest concrete implementation then.
+**Decision:** remove `.fortifiedLaneWarning` from the semantic enum in the automatic-pipeline collapse slice. Remove `.fortifiedWarning`, the asset/catalog/manifest row, and its tests in the later cleanup slice.
 
-### `GameplaySoundClass` at the output call boundary
+If HPA-362 eventually ships and proves a warning is needed, that ticket adds the smallest concrete warning behavior then.
 
-The sound catalog already stores whether every resource is `.automaticCombat` or `.nonAutomatic`, while the coordinator also supplies the class on every play call.
+### `GameplaySoundClass` at the playback boundary
 
-**Decision:** `GameplaySoundCatalog` becomes the sole authority. Change the playback call to `play(_ sound: GameplaySoundID)`. The sound controller looks up the class from its catalog before selecting a voice.
+`GameplaySoundCatalog` already stores whether every sound is automatic or protected/non-automatic. Passing the class again on every `play` call creates a second authority and a test whose purpose is only to prove both values agree.
 
-This removes a possible policy/catalog consistency bug and deletes tests whose only purpose is verifying the duplicated values agree.
+**Decision:** change the output API to `play(_ sound: GameplaySoundID)`. `GameplaySoundOutputController` resolves `GameplaySoundClass` from its injected catalog before voice selection.
+
+`GameplaySoundClass` itself remains because the catalog and voice allocator still need the distinction internally.
 
 ### Preference observation
 
 Only two production consumers currently observe preferences:
 
-1. `DefaultGameplayFeedbackCoordinator` — needs immediate notification so disabling sound stops active playback.
-2. `FeedbackSettingsController` — uses observation to keep its local snapshot current.
+1. `DefaultGameplayFeedbackCoordinator`, which must immediately stop active sound when Sound Effects is disabled.
+2. `FeedbackSettingsController`, which currently keeps a local modal snapshot synchronized.
 
-The settings controller itself performs all user mutations while mounted. It can read `current` when opening and apply the setter's returned snapshot after each toggle; it does not need continuous observation.
+The settings controller owns all UI mutations while mounted and can instead refresh from `current` when opening and apply each setter's returned snapshot.
 
-**Decision:** remove settings-controller observation and retain only a small synchronous cancellable observer mechanism for the coordinator.
+**Decision:** remove settings-controller observation and retain a small synchronous cancellable observer registry for the coordinator.
 
-The observer implementation does not need ordered callback delivery, delivery versions, stale-outer-snapshot suppression, or re-entrant registration semantics beyond safe iteration over the currently registered callbacks.
+The registry intentionally has no callback-order, version, stale-delivery, or re-entrant-delivery contract. A dictionary plus snapshot iteration is sufficient.
+
+A single `onChange` callback was considered. It saves only a few lines while making the manager contract replacement-based and easier to accidentally overwrite in tests or composition. The simple cancellable registry is retained because it is already a natural injectable contract and remains small after deleting the version machinery.
 
 ## Target production architecture
 
 ```text
 BattleScene / CountryMapScene / BuildingViewScene
                  |
-                 | discrete semantic events
+                 | six discrete semantic events
                  v
-      GameplayFeedbackProviding
+      GameplayFeedbackProviding.emit(event)
                  |
                  v
  DefaultGameplayFeedbackCoordinator
@@ -259,7 +146,7 @@ BattleScene / CountryMapScene / BuildingViewScene
 
 BattleScene
     |
-    | TickResult
+    | BattleCombatState.TickResult
     v
 GameplayFeedbackProviding.emitAutomaticCombat(result)
     |
@@ -295,9 +182,9 @@ protocol GameplayFeedbackProviding: AnyObject {
 }
 ```
 
-`NoOpGameplayFeedbackProvider` remains so scenes can keep lightweight defaults in tests/previews without constructing the production runtime.
+`NoOpGameplayFeedbackProvider` remains so scenes and tests can use a lightweight default without constructing production audio/haptics.
 
-`Hashable` is sufficient and allows the coordinator to key timestamp dictionaries directly. No feedback event is persisted or sent across a public API.
+No feedback event is persisted or exposed as a public network/API contract.
 
 ### Automatic scheduler
 
@@ -310,9 +197,18 @@ struct AutomaticCombatFeedbackScheduler {
 }
 ```
 
-The scheduler owns only automatic-combat selection state.
+The scheduler owns automatic-combat projection, coalescing, rate limits, and attack fairness because these behaviors are one cohesive pure rule.
 
-It derives whether death, tower fire, each audible attack family, and non-fatal hit are present directly from the result. It maps soldier types as follows:
+It derives candidate sounds in this exact priority order:
+
+1. `.soldierDeath`
+2. `.towerFire`
+3. `.attackSiege`
+4. `.attackRanged`
+5. `.attackMelee`
+6. `.soldierHit`
+
+Soldier attack mapping remains:
 
 - Infantry/Cavalry -> `.attackMelee`;
 - Archer/Mage -> `.attackRanged`;
@@ -320,7 +216,32 @@ It derives whether death, tower fire, each audible attack family, and non-fatal 
 
 Fatal soldiers must not also create `.soldierHit` eligibility.
 
-The scheduler returns at most one sound ID for each call.
+The scheduler preserves:
+
+- 150 ms global output gate;
+- 200 ms per attack-family gate;
+- 250 ms tower gate;
+- shared 300 ms hit/death gate;
+- no more than two successful eligible non-attack windows before an eligible attack is reserved;
+- attack rotation siege -> ranged -> melee.
+
+#### Private gate representation
+
+Keep the scheduler's existing private gate concept because it models real rate-limit families, especially the shared hit/death interval:
+
+```swift
+private enum Gate {
+    case melee
+    case ranged
+    case siege
+    case tower
+    case hitDeath
+}
+```
+
+Map sound candidates to this private enum for interval/timestamp lookup. Do not introduce a public/general gate identifier.
+
+Attack rotation may use concrete `GameplaySoundID` values. The private `Gate` exists only for scheduler rate-limit state.
 
 ### Sound output
 
@@ -332,26 +253,28 @@ protocol GameplaySoundOutput: AnyObject {
 }
 ```
 
-`GameplaySoundOutputController` resolves `GameplaySoundClass` from its injected catalog and uses that class for voice selection. If the sound has no catalog entry, the current event is dropped and a diagnostic assertion/log is acceptable in debug builds; no fallback sound or queued work is introduced.
+`GameplaySoundOutputController` resolves the sound class from `GameplaySoundCatalog` before selecting a voice. Missing catalog entries drop the current event and may assert/log diagnostically in debug builds. No fallback sound or queue is introduced.
 
-`GameplaySoundClass` remains because the catalog and voice allocator still need the automatic/protected distinction internally.
+## Preference design
 
-### Preference contract
-
-Keep the small snapshot used by settings and coordinator:
+### Snapshot and manager
 
 ```swift
 struct FeedbackPreferences: Equatable, Sendable {
     static let defaultValue = FeedbackPreferences()
 
-    var soundEffectsEnabled: Bool = true
-    var hapticsEnabled: Bool = true
+    var soundEffectsEnabled: Bool
+    var hapticsEnabled: Bool
+
+    init(
+        soundEffectsEnabled: Bool = true,
+        hapticsEnabled: Bool = true
+    ) {
+        self.soundEffectsEnabled = soundEffectsEnabled
+        self.hapticsEnabled = hapticsEnabled
+    }
 }
-```
 
-The production manager remains injectable:
-
-```swift
 protocol FeedbackPreferencesManaging: AnyObject {
     var current: FeedbackPreferences { get }
 
@@ -367,40 +290,51 @@ protocol FeedbackPreferencesManaging: AnyObject {
 }
 ```
 
-Observation remains synchronous and cancellable because the coordinator must stop active sound as soon as sound is disabled.
+Observation is synchronous and cancellable only. No ordering, version, nested-update, duplicate-registration, or callback/current-divergence semantics are product requirements.
 
-No other ordering or re-entrancy guarantee is part of the product contract.
+### Persistence
 
-## Preference persistence design
-
-Replace the encoded JSON object with two direct `UserDefaults` Boolean keys:
+Replace the encoded JSON object with two Boolean `UserDefaults` keys:
 
 ```text
 pyxis.feedback.soundEffectsEnabled
 pyxis.feedback.hapticsEnabled
 ```
 
-Loading uses `object(forKey:) as? Bool ?? true` for each field so missing values default to enabled without interpreting `false` as missing.
+The store initializer remains explicitly injectable and accepts a compact prefix for test isolation:
 
-Each setter:
+```swift
+init(
+    defaults: UserDefaults,
+    keyPrefix: String = "pyxis.feedback"
+)
+```
 
-1. returns immediately when the value is unchanged;
-2. updates the in-memory snapshot;
-3. writes only the changed Boolean to the dedicated key;
-4. synchronously notifies a snapshot of registered observers;
-5. returns the resulting snapshot.
+It derives:
 
-The store continues to require an explicit `UserDefaults` instance outside `.shared` so tests remain isolated.
+```text
+<keyPrefix>.soundEffectsEnabled
+<keyPrefix>.hapticsEnabled
+```
 
-### Development preference reset
+Loading uses `object(forKey:) as? Bool ?? true` for each field so missing values default to enabled while persisted `false` remains false.
 
-The previous `pyxis.feedbackPreferences` JSON key is development-only and predates a public release.
+Each distinct setter:
 
-This refactor deliberately performs no migration from that key. Existing development installs may see both feedback toggles return to enabled once. That is acceptable under the roadmap's pre-release compatibility rule and materially simplifies the implementation.
+1. updates the in-memory snapshot;
+2. writes only that Boolean;
+3. synchronously notifies a snapshot of registered callbacks;
+4. returns the resulting snapshot.
 
-Do not add a temporary migration branch, old-key decoder, cleanup version, or compatibility shim.
+An unchanged setter performs no write and no callback.
 
-Campaign state under `pyxis.kingdomGameState` remains untouched.
+### Development compatibility
+
+Do not read, migrate, rewrite, or delete the old `pyxis.feedbackPreferences` JSON key.
+
+Existing pre-release development installs may see both toggles default to enabled once after this change. That is acceptable under the roadmap's pre-release compatibility rule.
+
+`pyxis.kingdomGameState` remains untouched.
 
 ## Coordinator design
 
@@ -413,16 +347,12 @@ It keeps:
 - sound output;
 - haptic output;
 - monotonic clock;
-- simple per-channel discrete cooldown timestamps;
+- separate sound/haptic cooldown timestamps for discrete events;
 - automatic combat scheduler.
 
 ### Discrete mapping
 
-Use one exhaustive switch on the six reachable discrete events. The mapping belongs here because it has exactly one consumer and is small enough to read in one place.
-
-The implementation should prefer explicit calls over recreating a directive-like transport object.
-
-Example shape:
+Use one exhaustive switch on the six reachable cases:
 
 ```swift
 func emit(_ event: GameplayFeedbackEvent) {
@@ -453,218 +383,139 @@ func emit(_ event: GameplayFeedbackEvent) {
 }
 ```
 
-Use separate sound and haptic timestamp dictionaries keyed by event. This retains independent-channel cooldown behavior without introducing a gate-ID abstraction.
+Use separate timestamp dictionaries keyed by `GameplayFeedbackEvent`. A channel records its timestamp only after its preference check passes, preserving independent cooldown behavior when the other channel is disabled/re-enabled.
+
+Task ordering must shrink `GameplayFeedbackEvent` before this exhaustive switch is introduced; implementation must never add a catch-all `default` to hide automatic cases.
 
 ### Automatic mapping
 
 `emitAutomaticCombat(_:)`:
 
-1. checks `currentPreferences.soundEffectsEnabled` before invoking the scheduler so disabled sound does not advance scheduler state;
-2. asks the scheduler for at most one sound ID;
-3. plays that sound ID when present.
+1. checks `soundEffectsEnabled` before invoking the scheduler so disabled sound does not advance scheduler state;
+2. asks the scheduler for at most one `GameplaySoundID`;
+3. plays it when present.
 
-The coordinator does not rebuild an automatic event array or route the selected sound back through the discrete mapping switch.
+It does not rebuild an automatic semantic array or route the selected sound through the discrete switch.
 
 ## Settings controller design
 
 Remove `preferenceObservation` from `FeedbackSettingsController`.
 
-The controller owns a local `preferences` snapshot only while rendering the modal.
+- `open()` refreshes from `preferencesManager.current` before rendering.
+- Each toggle calls its setter and immediately applies the returned snapshot.
+- Scene replacement naturally constructs a controller against the same shared store.
 
-- `open()` refreshes `preferences = preferencesManager.current` before applying the modal.
-- `toggleSoundEffects()` calls the manager setter and immediately applies the returned snapshot.
-- `toggleHaptics()` does the same.
-- scene replacement naturally constructs a new controller against the same shared manager and reads the latest persisted state.
+No production actor changes preferences behind an already-open modal, so continuous modal observation is not required.
 
-No external production actor changes preferences behind an open modal, so continuous settings observation is unnecessary.
-
-## Audio implementation boundary intentionally retained
+## Audio and accessibility boundaries intentionally retained
 
 `GameplaySoundOutputController` is not a target for architectural collapse beyond removing the redundant `soundClass` parameter.
 
-Its complexity protects real behavior:
+Retain:
 
-- preparation and voice creation occur away from the caller;
-- requests during preparation are dropped rather than replayed later;
-- voice allocation distinguishes automatic from protected output;
-- backend mutations are serialized;
-- activation retry is bounded;
-- interruption/background/reset paths invalidate stale output.
+- async preparation and voice creation;
+- drop-before-ready behavior;
+- automatic/protected voice allocation;
+- serialized backend mutations;
+- activation retry cooldown;
+- background/interruption/reset cleanup;
+- stale-output prevention.
 
-HPA-566 must not trade these guarantees for a shorter file.
+Also retain `AVAudioEngineGameplayAudioBackend`, `FeedbackSettingsAccessibilityAdapter`, settings layout types, and scene-specific gear placement except for mechanical signature updates required by this refactor.
 
-Similarly, `AVAudioEngineGameplayAudioBackend`, `FeedbackSettingsAccessibilityAdapter`, settings layout types, and scene-specific gear placement remain outside the refactor unless compilation requires a mechanical signature update.
+These layers protect observed runtime/accessibility behavior rather than hypothetical extension points.
 
-## Removal of speculative fortified warning
+## Test strategy
 
-Delete all current fortified-warning-only artifacts:
+Tests protect behavior, not deleted architecture.
 
-- `GameplayFeedbackEvent.fortifiedLaneWarning`;
-- `GameplaySoundID.fortifiedWarning`;
-- `fortified-warning.caf`;
-- the catalog entry;
-- the `docs/audio-assets.md` manifest row;
-- tests whose only purpose is the unreachable warning.
+### Permanent discrete contract
 
-Do not delete general audio license files because remaining assets still use them.
+Keep one table-driven coordinator test covering all six reachable discrete mappings plus focused tests for:
 
-HPA-362 owns any future decision to reintroduce a lane-warning cue if that gameplay experiment is actually shipped.
+- independent sound/haptic cooldowns;
+- immediate `stopAllAndDeactivate()` when sound is disabled;
+- disabled sound/haptics suppressing only their own channel;
+- outcomes remaining ungated.
 
-## Documentation rule after HPA-566
+Do not replace deleted policy tests with a six-case constructibility/count test; that would not protect player behavior.
 
-`CLAUDE.md` should describe stable product behavior, not the historical HPA-364/HPA-389 ownership split.
+### Automatic-combat contract
 
-Replace the current feedback-specific architecture mandates with concise rules such as:
+Port the full existing fairness sequence to `TickResult`-based scheduler tests:
 
-- Gameplay feedback is observational and must not mutate gameplay state.
-- Keep output restrained; automatic combat remains coalesced/rate-limited rather than continuous noise.
-- Honor disabled sound/haptic preferences immediately.
-- Never queue or replay stale SFX after readiness failure, backgrounding, or interruption.
-- Settings remain Sound Effects and Haptics only until a concrete player need justifies another option.
-- Do not introduce a new feedback policy/framework/category without a current shipping consumer.
+```text
+0.000 -> soldierDeath
+0.150 -> towerFire
+0.300 -> attackSiege
+0.450 -> soldierDeath
+0.600 -> towerFire
+0.750 -> attackRanged
+0.900 -> soldierDeath
+1.050 -> towerFire
+1.200 -> attackMelee
+```
 
-Historical HPA-364/HPA-389 specs and plans remain in `docs/superpowers/` as implementation history. HPA-566 does not rewrite those records.
+Also retain explicit tests that:
 
-## Testing strategy
+- a closed global gate does not mutate starvation state;
+- starvation resets when no attack family is open;
+- exact 150/200/250/300 ms boundaries remain intact;
+- fatal damage excludes hit eligibility;
+- duplicate same-family signals coalesce;
+- empty ticks produce no sound;
+- disabled sound does not advance scheduler state.
 
-Tests should protect observable behavior and the small remaining pure policy, not the exact shape of deleted architecture.
+Delete `nonGatedEventsAreFilteredOutWithoutBlockingEligibleEvents`: after the scheduler consumes `TickResult`, mixed discrete/automatic semantic batches no longer exist.
 
-### Keep or reshape
+### Preference contract
 
-- Coordinator tests for emitted/suppressed discrete sound and haptic behavior.
-- Coordinator test that disabling sound immediately calls `stopAllAndDeactivate()`.
-- Automatic scheduler tests for gate boundaries and attack fairness.
-- One dense `TickResult` test proving death/tower/attack/hit selection behavior.
-- Settings-controller tests for immediate toggle update and modal state.
-- Scene-flow tests proving semantic occurrences are still emitted from representative player actions.
-- Sound-controller lifecycle/readiness/voice tests because they cover retained real-risk behavior.
-- Catalog resource, duration, bundle, and license-manifest tests for remaining assets.
+Keep tests for:
 
-### Delete
+- enabled defaults when keys are missing;
+- independent Boolean persistence and sibling preservation;
+- unchanged-setter suppression;
+- immediate synchronous current/update delivery;
+- cancellation stopping future updates;
+- isolated test keys and campaign-state isolation;
+- round-trip across store recreation;
+- immediate sound stop through the coordinator.
 
-- Tests that only assert `GameplayFeedbackDirective` structure.
-- Tests that only prove policy sound class equals catalog sound class.
-- Tests that compile-lock the obsolete HPA-364/HPA-389 ownership boundary.
-- Projector tests once their meaningful behavior is covered through the scheduler's `TickResult` input.
-- Preference tests for JSON field tolerance, corrupt-root backups, injected encoder failure, observer version monotonicity, nested registration, cross-cancellation ordering, duplicate closure semantics, and stale outer-snapshot suppression.
-- Tests for the unreachable fortified warning.
+Delete tests for JSON field tolerance, corrupt backups, encoding injection, observer versions/order, nested registration, callback/current divergence, and compile-only HPA-389 surface locking.
 
-### Preference tests after simplification
+### Audio/settings tests
 
-Keep a small set:
+Keep existing behavior tests for:
 
-1. missing keys load both values enabled;
-2. each setter persists its Boolean and preserves the sibling value;
-3. unchanged setter does not notify;
-4. observer receives current state then distinct updates synchronously;
-5. cancellation stops future updates;
-6. isolated `UserDefaults` never writes campaign state or process-standard test keys;
-7. relaunch round-trip preserves both values.
+- catalog completeness and bundled resources;
+- automatic clip duration budget;
+- asset license/manifest evidence;
+- voice allocation/protection;
+- readiness and activation failure dropping;
+- lifecycle/interruption cleanup;
+- settings modal blocking, persistence, and accessibility.
 
-## Expected file changes
+## Deletion success criteria
 
-### Delete
+The implementation is successful when:
 
-- `Pyxis/GameplayFeedbackPolicy.swift`
-- `Pyxis/CombatFeedbackProjector.swift`
-- `PyxisTests/GameplayFeedbackPolicyTests.swift`
-- `PyxisTests/CombatFeedbackProjectorTests.swift`
-- `Pyxis/Resources/Audio/Gameplay/fortified-warning.caf`
+- player-visible feedback remains unchanged in manual smoke;
+- production feedback Swift deletions exceed additions;
+- `CombatFeedbackProjector`, `GameplayFeedbackPolicy`, `GameplayFeedbackDirective`, and `GameplayGateID` are gone;
+- automatic semantic cases/payload types are gone;
+- fortified warning code/asset/manifest/tests are gone;
+- JSON/versioned preference machinery is gone;
+- no new replacement framework appears;
+- the full unit test suite passes.
 
-### Modify materially
+## Documentation update
 
-- `Pyxis/GameplayFeedback.swift`
-- `Pyxis/AutomaticCombatFeedbackScheduler.swift`
-- `Pyxis/DefaultGameplayFeedbackCoordinator.swift`
-- `Pyxis/GameplayOutputProtocols.swift`
-- `Pyxis/GameplaySoundCatalog.swift`
-- `Pyxis/GameplaySoundOutputController.swift`
-- `Pyxis/FeedbackPreferences.swift`
-- `Pyxis/FeedbackPreferencesStore.swift`
-- `Pyxis/FeedbackSettingsController.swift`
-- `Pyxis/BattleScene.swift`
-- `PyxisTests/DefaultGameplayFeedbackCoordinatorTests.swift`
-- `PyxisTests/AutomaticCombatFeedbackSchedulerTests.swift`
-- `PyxisTests/FeedbackPreferencesStoreTests.swift`
-- `PyxisTests/FeedbackPreferencesTests.swift`
-- `PyxisTests/FeedbackSettingsControllerTests.swift`
-- `PyxisTests/GameplayFeedbackTestDoubles.swift`
-- `PyxisTests/GameplayFeedbackTests.swift`
-- `PyxisTests/GameplaySoundCatalogTests.swift`
-- `PyxisTests/GameplaySoundOutputControllerTests.swift`
-- `PyxisTests/GameViewControllerTests.swift`
-- `docs/audio-assets.md`
-- `CLAUDE.md`
+Update `CLAUDE.md` to keep only stable product rules:
 
-Other scene tests may need mechanical updates if their recording provider signature changes. Do not use that as a reason to redesign those scenes.
+- feedback is restrained and observational;
+- disabled channels are honored immediately;
+- background/interruption/readiness failures never replay stale feedback;
+- settings expose only Sound Effects and Haptics;
+- do not add feedback categories or architecture without a current shipping consumer.
 
-## Deletion-first success metric
-
-The implementation PR must show a net reduction in production feedback code.
-
-At minimum:
-
-- the five listed production/test/asset files are removed;
-- `GameplayFeedbackDirective`, `GameplayGateID`, `SoldierAttackSoundCategory`, and `SoldierDamageSoundKind` are removed;
-- the preference store loses its JSON/observer-version machinery;
-- the implementation adds no replacement framework or generic abstraction;
-- total production lines deleted exceed production lines added for feedback-related Swift files.
-
-A refactor that moves the same concepts into differently named files does not satisfy HPA-566.
-
-## Risks and mitigations
-
-### Scheduler behavior changes while merging projection
-
-**Risk:** coalescing order or fatal-hit exclusion changes accidentally.
-
-**Mitigation:** build scheduler tests from concrete `TickResult` fixtures before deleting the projector, then compare the selected sound sequence at the exact existing timing boundaries.
-
-### Independent sound/haptic cooldown regression
-
-**Risk:** replacing separate gate IDs with a single event timestamp causes one disabled channel to consume the other's cooldown.
-
-**Mitigation:** use separate sound and haptic timestamp dictionaries and retain the existing re-enable boundary tests at the behavior level.
-
-### Sound class drift after removing the call parameter
-
-**Risk:** a missing catalog entry prevents voice selection.
-
-**Mitigation:** catalog completeness remains tested for every `GameplaySoundID`; the controller drops an unmapped sound rather than guessing.
-
-### Preference reset surprises during development
-
-**Risk:** existing development installs lose disabled-toggle choices once.
-
-**Mitigation:** explicitly document the one-time pre-release reset in the implementation PR. Do not add migration code solely to avoid it.
-
-### Over-deleting lifecycle complexity
-
-**Risk:** deletion-first work expands into unsafe audio simplification.
-
-**Mitigation:** treat audio readiness, voice allocation, backend serialization, and interruption state as protected boundaries. Only the redundant class parameter changes there.
-
-## Acceptance criteria mapping
-
-HPA-566 acceptance criteria map to this design as follows:
-
-- **Existing player-visible SFX, haptics, and settings behavior remains unchanged:** preserved by the explicit behavior contract and manual smoke.
-- **Production feedback code has a net reduction in types and lines:** required by the deletion-first success metric.
-- **At least one unnecessary indirection/policy layer is removed:** policy, directive, projector, and gate layers are all removed.
-- **Tests focus on emitted/suppressed feedback and settings behavior:** test strategy deletes directive/observer-version contracts and retains behavior tests.
-- **Full unit suite passes:** required by the implementation plan verification phase.
-- **PR lists deletion, retained behavior, and intentionally retained complexity:** required by the implementation handoff and PR template in the paired plan.
-
-## Decision summary
-
-The target is intentionally boring:
-
-- one small scene-facing discrete event enum;
-- one direct `TickResult` automatic path;
-- one coordinator switch;
-- one scheduler;
-- one catalog-owned sound classification;
-- one simple two-Boolean store;
-- the existing mature audio and accessibility machinery left alone.
-
-That is sufficient for the current game and leaves future feedback work free to add a new abstraction only when a concrete shipping consumer proves it is needed.
+Do not rewrite historical HPA-364/HPA-389 design documents; they remain implementation history.
