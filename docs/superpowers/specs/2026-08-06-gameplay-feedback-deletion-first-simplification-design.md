@@ -495,6 +495,19 @@ Keep existing behavior tests for:
 - lifecycle/interruption cleanup;
 - settings modal blocking, persistence, and accessibility.
 
+## Review decisions incorporated
+
+The design specifically incorporates the review findings that were valid for the current codebase:
+
+- preserve the full nine-checkpoint dense fairness sequence rather than a shortened sample;
+- keep explicit starvation-state and starvation-reset tests;
+- shrink automatic semantic cases in the same slice as scheduler projection collapse so the next exhaustive switch compiles;
+- retain the scheduler's existing private `Gate` for real rate-limit families such as shared hit/death;
+- delete mixed-batch-only scheduler tests once `TickResult` is the input;
+- keep the Task 1 behavioral discrete mapping test as the permanent mapping contract instead of adding a hollow six-case constructibility assertion.
+
+The optional suggestion to replace cancellable observation with one `onChange` callback is intentionally not adopted. The small callback dictionary is already straightforward and avoids replacement/overwrite semantics without retaining the old versioned observer machinery.
+
 ## Deletion success criteria
 
 The implementation is successful when:
