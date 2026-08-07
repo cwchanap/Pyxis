@@ -882,23 +882,7 @@ Delete tests for:
 
 - [ ] **Step 6: Simplify the recording preference manager**
 
-Use the same small dictionary-of-callbacks behavior as production:
-
-```swift
-final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
-    private(set) var current: FeedbackPreferences
-    private var observers: [UUID: (FeedbackPreferences) -> Void] = [:]
-
-    init(current: FeedbackPreferences = .defaultValue) {
-        self.current = current
-    }
-
-    // Setters update current, notify Array(observers.values), and return current.
-    // observe registers, synchronously sends current, and returns an idempotent token.
-}
-```
-
-Do not reproduce the old versioned delivery implementation in test code.
+Implement the test double with the same small callback dictionary, two setters, immediate initial delivery, snapshot iteration, and idempotent cancellation as production. Do not keep any version, observer-order, stale-delivery, or nested-update machinery.
 
 - [ ] **Step 7: Retain immediate sound-stop behavior at coordinator level**
 
@@ -988,10 +972,10 @@ Do not add a `reachableDiscreteEventsRemainConstructible` test.
 
 The permanent six-case behavior contract is `DefaultGameplayFeedbackCoordinatorTests.reachableDiscreteEventsEmitCurrentOutputs()` from Task 1.
 
-In `GameplayFeedbackTests`, keep only tests that still protect a useful public seam, such as:
+In `GameplayFeedbackTests`, keep only tests that still protect a useful public seam:
 
-- no-op provider accepts a discrete event and `TickResult` automatic call;
-- monotonic clock test if it remains located in this file.
+- `NoOpGameplayFeedbackProvider` accepts one representative discrete event and an empty `BattleCombatState.TickResult` automatic call;
+- the monotonic clock remains nonnegative/nondecreasing if that test remains in this file.
 
 Delete tests that merely enumerate semantic cases or verify removed automatic payload types.
 
@@ -1147,6 +1131,19 @@ Inspect newly added production types manually. The implementation fails HPA-566 
 git add CLAUDE.md
 git commit -m "docs: align guidance with simplified feedback architecture"
 ```
+
+---
+
+## Review Findings Addressed
+
+The external review was checked against the current code before changing the plan.
+
+- **F1 accepted:** Task 2 now preserves all nine dense fairness checkpoints and explicitly ports the closed-global-gate and starvation-reset tests.
+- **F2 accepted:** Task 2 now shrinks `GameplayFeedbackEvent` to six discrete cases at the same time the automatic path moves to `TickResult`, so Task 3's switch is exhaustive without a temporary `default`.
+- **F3 accepted:** Task 2 keeps the scheduler's existing private `Gate` family representation, including shared `.hitDeath`; no public/general gate abstraction is added.
+- **F4 accepted:** Task 5 does not add a six-case constructibility/count test. Task 1's table-driven coordinator behavior test remains the mapping contract.
+- **Mixed-batch test accepted:** `nonGatedEventsAreFilteredOutWithoutBlockingEligibleEvents` is deleted when the scheduler input becomes `TickResult`.
+- **F5 not adopted:** a single replaceable `onChange` callback saves little code and makes callback ownership/overwriting more implicit. The small cancellable callback dictionary remains, without order/version/re-entrant-delivery guarantees.
 
 ---
 
