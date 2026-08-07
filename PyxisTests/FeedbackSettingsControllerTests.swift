@@ -132,12 +132,18 @@ struct FeedbackSettingsControllerTests {
         #expect(context.posts.last?.target == nil)
     }
 
-    @Test func externallyObservedPreferenceChangesReapplyTheVisibleModal() throws {
+    @Test func reopeningRefreshesPreferencesAfterExternalMutation() throws {
         let context = try makeControllerContext()
         #expect(context.controller.open())
 
         _ = context.preferences.setSoundEffectsEnabled(false)
         _ = context.preferences.setHapticsEnabled(false)
+
+        #expect(context.controller.modal.soundEffectsStateForTesting == "On")
+        #expect(context.controller.modal.hapticsStateForTesting == "On")
+
+        context.controller.close()
+        #expect(context.controller.open())
 
         #expect(context.controller.modal.soundEffectsStateForTesting == "Off")
         #expect(context.controller.modal.hapticsStateForTesting == "Off")

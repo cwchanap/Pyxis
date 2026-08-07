@@ -11,16 +11,9 @@ struct ManualMonotonicClock: MonotonicClock {
 }
 
 final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
-    private struct ObserverRecord {
-        let callback: (FeedbackPreferences) -> Void
-        var lastDeliveredVersion: UInt64
-    }
-
     private(set) var current: FeedbackPreferences
 
-    private var version: UInt64 = 0
-    private var observers: [UUID: ObserverRecord] = [:]
-    private var observerOrder: [UUID] = []
+    private var observers: [UUID: (FeedbackPreferences) -> Void] = [:]
 
     init(current: FeedbackPreferences = .defaultValue) {
         self.current = current
@@ -32,9 +25,8 @@ final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
             return current
         }
 
-        var updated = current
-        updated.soundEffectsEnabled = enabled
-        commit(updated)
+        current.soundEffectsEnabled = enabled
+        notifyObservers()
         return current
     }
 
@@ -44,9 +36,8 @@ final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
             return current
         }
 
-        var updated = current
-        updated.hapticsEnabled = enabled
-        commit(updated)
+        current.hapticsEnabled = enabled
+        notifyObservers()
         return current
     }
 
@@ -54,36 +45,18 @@ final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
         _ observer: @escaping (FeedbackPreferences) -> Void
     ) -> FeedbackPreferencesObservation {
         let id = UUID()
-        observers[id] = ObserverRecord(
-            callback: observer,
-            lastDeliveredVersion: version
-        )
-        observerOrder.append(id)
+        observers[id] = observer
         observer(current)
 
         return RecordingFeedbackPreferencesObservation { [weak self] in
             self?.observers.removeValue(forKey: id)
-            self?.observerOrder.removeAll { $0 == id }
         }
     }
 
-    private func commit(_ updated: FeedbackPreferences) {
-        current = updated
-        version += 1
-        let deliveryVersion = version
+    private func notifyObservers() {
         let snapshot = current
-        let observerIDs = observerOrder
-
-        for id in observerIDs {
-            guard var record = observers[id],
-                  record.lastDeliveredVersion < deliveryVersion
-            else {
-                continue
-            }
-
-            record.lastDeliveredVersion = deliveryVersion
-            observers[id] = record
-            record.callback(snapshot)
+        for callback in Array(observers.values) {
+            callback(snapshot)
         }
     }
 }

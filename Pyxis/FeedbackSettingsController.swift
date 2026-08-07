@@ -10,7 +10,6 @@ final class FeedbackSettingsController {
     private let accessibilityAdapter: FeedbackSettingsAccessibilityAdapter
     private var preferences: FeedbackPreferences
     private var layout: FeedbackSettingsLayout?
-    private var preferenceObservation: FeedbackPreferencesObservation?
 
     private(set) var isVisible = false
 
@@ -36,15 +35,13 @@ final class FeedbackSettingsController {
                 self?.close()
             }
         )
-        preferenceObservation = preferences.observe { [weak self] snapshot in
-            self?.applyObservedPreferences(snapshot)
-        }
     }
 
     @discardableResult
     func open() -> Bool {
         guard let layout, accessibilityAdapter.canPresentSettings else { return false }
 
+        preferences = preferencesManager.current
         isVisible = true
         modal.apply(layout: layout, preferences: preferences)
         accessibilityAdapter.present(layout: layout, preferences: preferences)
@@ -103,16 +100,18 @@ final class FeedbackSettingsController {
     }
 
     private func toggleSoundEffects() {
-        let updated = preferencesManager.setSoundEffectsEnabled(!preferences.soundEffectsEnabled)
-        applyObservedPreferences(updated)
+        applyPreferences(
+            preferencesManager.setSoundEffectsEnabled(!preferences.soundEffectsEnabled)
+        )
     }
 
     private func toggleHaptics() {
-        let updated = preferencesManager.setHapticsEnabled(!preferences.hapticsEnabled)
-        applyObservedPreferences(updated)
+        applyPreferences(
+            preferencesManager.setHapticsEnabled(!preferences.hapticsEnabled)
+        )
     }
 
-    private func applyObservedPreferences(_ updated: FeedbackPreferences) {
+    private func applyPreferences(_ updated: FeedbackPreferences) {
         guard preferences != updated else { return }
         preferences = updated
         reapplyVisibleModal()
