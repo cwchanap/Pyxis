@@ -497,16 +497,20 @@ Keep existing behavior tests for:
 
 ## Review decisions incorporated
 
-The design specifically incorporates the review findings that were valid for the current codebase:
+The external review was checked against the current scheduler tests and branch plan before changes were made.
 
-- preserve the full nine-checkpoint dense fairness sequence rather than a shortened sample;
-- keep explicit starvation-state and starvation-reset tests;
-- shrink automatic semantic cases in the same slice as scheduler projection collapse so the next exhaustive switch compiles;
-- retain the scheduler's existing private `Gate` for real rate-limit families such as shared hit/death;
-- delete mixed-batch-only scheduler tests once `TickResult` is the input;
-- keep the Task 1 behavioral discrete mapping test as the permanent mapping contract instead of adding a hollow six-case constructibility assertion.
+**Accepted:**
 
-The optional suggestion to replace cancellable observation with one `onChange` callback is intentionally not adopted. The small callback dictionary is already straightforward and avoids replacement/overwrite semantics without retaining the old versioned observer machinery.
+- F1: preserve the full nine-checkpoint dense fairness sequence rather than a shortened sample;
+- F1: keep explicit starvation-state and starvation-reset tests;
+- F2: shrink automatic semantic cases in the same slice as scheduler projection collapse so the next exhaustive switch compiles;
+- F3: retain the scheduler's existing private `Gate` for real rate-limit families such as shared hit/death;
+- F4: keep the Task 1 behavioral discrete mapping test as the permanent mapping contract instead of adding a hollow six-case constructibility assertion;
+- plan note: delete the mixed-batch-only scheduler test once `TickResult` is the input.
+
+**Not adopted:**
+
+- F5's optional single `onChange` callback. The small cancellable dictionary is already straightforward and avoids replacement/overwrite semantics without retaining the old versioned observer machinery.
 
 ## Deletion success criteria
 
