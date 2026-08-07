@@ -37,7 +37,7 @@ struct DefaultGameplayFeedbackCoordinatorTests {
 
             coordinator.emit(testCase.event)
 
-            #expect(sound.calls == [.play(testCase.sound, .nonAutomatic)])
+            #expect(sound.calls == [.play(testCase.sound)])
             #expect(haptics.played == testCase.haptic.map { [$0] } ?? [])
         }
     }
@@ -61,22 +61,22 @@ struct DefaultGameplayFeedbackCoordinatorTests {
 
         coordinator.emit(.manualDeployment)
 
-        #expect(sound.calls == [.play(.deployment, .nonAutomatic)])
+        #expect(sound.calls == [.play(.deployment)])
         #expect(haptics.played.isEmpty)
 
         _ = preferences.setHapticsEnabled(true)
         clock.now = 0.001
         coordinator.emit(.manualDeployment)
 
-        #expect(sound.calls == [.play(.deployment, .nonAutomatic)])
+        #expect(sound.calls == [.play(.deployment)])
         #expect(haptics.played == [.lightImpact])
 
         clock.now = 0.120
         coordinator.emit(.manualDeployment)
 
         #expect(sound.calls == [
-            .play(.deployment, .nonAutomatic),
-            .play(.deployment, .nonAutomatic)
+            .play(.deployment),
+            .play(.deployment)
         ])
         #expect(haptics.played == [.lightImpact])
 
@@ -84,8 +84,8 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         coordinator.emit(.manualDeployment)
 
         #expect(sound.calls == [
-            .play(.deployment, .nonAutomatic),
-            .play(.deployment, .nonAutomatic)
+            .play(.deployment),
+            .play(.deployment)
         ])
         #expect(haptics.played == [.lightImpact, .lightImpact])
     }
@@ -116,21 +116,21 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         clock.now = 0.250
         coordinator.emit(.invalidAction)
 
-        #expect(sound.calls == [.play(.blocked, .nonAutomatic)])
+        #expect(sound.calls == [.play(.blocked)])
         #expect(haptics.played == [.warning])
 
         clock.now = 0.500
         coordinator.emit(.invalidAction)
 
-        #expect(sound.calls == [.play(.blocked, .nonAutomatic)])
+        #expect(sound.calls == [.play(.blocked)])
         #expect(haptics.played == [.warning, .warning])
 
         clock.now = 0.750
         coordinator.emit(.invalidAction)
 
         #expect(sound.calls == [
-            .play(.blocked, .nonAutomatic),
-            .play(.blocked, .nonAutomatic)
+            .play(.blocked),
+            .play(.blocked)
         ])
         #expect(haptics.played == [.warning, .warning])
     }
@@ -154,8 +154,8 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         coordinator.emit(.buildingChanged)
 
         #expect(sound.calls == [
-            .play(.construction, .nonAutomatic),
-            .play(.construction, .nonAutomatic)
+            .play(.construction),
+            .play(.construction)
         ])
         #expect(haptics.played == [
             .mediumImpact,
@@ -179,7 +179,7 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         _ = preferences.setSoundEffectsEnabled(false)
 
         #expect(sound.calls == [
-            .play(.goldReward, .nonAutomatic),
+            .play(.goldReward),
             .stopAllAndDeactivate
         ])
         #expect(haptics.played.isEmpty)
@@ -205,12 +205,12 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         coordinator.emit(.countryCompletion)
 
         #expect(sound.calls == [
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic),
-            .play(.countryCompletion, .nonAutomatic),
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic),
-            .play(.countryCompletion, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest),
+            .play(.countryCompletion),
+            .play(.goldReward),
+            .play(.cityConquest),
+            .play(.countryCompletion)
         ])
         #expect(haptics.played == [
             .strongSuccess,
@@ -239,9 +239,9 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         coordinator.emitAutomaticCombat(denseAutomaticResult())
 
         #expect(sound.calls == [
-            .play(.soldierDeath, .automaticCombat),
-            .play(.towerFire, .automaticCombat),
-            .play(.attackSiege, .automaticCombat)
+            .play(.soldierDeath),
+            .play(.towerFire),
+            .play(.attackSiege)
         ])
         #expect(haptics.played.isEmpty)
     }
@@ -267,7 +267,7 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         _ = preferences.setSoundEffectsEnabled(true)
         coordinator.emitAutomaticCombat(denseAutomaticResult())
 
-        #expect(sound.calls == [.play(.soldierDeath, .automaticCombat)])
+        #expect(sound.calls == [.play(.soldierDeath)])
         #expect(haptics.played.isEmpty)
     }
 

@@ -91,7 +91,7 @@ final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
 final class RecordingGameplaySoundOutput: GameplaySoundOutput {
     enum Call: Equatable {
         case prepareIfNeeded
-        case play(GameplaySoundID, GameplaySoundClass)
+        case play(GameplaySoundID)
         case stopAllAndDeactivate
     }
 
@@ -101,8 +101,8 @@ final class RecordingGameplaySoundOutput: GameplaySoundOutput {
         calls.append(.prepareIfNeeded)
     }
 
-    func play(_ sound: GameplaySoundID, soundClass: GameplaySoundClass) {
-        calls.append(.play(sound, soundClass))
+    func play(_ sound: GameplaySoundID) {
+        calls.append(.play(sound))
     }
 
     func stopAllAndDeactivate() {

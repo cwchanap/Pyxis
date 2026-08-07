@@ -267,8 +267,8 @@ struct CountryMapSceneTests {
         #expect(router.battleRequestCount == 0)
         #expect(scene.visibleFeedbackTextForTesting == "City 4: Spiked Gate")
         #expect(sound.calls == [
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest)
         ])
         #expect(haptics.played == [.strongSuccess])
 
@@ -278,8 +278,8 @@ struct CountryMapSceneTests {
 
         #expect(scene.visibleFeedbackTextForTesting == preservedText)
         #expect(sound.calls == [
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest)
         ])
         #expect(haptics.played == [.strongSuccess])
     }
@@ -321,8 +321,8 @@ struct CountryMapSceneTests {
         #expect(router.battleRequestCount == 0)
         #expect(scene.visibleFeedbackTextForTesting == "Country 1 conquered.")
         #expect(sound.calls == [
-            .play(.goldReward, .nonAutomatic),
-            .play(.countryCompletion, .nonAutomatic)
+            .play(.goldReward),
+            .play(.countryCompletion)
         ])
         #expect(haptics.played == [.strongSuccess])
     }

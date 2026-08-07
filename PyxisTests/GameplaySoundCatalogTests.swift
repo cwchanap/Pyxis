@@ -17,24 +17,6 @@ struct GameplaySoundCatalogTests {
         #expect(GameplaySoundCatalog.all == expectedResources)
     }
 
-    @Test func policyDirectiveSoundClassesMatchCatalogEntries() throws {
-        let events: [GameplayFeedbackEvent] = [
-            .manualDeployment,
-            .buildingChanged,
-            .invalidAction,
-            .goldReward,
-            .cityConquest,
-            .countryCompletion
-        ]
-        for event in events {
-            let directive = GameplayFeedbackPolicy.directive(for: event)
-            let sound = try #require(directive.sound)
-            let soundClass = try #require(directive.soundClass)
-            let resource = try #require(GameplaySoundCatalog.all[sound])
-            #expect(resource.soundClass == soundClass)
-        }
-    }
-
     @Test func everyCatalogResourceIsBundledInTheMainAppBundle() {
         for resource in GameplaySoundCatalog.all.values {
             #expect(

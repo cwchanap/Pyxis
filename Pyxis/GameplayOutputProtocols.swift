@@ -31,30 +31,12 @@ enum GameplaySoundClass: Equatable {
     case nonAutomatic
 }
 
-enum GameplayGateID: Hashable {
-    case deploymentSound
-    case deploymentHaptic
-    case constructionSound
-    case constructionHaptic
-    case invalidSound
-    case invalidHaptic
-    case fortifiedWarningSound
-}
-
 protocol GameplaySoundOutput: AnyObject {
     func prepareIfNeeded()
-    func play(_ sound: GameplaySoundID, soundClass: GameplaySoundClass)
+    func play(_ sound: GameplaySoundID)
     func stopAllAndDeactivate()
 }
 
 protocol GameplayHapticOutput: AnyObject {
     func play(_ kind: GameplayHapticKind)
-}
-
-struct GameplayFeedbackDirective: Equatable {
-    let sound: GameplaySoundID?
-    let soundClass: GameplaySoundClass?
-    let soundGate: GameplayGateID?
-    let haptic: GameplayHapticKind?
-    let hapticGate: GameplayGateID?
 }
