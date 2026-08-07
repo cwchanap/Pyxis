@@ -91,6 +91,8 @@ It converts one `BattleCombatState.TickResult` into an automatic-only `[Gameplay
 
 This ordering is deliberate: once automatic scheduling no longer returns semantic events, the public enum immediately becomes the six reachable discrete cases so later exhaustive switches compile without a temporary default case.
 
+This is also a structural safety improvement: today `DefaultGameplayFeedbackCoordinator.emit(_:)` needs a runtime guard to reject automatic-combat events that arrive through the discrete entry point. After the enum shrink, that invalid state is unrepresentable. Do not re-add automatic cases to `GameplayFeedbackEvent` unless a concrete scene-facing discrete consumer requires them.
+
 ### `fortifiedLaneWarning`
 
 No production producer exists. Its intended producer is HPA-362, which remains an evidence-gated experiment and may never ship.
@@ -121,6 +123,8 @@ The settings controller owns all UI mutations while mounted and can instead refr
 The registry intentionally has no callback-order, version, stale-delivery, or re-entrant-delivery contract. A dictionary plus snapshot iteration is sufficient.
 
 A single `onChange` callback was considered. It saves only a few lines while making the manager contract replacement-based and easier to accidentally overwrite in tests or composition. The simple cancellable registry is retained because it is already a natural injectable contract and remains small after deleting the version machinery.
+
+If a future non-UI actor genuinely needs to mutate feedback preferences while the settings modal is already open, that future ticket can restore modal observation in one place. HPA-566 does not preserve that unused behavior speculatively.
 
 ## Target production architecture
 
@@ -253,7 +257,7 @@ protocol GameplaySoundOutput: AnyObject {
 }
 ```
 
-`GameplaySoundOutputController` resolves the sound class from `GameplaySoundCatalog` before selecting a voice. Missing catalog entries drop the current event and may assert/log diagnostically in debug builds. No fallback sound or queue is introduced.
+`GameplaySoundOutputController` resolves the sound class from `GameplaySoundCatalog` in the existing ready-play path before selecting a voice. The ready-play guard requires both the catalog resource and the prepared sound. If either is missing, the current event follows the existing drop/retry path and returns; no new assertion, log branch, fallback sound, or queue is introduced. `GameplaySoundCatalogTests` remains the completeness guard for shipped sound IDs.
 
 ## Preference design
 
@@ -425,6 +429,12 @@ Also retain `AVAudioEngineGameplayAudioBackend`, `FeedbackSettingsAccessibilityA
 
 These layers protect observed runtime/accessibility behavior rather than hypothetical extension points.
 
+## Risks and rollback
+
+The highest-risk change is Task 2's projector/scheduler collapse: exact tests can protect timing and priority, but they cannot fully prove that dense combat still sounds restrained and varied to a player. Task 3 can also create silent regressions if discrete mapping or catalog-owned sound class is wired incorrectly; Task 4 can regress immediate preference application/persistence.
+
+Each implementation task is a separate commit and has a task-local smoke for the behavior it can break. If that focused smoke or its focused tests fail, stop and revert/fix that task before proceeding; do not carry a known audio/settings regression into later slices and discover it only during the final smoke.
+
 ## Test strategy
 
 Tests protect behavior, not deleted architecture.
@@ -455,6 +465,18 @@ Port the full existing fairness sequence to `TickResult`-based scheduler tests:
 1.050 -> towerFire
 1.200 -> attackMelee
 ```
+
+Also add a fresh-scheduler pairwise priority contract for each adjacent candidate pair:
+
+```text
+soldierDeath > towerFire
+towerFire > attackSiege
+attackSiege > attackRanged
+attackRanged > attackMelee
+attackMelee > soldierHit
+```
+
+This replaces the deleted projector test that previously asserted the full candidate-array ordering and prevents mid-list priority changes from hiding behind the fairness sequence.
 
 Also retain explicit tests that:
 
@@ -497,26 +519,46 @@ Keep existing behavior tests for:
 
 ## Review decisions incorporated
 
-The external review was checked against the current scheduler tests and branch plan before changes were made.
+The external reviews were checked against the current code, scheduler tests, and HPA-566 acceptance criteria before changes were made.
+
+### First review
 
 **Accepted:**
 
-- F1: preserve the full nine-checkpoint dense fairness sequence rather than a shortened sample;
-- F1: keep explicit starvation-state and starvation-reset tests;
-- F2: shrink automatic semantic cases in the same slice as scheduler projection collapse so the next exhaustive switch compiles;
-- F3: retain the scheduler's existing private `Gate` for real rate-limit families such as shared hit/death;
-- F4: keep the Task 1 behavioral discrete mapping test as the permanent mapping contract instead of adding a hollow six-case constructibility assertion;
-- plan note: delete the mixed-batch-only scheduler test once `TickResult` is the input.
+- preserve the full nine-checkpoint dense fairness sequence rather than a shortened sample;
+- keep explicit starvation-state and starvation-reset tests;
+- shrink automatic semantic cases in the same slice as scheduler projection collapse so the next exhaustive switch compiles;
+- retain the scheduler's existing private `Gate` for real rate-limit families such as shared hit/death;
+- keep the Task 1 behavioral discrete mapping test as the permanent mapping contract instead of adding a hollow six-case constructibility assertion;
+- delete the mixed-batch-only scheduler test once `TickResult` is the input.
 
 **Not adopted:**
 
-- F5's optional single `onChange` callback. The small cancellable dictionary is already straightforward and avoids replacement/overwrite semantics without retaining the old versioned observer machinery.
+- replace observation with a single `onChange` callback. The small cancellable dictionary is already straightforward and avoids replacement/overwrite semantics without retaining the old versioned observer machinery.
+
+### Second review
+
+**Accepted:**
+
+- make the enum-shrink benefit explicit: automatic feedback on the discrete entry point becomes unrepresentable rather than runtime-rejected;
+- add pairwise candidate-priority tests before deleting `CombatFeedbackProjectorTests`;
+- make missing-catalog behavior deterministic by reusing the existing drop path with no new assertion/log branch;
+- add task-local perceptual/manual smoke and an explicit risk/rollback rule so audio regressions are caught near the responsible slice;
+- record settings-controller non-observation as deliberate YAGNI rather than an accidental omission.
+
+**Partially adopted:**
+
+- move manual verification earlier. Automatic-combat perceptual checks belong immediately after Task 2, but discrete reward/haptic checks belong after Task 3 and settings persistence checks belong after Task 4 because those later tasks can still break them. A final integrated smoke remains required.
+
+**Not adopted:**
+
+- remove the net-deletion gate. HPA-566 explicitly requires production feedback code to have a net reduction in types and lines. The implementation plan keeps the hard check and scopes its line count to production Swift rather than treating the metric as the only proof of simplification; deleted-type grep and manual replacement-architecture review remain separate gates.
 
 ## Deletion success criteria
 
 The implementation is successful when:
 
-- player-visible feedback remains unchanged in manual smoke;
+- player-visible feedback remains unchanged in task-local and final manual smoke;
 - production feedback Swift deletions exceed additions;
 - `CombatFeedbackProjector`, `GameplayFeedbackPolicy`, `GameplayFeedbackDirective`, and `GameplayGateID` are gone;
 - automatic semantic cases/payload types are gone;
