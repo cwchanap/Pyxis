@@ -480,7 +480,7 @@ private func priorityTick(
 
     result.soldierAttacks = attacks.enumerated().map { index, type in
         SoldierAttackEvent(
-            soldierID: index + 1,
+            soldierID: index + 100,
             type: type,
             source: .manual,
             lane: .center,
