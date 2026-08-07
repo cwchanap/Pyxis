@@ -10,6 +10,7 @@ struct ManualMonotonicClock: MonotonicClock {
     var now: TimeInterval
 }
 
+@MainActor
 final class RecordingFeedbackPreferencesManager: FeedbackPreferencesManaging {
     private(set) var current: FeedbackPreferences
 
@@ -91,6 +92,7 @@ final class RecordingGameplayHapticOutput: GameplayHapticOutput {
     }
 }
 
+@MainActor
 private final class RecordingFeedbackPreferencesObservation: FeedbackPreferencesObservation {
     private var cancellation: (() -> Void)?
 
@@ -105,6 +107,6 @@ private final class RecordingFeedbackPreferencesObservation: FeedbackPreferences
     }
 
     deinit {
-        cancel()
+        MainActor.assumeIsolated { cancel() }
     }
 }

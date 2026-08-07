@@ -1375,7 +1375,9 @@ struct BuildingViewSceneTests {
         store: KingdomGameStore,
         router: BuildingViewSceneRouting? = nil,
         feedback: GameplayFeedbackProviding? = nil,
-        feedbackPreferences: FeedbackPreferencesManaging = RecordingFeedbackPreferencesManager()
+        feedbackPreferences: FeedbackPreferencesManaging = MainActor.assumeIsolated {
+            RecordingFeedbackPreferencesManager()
+        }
     ) -> BuildingViewScene {
         let scene = BuildingViewScene(
             size: size,
@@ -1399,7 +1401,9 @@ struct BuildingViewSceneTests {
         store: KingdomGameStore,
         router: BuildingViewSceneRouting? = nil,
         feedback: GameplayFeedbackProviding? = nil,
-        feedbackPreferences: FeedbackPreferencesManaging = RecordingFeedbackPreferencesManager()
+        feedbackPreferences: FeedbackPreferencesManaging = MainActor.assumeIsolated {
+            RecordingFeedbackPreferencesManager()
+        }
     ) -> (BuildingViewScene, SKView) {
         let scene = BuildingViewScene(
             size: size,
