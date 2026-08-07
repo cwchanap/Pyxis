@@ -974,8 +974,16 @@ The permanent six-case behavior contract is `DefaultGameplayFeedbackCoordinatorT
 
 In `GameplayFeedbackTests`, keep only tests that still protect a useful public seam:
 
-- `NoOpGameplayFeedbackProvider` accepts one representative discrete event and an empty `BattleCombatState.TickResult` automatic call;
-- the monotonic clock remains nonnegative/nondecreasing if that test remains in this file.
+```swift
+@Test func noOpProviderAcceptsBothEntryPoints() {
+    let provider = NoOpGameplayFeedbackProvider()
+
+    provider.emit(.countryCompletion)
+    provider.emitAutomaticCombat(BattleCombatState.TickResult())
+}
+```
+
+Keep the existing monotonic-clock test if it remains in `GameplayFeedbackTests` after the semantic-enumeration tests are removed.
 
 Delete tests that merely enumerate semantic cases or verify removed automatic payload types.
 
@@ -1212,11 +1220,11 @@ The old `pyxis.feedbackPreferences` JSON object is not migrated. Pre-release dev
 
 ## Deletion result
 
-Report the measured `git diff --numstat origin/main...HEAD -- Pyxis` totals and confirm deletions exceed additions.
+Copy the three measured lines printed by Task 6's `git diff --numstat ... | awk` command into this section and confirm deletions exceed additions.
 
 ## Validation
 
-Report the exact full-suite, UI-test, SwiftLint, diff-check, and manual-smoke results produced by Task 6.
+Copy the exact pass/fail summaries from the Task 6 unit suite, UI suite, SwiftLint, diff check, and manual smoke into this section.
 ```
 
 ## Execution handoff
