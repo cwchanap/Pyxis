@@ -16,7 +16,6 @@ enum GameplaySoundID: String, CaseIterable, Equatable {
     case goldReward
     case cityConquest
     case countryCompletion
-    case fortifiedWarning
 }
 
 enum GameplayHapticKind: Equatable {

@@ -201,13 +201,6 @@ struct GameplaySoundCatalogTests {
             fileExtension: "caf",
             soundClass: .nonAutomatic,
             maximumDuration: nil
-        ),
-        .fortifiedWarning: GameplaySoundResource(
-            id: .fortifiedWarning,
-            resourceName: "fortified-warning",
-            fileExtension: "caf",
-            soundClass: .nonAutomatic,
-            maximumDuration: nil
         )
     ]
 
@@ -264,10 +257,6 @@ struct GameplaySoundCatalogTests {
         .countryCompletion: ManifestEntry(
             semanticUse: "Country-completion outcome",
             originalSourceFile: "doorOpen_2.ogg"
-        ),
-        .fortifiedWarning: ManifestEntry(
-            semanticUse: "Fortified-lane warning",
-            originalSourceFile: "creak2.ogg"
         )
     ]
 
