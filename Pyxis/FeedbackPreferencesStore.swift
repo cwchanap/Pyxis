@@ -9,41 +9,24 @@ import Foundation
 final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
     static let shared = FeedbackPreferencesStore(defaults: .standard)
 
-    private struct ObserverRecord {
-        let callback: (FeedbackPreferences) -> Void
-        var lastDeliveredVersion: UInt64
-    }
-
     private(set) var current: FeedbackPreferences
 
     private let defaults: UserDefaults
-    private let key: String
-    private let encode: (FeedbackPreferences) throws -> Data
-    private var version: UInt64 = 0
-    private var observers: [UUID: ObserverRecord] = [:]
-    private var observerOrder: [UUID] = []
-
-    convenience init(
-        defaults: UserDefaults,
-        key: String = "pyxis.feedbackPreferences"
-    ) {
-        self.init(
-            defaults: defaults,
-            key: key,
-            encode: { try JSONEncoder().encode($0) }
-        )
-    }
+    private let soundKey: String
+    private let hapticsKey: String
+    private var observers: [UUID: (FeedbackPreferences) -> Void] = [:]
 
     init(
         defaults: UserDefaults,
-        key: String,
-        encode: @escaping (FeedbackPreferences) throws -> Data,
-        decoder: JSONDecoder = JSONDecoder()
+        keyPrefix: String = "pyxis.feedback"
     ) {
         self.defaults = defaults
-        self.key = key
-        self.encode = encode
-        current = Self.load(defaults: defaults, key: key, decoder: decoder)
+        soundKey = "\(keyPrefix).soundEffectsEnabled"
+        hapticsKey = "\(keyPrefix).hapticsEnabled"
+        current = FeedbackPreferences(
+            soundEffectsEnabled: defaults.object(forKey: soundKey) as? Bool ?? true,
+            hapticsEnabled: defaults.object(forKey: hapticsKey) as? Bool ?? true
+        )
     }
 
     @discardableResult
@@ -52,9 +35,9 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
             return current
         }
 
-        var updated = current
-        updated.soundEffectsEnabled = enabled
-        commit(updated)
+        current.soundEffectsEnabled = enabled
+        defaults.set(enabled, forKey: soundKey)
+        notifyObservers()
         return current
     }
 
@@ -64,9 +47,9 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
             return current
         }
 
-        var updated = current
-        updated.hapticsEnabled = enabled
-        commit(updated)
+        current.hapticsEnabled = enabled
+        defaults.set(enabled, forKey: hapticsKey)
+        notifyObservers()
         return current
     }
 
@@ -74,67 +57,18 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
         _ observer: @escaping (FeedbackPreferences) -> Void
     ) -> FeedbackPreferencesObservation {
         let id = UUID()
-        observers[id] = ObserverRecord(
-            callback: observer,
-            lastDeliveredVersion: version
-        )
-        observerOrder.append(id)
-        let snapshot = current
-        observer(snapshot)
+        observers[id] = observer
+        observer(current)
 
         return ObservationToken { [weak self] in
             self?.observers.removeValue(forKey: id)
-            self?.observerOrder.removeAll { $0 == id }
         }
     }
 
-    private func commit(_ updated: FeedbackPreferences) {
-        current = updated
-        do {
-            defaults.set(try encode(updated), forKey: key)
-        } catch {
-            NSLog(
-                "[Pyxis] Failed to encode FeedbackPreferences: %@",
-                error.localizedDescription
-            )
-        }
-
-        version += 1
-        let deliveryVersion = version
-        let snapshot = updated
-        let observerIDs = observerOrder
-
-        for id in observerIDs {
-            guard var record = observers[id],
-                  record.lastDeliveredVersion < deliveryVersion
-            else {
-                continue
-            }
-
-            record.lastDeliveredVersion = deliveryVersion
-            observers[id] = record
-            record.callback(snapshot)
-        }
-    }
-
-    private static func load(
-        defaults: UserDefaults,
-        key: String,
-        decoder: JSONDecoder
-    ) -> FeedbackPreferences {
-        guard let data = defaults.data(forKey: key) else {
-            return .defaultValue
-        }
-
-        do {
-            return try decoder.decode(FeedbackPreferences.self, from: data)
-        } catch {
-            NSLog(
-                "[Pyxis] Failed to decode FeedbackPreferences: %@",
-                error.localizedDescription
-            )
-            defaults.set(data, forKey: "\(key).corrupt")
-            return .defaultValue
+    private func notifyObservers() {
+        let snapshot = current
+        for callback in Array(observers.values) {
+            callback(snapshot)
         }
     }
 }

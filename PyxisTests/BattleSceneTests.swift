@@ -3174,7 +3174,7 @@ struct BattleSceneTests {
         let suiteName = "PyxisTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
-        return FeedbackPreferencesStore(defaults: defaults, key: "prefs")
+        return FeedbackPreferencesStore(defaults: defaults, keyPrefix: "prefs")
     }
 
     private func stateWithBarracks(
@@ -3900,7 +3900,7 @@ struct BattleSceneTests {
         let suiteName = "PyxisTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
-        let prefsStore = FeedbackPreferencesStore(defaults: defaults, key: "prefs")
+        let prefsStore = FeedbackPreferencesStore(defaults: defaults, keyPrefix: "prefs")
         let initialSoundEnabled = prefsStore.current.soundEffectsEnabled
 
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
@@ -3944,7 +3944,7 @@ struct BattleSceneTests {
         let suiteName = "PyxisTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
-        let prefsStore = FeedbackPreferencesStore(defaults: defaults, key: "prefs")
+        let prefsStore = FeedbackPreferencesStore(defaults: defaults, keyPrefix: "prefs")
         let initialHapticsEnabled = prefsStore.current.hapticsEnabled
 
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))

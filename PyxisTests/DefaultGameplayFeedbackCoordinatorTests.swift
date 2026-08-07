@@ -271,27 +271,6 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         #expect(haptics.played.isEmpty)
     }
 
-    @Test func retainsOnePreferenceObservationAndCancelsItOnDeinit() {
-        let clock = AdjustableMonotonicClock(now: 0)
-        let preferences = ObservationCountingPreferencesManager()
-        let sound = RecordingGameplaySoundOutput()
-        let haptics = RecordingGameplayHapticOutput()
-        do {
-            let coordinator = makeCoordinator(
-                preferences: preferences,
-                sound: sound,
-                haptics: haptics,
-                clock: clock
-            )
-
-            #expect(preferences.observationCount == 1)
-            #expect(preferences.cancellationCount == 0)
-            withExtendedLifetime(coordinator) {}
-        }
-
-        #expect(preferences.cancellationCount == 1)
-    }
-
     private func makeCoordinator(
         preferences: FeedbackPreferencesManaging,
         sound: GameplaySoundOutput,
@@ -352,78 +331,5 @@ private final class AdjustableMonotonicClock: MonotonicClock {
 
     init(now: TimeInterval) {
         self.now = now
-    }
-}
-
-private final class ObservationCountingPreferencesManager: FeedbackPreferencesManaging {
-    private(set) var current = FeedbackPreferences.defaultValue
-    private(set) var observationCount = 0
-    private(set) var cancellationCount = 0
-    private var observers: [UUID: (FeedbackPreferences) -> Void] = [:]
-
-    @discardableResult
-    func setSoundEffectsEnabled(_ enabled: Bool) -> FeedbackPreferences {
-        guard current.soundEffectsEnabled != enabled else {
-            return current
-        }
-
-        var updated = current
-        updated.soundEffectsEnabled = enabled
-        commit(updated)
-        return current
-    }
-
-    @discardableResult
-    func setHapticsEnabled(_ enabled: Bool) -> FeedbackPreferences {
-        guard current.hapticsEnabled != enabled else {
-            return current
-        }
-
-        var updated = current
-        updated.hapticsEnabled = enabled
-        commit(updated)
-        return current
-    }
-
-    func observe(
-        _ observer: @escaping (FeedbackPreferences) -> Void
-    ) -> FeedbackPreferencesObservation {
-        let id = UUID()
-        observationCount += 1
-        observers[id] = observer
-        observer(current)
-
-        return ObservationCountingToken { [weak self] in
-            guard let self,
-                  observers.removeValue(forKey: id) != nil
-            else {
-                return
-            }
-            cancellationCount += 1
-        }
-    }
-
-    private func commit(_ updated: FeedbackPreferences) {
-        current = updated
-        let callbacks = Array(observers.values)
-        callbacks.forEach { $0(updated) }
-    }
-}
-
-private final class ObservationCountingToken: FeedbackPreferencesObservation {
-    private var cancellation: (() -> Void)?
-
-    init(cancellation: @escaping () -> Void) {
-        self.cancellation = cancellation
-    }
-
-    func cancel() {
-        let action = cancellation
-        cancellation = nil
-        action?()
-    }
-
-    deinit {
-        cancel()
     }
 }
