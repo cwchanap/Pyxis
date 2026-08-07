@@ -73,6 +73,7 @@ final class FeedbackPreferencesStore: FeedbackPreferencesManaging {
     }
 }
 
+@MainActor
 private final class ObservationToken: FeedbackPreferencesObservation {
     private var cancellation: (() -> Void)?
 
@@ -87,6 +88,6 @@ private final class ObservationToken: FeedbackPreferencesObservation {
     }
 
     deinit {
-        cancel()
+        MainActor.assumeIsolated { cancel() }
     }
 }

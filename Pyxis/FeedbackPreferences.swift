@@ -19,10 +19,12 @@ struct FeedbackPreferences: Equatable, Sendable {
 
 }
 
+@MainActor
 protocol FeedbackPreferencesObservation: AnyObject {
     func cancel()
 }
 
+@MainActor
 protocol FeedbackPreferencesManaging: AnyObject {
     var current: FeedbackPreferences { get }
 

@@ -5,6 +5,7 @@
 
 import Foundation
 
+@MainActor
 final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
     private let preferences: FeedbackPreferencesManaging
     private let soundOutput: GameplaySoundOutput
@@ -35,7 +36,7 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
     }
 
     deinit {
-        preferenceObservation?.cancel()
+        MainActor.assumeIsolated { preferenceObservation?.cancel() }
     }
 
     func emit(_ event: GameplayFeedbackEvent) {

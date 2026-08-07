@@ -721,6 +721,31 @@ A missing catalog entry therefore follows the same drop/retry branch as a missin
 
 Do not change preparation, activation, voice capacity, lifecycle, or interruption logic.
 
+Add a regression test in `GameplaySoundOutputControllerTests` for the ready-state missing-resource branch, kept separate from the existing not-ready preparation path tests:
+
+```swift
+@Test func readyStateMissingCatalogEntryDropsWithoutPlaybackFallbackQueueOrReplay() async throws {
+    let backend = RecordingAudioBackend()
+    // Catalog omits the requested sound ID; controller reaches .ready with
+    // the rest of the catalog prepared.
+    let catalog: [GameplaySoundID: GameplaySoundResource] = [
+        .deployment: testCatalog[.deployment]!
+    ]
+    let controller = makeController(backend: backend, catalog: catalog)
+    controller.prepareIfNeeded()
+    try await waitUntil { backend.preparedResourceIDs.count == catalog.count }
+
+    // Request a sound whose catalog entry is absent while preparation is .ready.
+    controller.play(.blocked)
+
+    // The event is dropped: no scheduling, no fallback, no queue, no replay.
+    #expect(backend.scheduledSoundIDs.isEmpty)
+    try await waitUntil { backend.scheduledSoundIDs.isEmpty }
+}
+```
+
+The existing `preReadinessEventsAreDroppedAndNeverReplayAfterPreparation` and `playDuringVoiceCreationIsDroppedRatherThanScheduled` tests keep coverage of the not-ready preparation path. This new test locks the already-ready missing-resource branch so a future change cannot silently introduce a fallback sound, queue, or replay for that case.
+
 - [ ] **Step 5: Simplify recording sound output**
 
 Use:
@@ -970,7 +995,36 @@ Keep these tests:
 @Test func cancellationStopsFutureUpdates()
 @Test func isolatedStoreDoesNotTouchCampaignStateOrStandardDefaults()
 @Test func persistedValuesRoundTripAcrossStoreRecreation()
+@Test func legacyJsonKeyOnlySeedsDefaultsEnabledAndLeavesLegacyKeyUntouched()
 ```
+
+The new `legacyJsonKeyOnlySeedsDefaultsEnabledAndLeavesLegacyKeyUntouched` test covers `FeedbackPreferencesStore` initialization when only the legacy `pyxis.feedbackPreferences` JSON key is seeded with disabled values and the new `pyxis.feedback.soundEffectsEnabled` / `pyxis.feedback.hapticsEnabled` keys are absent:
+
+```swift
+@Test func legacyJsonKeyOnlySeedsDefaultsEnabledAndLeavesLegacyKeyUntouched() throws {
+    let defaults = try makeDefaults()
+    let prefix = "pyxis.feedback"
+
+    // Seed only the legacy JSON key with disabled values. The new keys are absent.
+    let legacyKey = "\(prefix)Preferences"
+    let legacyDisabled = Data("{\"soundEffectsEnabled\":false,\"hapticsEnabled\":false}".utf8)
+    defaults.set(legacyDisabled, forKey: legacyKey)
+
+    let store = FeedbackPreferencesStore(defaults: defaults, keyPrefix: prefix)
+
+    // Both settings default to enabled: the legacy key is not read.
+    #expect(store.current == .defaultValue)
+
+    // The new keys were not written on init.
+    #expect(defaults.object(forKey: "\(prefix).soundEffectsEnabled") == nil)
+    #expect(defaults.object(forKey: "\(prefix).hapticsEnabled") == nil)
+
+    // The legacy key is unchanged: no migration, rewrite, or deletion.
+    #expect(defaults.data(forKey: legacyKey) == legacyDisabled)
+}
+```
+
+This confirms no read, migration, rewrite, or deletion of `pyxis.feedbackPreferences` occurs during initialization.
 
 Delete tests for:
 
@@ -1201,16 +1255,46 @@ Expected: all `PyxisUITests` PASS.
 
 - [ ] **Step 4: Run SwiftLint, diff sanity checks, and the HPA-566 net-deletion gate**
 
+The net-deletion gate diffs against the **HPA-566 PR base SHA** (`0524eaed8f223ad0c6430837fbc649351229ba60`, the commit `origin/main` pointed at when the PR opened) rather than the moving `origin/main` ref, so the count is reproducible regardless of when the gate runs. It counts only the **explicit allowlist of HPA-566 production Swift files** — the 12 files this PR touches under `Pyxis/` — so unrelated changes never merged through this PR cannot dilute the metric:
+
+```text
+Pyxis/AutomaticCombatFeedbackScheduler.swift
+Pyxis/BattleScene.swift
+Pyxis/CombatFeedbackProjector.swift
+Pyxis/DefaultGameplayFeedbackCoordinator.swift
+Pyxis/FeedbackPreferences.swift
+Pyxis/FeedbackPreferencesStore.swift
+Pyxis/FeedbackSettingsController.swift
+Pyxis/GameplayFeedback.swift
+Pyxis/GameplayFeedbackPolicy.swift
+Pyxis/GameplayOutputProtocols.swift
+Pyxis/GameplaySoundCatalog.swift
+Pyxis/GameplaySoundOutputController.swift
+```
+
 ```bash
 swiftlint lint --no-cache
-git diff --check origin/main...HEAD
-git diff --numstat origin/main...HEAD -- ':(glob)Pyxis/*.swift' | awk '
-  { added += $1; deleted += $2 }
-  END {
-    printf "Production Swift additions: %d\nProduction Swift deletions: %d\nNet: %d\n", added, deleted, added - deleted
-    exit !(deleted > added)
-  }
-'
+git diff --check 0524eaed8f223ad0c6430837fbc649351229ba60...HEAD
+git diff --numstat 0524eaed8f223ad0c6430837fbc649351229ba60...HEAD -- \
+  Pyxis/AutomaticCombatFeedbackScheduler.swift \
+  Pyxis/BattleScene.swift \
+  Pyxis/CombatFeedbackProjector.swift \
+  Pyxis/DefaultGameplayFeedbackCoordinator.swift \
+  Pyxis/FeedbackPreferences.swift \
+  Pyxis/FeedbackPreferencesStore.swift \
+  Pyxis/FeedbackSettingsController.swift \
+  Pyxis/GameplayFeedback.swift \
+  Pyxis/GameplayFeedbackPolicy.swift \
+  Pyxis/GameplayOutputProtocols.swift \
+  Pyxis/GameplaySoundCatalog.swift \
+  Pyxis/GameplaySoundOutputController.swift \
+  | awk '
+    { added += $1; deleted += $2 }
+    END {
+      printf "Production Swift additions: %d\nProduction Swift deletions: %d\nNet: %d\n", added, deleted, added - deleted
+      exit !(deleted > added)
+    }
+  '
 ```
 
 Expected:

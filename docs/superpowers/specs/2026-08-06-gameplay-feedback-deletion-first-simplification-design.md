@@ -279,6 +279,12 @@ struct FeedbackPreferences: Equatable, Sendable {
     }
 }
 
+@MainActor
+protocol FeedbackPreferencesObservation: AnyObject {
+    func cancel()
+}
+
+@MainActor
 protocol FeedbackPreferencesManaging: AnyObject {
     var current: FeedbackPreferences { get }
 
@@ -293,6 +299,8 @@ protocol FeedbackPreferencesManaging: AnyObject {
     ) -> FeedbackPreferencesObservation
 }
 ```
+
+Both protocols are `@MainActor`-isolated. This preserves their existing APIs and synchronous `current`, mutation, observation, and cancellation behavior — all access stays on the main actor with no async hops, version vectors, or callback queues. `DefaultGameplayFeedbackCoordinator` and `FeedbackPreferencesStore` conform to / consume these protocols from the main actor consistently (`FeedbackPreferencesStore` is `@MainActor`; `DefaultGameplayFeedbackCoordinator` is main-actor-isolated where it reads `preferences.current` and holds the observation token).
 
 Observation is synchronous and cancellable only. No ordering, version, nested-update, duplicate-registration, or callback/current-divergence semantics are product requirements.
 
