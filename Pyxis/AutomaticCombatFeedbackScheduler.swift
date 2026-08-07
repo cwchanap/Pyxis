@@ -26,7 +26,11 @@ struct AutomaticCombatFeedbackScheduler {
     }
 
     private static let globalInterval: TimeInterval = 0.150
-    private static let attackOrder: [SoldierAttackSoundCategory] = [.siege, .ranged, .melee]
+    private static let attackOrder: [GameplaySoundID] = [
+        .attackSiege,
+        .attackRanged,
+        .attackMelee
+    ]
 
     private var lastGlobalOutputAt: TimeInterval?
     private var lastMeleeAttackAt: TimeInterval?
@@ -35,39 +39,39 @@ struct AutomaticCombatFeedbackScheduler {
     private var lastTowerFireAt: TimeInterval?
     private var lastHitDeathAt: TimeInterval?
     private var attackSkippedEligibleWindows = 0
-    private var lastPlayedAttackCategory: SoldierAttackSoundCategory?
+    private var lastPlayedAttackSound: GameplaySoundID?
 
-    mutating func select(
-        from orderedEvents: [GameplayFeedbackEvent],
+    mutating func selectSound(
+        from result: BattleCombatState.TickResult,
         at now: TimeInterval
-    ) -> GameplayFeedbackEvent? {
+    ) -> GameplaySoundID? {
         guard isOpen(lastGlobalOutputAt, interval: Self.globalInterval, at: now) else {
             return nil
         }
 
-        let eligibleEvents = orderedEvents.filter { event in
-            guard let gate = gate(for: event) else {
+        let eligibleSounds = candidates(from: result).filter { sound in
+            guard let gate = gate(for: sound) else {
                 return false
             }
             return isOpen(lastTimestamp(for: gate), interval: gate.interval, at: now)
         }
-        let hasEligibleAttack = eligibleEvents.contains { attackCategory(for: $0) != nil }
+        let hasEligibleAttack = eligibleSounds.contains { attackSound(for: $0) != nil }
 
-        guard !eligibleEvents.isEmpty else {
+        guard !eligibleSounds.isEmpty else {
             attackSkippedEligibleWindows = 0
             return nil
         }
 
-        let defaultEvent = eligibleEvents[0]
+        let defaultSound = eligibleSounds[0]
         let shouldSelectRotatedAttack =
-            attackSkippedEligibleWindows >= 2 || attackCategory(for: defaultEvent) != nil
-        let selectedEvent = shouldSelectRotatedAttack
-            ? nextEligibleAttack(in: eligibleEvents) ?? defaultEvent
-            : defaultEvent
+            attackSkippedEligibleWindows >= 2 || attackSound(for: defaultSound) != nil
+        let selectedSound = shouldSelectRotatedAttack
+            ? nextEligibleAttack(in: eligibleSounds) ?? defaultSound
+            : defaultSound
 
-        if let attackCategory = attackCategory(for: selectedEvent) {
+        if let attackSound = attackSound(for: selectedSound) {
             attackSkippedEligibleWindows = 0
-            lastPlayedAttackCategory = attackCategory
+            lastPlayedAttackSound = attackSound
         } else if hasEligibleAttack {
             attackSkippedEligibleWindows += 1
         } else {
@@ -75,8 +79,8 @@ struct AutomaticCombatFeedbackScheduler {
         }
 
         lastGlobalOutputAt = now
-        recordSelection(selectedEvent, at: now)
-        return selectedEvent
+        recordSelection(selectedSound, at: now)
+        return selectedSound
     }
 
     private func isOpen(
@@ -90,18 +94,14 @@ struct AutomaticCombatFeedbackScheduler {
         return now >= lastOutputAt + interval
     }
 
-    private func gate(for event: GameplayFeedbackEvent) -> Gate? {
-        switch event {
-        case .soldierAttack(.melee):
-            .melee
-        case .soldierAttack(.ranged):
-            .ranged
-        case .soldierAttack(.siege):
-            .siege
+    private func gate(for sound: GameplaySoundID) -> Gate? {
+        switch sound {
+        case .attackMelee: .melee
+        case .attackRanged: .ranged
+        case .attackSiege: .siege
         case .towerFire:
             .tower
-        case .soldierDamage:
-            .hitDeath
+        case .soldierHit, .soldierDeath: .hitDeath
         default:
             nil
         }
@@ -122,35 +122,35 @@ struct AutomaticCombatFeedbackScheduler {
         }
     }
 
-    private func attackCategory(for event: GameplayFeedbackEvent) -> SoldierAttackSoundCategory? {
-        guard case let .soldierAttack(category) = event else {
+    private func attackSound(for sound: GameplaySoundID) -> GameplaySoundID? {
+        guard Self.attackOrder.contains(sound) else {
             return nil
         }
-        return category
+        return sound
     }
 
     private func nextEligibleAttack(
-        in eligibleEvents: [GameplayFeedbackEvent]
-    ) -> GameplayFeedbackEvent? {
+        in eligibleSounds: [GameplaySoundID]
+    ) -> GameplaySoundID? {
         let startIndex: Int
-        if let lastPlayedAttackCategory,
-           let lastIndex = Self.attackOrder.firstIndex(of: lastPlayedAttackCategory) {
+        if let lastPlayedAttackSound,
+           let lastIndex = Self.attackOrder.firstIndex(of: lastPlayedAttackSound) {
             startIndex = (lastIndex + 1) % Self.attackOrder.count
         } else {
             startIndex = 0
         }
 
         for offset in Self.attackOrder.indices {
-            let category = Self.attackOrder[(startIndex + offset) % Self.attackOrder.count]
-            if let event = eligibleEvents.first(where: { attackCategory(for: $0) == category }) {
-                return event
+            let sound = Self.attackOrder[(startIndex + offset) % Self.attackOrder.count]
+            if let eligibleSound = eligibleSounds.first(where: { attackSound(for: $0) == sound }) {
+                return eligibleSound
             }
         }
         return nil
     }
 
-    private mutating func recordSelection(_ event: GameplayFeedbackEvent, at now: TimeInterval) {
-        guard let gate = gate(for: event) else {
+    private mutating func recordSelection(_ sound: GameplaySoundID, at now: TimeInterval) {
+        guard let gate = gate(for: sound) else {
             return
         }
 
@@ -165,6 +165,32 @@ struct AutomaticCombatFeedbackScheduler {
             lastTowerFireAt = now
         case .hitDeath:
             lastHitDeathAt = now
+        }
+    }
+
+    private func candidates(from result: BattleCombatState.TickResult) -> [GameplaySoundID] {
+        let killed = Set(result.soldierLosses.map(\.soldierID))
+        let hasNonfatalHit = result.damagedSoldierIDs.contains { !killed.contains($0) }
+        let attacks = Set(result.soldierAttacks.map { attackSound(for: $0.type) })
+
+        var sounds: [GameplaySoundID] = []
+        if !result.soldierLosses.isEmpty { sounds.append(.soldierDeath) }
+        if !result.towerShots.isEmpty { sounds.append(.towerFire) }
+        if attacks.contains(.attackSiege) { sounds.append(.attackSiege) }
+        if attacks.contains(.attackRanged) { sounds.append(.attackRanged) }
+        if attacks.contains(.attackMelee) { sounds.append(.attackMelee) }
+        if hasNonfatalHit { sounds.append(.soldierHit) }
+        return sounds
+    }
+
+    private func attackSound(for type: SoldierType) -> GameplaySoundID {
+        switch type {
+        case .infantry, .cavalry:
+            .attackMelee
+        case .archer, .mage:
+            .attackRanged
+        case .siege:
+            .attackSiege
         }
     }
 }

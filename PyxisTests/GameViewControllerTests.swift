@@ -134,7 +134,7 @@ struct GameViewControllerTests {
         let battleFrameConversions = context.accessibilityFrameConversionCount
         #expect(battleFrameConversions > 0)
         battle.advanceCombatForTesting(deltaTime: 0.1)
-        #expect(context.feedback.automaticCombatBatches.count == 1)
+        #expect(context.feedback.automaticCombatCallCount == 1)
 
         controller.battleSceneDidRequestBuildingView(battle)
         let building = try #require(view.scene as? BuildingViewScene)
@@ -355,7 +355,7 @@ struct GameViewControllerTests {
         #expect(context.accessibilityFrameConversionCount > frameConversionsBeforeGate)
         #expect(battle.lastUpdateTimeForTesting == nil)
         #expect(context.feedback.events.isEmpty)
-        #expect(context.feedback.automaticCombatBatches.isEmpty)
+        #expect(context.feedback.automaticCombatCallCount == 0)
         #expect(context.sound.calls == [.prepareIfNeeded])
     }
 
@@ -910,14 +910,14 @@ private final class AccessibilityAdapterState {
 
 private final class RecordingControllerFeedback: GameplayFeedbackProviding {
     private(set) var events: [GameplayFeedbackEvent] = []
-    private(set) var automaticCombatBatches: [[GameplayFeedbackEvent]] = []
+    private(set) var automaticCombatCallCount = 0
 
     func emit(_ event: GameplayFeedbackEvent) {
         events.append(event)
     }
 
-    func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
-        automaticCombatBatches.append(orderedEvents)
+    func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
+        automaticCombatCallCount += 1
     }
 }
 

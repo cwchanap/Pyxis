@@ -1887,7 +1887,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // `deltaTime` so production reflects real elapsed time during stalls.
         decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
         let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
-        feedback.emitAutomaticCombat(CombatFeedbackProjector.events(from: result))
+        feedback.emitAutomaticCombat(result)
         applyCombatResult(result)
         syncSoldierNodes()
         if !buildingSpawns.isEmpty {

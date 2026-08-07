@@ -8,58 +8,33 @@ import Testing
 @testable import Pyxis
 
 struct GameplayFeedbackTests {
-    @Test func everySemanticEventAndPayloadIsConstructibleAndEquatable() {
+    @Test func everyDiscreteSemanticEventIsConstructibleAndEquatable() {
         let events: [GameplayFeedbackEvent] = [
             .manualDeployment,
-            .soldierAttack(.melee),
-            .soldierAttack(.ranged),
-            .soldierAttack(.siege),
-            .towerFire,
-            .soldierDamage(.hit),
-            .soldierDamage(.death),
             .buildingChanged,
             .invalidAction,
             .goldReward,
             .cityConquest,
-            .countryCompletion,
-            .fortifiedLaneWarning
+            .countryCompletion
         ]
 
-        #expect(events.count == 13)
+        #expect(events.count == 6)
         #expect(events[0] == .manualDeployment)
-        #expect(events[1] == .soldierAttack(.melee))
-        #expect(events[6] == .soldierDamage(.death))
-        #expect(events[12] == .fortifiedLaneWarning)
-    }
-
-    @Test func attackAllCasesIsACompleteSetWithoutOrderSemantics() {
-        let categories = SoldierAttackSoundCategory.allCases
-
-        #expect(categories.count == 3)
-        #expect(categories.contains(.melee))
-        #expect(categories.contains(.ranged))
-        #expect(categories.contains(.siege))
+        #expect(events[5] == .countryCompletion)
     }
 
     @Test func recorderKeepsDiscreteAndAutomaticCallsDistinctAndOrdered() {
         let recorder = RecordingGameplayFeedbackProvider()
-        let automatic: [GameplayFeedbackEvent] = [
-            .soldierDamage(.death),
-            .towerFire,
-            .soldierAttack(.siege),
-            .soldierAttack(.ranged),
-            .soldierAttack(.melee),
-            .soldierDamage(.hit)
-        ]
+        let automatic = BattleCombatState.TickResult()
 
         recorder.emit(.manualDeployment)
         recorder.emitAutomaticCombat(automatic)
-        recorder.emitAutomaticCombat([])
+        recorder.emitAutomaticCombat(BattleCombatState.TickResult())
 
         #expect(recorder.calls == [
             .discrete(.manualDeployment),
-            .automatic(automatic),
-            .automatic([])
+            .automatic,
+            .automatic
         ])
     }
 
@@ -67,11 +42,7 @@ struct GameplayFeedbackTests {
         let provider = NoOpGameplayFeedbackProvider()
 
         provider.emit(.countryCompletion)
-        provider.emitAutomaticCombat([
-            .towerFire,
-            .soldierAttack(.melee),
-            .soldierDamage(.hit)
-        ])
+        provider.emitAutomaticCombat(BattleCombatState.TickResult())
     }
 
     @Test func manualClockAdvancesWithoutSleeping() {
@@ -86,7 +57,7 @@ struct GameplayFeedbackTests {
 private final class RecordingGameplayFeedbackProvider: GameplayFeedbackProviding {
     enum Call: Equatable {
         case discrete(GameplayFeedbackEvent)
-        case automatic([GameplayFeedbackEvent])
+        case automatic
     }
 
     private(set) var calls: [Call] = []
@@ -95,7 +66,7 @@ private final class RecordingGameplayFeedbackProvider: GameplayFeedbackProviding
         calls.append(.discrete(event))
     }
 
-    func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
-        calls.append(.automatic(orderedEvents))
+    func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
+        calls.append(.automatic)
     }
 }

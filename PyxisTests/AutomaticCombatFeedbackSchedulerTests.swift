@@ -11,159 +11,228 @@ struct AutomaticCombatFeedbackSchedulerTests {
     @Test func opensGlobalGateAtTheExact150MillisecondBoundary() {
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: [.towerFire], at: 0.000) == .towerFire)
-        #expect(scheduler.select(from: [.soldierAttack(.siege)], at: 0.149) == nil)
-        #expect(scheduler.select(from: [.soldierAttack(.siege)], at: 0.150) == .soldierAttack(.siege))
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.000) == .towerFire)
+        #expect(scheduler.selectSound(from: siegeOnlyTickResult(), at: 0.149) == nil)
+        #expect(scheduler.selectSound(from: siegeOnlyTickResult(), at: 0.150) == .attackSiege)
     }
 
     @Test func keepsGlobalGateClosedImmediatelyBeforeTheExact150MillisecondBoundary() {
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: [.towerFire], at: 0.000) == .towerFire)
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.000) == .towerFire)
         #expect(
-            scheduler.select(
-                from: [.soldierAttack(.siege)],
+            scheduler.selectSound(
+                from: siegeOnlyTickResult(),
                 at: 0.14999999999999997
             ) == nil
         )
-        #expect(scheduler.select(from: [.soldierAttack(.siege)], at: 0.150) == .soldierAttack(.siege))
+        #expect(scheduler.selectSound(from: siegeOnlyTickResult(), at: 0.150) == .attackSiege)
     }
 
-    @Test func keepsEveryAttackCategoryClosedUntilItsExact200MillisecondBoundary() {
+    @Test func keepsEveryAttackFamilyClosedUntilItsExact200MillisecondBoundary() {
         var meleeScheduler = AutomaticCombatFeedbackScheduler()
-        #expect(meleeScheduler.select(from: [.soldierAttack(.melee)], at: 0.000) == .soldierAttack(.melee))
-        #expect(meleeScheduler.select(from: [.soldierAttack(.melee)], at: 0.150) == nil)
-        #expect(meleeScheduler.select(from: [.soldierAttack(.melee)], at: 0.200) == .soldierAttack(.melee))
+        #expect(meleeScheduler.selectSound(from: meleeOnlyTickResult(), at: 0.000) == .attackMelee)
+        #expect(meleeScheduler.selectSound(from: meleeOnlyTickResult(), at: 0.150) == nil)
+        #expect(meleeScheduler.selectSound(from: meleeOnlyTickResult(), at: 0.200) == .attackMelee)
 
         var rangedScheduler = AutomaticCombatFeedbackScheduler()
-        #expect(rangedScheduler.select(from: [.soldierAttack(.ranged)], at: 0.000) == .soldierAttack(.ranged))
-        #expect(rangedScheduler.select(from: [.soldierAttack(.ranged)], at: 0.150) == nil)
-        #expect(rangedScheduler.select(from: [.soldierAttack(.ranged)], at: 0.200) == .soldierAttack(.ranged))
+        #expect(rangedScheduler.selectSound(from: rangedOnlyTickResult(), at: 0.000) == .attackRanged)
+        #expect(rangedScheduler.selectSound(from: rangedOnlyTickResult(), at: 0.150) == nil)
+        #expect(rangedScheduler.selectSound(from: rangedOnlyTickResult(), at: 0.200) == .attackRanged)
 
         var siegeScheduler = AutomaticCombatFeedbackScheduler()
-        #expect(siegeScheduler.select(from: [.soldierAttack(.siege)], at: 0.000) == .soldierAttack(.siege))
-        #expect(siegeScheduler.select(from: [.soldierAttack(.siege)], at: 0.150) == nil)
-        #expect(siegeScheduler.select(from: [.soldierAttack(.siege)], at: 0.200) == .soldierAttack(.siege))
+        #expect(siegeScheduler.selectSound(from: siegeOnlyTickResult(), at: 0.000) == .attackSiege)
+        #expect(siegeScheduler.selectSound(from: siegeOnlyTickResult(), at: 0.150) == nil)
+        #expect(siegeScheduler.selectSound(from: siegeOnlyTickResult(), at: 0.200) == .attackSiege)
     }
 
     @Test func keepsTowerGateClosedUntilItsExact250MillisecondBoundary() {
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: [.towerFire], at: 0.000) == .towerFire)
-        #expect(scheduler.select(from: [.towerFire], at: 0.150) == nil)
-        #expect(scheduler.select(from: [.towerFire], at: 0.250) == .towerFire)
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.000) == .towerFire)
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.150) == nil)
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.250) == .towerFire)
     }
 
     @Test func sharesThe300MillisecondGateFromDeathToHit() {
         var scheduler = AutomaticCombatFeedbackScheduler()
 
         #expect(
-            scheduler.select(
-                from: [.soldierDamage(.death), .soldierDamage(.hit)],
-                at: 0.000
-            ) == .soldierDamage(.death)
+            scheduler.selectSound(from: deathAndHitTickResult(), at: 0.000) == .soldierDeath
         )
-        #expect(scheduler.select(from: [.soldierDamage(.hit)], at: 0.150) == nil)
-        #expect(scheduler.select(from: [.soldierDamage(.hit)], at: 0.300) == .soldierDamage(.hit))
+        #expect(scheduler.selectSound(from: hitOnlyTickResult(), at: 0.150) == nil)
+        #expect(scheduler.selectSound(from: hitOnlyTickResult(), at: 0.300) == .soldierHit)
     }
 
     @Test func sharesThe300MillisecondGateFromHitToDeath() {
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: [.soldierDamage(.hit)], at: 0.000) == .soldierDamage(.hit))
-        #expect(scheduler.select(from: [.soldierDamage(.death)], at: 0.150) == nil)
-        #expect(scheduler.select(from: [.soldierDamage(.death)], at: 0.300) == .soldierDamage(.death))
+        #expect(scheduler.selectSound(from: hitOnlyTickResult(), at: 0.000) == .soldierHit)
+        #expect(scheduler.selectSound(from: deathOnlyTickResult(), at: 0.150) == nil)
+        #expect(scheduler.selectSound(from: deathOnlyTickResult(), at: 0.300) == .soldierDeath)
     }
 
-    @Test func doesNotConsumeTheGlobalWindowWhenOnlyAPresentCategoryIsClosed() {
+    @Test func doesNotConsumeTheGlobalWindowWhenOnlyAPresentFamilyIsClosed() {
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: [.towerFire], at: 0.000) == .towerFire)
-        #expect(scheduler.select(from: [.towerFire], at: 0.150) == nil)
-        #expect(scheduler.select(from: [.soldierAttack(.siege)], at: 0.150) == .soldierAttack(.siege))
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.000) == .towerFire)
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.150) == nil)
+        #expect(scheduler.selectSound(from: siegeOnlyTickResult(), at: 0.150) == .attackSiege)
     }
 
-    @Test func doesNotChangeStarvationStateWhileTheGlobalGateIsClosed() {
-        let dense = denseEvents
+    @Test func closedGlobalGateDoesNotChangeStarvationState() {
+        let dense = denseTickResult()
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: dense, at: 0.000) == .soldierDamage(.death))
-        #expect(scheduler.select(from: [.towerFire], at: 0.075) == nil)
-        #expect(scheduler.select(from: dense, at: 0.150) == .towerFire)
-        #expect(scheduler.select(from: dense, at: 0.300) == .soldierAttack(.siege))
+        #expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.075) == nil)
+        #expect(scheduler.selectSound(from: dense, at: 0.150) == .towerFire)
+        #expect(scheduler.selectSound(from: dense, at: 0.300) == .attackSiege)
     }
 
-    @Test func resetsStarvationWhenNoAttackCategoryIsOpen() {
-        let dense = denseEvents
+    @Test func resetsStarvationWhenNoAttackFamilyIsOpen() {
+        let dense = denseTickResult()
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: dense, at: 0.000) == .soldierDamage(.death))
-        #expect(scheduler.select(from: [.towerFire], at: 0.150) == .towerFire)
-        #expect(scheduler.select(from: dense, at: 0.300) == .soldierDamage(.death))
+        #expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
+        #expect(scheduler.selectSound(from: towerOnlyTickResult(), at: 0.150) == .towerFire)
+        #expect(scheduler.selectSound(from: dense, at: 0.300) == .soldierDeath)
     }
 
-    @Test func rotatesAttackOnlyEligibleBatchesAcrossAllCategories() {
-        let attacks: [GameplayFeedbackEvent] = [
-            .soldierAttack(.siege),
-            .soldierAttack(.ranged),
-            .soldierAttack(.melee)
-        ]
+    @Test func rotatesAttackOnlyEligibleBatchesAcrossAllSounds() {
+        let attacks = attackOnlyTickResult()
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: attacks, at: 0.000) == .soldierAttack(.siege))
-        #expect(scheduler.select(from: attacks, at: 0.200) == .soldierAttack(.ranged))
-        #expect(scheduler.select(from: attacks, at: 0.400) == .soldierAttack(.melee))
+        #expect(scheduler.selectSound(from: attacks, at: 0.000) == .attackSiege)
+        #expect(scheduler.selectSound(from: attacks, at: 0.200) == .attackRanged)
+        #expect(scheduler.selectSound(from: attacks, at: 0.400) == .attackMelee)
     }
 
-    @Test func reservesEveryThirdEligibleWindowAndRotatesAttackCategories() {
-        let dense = denseEvents
+    @Test func reservesEveryThirdEligibleWindowAndRotatesAttackSounds() {
+        let dense = denseTickResult()
         var scheduler = AutomaticCombatFeedbackScheduler()
 
-        #expect(scheduler.select(from: dense, at: 0.000) == .soldierDamage(.death))
-        #expect(scheduler.select(from: dense, at: 0.150) == .towerFire)
-        #expect(scheduler.select(from: dense, at: 0.300) == .soldierAttack(.siege))
-        #expect(scheduler.select(from: dense, at: 0.450) == .soldierDamage(.death))
-        #expect(scheduler.select(from: dense, at: 0.600) == .towerFire)
-        #expect(scheduler.select(from: dense, at: 0.750) == .soldierAttack(.ranged))
-        #expect(scheduler.select(from: dense, at: 0.900) == .soldierDamage(.death))
-        #expect(scheduler.select(from: dense, at: 1.050) == .towerFire)
-        #expect(scheduler.select(from: dense, at: 1.200) == .soldierAttack(.melee))
+        #expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
+        #expect(scheduler.selectSound(from: dense, at: 0.150) == .towerFire)
+        #expect(scheduler.selectSound(from: dense, at: 0.300) == .attackSiege)
+        #expect(scheduler.selectSound(from: dense, at: 0.450) == .soldierDeath)
+        #expect(scheduler.selectSound(from: dense, at: 0.600) == .towerFire)
+        #expect(scheduler.selectSound(from: dense, at: 0.750) == .attackRanged)
+        #expect(scheduler.selectSound(from: dense, at: 0.900) == .soldierDeath)
+        #expect(scheduler.selectSound(from: dense, at: 1.050) == .towerFire)
+        #expect(scheduler.selectSound(from: dense, at: 1.200) == .attackMelee)
     }
 
-    @Test func nonGatedEventsAreFilteredOutWithoutBlockingEligibleEvents() {
-        var scheduler = AutomaticCombatFeedbackScheduler()
-
-        #expect(
-            scheduler.select(from: [.manualDeployment, .towerFire], at: 0.000) == .towerFire
-        )
+    @Test func candidatePriorityRemainsDeathTowerSiegeRangedMeleeHit() {
+        #expect(firstSound(from: priorityTick(death: true, tower: true)) == .soldierDeath)
+        #expect(firstSound(from: priorityTick(tower: true, attacks: [.siege])) == .towerFire)
+        #expect(firstSound(from: priorityTick(attacks: [.siege, .archer])) == .attackSiege)
+        #expect(firstSound(from: priorityTick(attacks: [.archer, .infantry])) == .attackRanged)
+        #expect(firstSound(from: priorityTick(attacks: [.infantry], nonfatalHit: true)) == .attackMelee)
     }
 
     @Test func rotatedAttackFallsBackToDefaultWhenNoAttackIsEligible() {
         var scheduler = AutomaticCombatFeedbackScheduler()
-        let dense = denseEvents
+        let dense = denseTickResult()
 
-        // Build up attackSkippedEligibleWindows to 2 by selecting non-attacks
-        #expect(scheduler.select(from: dense, at: 0.000) == .soldierDamage(.death))
-        #expect(scheduler.select(from: dense, at: 0.150) == .towerFire)
+        // Build up attackSkippedEligibleWindows to 2 by selecting non-attacks.
+        #expect(scheduler.selectSound(from: dense, at: 0.000) == .soldierDeath)
+        #expect(scheduler.selectSound(from: dense, at: 0.150) == .towerFire)
 
-        // At t=0.300, pass events without any attacks. attackSkippedEligibleWindows
-        // is 2 so shouldSelectRotatedAttack is true, but nextEligibleAttack returns
-        // nil (no attacks in eligibleEvents), so the default event is selected.
-        // death is eligible (0.300 >= 0.300), towerFire is not (0.300 < 0.400).
+        // At t=0.300, attackSkippedEligibleWindows is 2 so shouldSelectRotatedAttack
+        // is true, but nextEligibleAttack returns nil (no attacks are present), so
+        // the default event is selected. Death is eligible and towerFire is not.
         #expect(
-            scheduler.select(from: [.soldierDamage(.death), .towerFire], at: 0.300) == .soldierDamage(.death)
+            scheduler.selectSound(
+                from: priorityTick(death: true, tower: true),
+                at: 0.300
+            ) == .soldierDeath
         )
     }
 
-    private var denseEvents: [GameplayFeedbackEvent] {
-        [
-            .soldierDamage(.death),
-            .towerFire,
-            .soldierAttack(.siege),
-            .soldierAttack(.ranged),
-            .soldierAttack(.melee),
-            .soldierDamage(.hit)
-        ]
+    @Test func mapsInfantryAndCavalryToMelee() {
+        #expect(firstSound(from: priorityTick(attacks: [.infantry])) == .attackMelee)
+        #expect(firstSound(from: priorityTick(attacks: [.cavalry])) == .attackMelee)
+    }
+
+    @Test func mapsArcherAndMageToRanged() {
+        #expect(firstSound(from: priorityTick(attacks: [.archer])) == .attackRanged)
+        #expect(firstSound(from: priorityTick(attacks: [.mage])) == .attackRanged)
+    }
+
+    @Test func mapsSiegeToSiege() {
+        #expect(firstSound(from: priorityTick(attacks: [.siege])) == .attackSiege)
+    }
+
+    @Test func duplicateSameFamilyAttacksCoalesceIntoOneCandidate() {
+        #expect(
+            firstSound(from: priorityTick(attacks: [.siege, .siege])) == .attackSiege
+        )
+        #expect(
+            firstSound(from: priorityTick(attacks: [.archer, .mage])) == .attackRanged
+        )
+        #expect(
+            firstSound(from: priorityTick(attacks: [.infantry, .cavalry])) == .attackMelee
+        )
+    }
+
+    @Test func fatalDamagedSoldiersDoNotAlsoYieldHitEligibility() {
+        #expect(firstSound(from: fatalHitOnlyTickResult()) == .soldierDeath)
+    }
+
+    @Test func emptyTickYieldsNoSound() {
+        var scheduler = AutomaticCombatFeedbackScheduler()
+
+        #expect(scheduler.selectSound(from: BattleCombatState.TickResult(), at: 0) == nil)
+    }
+
+    private func firstSound(
+        from result: BattleCombatState.TickResult
+    ) -> GameplaySoundID? {
+        var scheduler = AutomaticCombatFeedbackScheduler()
+        return scheduler.selectSound(from: result, at: 0)
+    }
+
+    private func priorityTick(
+        death: Bool = false,
+        tower: Bool = false,
+        attacks: [SoldierType] = [],
+        nonfatalHit: Bool = false
+    ) -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+
+        if death {
+            result.soldierLosses = [
+                SoldierLossEvent(
+                    soldierID: 90,
+                    type: .infantry,
+                    source: .manual,
+                    lane: .left
+                )
+            ]
+        }
+
+        if tower {
+            result.towerShots = [
+                BattleCombatState.TowerShot(soldierID: 91, damage: 3)
+            ]
+        }
+
+        result.soldierAttacks = attacks.enumerated().map { index, type in
+            SoldierAttackEvent(
+                soldierID: index + 100,
+                type: type,
+                source: .manual,
+                lane: .center,
+                appliedCityDamage: 1
+            )
+        }
+
+        if nonfatalHit {
+            result.damagedSoldierIDs = [999]
+        }
+
+        return result
     }
 
     private func towerOnlyTickResult() -> BattleCombatState.TickResult {
@@ -175,68 +244,37 @@ struct AutomaticCombatFeedbackSchedulerTests {
     }
 
     private func siegeOnlyTickResult() -> BattleCombatState.TickResult {
-        var result = BattleCombatState.TickResult()
-        result.soldierAttacks = [
-            SoldierAttackEvent(
-                soldierID: 1,
-                type: .siege,
-                source: .manual,
-                lane: .left,
-                appliedCityDamage: 2
-            )
-        ]
-        return result
+        priorityTick(attacks: [.siege])
     }
 
     private func rangedOnlyTickResult() -> BattleCombatState.TickResult {
-        var result = BattleCombatState.TickResult()
-        result.soldierAttacks = [
-            SoldierAttackEvent(
-                soldierID: 2,
-                type: .archer,
-                source: .building,
-                lane: .center,
-                appliedCityDamage: 2
-            )
-        ]
-        return result
+        priorityTick(attacks: [.archer])
     }
 
     private func meleeOnlyTickResult() -> BattleCombatState.TickResult {
-        var result = BattleCombatState.TickResult()
-        result.soldierAttacks = [
-            SoldierAttackEvent(
-                soldierID: 3,
-                type: .infantry,
-                source: .manual,
-                lane: .right,
-                appliedCityDamage: 2
-            )
-        ]
-        return result
+        priorityTick(attacks: [.infantry])
     }
 
     private func hitOnlyTickResult() -> BattleCombatState.TickResult {
-        var result = BattleCombatState.TickResult()
-        result.damagedSoldierIDs = [91]
-        return result
+        priorityTick(nonfatalHit: true)
     }
 
     private func deathOnlyTickResult() -> BattleCombatState.TickResult {
-        var result = BattleCombatState.TickResult()
-        result.soldierLosses = [
-            SoldierLossEvent(
-                soldierID: 90,
-                type: .infantry,
-                source: .manual,
-                lane: .left
-            )
-        ]
-        return result
+        priorityTick(death: true)
     }
 
-    private func attackFreeTickResult() -> BattleCombatState.TickResult {
-        BattleCombatState.TickResult()
+    private func deathAndHitTickResult() -> BattleCombatState.TickResult {
+        priorityTick(death: true, nonfatalHit: true)
+    }
+
+    private func attackOnlyTickResult() -> BattleCombatState.TickResult {
+        priorityTick(attacks: [.siege, .archer, .infantry])
+    }
+
+    private func fatalHitOnlyTickResult() -> BattleCombatState.TickResult {
+        var result = deathOnlyTickResult()
+        result.damagedSoldierIDs = [90]
+        return result
     }
 
     private func denseTickResult() -> BattleCombatState.TickResult {

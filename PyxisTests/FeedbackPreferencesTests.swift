@@ -129,20 +129,10 @@ private func assertHPA389ConsumerContract(
         .invalidAction,
         .goldReward,
         .cityConquest,
-        .countryCompletion,
-        .fortifiedLaneWarning
+        .countryCompletion
     ]
     discreteEvents.forEach { provider.emit($0) }
 
-    provider.emitAutomaticCombat([
-        .soldierDamage(.death),
-        .towerFire,
-        .soldierAttack(.siege),
-        .soldierAttack(.ranged),
-        .soldierAttack(.melee),
-        .soldierDamage(.hit)
-    ])
-
-    _ = SoldierAttackSoundCategory.allCases
+    provider.emitAutomaticCombat(BattleCombatState.TickResult())
     _ = clock.now
 }

@@ -13,18 +13,18 @@ import UIKit
 struct CountryMapSceneTests {
     private enum CountryMapFeedbackCall: Equatable {
         case discrete(GameplayFeedbackEvent)
-        case automatic([GameplayFeedbackEvent])
     }
 
     private final class CountryMapFeedbackRecorder: GameplayFeedbackProviding {
         private(set) var calls: [CountryMapFeedbackCall] = []
+        private(set) var automaticCallCount = 0
 
         func emit(_ event: GameplayFeedbackEvent) {
             calls.append(.discrete(event))
         }
 
-        func emitAutomaticCombat(_ orderedEvents: [GameplayFeedbackEvent]) {
-            calls.append(.automatic(orderedEvents))
+        func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
+            automaticCallCount += 1
         }
 
         var discreteEvents: [GameplayFeedbackEvent] {
@@ -36,6 +36,7 @@ struct CountryMapSceneTests {
 
         func reset() {
             calls.removeAll()
+            automaticCallCount = 0
         }
     }
 
