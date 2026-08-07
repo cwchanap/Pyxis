@@ -227,8 +227,8 @@ struct GameViewControllerTests {
         #expect(context.sound.calls == [
             .prepareIfNeeded,
             .handleAppWillEnterForeground,
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest)
         ])
         #expect(!context.sound.calls.contains(.handleLifecycleRecovery))
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
@@ -279,8 +279,8 @@ struct GameViewControllerTests {
         #expect(context.sound.calls == [
             .handleAppDidEnterBackground,
             .handleAppWillEnterForeground,
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest)
         ])
         #expect(context.sound.droppedSounds.isEmpty)
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
@@ -930,7 +930,7 @@ private final class RecordingControllerSound: GameplayFeedbackRuntimeSoundContro
         case handleAudioInterruptionEnded(Bool)
         case handleLifecycleRecovery
         case stopAllAndDeactivate
-        case play(GameplaySoundID, GameplaySoundClass)
+        case play(GameplaySoundID)
     }
 
     private(set) var calls: [Call] = []
@@ -963,12 +963,12 @@ private final class RecordingControllerSound: GameplayFeedbackRuntimeSoundContro
         calls.append(.handleLifecycleRecovery)
     }
 
-    func play(_ sound: GameplaySoundID, soundClass: GameplaySoundClass) {
+    func play(_ sound: GameplaySoundID) {
         guard isOutputEligible else {
             droppedSounds.append(sound)
             return
         }
-        calls.append(.play(sound, soundClass))
+        calls.append(.play(sound))
     }
 }
 

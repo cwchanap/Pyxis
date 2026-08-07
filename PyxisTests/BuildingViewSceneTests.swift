@@ -283,8 +283,8 @@ struct BuildingViewSceneTests {
 
         #expect(store.load().stageStatus == .cityConqueredPendingMap)
         #expect(sound.calls == [
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest)
         ])
         #expect(haptics.played == [.strongSuccess])
     }
@@ -320,8 +320,8 @@ struct BuildingViewSceneTests {
         lifecycleScene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(20_000))
 
         #expect(lifecycleSound.calls == [
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest)
         ])
         #expect(lifecycleHaptics.played == [.strongSuccess])
 
@@ -352,8 +352,8 @@ struct BuildingViewSceneTests {
         requestScene.repeatDidMoveForTesting()
 
         #expect(requestSound.calls == [
-            .play(.goldReward, .nonAutomatic),
-            .play(.cityConquest, .nonAutomatic)
+            .play(.goldReward),
+            .play(.cityConquest)
         ])
         #expect(requestHaptics.played == [.strongSuccess])
     }

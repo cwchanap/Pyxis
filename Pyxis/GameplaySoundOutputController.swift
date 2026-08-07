@@ -74,9 +74,9 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         }
     }
 
-    func play(_ sound: GameplaySoundID, soundClass: GameplaySoundClass) {
+    func play(_ sound: GameplaySoundID) {
         outputQueue.async { [weak self] in
-            self?.playReadySound(sound, soundClass: soundClass)
+            self?.playReadySound(sound)
         }
     }
 
@@ -287,20 +287,20 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         log(message)
     }
 
-    private func playReadySound(_ soundID: GameplaySoundID, soundClass: GameplaySoundClass) {
+    private func playReadySound(_ soundID: GameplaySoundID) {
         guard isOutputEligible else {
             return
         }
 
         guard case .ready = preparationState,
+              let resource = catalog[soundID],
               let preparedSound = preparedSounds[soundID]
         else {
-            // The current event is intentionally dropped. A first-use retry may prepare a
-            // previously failed/unprepared catalog, but never queues the dropped event.
             beginPreparationIfNeeded()
             return
         }
 
+        let soundClass = resource.soundClass
         let activationAttemptAt = clock.now
         if let nextActivationAttemptAt, activationAttemptAt < nextActivationAttemptAt {
             return

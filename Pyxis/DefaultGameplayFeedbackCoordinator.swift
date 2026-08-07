@@ -13,7 +13,8 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
 
     private var currentPreferences: FeedbackPreferences
     private var preferenceObservation: FeedbackPreferencesObservation?
-    private var lastDiscreteOutputAt: [GameplayGateID: TimeInterval] = [:]
+    private var lastSoundAt: [GameplayFeedbackEvent: TimeInterval] = [:]
+    private var lastHapticAt: [GameplayFeedbackEvent: TimeInterval] = [:]
     private var automaticCombatScheduler = AutomaticCombatFeedbackScheduler()
 
     init(
@@ -38,15 +39,29 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
     }
 
     func emit(_ event: GameplayFeedbackEvent) {
-        let directive = GameplayFeedbackPolicy.directive(for: event)
+        switch event {
+        case .manualDeployment:
+            emitSound(.deployment, for: event, interval: 0.120)
+            emitHaptic(.lightImpact, for: event, interval: 0.120)
 
-        if let sound = directive.sound,
-           let soundClass = directive.soundClass {
-            emitSound(sound, soundClass: soundClass, gate: directive.soundGate)
-        }
+        case .buildingChanged:
+            emitSound(.construction, for: event, interval: 0.250)
+            emitHaptic(.mediumImpact, for: event, interval: 0.250)
 
-        if let haptic = directive.haptic {
-            emitHaptic(haptic, gate: directive.hapticGate)
+        case .invalidAction:
+            emitSound(.blocked, for: event, interval: 0.500)
+            emitHaptic(.warning, for: event, interval: 0.500)
+
+        case .goldReward:
+            emitSound(.goldReward)
+
+        case .cityConquest:
+            emitSound(.cityConquest)
+            emitHaptic(.strongSuccess)
+
+        case .countryCompletion:
+            emitSound(.countryCompletion)
+            emitHaptic(.strongSuccess)
         }
     }
 
@@ -60,7 +75,7 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
             return
         }
 
-        soundOutput.play(sound, soundClass: .automaticCombat)
+        soundOutput.play(sound)
     }
 
     private func apply(_ updatedPreferences: FeedbackPreferences) {
@@ -75,57 +90,53 @@ final class DefaultGameplayFeedbackCoordinator: GameplayFeedbackProviding {
 
     private func emitSound(
         _ sound: GameplaySoundID,
-        soundClass: GameplaySoundClass,
-        gate: GameplayGateID?
+        for event: GameplayFeedbackEvent,
+        interval: TimeInterval
     ) {
         guard currentPreferences.soundEffectsEnabled else {
             return
         }
 
-        if let gate {
-            let now = clock.now
-            guard isGateOpen(gate, at: now) else {
-                return
-            }
-            lastDiscreteOutputAt[gate] = now
+        let now = clock.now
+        if let lastOutputAt = lastSoundAt[event], now < lastOutputAt + interval {
+            return
         }
 
-        soundOutput.play(sound, soundClass: soundClass)
+        lastSoundAt[event] = now
+        soundOutput.play(sound)
     }
 
-    private func emitHaptic(_ haptic: GameplayHapticKind, gate: GameplayGateID?) {
+    private func emitSound(_ sound: GameplaySoundID) {
+        guard currentPreferences.soundEffectsEnabled else {
+            return
+        }
+
+        soundOutput.play(sound)
+    }
+
+    private func emitHaptic(
+        _ haptic: GameplayHapticKind,
+        for event: GameplayFeedbackEvent,
+        interval: TimeInterval
+    ) {
         guard currentPreferences.hapticsEnabled else {
             return
         }
 
-        if let gate {
-            let now = clock.now
-            guard isGateOpen(gate, at: now) else {
-                return
-            }
-            lastDiscreteOutputAt[gate] = now
+        let now = clock.now
+        if let lastOutputAt = lastHapticAt[event], now < lastOutputAt + interval {
+            return
         }
 
+        lastHapticAt[event] = now
         hapticOutput.play(haptic)
     }
 
-    private func isGateOpen(_ gate: GameplayGateID, at now: TimeInterval) -> Bool {
-        guard let lastOutputAt = lastDiscreteOutputAt[gate] else {
-            return true
+    private func emitHaptic(_ haptic: GameplayHapticKind) {
+        guard currentPreferences.hapticsEnabled else {
+            return
         }
-        return now >= lastOutputAt + Self.interval(for: gate)
-    }
 
-    private static func interval(for gate: GameplayGateID) -> TimeInterval {
-        switch gate {
-        case .deploymentSound, .deploymentHaptic:
-            0.120
-        case .constructionSound, .constructionHaptic:
-            0.250
-        case .invalidSound, .invalidHaptic:
-            0.500
-        case .fortifiedWarningSound:
-            0.750
-        }
+        hapticOutput.play(haptic)
     }
 }

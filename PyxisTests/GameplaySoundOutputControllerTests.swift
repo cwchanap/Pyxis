@@ -31,7 +31,7 @@ struct GameplaySoundOutputControllerTests {
         let controller = makeController(backend: backend)
 
         controller.prepareIfNeeded()
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
 
         #expect(backend.waitForBlockedPreparation())
         backend.releaseBlockedPreparation()
@@ -39,7 +39,7 @@ struct GameplaySoundOutputControllerTests {
 
         #expect(backend.scheduledSoundIDs.isEmpty)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -56,7 +56,7 @@ struct GameplaySoundOutputControllerTests {
         // A play request arriving while voice creation is still in flight
         // (preparation still .preparing) must be dropped, not queued for
         // post-readiness scheduling.
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
 
         backend.releaseBlockedVoiceCreation()
         try await waitUntil { backend.createdVoiceIndices == Array(0...7) }
@@ -65,7 +65,7 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.scheduledSoundIDs.isEmpty)
 
         // After readiness, a fresh play schedules normally.
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -74,7 +74,7 @@ struct GameplaySoundOutputControllerTests {
         let controller = makeController(backend: backend, catalog: partialCatalog)
 
         controller.prepareIfNeeded()
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
 
         #expect(backend.waitForBlockedPreparation())
         #expect(backend.preparedResourceIDs.count == 2)
@@ -84,7 +84,7 @@ struct GameplaySoundOutputControllerTests {
         backend.releaseBlockedPreparation()
         try await waitUntil { backend.createdVoiceIndices == Array(0...7) }
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -112,7 +112,7 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.configuredAmbientSessionCount == 2)
         #expect(backend.scheduledSoundIDs.isEmpty)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -120,10 +120,10 @@ struct GameplaySoundOutputControllerTests {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
 
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment, .attackMelee] }
 
         #expect(backend.activeSessionRequests == [.init(active: true, notifyOthers: false)])
@@ -135,18 +135,18 @@ struct GameplaySoundOutputControllerTests {
         let clock = MutableMonotonicClock(now: 10)
         let controller = try await preparedController(backend: backend, clock: clock)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.activeSessionRequests.count == 1 }
         #expect(backend.scheduledSoundIDs.isEmpty)
 
         clock.setNow(10.999)
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await settleOutput()
         #expect(backend.activeSessionRequests.count == 1)
         #expect(backend.scheduledSoundIDs.isEmpty)
 
         clock.setNow(11)
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
 
         #expect(
@@ -167,17 +167,17 @@ struct GameplaySoundOutputControllerTests {
         )
         let controller = try await preparedController(backend: backend, clock: clock)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.activeSessionRequests.count == 1 }
 
         clock.setNow(50.999)
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await settleOutput()
         #expect(backend.activeSessionRequests.count == 1)
         #expect(backend.scheduledSoundIDs.isEmpty)
 
         clock.setNow(51)
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -186,13 +186,13 @@ struct GameplaySoundOutputControllerTests {
         let clock = MutableMonotonicClock(now: 20)
         let controller = try await preparedController(backend: backend, clock: clock)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.activeSessionRequests.count == 1 }
 
         clock.setNow(20.100)
         controller.handleLifecycleRecovery()
         try await waitUntil { backend.createdVoiceIndices == Array(0...7) + Array(0...7) }
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
 
         #expect(
@@ -221,7 +221,7 @@ struct GameplaySoundOutputControllerTests {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
 
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs == [.attackMelee] }
 
         controller.handleLifecycleRecovery()
@@ -238,7 +238,7 @@ struct GameplaySoundOutputControllerTests {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
 
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs == [.attackMelee] }
 
         controller.handleAudioInterruptionBegan()
@@ -246,7 +246,7 @@ struct GameplaySoundOutputControllerTests {
             backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
         }
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         controller.drainOutputQueueForTesting()
 
         #expect(backend.scheduledSoundIDs == [.attackMelee])
@@ -269,7 +269,7 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.lifecycleRecoveryCount == 0)
         #expect(backend.scheduledSoundIDs.isEmpty)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -282,7 +282,7 @@ struct GameplaySoundOutputControllerTests {
             backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
         }
         controller.handleAudioInterruptionEnded(shouldResume: false)
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         controller.drainOutputQueueForTesting()
 
         #expect(backend.scheduledSoundIDs.isEmpty)
@@ -308,7 +308,7 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.lifecycleRecoveryCount == 0)
         #expect(backend.scheduledSoundIDs.isEmpty)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -374,7 +374,7 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.waitForBlockedPreparation())
 
         // This pre-readiness event must remain dropped across recovery.
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         controller.handleLifecycleRecovery()
 
         // The backend reset is serialized behind the in-flight (blocked)
@@ -472,7 +472,7 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.createdVoiceIndices == Array(0...7))
 
         for _ in 0..<12 {
-            controller.play(.attackMelee, soundClass: .automaticCombat)
+            controller.play(.attackMelee)
         }
         try await waitUntil { backend.scheduledSoundIDs.count == 12 }
 
@@ -486,12 +486,12 @@ struct GameplaySoundOutputControllerTests {
 
         for time in 0...5 {
             clock.setNow(TimeInterval(time))
-            controller.play(.attackMelee, soundClass: .automaticCombat)
+            controller.play(.attackMelee)
             try await waitUntil { backend.scheduledSoundIDs.count == time + 1 }
         }
 
         clock.setNow(6)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.count == 7 }
 
         #expect(backend.voiceOperations(for: 0) == [.schedule(.attackMelee), .stop, .schedule(.attackMelee)])
@@ -503,9 +503,9 @@ struct GameplaySoundOutputControllerTests {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs.count == 1 }
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs.count == 2 }
 
         #expect(backend.voiceOperations(for: 6) == [.schedule(.deployment)])
@@ -519,13 +519,13 @@ struct GameplaySoundOutputControllerTests {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
 
         backend.completeScheduledVoice(at: 6, occurrence: 0)
         try await settleOutput()
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs.count == 2 }
 
         #expect(backend.voiceOperations(for: 6) == [.schedule(.deployment), .schedule(.deployment)])
@@ -539,19 +539,19 @@ struct GameplaySoundOutputControllerTests {
 
         for time in 0...5 {
             clock.setNow(TimeInterval(time))
-            controller.play(.attackMelee, soundClass: .automaticCombat)
+            controller.play(.attackMelee)
             try await waitUntil { backend.scheduledSoundIDs.count == time + 1 }
         }
 
         clock.setNow(6)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.count == 7 }
 
         backend.completeScheduledVoice(at: 0, occurrence: 0)
         try await settleOutput()
 
         clock.setNow(7)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.count == 8 }
 
         #expect(backend.voiceOperations(for: 0) == [.schedule(.attackMelee), .stop, .schedule(.attackMelee)])
@@ -565,17 +565,17 @@ struct GameplaySoundOutputControllerTests {
 
         for time in 0...5 {
             clock.setNow(TimeInterval(time))
-            controller.play(.attackMelee, soundClass: .automaticCombat)
+            controller.play(.attackMelee)
             try await waitUntil { backend.scheduledSoundIDs.count == time + 1 }
         }
         for time in 6...7 {
             clock.setNow(TimeInterval(time))
-            controller.play(.deployment, soundClass: .nonAutomatic)
+            controller.play(.deployment)
             try await waitUntil { backend.scheduledSoundIDs.count == time + 1 }
         }
 
         clock.setNow(8)
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs.count == 9 }
 
         #expect(backend.voiceOperations(for: 0) == [.schedule(.attackMelee), .stop, .schedule(.deployment)])
@@ -588,12 +588,12 @@ struct GameplaySoundOutputControllerTests {
         let controller = try await preparedController(backend: backend)
 
         for expectedCount in 1...8 {
-            controller.play(.deployment, soundClass: .nonAutomatic)
+            controller.play(.deployment)
             try await waitUntil { backend.scheduledSoundIDs.count == expectedCount }
         }
 
-        controller.play(.attackMelee, soundClass: .automaticCombat)
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.attackMelee)
+        controller.play(.deployment)
         try await settleOutput()
 
         #expect(backend.scheduledSoundIDs.count == 8)
@@ -608,27 +608,27 @@ struct GameplaySoundOutputControllerTests {
         let controller = try await preparedController(backend: backend, clock: clock)
 
         clock.setNow(0)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.count == 1 }
 
         clock.setNow(1)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.count == 3 }
 
         for time in 2...4 {
             clock.setNow(TimeInterval(time))
-            controller.play(.attackMelee, soundClass: .automaticCombat)
+            controller.play(.attackMelee)
             try await waitUntil { backend.scheduledSoundIDs.count == time + 2 }
         }
 
         clock.setNow(5)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.count == 7 }
         #expect(backend.voiceOperations(for: 0) == [.schedule(.attackMelee), .stop, .schedule(.attackMelee)])
 
         clock.setNow(6)
-        controller.play(.attackMelee, soundClass: .automaticCombat)
+        controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.count == 8 }
 
         #expect(backend.voiceOperations(for: 1) == [.schedule(.attackMelee), .stop, .schedule(.attackMelee)])
@@ -639,13 +639,13 @@ struct GameplaySoundOutputControllerTests {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
 
         controller.handleAppDidEnterBackground()
         try await waitUntil { backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true)) }
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         controller.drainOutputQueueForTesting()
 
         #expect(backend.scheduledSoundIDs == [.deployment])
@@ -661,7 +661,7 @@ struct GameplaySoundOutputControllerTests {
         controller.handleAppWillEnterForeground()
         controller.drainOutputQueueForTesting()
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
     }
 
@@ -677,7 +677,7 @@ struct GameplaySoundOutputControllerTests {
         try await waitUntil { backend.configureAmbientSessionCount == 1 }
         try await settleOutput()
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await settleOutput()
 
         #expect(backend.stopEngineCount == 0)
@@ -695,7 +695,7 @@ struct GameplaySoundOutputControllerTests {
         try await settleOutput()
 
         // Preparation should fail due to mismatched ID, no voices created
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await settleOutput()
 
         #expect(backend.createdVoiceIndices.isEmpty)
@@ -713,7 +713,7 @@ struct GameplaySoundOutputControllerTests {
         controller.prepareIfNeeded()
         try await waitUntil { backend.createdVoiceIndices == Array(0...7) }
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.sessionRequests.count >= 2 }
 
         let requests = backend.sessionRequests
@@ -730,7 +730,7 @@ struct GameplaySoundOutputControllerTests {
             backend.activeSessionRequests.contains(.init(active: false, notifyOthers: true))
         }
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         controller.drainOutputQueueForTesting()
 
         #expect(backend.scheduledSoundIDs.isEmpty)
@@ -758,7 +758,7 @@ struct GameplaySoundOutputControllerTests {
         let backend = RecordingAudioBackend()
         let controller = try await preparedController(backend: backend)
 
-        controller.play(.deployment, soundClass: .nonAutomatic)
+        controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
 
         controller.stopAllAndDeactivate()
