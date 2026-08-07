@@ -80,11 +80,6 @@ enum GameplaySoundCatalog {
             id: .countryCompletion,
             resourceName: "country-completion",
             soundClass: .nonAutomatic
-        ),
-        .fortifiedWarning: resource(
-            id: .fortifiedWarning,
-            resourceName: "fortified-warning",
-            soundClass: .nonAutomatic
         )
     ]
 

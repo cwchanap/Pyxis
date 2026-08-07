@@ -1,6 +1,6 @@
 # Gameplay audio assets
 
-All 13 gameplay sounds are derived from the official **Kenney RPG Audio v1.0** archive. The downloaded archive's `License.txt` identifies its creator as Kenney Vleugels (Kenney.nl) and marks the pack as Creative Commons Zero (CC0). The source archive and its bundled provenance notice were inspected before processing; the original selected files are Vorbis OGG, 48 kHz stereo, and non-silent.
+All 12 gameplay sounds are derived from the official **Kenney RPG Audio v1.0** archive. The downloaded archive's `License.txt` identifies its creator as Kenney Vleugels (Kenney.nl) and marks the pack as Creative Commons Zero (CC0). The source archive and its bundled provenance notice were inspected before processing; the original selected files are Vorbis OGG, 48 kHz stereo, and non-silent.
 
 Source page: <https://www.kenney.nl/assets/rpg-audio>  
 Official archive: <https://www.kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip>
@@ -29,7 +29,6 @@ The resulting CAF files are 44.1 kHz, mono, signed 16-bit little-endian PCM. No 
 | `gold-reward.caf` | Gold reward | `handleCoins.ogg` | Kenney RPG Audio v1.0 | Kenney | [Official archive](https://www.kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip) | CC0-1.0 | `docs/licenses/audio/CC0-1.0.txt` | Yes — CC0 permits modification and binary-app redistribution. | Decoded OGG; 48 kHz stereo to 44.1 kHz mono LEI16 CAF; no trim. | 0.845533 s |
 | `city-conquest.caf` | City-conquest outcome | `doorOpen_1.ogg` | Kenney RPG Audio v1.0 | Kenney | [Official archive](https://www.kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip) | CC0-1.0 | `docs/licenses/audio/CC0-1.0.txt` | Yes — CC0 permits modification and binary-app redistribution. | Decoded OGG; 48 kHz stereo to 44.1 kHz mono LEI16 CAF; no trim. | 0.918957 s |
 | `country-completion.caf` | Country-completion outcome | `doorOpen_2.ogg` | Kenney RPG Audio v1.0 | Kenney | [Official archive](https://www.kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip) | CC0-1.0 | `docs/licenses/audio/CC0-1.0.txt` | Yes — CC0 permits modification and binary-app redistribution. | Decoded OGG; 48 kHz stereo to 44.1 kHz mono LEI16 CAF; no trim. | 1.413333 s |
-| `fortified-warning.caf` | Fortified-lane warning | `creak2.ogg` | Kenney RPG Audio v1.0 | Kenney | [Official archive](https://www.kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip) | CC0-1.0 | `docs/licenses/audio/CC0-1.0.txt` | Yes — CC0 permits modification and binary-app redistribution. | Decoded OGG; 48 kHz stereo to 44.1 kHz mono LEI16 CAF; no trim. | 0.830159 s |
 
 The in-app automatic-combat set is `attack-melee`, `attack-ranged`, `attack-siege`, `tower-fire`, `soldier-hit`, and `soldier-death`; each is at or below 0.750 s after conversion. Non-automatic outcome and UI clips intentionally have no automatic voice-duration cap.
 
