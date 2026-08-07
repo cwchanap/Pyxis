@@ -165,4 +165,117 @@ struct AutomaticCombatFeedbackSchedulerTests {
             .soldierDamage(.hit)
         ]
     }
+
+    private func towerOnlyTickResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.towerShots = [
+            BattleCombatState.TowerShot(soldierID: 90, damage: 3)
+        ]
+        return result
+    }
+
+    private func siegeOnlyTickResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.soldierAttacks = [
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .siege,
+                source: .manual,
+                lane: .left,
+                appliedCityDamage: 2
+            )
+        ]
+        return result
+    }
+
+    private func rangedOnlyTickResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.soldierAttacks = [
+            SoldierAttackEvent(
+                soldierID: 2,
+                type: .archer,
+                source: .building,
+                lane: .center,
+                appliedCityDamage: 2
+            )
+        ]
+        return result
+    }
+
+    private func meleeOnlyTickResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.soldierAttacks = [
+            SoldierAttackEvent(
+                soldierID: 3,
+                type: .infantry,
+                source: .manual,
+                lane: .right,
+                appliedCityDamage: 2
+            )
+        ]
+        return result
+    }
+
+    private func hitOnlyTickResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.damagedSoldierIDs = [91]
+        return result
+    }
+
+    private func deathOnlyTickResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.soldierLosses = [
+            SoldierLossEvent(
+                soldierID: 90,
+                type: .infantry,
+                source: .manual,
+                lane: .left
+            )
+        ]
+        return result
+    }
+
+    private func attackFreeTickResult() -> BattleCombatState.TickResult {
+        BattleCombatState.TickResult()
+    }
+
+    private func denseTickResult() -> BattleCombatState.TickResult {
+        var result = BattleCombatState.TickResult()
+        result.soldierLosses = [
+            SoldierLossEvent(
+                soldierID: 90,
+                type: .infantry,
+                source: .manual,
+                lane: .left
+            )
+        ]
+        result.towerShots = [
+            BattleCombatState.TowerShot(soldierID: 90, damage: 3)
+        ]
+        result.soldierAttacks = [
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .siege,
+                source: .manual,
+                lane: .left,
+                appliedCityDamage: 2
+            ),
+            SoldierAttackEvent(
+                soldierID: 2,
+                type: .archer,
+                source: .building,
+                lane: .center,
+                appliedCityDamage: 2
+            ),
+            SoldierAttackEvent(
+                soldierID: 3,
+                type: .infantry,
+                source: .manual,
+                lane: .right,
+                appliedCityDamage: 2
+            )
+        ]
+        result.damagedSoldierIDs = [90, 91]
+        return result
+    }
 }

@@ -9,6 +9,39 @@ import Testing
 
 @MainActor
 struct DefaultGameplayFeedbackCoordinatorTests {
+    @Test func reachableDiscreteEventsEmitCurrentOutputs() {
+        struct Case {
+            let event: GameplayFeedbackEvent
+            let sound: GameplaySoundID
+            let haptic: GameplayHapticKind?
+        }
+
+        let cases: [Case] = [
+            .init(event: .manualDeployment, sound: .deployment, haptic: .lightImpact),
+            .init(event: .buildingChanged, sound: .construction, haptic: .mediumImpact),
+            .init(event: .invalidAction, sound: .blocked, haptic: .warning),
+            .init(event: .goldReward, sound: .goldReward, haptic: nil),
+            .init(event: .cityConquest, sound: .cityConquest, haptic: .strongSuccess),
+            .init(event: .countryCompletion, sound: .countryCompletion, haptic: .strongSuccess)
+        ]
+
+        for testCase in cases {
+            let sound = RecordingGameplaySoundOutput()
+            let haptics = RecordingGameplayHapticOutput()
+            let coordinator = makeCoordinator(
+                preferences: RecordingFeedbackPreferencesManager(),
+                sound: sound,
+                haptics: haptics,
+                clock: AdjustableMonotonicClock(now: 0)
+            )
+
+            coordinator.emit(testCase.event)
+
+            #expect(sound.calls == [.play(testCase.sound, .nonAutomatic)])
+            #expect(haptics.played == testCase.haptic.map { [$0] } ?? [])
+        }
+    }
+
     @Test func deploymentSoundAndHapticGatesAreIndependentWhenHapticsAreReenabled() {
         let clock = AdjustableMonotonicClock(now: 0)
         let preferences = RecordingFeedbackPreferencesManager(
