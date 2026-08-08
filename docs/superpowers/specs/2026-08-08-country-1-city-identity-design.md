@@ -138,7 +138,7 @@ No generic identity protocol or multi-country catalog abstraction is introduced.
 
 ### Country-complete identity invariant
 
-Country-complete presentation always reads the final identity from the authored catalog at `Country1CityCatalog.cityRange.upperBound` (City 15). It must not derive the final name from `state.cityNumberInCountry` and must not route through the optional display fallback. This keeps final-country copy deterministic even if a malformed development state is normalized differently in the future.
+Country-complete presentation always reads the final identity from the authored catalog at `Country1CityCatalog.cityRange.upperBound` (City 15). It must not derive the final name from `state.cityNumberInCountry` and must not route through the optional display fallback. Keep the existing `CountryMapScoutCardContent.countryComplete(countryNumber:)` enum shape; the current presentation consumers resolve City 15 directly from the shared catalog.
 
 ## Country Map integration
 
@@ -247,6 +247,7 @@ Known test surfaces whose locked copy/shape must be reconciled:
 - `CountryMapScoutCardContentTests`;
 - `CountryMapScoutCardNodeTests`;
 - `CountryMapScoutCardTextLayoutTests`;
+- `CountryMapScoutCardAcceptanceTests`;
 - `CountryMapTransientFeedbackTests`;
 - `CountryMapSceneTests`;
 - `ConquestReportContentTests`;
@@ -270,8 +271,7 @@ Use behavior-oriented coverage rather than a scene-by-city matrix.
    - valid Country 1 authored display/conquest title;
    - City 15 returns `Crownspire Keep Falls` even when the state is already `.countryComplete`;
    - unsupported country/city legacy fallback;
-   - Scout projection carries catalog title and flavor;
-   - country-complete projection reads catalog City 15 by constant upper bound.
+   - Scout projection carries catalog title and flavor.
 3. Scout Card/layout tests
    - run existing `everyTitleAndRewardFitsAtItsNominalSizeInEverySupportedLayout` after the shared title change; it must still return the nominal 11/16 pt sizes for all 15 titles;
    - extend existing `allCurrentContentPresentsAcrossEveryFixtureAndImageOutcome` with authored title/flavor fields; do not add a duplicate title matrix.
@@ -281,8 +281,9 @@ Use behavior-oriented coverage rather than a scene-by-city matrix.
    - loop all 15 `"\(definition.displayTitle) complete"` strings;
    - include both final-country strings plus existing damage/no-damage/error copy;
    - every string must install in the current feedback overlay at or above the existing 8 pt floor.
-5. `CountryMapTransientFeedbackTests` and representative `CountryMapSceneTests`
+5. `CountryMapTransientFeedbackTests`, `CountryMapSceneTests`, and existing Scout Card acceptance coverage
    - named locked/completed/idle/final-country copy;
+   - final-country presentation reads catalog City 15 by constant upper bound while the content enum shape stays unchanged;
    - tapping the Scout Card body shows flavor without mutation or routing.
 6. `ConquestReportContentTests`, `BattleSceneTests`, and Building View regression coverage
    - report accepts exact caller-provided authored title;
