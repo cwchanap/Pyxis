@@ -356,7 +356,7 @@ Projection uses:
 flavorText: definition.flavorText
 ```
 
-Keep `.countryComplete(countryNumber:)` unchanged in Task 2 to avoid an unnecessary enum-shape blast; Task 3 can render City 15 identity directly from the shared catalog.
+Keep `.countryComplete(countryNumber:)` unchanged in Task 2 to avoid an unnecessary enum-shape blast; Task 3 renders City 15 identity directly from the shared catalog.
 
 - [ ] **Step 7: Simplify report title ownership in the same atomic slice**
 
