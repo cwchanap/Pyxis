@@ -281,7 +281,7 @@ Use behavior-oriented coverage rather than a scene-by-city matrix.
    - loop all 15 `"\(definition.displayTitle) complete"` strings;
    - include both final-country strings plus existing damage/no-damage/error copy;
    - every string must install in the current feedback overlay at or above the existing 8 pt floor.
-5. `CountryMapTransientFeedbackTests`, `CountryMapSceneTests`, and existing Scout Card acceptance coverage
+5. `CountryMapTransientFeedbackTests`, `CountryMapSceneTests`, and `CountryMapScoutCardAcceptanceTests`
    - named locked/completed/idle/final-country copy;
    - final-country presentation reads catalog City 15 by constant upper bound while the content enum shape stays unchanged;
    - tapping the Scout Card body shows flavor without mutation or routing.
