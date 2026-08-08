@@ -70,7 +70,7 @@ Keep clamped `Country1CityCatalog.definition(for:)` for gameplay. Add non-clampi
 
 Current-state UI keeps `KingdomGameState.displayCityTitle(for:)` and legacy `Country N - City M` for unsupported values.
 
-Persisted report copy must derive from the record key, not ambient state:
+Persisted report copy derives from the record key, not ambient state:
 
 ```swift
 static func displayConquestTitle(for cityKey: CityKey) -> String {
@@ -100,17 +100,17 @@ Current transient feedback blocks Attack in three places: scene entry eligibilit
 
 Minimal extension:
 
-1. Add pure `CountryMapScoutCardLayout.nonBlockingOverlayFrame` covering informational content and excluding `attackFrame`; keep current full `overlayFrame` for blocking feedback.
-2. Add `.flavor` to `CountryMapTransientFeedback`; it is the only `blocksScoutEntry == false` kind.
-3. Keep scene entry enabled for flavor.
+1. `CountryMapScoutCardLayout.nonBlockingOverlayFrame` covers informational content and excludes `attackFrame`; current `overlayFrame` remains full-card blocking feedback.
+2. `CountryMapTransientFeedback.Kind.flavor` is the only kind with `blocksScoutEntry == false`.
+3. Scene entry remains enabled for flavor.
 4. `CountryMapScoutCardNode.applyFeedback(..., blocksAttack:)` uses the non-blocking frame and preserves Attack for flavor; existing feedback keeps full overlay + Attack suppression.
-5. Tests tap Attack before flavor expires.
+5. Scene tests tap Attack before flavor expires.
 
 No new modal, controller, scene, timer, or durable state.
 
 ## Map copy
 
-Locked/completed feedback uses authored display titles. Idle conquest shows the next authored title. Final copy is `Country 1 conquered · Crownspire Keep` on the card and `Country 1 conquered at Crownspire Keep.` for final idle feedback.
+Locked/completed feedback uses authored display titles. Idle conquest shows the next authored title. Final Country 1 copy is `Country 1 conquered · Crownspire Keep` on the card and `Country 1 conquered at Crownspire Keep.` for final idle feedback.
 
 ## Battle and Building
 
@@ -120,17 +120,17 @@ Battle HUD/tooltip and existing Building View conquest feedback continue to cons
 
 ## Testing
 
-- Task 1: exact table, uniqueness/length bounds, unchanged combat metadata, optional lookup, nominal title fit from `definition.displayTitle`.
-- Shared projection/report: authored display/fallback, result-key report formatting, Scout flavor payload, Battle/Building exact copy, caller-owned report title, both final-country Battle paths.
+- Task 1: exact table, unique/length bounds, unchanged combat metadata, optional lookup, nominal title fit from `definition.displayTitle`.
+- Shared projection/report: authored current titles/fallback, result-key report formatting, Scout flavor payload, Battle/Building exact copy, caller-owned report title, both final-country Battle paths.
 - Country Map: pure final-country payload, named feedback, body flavor with no mutation/SFX/route, Attack still routes while flavor is visible, current blocking feedback still blocks.
 - Fit acceptance: existing dense matrix, all flavors through non-blocking overlay, named blocking strings through existing overlay.
 
 ## Risks
 
-1. Real title budget: run nominal fit in Task 1; `Kingshield Keep` replaces overflow before downstream hard-coding.
+1. Real title budget: Task 1 nominal fit; `Kingshield Keep` replaces overflow before downstream hard-coding.
 2. Flavor blocks Attack: address all three blockers and test Attack before expiry.
-3. Final-country drift: report copy derives from `BattleResult.cityKey`; Battle/map tests lock separate city/country semantics.
-4. Stale exact strings: update known sibling suites atomically; repository search is a final backstop.
+3. Final-country drift: report copy from `BattleResult.cityKey`; Battle/map tests lock separate city/country semantics.
+4. Stale exact strings: update known sibling suites atomically; repository search is final backstop.
 5. Transient fit: enumerate authored strings as cheap regression coverage.
 
 ## Manual smoke
