@@ -41,7 +41,51 @@
 
 - [ ] **Step 1: Expand the independent expected fixture and write failing identity assertions**
 
-In `PyxisTests/Country1CityCatalogTests.swift`, extend `ExpectedDefinition` with `name`, `flavorText`, and `conquestTitle`, and make its `definition` builder use the new initializer.
+Add `import Foundation` to `PyxisTests/Country1CityCatalogTests.swift` for trimming/lowercasing helpers. Expand `ExpectedDefinition` to this exact shape:
+
+```swift
+private struct ExpectedDefinition {
+    let cityNumber: Int
+    let name: String
+    let flavorText: String
+    let conquestTitle: String
+    let defenseTrait: CityDefenseTrait
+    let fortifiedLane: BattleLane
+    let exposedLane: BattleLane
+
+    init(
+        _ cityNumber: Int,
+        _ name: String,
+        _ flavorText: String,
+        _ conquestTitle: String,
+        _ defenseTrait: CityDefenseTrait,
+        _ fortifiedLane: BattleLane,
+        _ exposedLane: BattleLane
+    ) {
+        self.cityNumber = cityNumber
+        self.name = name
+        self.flavorText = flavorText
+        self.conquestTitle = conquestTitle
+        self.defenseTrait = defenseTrait
+        self.fortifiedLane = fortifiedLane
+        self.exposedLane = exposedLane
+    }
+
+    var definition: CityDefinition {
+        CityDefinition(
+            cityNumber: cityNumber,
+            name: name,
+            flavorText: flavorText,
+            conquestTitle: conquestTitle,
+            defenseTrait: defenseTrait,
+            laneDefenseProfile: LaneDefenseProfile(
+                fortifiedLane: fortifiedLane,
+                exposedLane: exposedLane
+            )
+        )
+    }
+}
+```
 
 Use this exact reviewed fixture:
 
@@ -65,12 +109,14 @@ private static let expectedDefinitions: [ExpectedDefinition] = [
 ]
 ```
 
-Add focused assertions:
+Add these focused assertions:
 
 ```swift
 @Test func authoredIdentityIsCompleteUniqueAndWithinCopyLimits() {
     let definitions = Country1CityCatalog.definitions
-    let normalizedNames = definitions.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+    let normalizedNames = definitions.map {
+        $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
 
     #expect(definitions.count == 15)
     #expect(Set(normalizedNames).count == 15)
@@ -93,11 +139,9 @@ Add focused assertions:
 }
 ```
 
-Keep the existing clamping test unchanged; it protects gameplay compatibility.
+Keep the existing `catalogIsCompleteUniqueOrderedAndMatchesAuthoredCombatMetadata` and clamping tests; after updating their fixture construction they continue to protect the original trait/lane values.
 
 - [ ] **Step 2: Run the focused catalog tests and verify they fail**
-
-Run:
 
 ```bash
 xcodebuild test \
@@ -135,7 +179,7 @@ Do not add `Codable`, localization IDs, theme fields, or optional identity value
 
 Update every `CityDefinition` in `Country1CityCatalog.definitions` with the exact strings from Step 1 while preserving its current `defenseTrait`, `fortifiedLane`, and `exposedLane` values.
 
-Add below `definition(for:)` or immediately before it:
+Add:
 
 ```swift
 static func definitionIfPresent(for cityNumber: Int) -> CityDefinition? {
@@ -150,7 +194,7 @@ Keep the current clamped implementation of `definition(for:)` unchanged.
 
 Run the Task 1 command again.
 
-Expected: `Country1CityCatalogTests` PASS, including the old combat-metadata fixture and clamping assertions.
+Expected: `Country1CityCatalogTests` PASS, including the old combat-metadata and clamping behavior.
 
 - [ ] **Step 6: Commit Task 1**
 
@@ -178,10 +222,10 @@ git commit -m "feat: author Country 1 city identities"
 
 - [ ] **Step 1: Write model-facing title and fallback tests**
 
-Add a focused test to `KingdomGameStateTests.swift`:
+Add to `KingdomGameStateTests.swift`:
 
 ```swift
-@Test func CountryOneIdentityUsesCatalogAndUnsupportedDisplayValuesKeepLegacyFallback() {
+@Test func countryOneIdentityUsesCatalogAndUnsupportedDisplayValuesKeepLegacyFallback() {
     let state = KingdomGameState(cityNumberInCountry: 6, completedCityCount: 5)
 
     #expect(state.displayCityTitle == "City 6 · Granite Pass")
@@ -215,11 +259,16 @@ Update the country-complete expectation to:
 .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep")
 ```
 
-Apply the same identity fields to the existing per-city Scout projection loops by deriving expected strings from `Country1CityCatalog.definition(for:)` rather than creating another name switch.
+For the existing per-city Scout loops, derive expected `displayTitle` and `flavorText` from the already-fetched `definition`:
+
+```swift
+displayTitle: definition.displayTitle,
+flavorText: definition.flavorText,
+```
+
+Do not add a second expected city-name table here.
 
 - [ ] **Step 2: Run the focused model and Scout projection tests and verify they fail**
-
-Run:
 
 ```bash
 xcodebuild test \
@@ -255,7 +304,7 @@ func displayConquestTitle(for cityNumber: Int) -> String {
 }
 ```
 
-Keep `displayCityTitle` as the current convenience property:
+Keep:
 
 ```swift
 var displayCityTitle: String {
@@ -338,9 +387,9 @@ git commit -m "feat: project shared city identity"
 - Produces: named locked/completed/idle/final-country transient copy
 - Produces: non-mutating Scout Card body tap that presents flavor text
 
-- [ ] **Step 1: Update transient-feedback tests to the named copy contract**
+- [ ] **Step 1: Update Country Map copy tests and all changed Scout payload construction**
 
-Change the first test in `CountryMapTransientFeedbackTests.swift` to use resolved titles:
+Change `CountryMapTransientFeedbackTests.swift` to use resolved titles:
 
 ```swift
 let locked = CountryMapTransientFeedback.locked(cityTitle: "City 7 · Emberford")
@@ -350,14 +399,52 @@ let completed = CountryMapTransientFeedback.completed(cityTitle: "City 12 · Ash
 #expect(completed.text == "City 12 · Ashbridge complete")
 ```
 
-Update the idle-conquest expectations to:
+Update idle-conquest expectations to:
 
 ```swift
-#expect(/* pending next city */?.text == "City 4 · Bramblegate")
-#expect(/* country complete */?.text == "Country 1 conquered at Crownspire Keep.")
+#expect(CountryMapTransientFeedback.idle(
+    result: .init(elapsedSeconds: 10, damageDealt: 9, conqueredCities: 1, goldEarned: 4),
+    state: pendingState
+)?.text == "City 4 · Bramblegate")
+
+#expect(CountryMapTransientFeedback.idle(
+    result: .init(elapsedSeconds: 10, damageDealt: 9, conqueredCities: 1, goldEarned: 4),
+    state: countryCompleteState
+)?.text == "Country 1 conquered at Crownspire Keep.")
 ```
 
-Keep existing timing/fade assertions unchanged.
+In `CountryMapScoutCardNodeTests.swift`, update every direct Scout construction/helper for the new field. The helper becomes:
+
+```swift
+private func testScout(
+    cityNumber: Int = 3,
+    displayTitle: String = "City 3 · Falconridge",
+    flavorText: String = "Arrow towers command the high ridge road.",
+    trait: CityDefenseTrait = .arrowTower,
+    lane: BattleLane = .left,
+    goldReward: Int = 27
+) -> CountryMapScoutCardContent.Scout {
+    .init(
+        cityNumber: cityNumber,
+        displayTitle: displayTitle,
+        flavorText: flavorText,
+        defenseTrait: trait,
+        exposedLane: lane,
+        goldReward: goldReward
+    )
+}
+```
+
+Update the first direct Scout fixture the same way. Update every `.countryComplete(countryNumber:)` test construction to include `finalCityName:`. Update the feedback-copy fitting list to include the longest/new families, including:
+
+```swift
+"City 15 · Crownspire Keep is locked",
+"City 15 · Crownspire Keep complete",
+"Country 1 conquered at Crownspire Keep.",
+"The final keep rises above the capital."
+```
+
+This ensures existing one-line feedback fitting is exercised with HPA-366 copy.
 
 - [ ] **Step 2: Add a representative scene test for Scout flavor and named state feedback**
 
@@ -389,11 +476,9 @@ In `CountryMapSceneTests.swift`, add:
 }
 ```
 
-Update existing locked/completed scene expectations from bare `City N` copy to the authored display title.
+Update existing locked/completed/idle/final-country scene expectations to the authored copy. Update all country-complete content equality checks to `.countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep")`.
 
 - [ ] **Step 3: Run the Country Map tests and verify they fail**
-
-Run:
 
 ```bash
 xcodebuild test \
@@ -432,7 +517,7 @@ static func completed(cityTitle: String) -> Self {
 }
 ```
 
-In `idle(result:state:)`, keep damage/no-damage copy unchanged. Replace only conquest branches:
+In `idle(result:state:)`, keep damage/no-damage copy unchanged and replace only the conquest branch:
 
 ```swift
 if result.conqueredCities > 0 {
@@ -452,7 +537,7 @@ Do not change durations or fade behavior.
 
 - [ ] **Step 5: Render the named country-complete Scout Card using the existing title label**
 
-Update `CountryMapScoutCardNode.prepare` to match the new case:
+Update `CountryMapScoutCardNode.prepare`:
 
 ```swift
 case .countryComplete(let countryNumber, let finalCityName):
@@ -467,7 +552,7 @@ case .countryComplete(let countryNumber, let finalCityName):
     return .countryComplete(text: text, fontSize: fontSize)
 ```
 
-Update the existing node test to expect:
+The existing node test should expect:
 
 ```swift
 content: .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep")
@@ -490,7 +575,7 @@ and:
 showFeedback(.completed(cityTitle: state.displayCityTitle(for: cityNumber)))
 ```
 
-Replace the current no-op Scout Card body branch:
+Replace the current no-op Scout Card body branch with:
 
 ```swift
 if scoutCardNode.cardHitFrame?.contains(point) == true {
@@ -507,7 +592,7 @@ Keep the current input priority: layout/routing guards → Settings/modal → Se
 
 Run the Task 3 command again.
 
-Expected: all three test groups PASS with the existing feedback timing and touch-priority behavior preserved.
+Expected: all three test groups PASS with existing feedback timing and touch-priority behavior preserved.
 
 - [ ] **Step 8: Commit Task 3**
 
@@ -534,7 +619,7 @@ git commit -m "feat: show city identity on country map"
 
 - [ ] **Step 1: Change the pure report tests to assert caller-owned exact titles**
 
-Update the first report test to:
+Update the first report test:
 
 ```swift
 let content = ConquestReportContent.project(
@@ -560,19 +645,11 @@ Replace the old `countryCompleteIgnoresCityTitle` test with:
 
 - [ ] **Step 2: Add/update one Battle scene expectation for the authored title**
 
-In the existing conquest-report scene coverage, use a City 3 state/result and assert:
+Use existing conquest-report scene coverage/readback and assert a City 3 report title is `Falconridge Silenced`. For an existing final-city report assertion, change the expected report title to `Crownspire Keep Falls`; overall Country completion remains map-owned.
 
-```swift
-#expect(scene.lastAppliedConquestReportContentForTesting?.title == "Falconridge Silenced")
-```
-
-For a final-city report assertion, expect `Crownspire Keep Falls`, not `Country 1 Conquered`; overall Country completion remains a Country Map concern.
-
-If the current DEBUG readback has a different existing name, use that existing readback rather than adding another test-only production API.
+Do not add a new DEBUG-only test API if the existing `lastAppliedConquestReportContent` readback already exposes the projected content.
 
 - [ ] **Step 3: Run report and Battle tests and verify they fail**
-
-Run:
 
 ```bash
 xcodebuild test \
@@ -588,7 +665,7 @@ Expected: compile/expectation failures on the old report signature/title rules.
 
 - [ ] **Step 4: Simplify `ConquestReportContent.project` to accept the exact title**
 
-Change the projection signature and title assignment to:
+Replace the current projection with this body, preserving all existing row/achievement behavior:
 
 ```swift
 static func project(
@@ -598,20 +675,28 @@ static func project(
     var lines = [
         "Gold earned: +\(CompactNumberFormatter.string(from: result.goldEarned))"
     ]
-    // Keep the existing conquest-mode, MVP, deployment/loss, and achievement logic unchanged.
+    switch result.conquestMode {
+    case .live:
+        lines.append("Battle time: \(durationText(result.activeBattleSeconds))")
+    case .idle:
+        lines.append("Conquered by your buildings")
+    }
+    if let type = result.mvpSoldierType,
+       let percent = result.mvpDamageSharePercent {
+        lines.append("MVP: \(type.displayName) · \(percent)%")
+    }
+    lines.append(
+        "Deployed: \(CompactNumberFormatter.string(from: result.totalDeploymentCount))"
+            + " · Lost: \(CompactNumberFormatter.string(from: result.totalLossCount))"
+    )
+    var achievements = [Achievement]()
+    if result.usedFavorableUnit { achievements.append(.favorableUnit) }
+    if result.usedExposedLane { achievements.append(.exposedLane) }
     return Self(title: title, summaryLines: lines, achievements: achievements)
 }
 ```
 
-The implementation should literally remove the old:
-
-```swift
-let title = isCountryComplete
-    ? "Country \(result.cityKey.countryNumber) Conquered"
-    : "\(cityTitle) Conquered"
-```
-
-Do not move other report logic into `BattleScene`.
+This removes only the old title derivation branch. Keep `durationText` and `goldLineIndex` unchanged.
 
 - [ ] **Step 5: Resolve the authored/fallback title at the existing Battle scene call site**
 
@@ -630,13 +715,11 @@ Do not modify `BattleResult`, pending-result persistence, report origin, Continu
 
 - [ ] **Step 6: Search for stale report signature/copy before rerunning tests**
 
-Run:
-
 ```bash
 rg 'cityTitle:|isCountryComplete:|Country 1 Conquered|Country 1 - City [0-9]+ Conquered' Pyxis PyxisTests
 ```
 
-Expected after updating intended call sites/tests: no stale `ConquestReportContent.project` arguments and no old report-title assertions. Unrelated historical docs are outside this implementation grep.
+Expected after updating intended call sites/tests: no stale `ConquestReportContent.project` arguments and no old report-title assertions. The fallback code `Country N - City M` remains intentionally covered elsewhere.
 
 - [ ] **Step 7: Run report and Battle tests and verify they pass**
 
@@ -653,7 +736,7 @@ git commit -m "feat: use authored conquest titles"
 
 ---
 
-### Task 5: Lock layout acceptance, update architecture guidance, and run the campaign-facing verification
+### Task 5: Lock existing layout acceptance, update architecture guidance, and run campaign-facing verification
 
 **Files:**
 - Modify: `PyxisTests/CountryMapScoutCardNodeTests.swift`
@@ -661,46 +744,33 @@ git commit -m "feat: use authored conquest titles"
 - Verify: all production/test files changed in Tasks 1-4
 
 **Interfaces:**
-- Consumes: the final 15-city catalog and existing Scout Card layout/fitting path
-- Produces: one all-content supported-layout regression guard
-- Produces: architecture documentation that declares `Country1CityCatalog` the identity source of truth
+- Consumes: final 15-city catalog and existing Scout Card layout/fitting path
+- Preserves/extends: existing `allCurrentContentPresentsAcrossEveryFixtureAndImageOutcome` coverage instead of adding another overlapping matrix
+- Produces: architecture documentation declaring `Country1CityCatalog` the identity source of truth
 
-- [ ] **Step 1: Add one all-authored-title Scout Card fit test**
+- [ ] **Step 1: Make the existing all-content Scout Card test exercise authored identity**
 
-In `CountryMapScoutCardNodeTests.swift`, add a single test that checks every authored city against both supported fixture classes:
+The current `allCurrentContentPresentsAcrossEveryFixtureAndImageOutcome` already loops every supported layout fixture, image-present/image-missing outcome, trait, lane, and all 15 city numbers. Do not add a second all-title matrix.
+
+Update its direct Scout construction to carry the authored definition:
 
 ```swift
-@Test func everyAuthoredCountryOneTitleFitsSupportedScoutCardLayouts() throws {
-    let phoneLayout = try scoutCardLayout(named: "small phone")
-    let padLayout = try scoutCardLayout(named: "narrow iPad")
-
-    for layout in [phoneLayout, padLayout] {
-        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
-        for definition in Country1CityCatalog.definitions {
-            let content = CountryMapScoutCardContent.scout(.init(
-                cityNumber: definition.cityNumber,
-                displayTitle: definition.displayTitle,
-                flavorText: definition.flavorText,
-                defenseTrait: definition.defenseTrait,
-                exposedLane: definition.laneDefenseProfile.exposedLane,
-                goldReward: KingdomGameState.goldReward(for: definition.cityNumber)
-            ))
-
-            #expect(node.apply(
-                content: content,
-                layout: layout,
-                isEntryEnabled: true
-            ) == .presented)
-        }
-    }
-}
+let definition = Country1CityCatalog.definition(for: cityNumber)
+let scout = CountryMapScoutCardContent.Scout(
+    cityNumber: cityNumber,
+    displayTitle: definition.displayTitle,
+    flavorText: definition.flavorText,
+    defenseTrait: trait,
+    exposedLane: lane,
+    goldReward: reward
+)
 ```
 
-This is the layout acceptance guard. Do not add separate per-city scene tests or another truncation algorithm.
+Keep the existing expectation that `node.apply(...) == .presented` for every supported fixture. That existing matrix becomes the actual layout acceptance test for all 15 authored titles.
+
+Also update the test's diagnostic string if useful to include `definition.displayTitle`; do not create per-city scene tests.
 
 - [ ] **Step 2: Run the Scout Card tests**
-
-Run:
 
 ```bash
 xcodebuild test \
@@ -711,39 +781,35 @@ xcodebuild test \
   -only-testing:PyxisTests/CountryMapScoutCardNodeTests
 ```
 
-Expected: PASS for all 15 titles on phone and pad fixtures. If one fails, shorten the authored copy within the approved limits; do not add a new layout policy.
+Expected: PASS for all authored titles on every supported fixture. If a title fails, shorten the authored copy within the approved limits; do not add a new layout policy.
 
 - [ ] **Step 3: Update `CLAUDE.md` with the identity ownership rule**
 
-In the architecture paragraph that currently explains `Country1CityCatalog`, add concise guidance equivalent to:
+In the architecture paragraph that explains `Country1CityCatalog`, add:
 
 ```markdown
-`Country1CityCatalog` is also the sole source of authored Country 1 identity (`name`, `flavorText`, `conquestTitle`). UI must derive city copy from `CityDefinition`; do not persist copies in campaign/result state or add parallel city-name switches in scenes.
+`Country1CityCatalog` is also the sole source of authored Country 1 identity (`name`, `flavorText`, `conquestTitle`). UI derives city copy from `CityDefinition`; do not persist copies in campaign/result state or add parallel city-name switches in scenes.
 ```
 
-Keep this to the existing architecture/conventions section; do not add a new documentation subsystem.
+Keep this in the existing architecture/conventions material.
 
 - [ ] **Step 4: Run repository-wide stale-copy searches**
-
-Run:
 
 ```bash
 rg 'Country 1 - City|City [0-9]+: (Standard Watch|Arrow Tower|Spiked Gate|Stone Wall|Arcane Ward|Burning Oil|Reinforced Keep)' Pyxis PyxisTests
 ```
 
-Review every hit. Production player-facing copy for valid Country 1 identity should now route through the catalog. Keep the explicit `Country N - City M` fallback implementation and tests.
+Review every hit. Production player-facing copy for valid Country 1 identity should route through the catalog. Keep the explicit legacy fallback implementation and its tests.
 
-Then run:
+Then:
 
 ```bash
 rg 'Willowford|Pinewatch|Falconridge|Bramblegate|Highcrest|Granite Pass|Emberford|Greywall|Runewatch|Ironthorn Gate|Kingshield Bastion|Ashbridge|Starveil Citadel|Stonecrown|Crownspire Keep' Pyxis
 ```
 
-Expected: authored names live in `Country1CityCatalog.swift` only; production scenes should not contain parallel name switches or copied city tables.
+Expected: authored names occur in production only in `Country1CityCatalog.swift`; scenes should not contain a parallel city-name table or switch.
 
 - [ ] **Step 5: Run the full automated verification with parallel simulator clones disabled**
-
-Run:
 
 ```bash
 xcodebuild test \
