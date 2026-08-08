@@ -94,8 +94,6 @@ Character limits remain useful content discipline, but if a string satisfies a c
 | 14 | Stonecrown | Stone Wall | Massive stone walls ring the royal seat. | Stonecrown Breached |
 | 15 | Crownspire Keep | Reinforced Keep | The final keep rises above the capital. | Crownspire Keep Falls |
 
-The sequence intentionally moves from ordinary frontier settlements through increasingly fortified inner territory to the final keep. The language references only existing presentation and defense concepts.
-
 ## Catalog lookup and display fallback
 
 Keep the existing clamping `Country1CityCatalog.definition(for:)` behavior because current combat compatibility code relies on it.
@@ -121,7 +119,7 @@ func displayCityTitle(for cityNumber: Int) -> String {
 }
 ```
 
-Do not use the ambient `KingdomGameState.countryNumber` to title a persisted conquest result. The report's `BattleResult.cityKey` is the source of truth for both country and city:
+Do not use ambient `KingdomGameState.countryNumber` to title a persisted conquest result. The report's `BattleResult.cityKey` is the source of truth for both country and city:
 
 ```swift
 static func displayConquestTitle(for cityKey: CityKey) -> String {
@@ -133,78 +131,48 @@ static func displayConquestTitle(for cityKey: CityKey) -> String {
 }
 ```
 
-This helper lives with the existing campaign display formatting, but its output depends only on the supplied `CityKey`; it does not read mutable/current campaign state.
-
-No generic identity protocol or multi-country abstraction is introduced.
+The helper lives with the existing campaign display formatting but depends only on the supplied `CityKey`.
 
 ## Country Map projection
 
-### Scout content
-
 `CountryMapScoutCardContent.Scout` gains `flavorText` alongside its current display title and tactical data. Projection reads both from the same `CityDefinition`.
 
-For country completion, keep final identity inside the pure projection rather than reading the catalog from the SpriteKit node:
+Country completion remains in the pure projection:
 
 ```swift
 case countryComplete(countryNumber: Int, finalCityName: String)
 ```
 
-`project(from:)` always resolves `finalCityName` from `Country1CityCatalog.cityRange.upperBound` (City 15). It must not derive the final name from `state.cityNumberInCountry` or an optional display fallback.
-
-This keeps the node render-only and makes final-country content testable with a pure `#expect`.
-
-### Scout Card title
-
-The current Scout title changes from `Country 1 - City N` to `City N · Name`. The card's trait, favorable/disadvantaged units, exposed lane, reward, and Attack action remain unchanged.
+`project(from:)` resolves `finalCityName` from constant catalog City 15 (`cityRange.upperBound`). The SpriteKit node only renders the supplied name.
 
 ### Non-blocking flavor interaction
 
-Tapping the non-action body of the Scout Card shows that city's `flavorText`, but flavor is **informational, not modal**. The existing Attack action must remain visible and tappable for the whole flavor duration.
+Tapping the non-action Scout Card body shows the city's required `flavorText`, but flavor is informational, not modal. Attack must stay visible and tappable during the entire flavor lifetime.
 
-Current transient feedback cannot be reused unchanged: today `CountryMapScene.redraw()` disables entry whenever any `transientFeedback` exists, `CountryMapScoutCardNode.applyFeedback` sets `attackHitFrame = nil`, and `overlayFrame` covers the whole card so the overlay touch guard wins before Attack. HPA-366 must address all three behaviors for flavor while preserving existing blocking behavior for locked/completed/error feedback.
+Current feedback reuse is unsafe unchanged because three independent behaviors block Attack today: `CountryMapScene.redraw()` disables entry while any transient exists, `CountryMapScoutCardNode.applyFeedback` clears `attackHitFrame`, and the full-card overlay intercepts touches before the Attack check.
 
 Use the smallest targeted extension:
 
-1. `CountryMapScoutCardLayout` gains one pure `nonBlockingOverlayFrame` that covers the informational portion of the card and stops before the Attack column. Existing `overlayFrame` remains the full-card blocking frame for current feedback behavior.
-2. `CountryMapTransientFeedback.Kind` gains `.flavor`, with a small derived `blocksScoutEntry` property that is `false` only for `.flavor` and `true` for current blocking feedback kinds.
-3. `CountryMapTransientFeedback.flavor(_:)` owns the existing transient timing; no separate timer or controller is added.
-4. `CountryMapScene.redraw()` keeps Scout entry enabled while flavor is visible by checking `blocksScoutEntry` instead of `transientFeedback == nil`.
-5. `CountryMapScoutCardNode.applyFeedback` accepts whether the presentation blocks Attack. Blocking feedback keeps today's full overlay and clears `attackHitFrame`. Flavor uses `nonBlockingOverlayFrame` and preserves/restores the current Attack hit frame.
-6. `overlayHitFrame` for flavor is only the non-blocking informational frame. A tap inside that flavor overlay is consumed, while a tap in `attackFrame` still reaches `requestProjectedScoutEntry()`.
+1. `CountryMapScoutCardLayout` adds `nonBlockingOverlayFrame`, covering the informational area but not `attackFrame`; existing `overlayFrame` remains the full blocking frame.
+2. `CountryMapTransientFeedback.Kind` adds `.flavor` plus `blocksScoutEntry` (`false` only for flavor).
+3. `CountryMapScene.redraw()` keeps entry enabled for flavor.
+4. `CountryMapScoutCardNode.applyFeedback(..., blocksAttack:)` uses the non-blocking frame and preserves Attack for flavor, while current feedback kinds retain full overlay + Attack suppression.
+5. Scene tests tap Attack before flavor expires.
 
-No new modal, label hierarchy, scene, or persistence state is added.
-
-Tests must prove that after a body tap shows flavor:
-
-- game state is unchanged;
-- no gameplay SFX/haptic event is emitted;
-- no route occurs from the body tap;
-- flavor text is visible;
-- `scoutCardAttackHitFrameForTesting` remains non-nil;
-- tapping Attack **before flavor expires** routes exactly once;
-- blocking locked/completed/error feedback retains its existing Attack suppression and full-overlay consumption.
+No new modal, controller, scene, durable state, or second timer is added.
 
 ## Map feedback
 
-Locked/completed feedback accepts the resolved display title rather than formatting a bare number:
+Locked/completed feedback uses resolved titles (`City 3 · Falconridge is locked`, `City 12 · Ashbridge complete`). Idle conquest shows the newly unlocked authored title rather than repeating the trait. Final copy is:
 
-- `City 3 · Falconridge is locked`
-- `City 12 · Ashbridge complete`
-
-After an idle conquest that unlocks another city, show the newly unlocked authored display title instead of `City N: Trait`; the Scout Card already presents the trait/tactical details.
-
-Final Country 1 completion uses the final projected identity:
-
-- country-complete Scout Card: `Country 1 conquered · Crownspire Keep`
-- final idle completion feedback: `Country 1 conquered at Crownspire Keep.`
-
-HPA-390 may later add milestone animation or visual emphasis, but must reuse the same catalog identity.
+- `Country 1 conquered · Crownspire Keep` on the Scout Card;
+- `Country 1 conquered at Crownspire Keep.` for final idle feedback.
 
 ## Battle integration
 
-`BattleScene` continues to read `state.displayCityTitle` for its persistent HUD title and current city-info tooltip. No HUD layout is redesigned.
+Battle HUD/tooltip continue to use `state.displayCityTitle`.
 
-For conquest reports, simplify `ConquestReportContent.project` to accept the exact caller-owned title:
+`ConquestReportContent.project` changes to:
 
 ```swift
 static func project(
@@ -213,156 +181,69 @@ static func project(
 ) -> Self
 ```
 
-and store `title` unchanged.
-
-The production caller resolves the title from the result record, not ambient state:
+The production caller passes:
 
 ```swift
-private func conquestReportContent(for result: BattleResult) -> ConquestReportContent {
-    .project(
-        from: result,
-        title: KingdomGameState.displayConquestTitle(for: result.cityKey)
-    )
-}
+title: KingdomGameState.displayConquestTitle(for: result.cityKey)
 ```
 
-This removes the current `isCountryComplete` title-format branch while preserving report rows, achievements, persistence, restoration, effects, Continue ordering, and routing.
+This deletes the current `isCountryComplete` title branch while preserving report rows, achievements, persistence, restoration, effects, Continue ordering, and routing.
 
-The final-city product rule is explicit:
+Final-city contract:
 
 - City 15 Battle report = `Crownspire Keep Falls`;
-- `Country 1 conquered …` copy is map-only after Continue;
+- country-level completion is map-only after Continue;
 - both existing BattleScene country-complete report assertions lock this rule.
 
 ## Building View integration
 
-`BuildingViewScene` already uses `state.displayCityTitle` when building settlement/foreground progress conquers the current city. HPA-366 adds no Building View subsystem; the existing sentence automatically gains the authored title.
-
-The matching `BuildingViewSceneTests` expectation changes in the same atomic slice as the shared title producer.
+`BuildingViewScene` already consumes `state.displayCityTitle` for building-driven conquest feedback. Only matching exact-string tests need to move with the shared producer.
 
 ## Call-site inventory
 
-Production paths:
+Production: `CityDefinition`, `Country1CityCatalog`, `KingdomGameState`, `CountryMapScoutCardContent`, `CountryMapScoutCardLayout`, `CountryMapScoutCardNode`, `CountryMapTransientFeedback`, `CountryMapScene`, `ConquestReportContent`, `BattleScene`, and existing `BuildingViewScene` shared-title usage.
 
-- `CityDefinition` / `Country1CityCatalog`;
-- `KingdomGameState.displayCityTitle(for:)` / static `displayConquestTitle(for:)`;
-- `CountryMapScoutCardContent`;
-- `CountryMapScoutCardLayout`;
-- `CountryMapScoutCardNode`;
-- `CountryMapTransientFeedback`;
-- `CountryMapScene`;
-- `BattleScene`;
-- `BuildingViewScene` existing shared-title consumer;
-- `ConquestReportContent`.
-
-Known test surfaces whose exact copy/shape must be reconciled:
-
-- `Country1CityCatalogTests`;
-- `KingdomGameStateTests`;
-- `CountryMapScoutCardContentTests`;
-- `CountryMapScoutCardLayoutTests`;
-- `CountryMapScoutCardNodeTests`;
-- `CountryMapScoutCardTextLayoutTests`;
-- `CountryMapScoutCardAcceptanceTests`;
-- `CountryMapTransientFeedbackTests`;
-- `CountryMapSceneTests`;
-- `ConquestReportContentTests`;
-- `ConquestReportNodeTests` sample content;
-- `BattleSceneTests` HUD/tooltip, City 3 report, and both country-complete report assertions;
-- `BuildingViewSceneTests` building-conquest feedback.
-
-Repository-wide stale-copy search is a final backstop, not the first time these known call sites are discovered.
+Tests: `Country1CityCatalogTests`, `KingdomGameStateTests`, `CountryMapScoutCardContentTests`, `CountryMapScoutCardLayoutTests`, `CountryMapScoutCardNodeTests`, `CountryMapScoutCardTextLayoutTests`, `CountryMapScoutCardAcceptanceTests`, `CountryMapTransientFeedbackTests`, `CountryMapSceneTests`, `ConquestReportContentTests`, `ConquestReportNodeTests`, `BattleSceneTests`, `BuildingViewSceneTests`.
 
 ## Testing strategy
 
-### 1. Authoring gate — same slice as the table
-
-- Exact reviewed 15-city table.
-- Completeness, case-insensitive unique names, coarse character limits.
-- Existing trait/lane metadata unchanged.
-- `definitionIfPresent(for:)` does not clamp.
-- Existing `everyTitleAndRewardFitsAtItsNominalSizeInEverySupportedLayout` reads `definition.displayTitle` directly and passes for every supported fixture at nominal 11/16 pt title size.
-
-This gate catches content/layout mistakes before later tasks hard-code the authored table elsewhere.
-
-### 2. Shared projection/report atom
-
-- Valid Country 1 display title.
-- Unsupported country/city fallback.
-- `KingdomGameState.displayConquestTitle(for: CityKey(...))` uses both components of the supplied record key.
-- City 15 key yields `Crownspire Keep Falls`.
-- Scout projection carries title + flavor.
-- Battle HUD/tooltip and Building View exact-copy expectations move with the shared producer.
-- `ConquestReportContent` accepts exact caller-provided title.
-- Both final-country Battle report paths remain `Crownspire Keep Falls`.
-
-### 3. Country Map behavior
-
-- Pure country-complete projection returns `finalCityName: "Crownspire Keep"` from constant catalog City 15.
-- Named locked/completed/idle/final-country copy.
-- Body tap shows flavor without mutation, routing, or gameplay feedback.
-- Attack remains enabled and routes during the flavor lifetime.
-- Existing blocking feedback still suppresses Attack and consumes the full overlay.
-
-### 4. Fit acceptance
-
-- Existing all-content presentation matrix carries authored title + flavor.
-- All 15 flavors fit the new `nonBlockingOverlayFrame` at the current feedback floor/nominal sizing.
-- All 15 named locked/completed strings and final-country strings fit the existing blocking overlay.
-- No duplicate all-title matrix is added.
+1. **Task 1 authoring gate:** exact table, uniqueness/limits, unchanged combat metadata, non-clamping optional lookup, and the existing nominal title-fit test reading `definition.displayTitle` directly.
+2. **Shared projection/report:** authored display/fallback, result-key conquest formatting, Scout flavor payload, Battle HUD/tooltip, Building View exact copy, caller-owned report title, both final-country Battle paths.
+3. **Country Map behavior:** pure final-country payload, named feedback, body tap flavor with no mutation/SFX/route, Attack still routes while flavor is visible, current blocking feedback still blocks.
+4. **Fit acceptance:** existing dense all-content matrix; all 15 flavors through `nonBlockingOverlayFrame`; all named locked/completed/final strings through existing blocking overlay.
 
 ## Risks and controls
 
-### Authored title exceeds the real layout budget
+### 1. Authored title exceeds the real layout budget
 
-Risk: a name can satisfy a character limit yet overflow the narrow-pad 198 pt nominal title frame.
+A character cap can pass while the 198 pt narrow-pad nominal title frame fails. Run the nominal production title-fit in Task 1. `Kingshield Keep` replaces `Kingshield Bastion` before downstream hard-coding.
 
-Control: run the existing nominal title-fit test in Task 1 against `CityDefinition.displayTitle`; the authored table is not accepted until that gate is green. City 11 is shortened to `Kingshield Keep` before implementation.
+### 2. Flavor blocks Attack
 
-### Flavor accidentally blocks the primary Attack action
+Existing transient feedback disables Attack in three ways. Flavor gets a dedicated non-blocking mode, pure non-Attack frame, preserved entry/hit frame, and a test that taps Attack before expiry.
 
-Risk: existing transient feedback disables entry, clears the Attack hit frame, and covers the whole Scout Card. Reusing it unchanged would make Attack unresponsive for the flavor duration.
+### 3. Final-country semantics drift
 
-Control: flavor gets one non-blocking feedback mode, a pure informational overlay frame excluding Attack, entry stays enabled, and a scene test taps Attack while flavor is still visible.
+Resolve report title from `BattleResult.cityKey`; both existing final-country Battle tests require `Crownspire Keep Falls`, while map tests require separate country confirmation.
 
-### Final-city semantics drift
+### 4. Stale exact-string tests
 
-Risk: a later refactor could restore `Country N Conquered` inside the Battle report and duplicate or replace the City 15 authored outcome.
+Update known sibling suites in the same task as the producer; final `rg` search is only a backstop.
 
-Control: result-key-based conquest title projection plus both existing final-country BattleScene assertions.
+### 5. Transient-copy fit regression
 
-### Stale hard-coded test copy
-
-Risk: shared title changes update production consumers automatically while old exact-string tests remain stale.
-
-Control: update the known inventory in the same task as its producer and keep repository-wide `rg` searches as a backstop.
-
-### Transient-copy fit regression
-
-Risk: a later authored copy edit could exceed the existing one-line feedback fit floor.
-
-Control: enumerate all authored flavor/locked/completed/final strings through existing fit helpers. This is a cheap backstop, not the primary layout risk.
+Enumerate all authored flavor/locked/completed/final strings through existing fit helpers. This is cheap regression coverage, not the primary layout risk.
 
 ## Manual smoke
 
-Before HPA-366 is marked complete, play or seed City 1 through City 15 and verify:
-
-- every Scout Card shows `City N · Name`;
-- body tap shows the reviewed flavor text;
-- Attack remains immediately tappable while flavor is visible;
-- Battle HUD and city tooltip use the same title;
-- Building View conquest feedback uses the same title when buildings finish a city;
-- conquest report matches the reviewed conquest title;
-- locked/completed/idle map feedback uses the same identity;
-- City 15 report says `Crownspire Keep Falls`, then the Country Map shows `Country 1 conquered · Crownspire Keep`;
-- no trait, lane, reward, building, combat, routing, sound, or haptic behavior changes.
+Seed/play City 1→15 and verify Scout title, flavor, immediately usable Attack during flavor, Battle HUD/tooltip, Building View conquest copy, conquest title, named map feedback, and City 15 report → country-map completion handoff. Confirm gameplay/reward/lane/routing/SFX/haptics are unchanged.
 
 ## Non-goals
 
-- HPA-390 milestone animations/effects.
-- Campaign Chronicle or persisted completed-city identity copies.
-- New gameplay rules, boss behavior, lanes, units, traits, rewards, or balance changes.
-- Per-city backgrounds, themes, palettes, music, ambience, dialogue, or lore pages.
+- HPA-390 milestone effects.
+- Campaign Chronicle or persisted identity copies.
+- New gameplay rules, units, traits, rewards, or balance.
+- Per-city art/theme/music/dialogue/lore pages.
 - Localization infrastructure.
-- Multiple countries or a generic campaign-content framework.
+- Multiple countries or generic campaign-content framework.
 - Save migration or malformed-content recovery machinery.
