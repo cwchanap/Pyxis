@@ -133,6 +133,8 @@ static func displayConquestTitle(for cityKey: CityKey) -> String {
 }
 ```
 
+This helper lives with the existing campaign display formatting, but its output depends only on the supplied `CityKey`; it does not read mutable/current campaign state.
+
 No generic identity protocol or multi-country abstraction is introduced.
 
 ## Country Map projection
@@ -287,7 +289,7 @@ This gate catches content/layout mistakes before later tasks hard-code the autho
 
 - Valid Country 1 display title.
 - Unsupported country/city fallback.
-- `KingdomGameState.displayConquestTitle(for: CityKey(...))` uses both components of the key.
+- `KingdomGameState.displayConquestTitle(for: CityKey(...))` uses both components of the supplied record key.
 - City 15 key yields `Crownspire Keep Falls`.
 - Scout projection carries title + flavor.
 - Battle HUD/tooltip and Building View exact-copy expectations move with the shared producer.
