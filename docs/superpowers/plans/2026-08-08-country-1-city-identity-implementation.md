@@ -72,7 +72,7 @@ private static let expectedDefinitions: [ExpectedDefinition] = [
 ]
 ```
 
-Assert completeness, trimmed non-empty values, case-insensitive unique names, coarse character bounds, exact display title, unchanged combat metadata, existing clamping behavior, and new non-clamping optional lookup.
+Assert completeness, trimmed non-empty values, case-insensitive name uniqueness, the coarse character bounds, exact display title, unchanged combat metadata, existing clamping behavior, and new non-clamping optional lookup.
 
 - [ ] **Step 2: Move the nominal Scout-title fit gate into this slice**
 
@@ -90,20 +90,11 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
 
 - [ ] **Step 4: Implement only the catalog extension**
 
-Add `name`, `flavorText`, `conquestTitle`, computed `displayTitle`, the exact table above, and:
-
-```swift
-static func definitionIfPresent(for cityNumber: Int) -> CityDefinition? {
-    guard cityRange.contains(cityNumber) else { return nil }
-    return definitions[cityNumber - cityRange.lowerBound]
-}
-```
-
-Do not change clamped `definition(for:)`.
+Add `name`, `flavorText`, `conquestTitle`, computed `displayTitle`, the exact table above, and non-clamping `definitionIfPresent(for:)`. Do not change clamped `definition(for:)`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
-Run the Task 1 suites; require nominal narrow-iPad title fit to pass. Commit as `feat: author Country 1 city identities`.
+Require both suites to pass, including nominal narrow-iPad title fit. Commit as `feat: author Country 1 city identities`.
 
 ---
 
@@ -111,19 +102,15 @@ Run the Task 1 suites; require nominal narrow-iPad title fit to pass. Commit as 
 
 **Files:** `KingdomGameState.swift`, `CountryMapScoutCardContent.swift`, `ConquestReportContent.swift`, `BattleScene.swift`; verify existing `BuildingViewScene.swift`; update `KingdomGameStateTests`, `CountryMapScoutCardContentTests`, direct Scout initializers in `CountryMapScoutCardNodeTests`, `ConquestReportContentTests`, `ConquestReportNodeTests`, `BattleSceneTests`, and `BuildingViewSceneTests`.
 
-**Interfaces:**
-- `displayCityTitle(for:)` for current state UI
-- static `displayConquestTitle(for cityKey: CityKey)` for persisted result records
-- `Scout.flavorText`
-- `ConquestReportContent.project(from:title:)`
+**Interfaces:** current-state `displayCityTitle(for:)`; static record-key `displayConquestTitle(for:)`; `Scout.flavorText`; `ConquestReportContent.project(from:title:)`.
 
 - [ ] **Step 1: Write/update shared-title and result-key tests**
 
-Cover `City 6 · Granite Pass`, `City 15 · Crownspire Keep`, legacy invalid country/city fallback, `CityKey(1,15) -> Crownspire Keep Falls`, and `CityKey(2,3) -> Country 2 - City 3 Conquered`. Update Scout expected data with title + flavor.
+Cover authored current titles and invalid fallback. Cover `CityKey(1,15) -> Crownspire Keep Falls` and `CityKey(2,3) -> Country 2 - City 3 Conquered`. Update Scout expected data with title + flavor.
 
-- [ ] **Step 2: Update known exact-string consumers before changing production**
+- [ ] **Step 2: Update exact-string consumers before production changes**
 
-Move Battle HUD/tooltip exact strings, Building View conquest feedback (`Buildings conquered City 1 · Willowford.`), report node sample, City 3 report, and both existing final-country Battle report assertions to the new expected copy.
+Move Battle HUD/tooltip, Building View conquest feedback (`Buildings conquered City 1 · Willowford.`), report-node sample, City 3 report, and both final-country Battle report assertions.
 
 - [ ] **Step 3: Run RED across the complete Task 2 blast radius**
 
@@ -140,63 +127,39 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -only-testing:PyxisTests/BuildingViewSceneTests
 ```
 
-- [ ] **Step 4: Implement current-state and result-record formatting**
+- [ ] **Step 4: Implement display/report ownership**
 
-Keep `displayCityTitle(for:)` state-aware. Add:
+Keep current UI title state-aware. Add static conquest formatting that reads only supplied `CityKey`. Change report projection to `project(from:title:)`; BattleScene passes `KingdomGameState.displayConquestTitle(for: result.cityKey)`. Add `Scout.flavorText`. Do not modify `BattleResult` or report lifecycle behavior.
 
-```swift
-static func displayConquestTitle(for cityKey: CityKey) -> String {
-    guard cityKey.countryNumber == 1,
-          let definition = Country1CityCatalog.definitionIfPresent(for: cityKey.cityNumber) else {
-        return "Country \(cityKey.countryNumber) - City \(cityKey.cityNumber) Conquered"
-    }
-    return definition.conquestTitle
-}
-```
+- [ ] **Step 5: Search stale report signatures, run GREEN, commit**
 
-The static helper must not read ambient campaign state.
-
-- [ ] **Step 5: Add Scout flavor and simplify report projection**
-
-Add `Scout.flavorText`; change report projection to `project(from:title:)`; remove only the old title branch. BattleScene passes `KingdomGameState.displayConquestTitle(for: result.cityKey)`. Do not change `BattleResult` or report lifecycle behavior.
-
-- [ ] **Step 6: Reject stale report signatures, run GREEN, commit**
-
-Search `cityTitle:`, `isCountryComplete:`, old report strings in the report/Battle scope; rerun Task 2 suites; commit the atomic slice as `feat: project shared city identity`.
+Reject old `cityTitle:` / `isCountryComplete:` and old report strings in report/Battle scope. Rerun suites and commit `feat: project shared city identity`.
 
 ---
 
 ### Task 3: Ship Country Map identity with non-blocking flavor
 
-**Files:** `CountryMapScoutCardContent.swift`, `CountryMapScoutCardLayout.swift`, `CountryMapScoutCardNode.swift`, `CountryMapTransientFeedback.swift`, `CountryMapScene.swift`, plus their content/layout/node/transient/scene/acceptance tests.
+**Files:** `CountryMapScoutCardContent.swift`, `CountryMapScoutCardLayout.swift`, `CountryMapScoutCardNode.swift`, `CountryMapTransientFeedback.swift`, `CountryMapScene.swift`, and their content/layout/node/transient/scene/acceptance tests.
 
-**Interfaces:**
-- `countryComplete(countryNumber:finalCityName:)`
-- `CountryMapScoutCardLayout.nonBlockingOverlayFrame`
-- `CountryMapTransientFeedback.flavor(_:)` and `blocksScoutEntry`
-- `CountryMapScoutCardNode.applyFeedback(..., blocksAttack:)`
+**Interfaces:** `countryComplete(countryNumber:finalCityName:)`, `nonBlockingOverlayFrame`, `.flavor`, `blocksScoutEntry`, `applyFeedback(..., blocksAttack:)`.
 
-- [ ] **Step 1: Keep final-country identity in the pure content projection**
+- [ ] **Step 1: Keep final-country identity in pure content**
 
-Change country-complete payload to include `finalCityName`. Resolve it from constant catalog City 15 in `CountryMapScoutCardContent.project(from:)`. Update pure content/acceptance equality tests. Node receives and renders the name; it never reads the catalog.
+Country-complete payload includes `finalCityName` resolved from constant catalog City 15. Update pure/acceptance equality tests. Node only renders supplied data.
 
 - [ ] **Step 2: Add pure non-blocking overlay geometry**
 
-Add `nonBlockingOverlayFrame` spanning the informational area up to the existing Attack gap (`6` phone / `12` pad). Keep full `overlayFrame` unchanged. Assert new frame is contained, positive, and non-intersecting with `attackFrame` on every supported fixture.
+Add `nonBlockingOverlayFrame` spanning informational area through existing Attack gap (`6` phone / `12` pad), while keeping full `overlayFrame` unchanged. Assert containment/positive width/no Attack intersection across fixtures.
 
-- [ ] **Step 3: Add a dedicated non-blocking flavor kind**
+- [ ] **Step 3: Add dedicated `.flavor` transient mode**
 
-Add `.flavor`, `blocksScoutEntry` (`false` only for flavor), and `flavor(_:)` using current 2.5s timing. Existing locked/completed/status/error behavior stays blocking.
+`.flavor` uses current 2.5s timing and is the only `blocksScoutEntry == false` kind. Current feedback kinds remain blocking.
 
-- [ ] **Step 4: Write the node regression test**
+- [ ] **Step 4: Write node and scene Attack-regression tests**
 
-Non-blocking flavor must use `nonBlockingOverlayFrame`, preserve `attackHitFrame`, and not intersect Attack. Ordinary blocking feedback must keep full `overlayFrame` and clear Attack.
+Node: flavor uses non-blocking frame and preserves Attack; blocking feedback uses full frame and clears Attack. Scene: pending City 5 -> unlocked City 6; body tap shows City 6 flavor with no mutation/route/gameplay feedback; before expiry tap Attack and assert one route plus City 6 `.battleActive` persistence.
 
-- [ ] **Step 5: Write the scene regression test**
-
-Use a pending City 5 state (unlocked target City 6). Tap Scout body; assert City 6 flavor, no state mutation/route/gameplay feedback, and non-nil Attack. Before flavor expires, tap Attack; assert one route and persisted City 6 `.battleActive` state.
-
-- [ ] **Step 6: Run RED**
+- [ ] **Step 5: Run RED**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -210,53 +173,44 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -only-testing:PyxisTests/CountryMapScoutCardAcceptanceTests
 ```
 
-- [ ] **Step 7: Implement all three non-blocking requirements**
+- [ ] **Step 6: Implement all three current Attack blockers**
 
-`applyFeedback(..., blocksAttack:)` chooses blocking/full vs flavor/non-blocking frame and preserves Attack only for non-blocking mode. `redraw()` uses `blocksScoutEntry` instead of `transientFeedback == nil`. `applyFeedbackPresentation()` forwards the same blocking flag. Scout body calls `showFeedback(.flavor(scout.flavorText))`.
+Node `applyFeedback(..., blocksAttack:)` chooses full vs non-blocking frame and preserves Attack only for flavor. Scene `redraw()` uses `blocksScoutEntry` instead of `transientFeedback == nil`; `applyFeedbackPresentation()` forwards the same flag; body tap calls `.flavor(scout.flavorText)`. Input priority remains overlay -> Attack -> Scout body, with flavor overlay not intersecting Attack.
 
-Input priority stays overlay -> Attack -> Scout body. Blocking overlay covers Attack; flavor overlay does not.
+- [ ] **Step 7: Integrate named map/final-country copy, run GREEN, commit**
 
-- [ ] **Step 8: Integrate named map/final-country copy, run GREEN, commit**
-
-Render supplied `finalCityName`; use resolved `cityTitle:` for locked/completed; final idle copy uses constant City 15 in pure/non-SpriteKit code. Update acceptance copy. Rerun Task 3 suites and commit as `feat: show nonblocking city flavor`.
+Render supplied final name; locked/completed use shared display title; idle final copy uses constant City 15 in pure/non-SpriteKit code. Update acceptance strings. Rerun suites and commit `feat: show nonblocking city flavor`.
 
 ---
 
 ### Task 4: Run authored fit acceptance and stale-copy checks
 
-- [ ] Extend the existing feedback-fit family to all 15 flavors in non-blocking mode and all 15 named locked/completed strings plus final/error copy in blocking mode. Verify fit, flavor/Attack non-intersection, and preserved Attack frame.
-- [ ] Update existing `allCurrentContentPresentsAcrossEveryFixtureAndImageOutcome` to carry `definition.displayTitle` + `definition.flavorText`; do not add another matrix.
-- [ ] Re-run `CountryMapScoutCardTextLayoutTests`, `CountryMapScoutCardNodeTests`, and `CountryMapScoutCardAcceptanceTests`; all titles stay nominal 11/16 pt.
-- [ ] Run stale-copy searches and confirm production names remain centralized in the catalog.
-- [ ] Commit acceptance amendments as `test: validate Country 1 identity fit`.
+- [ ] Enumerate all 15 flavors in non-blocking fit mode and all named locked/completed + final/error strings in blocking mode; verify fit, flavor/Attack non-intersection, and preserved Attack frame.
+- [ ] Update existing all-content presentation matrix to carry authored title + flavor; do not add a duplicate matrix.
+- [ ] Re-run nominal title, node, and acceptance suites; all titles remain 11/16 pt nominal.
+- [ ] Run stale-copy searches and verify production names remain centralized in the catalog.
+- [ ] Commit `test: validate Country 1 identity fit`.
 
 ---
 
 ### Task 5: Document ownership, run full verification, and smoke the campaign
 
-- [ ] Update `CLAUDE.md`: catalog owns identity; copy is not persisted; report copy resolves from `BattleResult.cityKey`; Scout flavor must be non-blocking for Attack.
+- [ ] Update `CLAUDE.md`: catalog owns identity; copy is not persisted; reports resolve from `BattleResult.cityKey`; flavor is non-blocking for Attack.
 - [ ] Run full `xcodebuild test` with parallel testing disabled.
-- [ ] Run `swiftlint lint --no-cache` and `git diff --check origin/main...HEAD`.
-- [ ] Seed/play City 1→15 verifying Scout title/flavor, immediate Attack during flavor, Battle HUD/tooltip, Building View conquest copy, authored report title, named map feedback, and City 15 report -> country-map completion. Verify no gameplay/reward/lane/routing/SFX/haptic change.
-- [ ] Commit `CLAUDE.md` as `docs: document Country 1 identity ownership`.
-
----
+- [ ] Run SwiftLint and `git diff --check`.
+- [ ] Seed/play City 1→15 verifying Scout title/flavor, immediate Attack during flavor, Battle HUD/tooltip, Building View conquest copy, authored report title, named map feedback, and City 15 report -> map completion. Verify no gameplay/reward/lane/routing/SFX/haptic change.
+- [ ] Commit `docs: document Country 1 identity ownership`.
 
 ## Risks and controls
 
-1. **Title budget:** run nominal production title fit in Task 1; `Kingshield Keep` replaces overflowing `Kingshield Bastion` before downstream hard-coding.
-2. **Flavor blocks Attack:** flavor is the sole non-blocking transient kind; pure non-Attack frame + preserved scene entry/hit target + tap-before-expiry test.
-3. **Final-country drift:** report title resolves from `BattleResult.cityKey`; both final-country Battle tests require `Crownspire Keep Falls`, map tests require separate country confirmation.
-4. **Stale exact strings:** Task 2/3 update known consumers atomically; Task 4 search is the final backstop.
-5. **Transient fit:** enumerate all authored flavor/locked/completed/final strings through existing fit helpers as cheap regression coverage.
+1. **Real title budget:** Task 1 nominal fit gate; `Kingshield Keep` replaces overflowing `Kingshield Bastion` before downstream hard-coding.
+2. **Flavor blocks Attack:** dedicated non-blocking kind + pure non-Attack frame + preserved entry/hit target + tap-before-expiry test.
+3. **Final-country drift:** report title resolves from `BattleResult.cityKey`; Battle and map tests lock separate City/country semantics.
+4. **Stale exact strings:** update known consumers atomically; search is final backstop.
+5. **Transient fit:** enumerate all authored strings as cheap regression coverage.
 
 ## Final scope check
 
-- Authored rows: 15.
-- New production files: 0.
-- Persistence changes: 0.
-- New gameplay systems/mechanics: 0.
-- New scenes/modals/durable state: 0.
-- Allowed minimal interaction additions: one pure Scout layout frame and one `.flavor` transient kind.
+15 authored rows; zero new production files, persistence changes, gameplay systems, scenes/modals, or durable state. One pure Scout layout frame and one `.flavor` transient kind are allowed as the minimum required to ship flavor without blocking Attack.
 
 If implementation starts introducing a reusable content platform, generic campaign abstraction, persistence migration, second text-layout policy, or milestone effect, stop and reduce scope back to this plan.
