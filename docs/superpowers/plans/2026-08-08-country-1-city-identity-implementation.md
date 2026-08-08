@@ -565,11 +565,19 @@ This preserves current invalid-feedback behavior while proving flavor is differe
 
 - [ ] **Step 5: Write the scene test that taps Attack while flavor is still visible**
 
-Create a City 6 active state, tap a point in the Scout body outside Attack, then assert flavor appears with no mutation/route/SFX-haptic event.
+Create a pending-map state whose unlocked Scout target is City 6 (`completedCityCount: 5`, `cityNumberInCountry: 5`, `stageStatus: .cityConqueredPendingMap`). Tap a point in the Scout body outside Attack, then assert flavor appears with no mutation/route/SFX-haptic event.
 
 Without advancing the 2.5 s transient timer, fetch the Attack frame and tap it:
 
 ```swift
+let initialState = KingdomGameState(
+    cityLevel: 5,
+    cityRemainingPower: 0,
+    cityNumberInCountry: 5,
+    completedCityCount: 5,
+    stageStatus: .cityConqueredPendingMap
+)
+
 scene.handleTouchForTesting(at: bodyPoint)
 #expect(scene.visibleFeedbackTextForTesting == "Stone walls seal the mountain road ahead.")
 #expect(scene.scoutCardAttackHitFrameForTesting != nil)
@@ -580,6 +588,8 @@ scene.handleTouchForTesting(at: bodyPoint)
 let attack = try #require(scene.scoutCardAttackHitFrameForTesting)
 scene.handleTouchForTesting(at: attack.center)
 #expect(router.battleRequestCount == 1)
+#expect(store.load().cityNumberInCountry == 6)
+#expect(store.load().stageStatus == .battleActive)
 ```
 
 Also retain existing tests that blocking locked/completed feedback cannot be dismissed early and suppresses underlying targets.
@@ -661,7 +671,7 @@ if scoutCardNode.cardHitFrame?.contains(point) == true {
 }
 ```
 
-Input priority stays: blocking/non-blocking overlay → Attack → Scout body → other controls. Because the flavor overlay does not intersect Attack, Attack remains reachable.
+Input priority stays: overlay → Attack → Scout body → other controls. Blocking overlay covers Attack and therefore continues to win first; the non-blocking flavor overlay does not intersect Attack, so Attack remains reachable.
 
 - [ ] **Step 8: Render final-country and named feedback from pure projections**
 
