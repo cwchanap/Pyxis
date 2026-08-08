@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make Country 1 feel like a coherent 15-stage journey by giving every existing city a short authored identity and reusing that identity across the current map, battle, and conquest surfaces without adding gameplay mechanics, persistence, or a content framework.
+Make Country 1 feel like a coherent 15-stage journey by giving every existing city a short authored identity and reusing that identity across the current map, battle, building, and conquest surfaces without adding gameplay mechanics, persistence, or a content framework.
 
 This implements HPA-366 and preserves every existing defense trait, lane profile, HP curve, reward, unlock, building rule, idle rule, and combat behavior.
 
@@ -15,6 +15,7 @@ This implements HPA-366 and preserves every existing defense trait, lane profile
 - No identity field is persisted in `KingdomGameState` or `BattleResult`; consumers resolve current authored content from the catalog.
 - HPA-390 still owns presentation-only milestone treatment for Cities 5, 10, and 15. HPA-366 adds copy only, not milestone effects.
 - The implementation must reuse current UI and transient-feedback surfaces instead of creating another scene or content subsystem.
+- Final-city Battle and Country Map copy have distinct jobs: the City 15 Battle report always says `Crownspire Keep Falls`; country-level completion copy appears only after the report on the Country Map. Never show both messages in the Battle report and never omit the country-level map confirmation.
 
 ## Existing architecture
 
@@ -22,11 +23,12 @@ This implements HPA-366 and preserves every existing defense trait, lane profile
 
 Current consumers already have useful seams:
 
-- `KingdomGameState.displayCityTitle(for:)` supplies titles to Battle and the Scout Card.
+- `KingdomGameState.displayCityTitle(for:)` supplies titles to Battle, Building View feedback, and the Scout Card.
 - `CountryMapScoutCardContent` projects the unlocked city into the map card.
 - `CountryMapTransientFeedback` owns short map feedback.
 - `BattleScene` uses `state.displayCityTitle` for the HUD and city tooltip.
-- `BattleScene` passes the city title into `ConquestReportContent`.
+- `BattleScene` passes city/campaign information into `ConquestReportContent`.
+- `BuildingViewScene` already embeds `state.displayCityTitle` in building-driven conquest feedback.
 - The country-complete Scout Card and idle-completion feedback already have compact final-country presentation paths.
 
 The feature should extend these seams rather than add a new service, repository, manager, registry, or persistence type.
@@ -63,7 +65,13 @@ The authored Country 1 table must satisfy:
 - All 15 definitions remain in exact city-number order.
 - Existing defense traits and lane profiles remain byte-for-byte equivalent by value.
 
-Character limits are an authoring guard, not the only layout guarantee. Tests must also run all authored display titles through the current Scout Card phone and pad fitting path.
+Character limits are an authoring guard, not the only layout guarantee. Existing production-fit tests remain authoritative:
+
+- every authored Scout title must fit at the current nominal 11 pt phone / 16 pt pad title size;
+- every authored Scout presentation must continue to pass the existing all-content fixture matrix;
+- every authored flavor, locked, completed, and final-country transient string must fit the current single-line feedback overlay at or above its existing 8 pt floor.
+
+If authored copy fails those current fitting rules, shorten the copy. Do not add a new truncation or wrapping policy in HPA-366.
 
 ## Authored Country 1 identity table
 
@@ -128,6 +136,10 @@ func displayConquestTitle(for cityNumber: Int) -> String {
 
 No generic identity protocol or multi-country catalog abstraction is introduced.
 
+### Country-complete identity invariant
+
+Country-complete presentation always reads the final identity from the authored catalog at `Country1CityCatalog.cityRange.upperBound` (City 15). It must not derive the final name from `state.cityNumberInCountry` and must not route through the optional display fallback. This keeps final-country copy deterministic even if a malformed development state is normalized differently in the future.
+
 ## Country Map integration
 
 ### Scout Card
@@ -155,7 +167,7 @@ Change locked/completed map feedback to accept the resolved display title rather
 
 After an idle conquest that unlocks another city, show the newly unlocked authored display title instead of the current `City N: Trait` copy. The Scout Card directly below already communicates the trait and tactical details.
 
-For final Country 1 completion, reuse City 15 identity in the existing compact final-country copy:
+For final Country 1 completion, read City 15 by constant upper bound and reuse its identity in the existing compact final-country paths:
 
 - country-complete Scout Card: `Country 1 conquered · Crownspire Keep`
 - final idle completion feedback: `Country 1 conquered at Crownspire Keep.`
@@ -166,9 +178,15 @@ HPA-390 may later add milestone animation or visual emphasis, but must reuse the
 
 `BattleScene` continues to read `state.displayCityTitle`. Its persistent HUD title and current city-info tooltip therefore gain the authored name without a parallel city-name switch.
 
-No Battle HUD layout is redesigned. Existing label fitting remains authoritative; tests add representative/all-content fit coverage rather than new geometry code.
+No Battle HUD layout is redesigned. Existing label fitting remains authoritative; tests update every hard-coded title expectation that changes and retain existing geometry/fit behavior.
 
 The city-info tooltip retains its current trait and HP information. HPA-366 changes only the title portion to the shared authored display title.
+
+## Building View integration
+
+`BuildingViewScene` already uses `state.displayCityTitle` when building settlement/foreground progress conquers the current city. HPA-366 does not add a new Building View feature; the existing player-facing conquest sentence automatically gains the authored title.
+
+The matching `BuildingViewSceneTests` expectation must change in the same slice as `displayCityTitle` so the shared title producer never leaves a known sibling suite stale.
 
 ## Conquest report integration
 
@@ -191,7 +209,14 @@ and store `title` unchanged in the returned content.
 state.displayConquestTitle(for: result.cityKey.cityNumber)
 ```
 
-This gives every city its reviewed conquest title, including `Crownspire Keep Falls` for City 15. The subsequent Country Map still owns the separate overall `Country 1 conquered` presentation.
+This gives every city its reviewed conquest title, including `Crownspire Keep Falls` for City 15.
+
+The product rule is explicit:
+
+- the final-city Battle report always uses `Crownspire Keep Falls`;
+- `Country 1 conquered …` copy is map-only after Continue;
+- the Battle report never substitutes the country banner for the authored City 15 conquest title;
+- both existing BattleScene country-complete report assertions must lock this rule.
 
 No `BattleResult` schema change is needed because authored copy is deliberately resolved from the catalog at presentation time.
 
@@ -201,7 +226,35 @@ Country 1 identity is static source data, so missing names or malformed authored
 
 Unsupported country/city values use the existing legacy title format through the optional display lookup. Existing clamping lookup remains untouched for gameplay compatibility.
 
-If an authored title fails the existing Scout Card fit path on a supported layout, the existing `requiredContentDoesNotFit` / layout-gate behavior remains authoritative. The content table must be fixed rather than adding a second truncation policy.
+If an authored title or transient string fails the existing supported-layout fit path, fix the authored string. Do not add a second truncation/wrapping policy.
+
+## Call-site inventory
+
+Changing the shared title shape has a wider test blast radius than the production change. Update known consumers in the same task that changes their producer rather than deferring everything to the final full-suite run.
+
+Production paths:
+
+- `KingdomGameState.displayCityTitle` / `displayCityTitle(for:)` / new `displayConquestTitle(for:)`;
+- `CountryMapScoutCardContent`, `CountryMapScoutCardNode`, `CountryMapScene`;
+- `CountryMapTransientFeedback`;
+- `BattleScene` HUD, tooltip, and `conquestReportContent(for:)`;
+- `BuildingViewScene` building-driven conquest feedback.
+
+Known test surfaces whose locked copy/shape must be reconciled:
+
+- `Country1CityCatalogTests`;
+- `KingdomGameStateTests`;
+- `CountryMapScoutCardContentTests`;
+- `CountryMapScoutCardNodeTests`;
+- `CountryMapScoutCardTextLayoutTests`;
+- `CountryMapTransientFeedbackTests`;
+- `CountryMapSceneTests`;
+- `ConquestReportContentTests`;
+- `ConquestReportNodeTests` sample content where useful;
+- `BattleSceneTests` HUD title, City 3 report, both country-complete report assertions, and city tooltip/visible-HUD strings;
+- `BuildingViewSceneTests` building-conquest feedback.
+
+Repository-wide stale-copy search remains a final backstop, not the first time these known call sites are discovered.
 
 ## Testing strategy
 
@@ -215,18 +268,50 @@ Use behavior-oriented coverage rather than a scene-by-city matrix.
    - optional lookup does not clamp.
 2. `KingdomGameStateTests` / existing Scout content tests
    - valid Country 1 authored display/conquest title;
+   - City 15 returns `Crownspire Keep Falls` even when the state is already `.countryComplete`;
    - unsupported country/city legacy fallback;
-   - Scout projection carries the catalog title and flavor.
+   - Scout projection carries catalog title and flavor;
+   - country-complete projection reads catalog City 15 by constant upper bound.
 3. Scout Card/layout tests
-   - all 15 authored display titles fit existing supported phone and pad Scout Card layouts.
-4. `CountryMapTransientFeedbackTests` and one representative `CountryMapSceneTests` flow
+   - run existing `everyTitleAndRewardFitsAtItsNominalSizeInEverySupportedLayout` after the shared title change; it must still return the nominal 11/16 pt sizes for all 15 titles;
+   - extend existing `allCurrentContentPresentsAcrossEveryFixtureAndImageOutcome` with authored title/flavor fields; do not add a duplicate title matrix.
+4. Transient feedback fit tests
+   - loop all 15 `flavorText` strings;
+   - loop all 15 `"\(definition.displayTitle) is locked"` strings;
+   - loop all 15 `"\(definition.displayTitle) complete"` strings;
+   - include both final-country strings plus existing damage/no-damage/error copy;
+   - every string must install in the current feedback overlay at or above the existing 8 pt floor.
+5. `CountryMapTransientFeedbackTests` and representative `CountryMapSceneTests`
    - named locked/completed/idle/final-country copy;
    - tapping the Scout Card body shows flavor without mutation or routing.
-5. `ConquestReportContentTests` and representative Battle scene coverage
+6. `ConquestReportContentTests`, `BattleSceneTests`, and Building View regression coverage
    - report accepts exact caller-provided authored title;
-   - City 15 uses `Crownspire Keep Falls` while overall Country completion remains map-owned.
+   - City 3 uses `Falconridge Silenced`;
+   - both final-city report-host / Continue paths use `Crownspire Keep Falls`;
+   - HUD/tooltip/Building View expectations use shared authored display titles;
+   - overall Country completion remains map-owned.
 
 Do not add exhaustive lifecycle, persistence, concurrency, or 15-scene render matrices for static copy.
+
+## Risks and controls
+
+### Final-city semantics drift
+
+Risk: a later refactor could restore `Country N Conquered` inside the Battle report and duplicate or replace the City 15 authored outcome.
+
+Control: explicit product rule plus pure title projection test and both existing country-complete BattleScene assertions.
+
+### Silent transient-copy drop
+
+Risk: `CountryMapScoutCardNode.applyFeedback` intentionally hides feedback when text cannot fit even at its 8 pt floor, so one longer authored flavor/edit could silently turn a body tap into no visible output.
+
+Control: enumerate every authored flavor/locked/completed string through the existing feedback-fit test across minimum phone and pad fixtures.
+
+### Stale hard-coded test copy
+
+Risk: shared `displayCityTitle` changes update multiple production consumers automatically while old exact-string tests stay stale until a late full-suite run.
+
+Control: maintain the call-site inventory above, update each known sibling suite in the same implementation task, and keep the final `rg` search as a backstop.
 
 ## Manual smoke
 
@@ -235,9 +320,10 @@ Before HPA-366 is marked complete, play or seed through City 1 to City 15 and ve
 - every Scout Card shows `City N · Name` consistently;
 - Scout Card flavor text is readable when requested;
 - Battle HUD and city tooltip use the same title;
+- Building View conquest feedback uses the same title when buildings finish a city;
 - conquest report title matches the reviewed table;
 - locked/completed/idle map feedback uses the same identity;
-- City 15 transitions to the named Country-complete copy;
+- City 15 Battle report says `Crownspire Keep Falls` and only after Continue does the Country Map show `Country 1 conquered · Crownspire Keep`;
 - no existing trait, lane, reward, building, combat, routing, sound, or haptic behavior changes.
 
 ## Non-goals
