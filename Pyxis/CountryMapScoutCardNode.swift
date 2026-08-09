@@ -177,7 +177,7 @@ final class CountryMapScoutCardNode: SKNode {
         return .presented
     }
 
-    func applyFeedback(text: String?, alpha: CGFloat) {
+    func applyFeedback(text: String?, alpha: CGFloat, blocksAttack: Bool) {
         guard let text,
               !text.isEmpty,
               let layout = currentLayout,
@@ -185,10 +185,9 @@ final class CountryMapScoutCardNode: SKNode {
               let fontSize = fittedFontSize(
                   text,
                   startingAt: metrics.feedbackSize,
-                  frameWidth: layout.overlayFrame.insetBy(
-                      dx: metrics.feedbackHorizontalInset,
-                      dy: 0
-                  ).width
+                  frameWidth: (blocksAttack ? layout.overlayFrame : layout.nonBlockingOverlayFrame)
+                      .insetBy(dx: metrics.feedbackHorizontalInset, dy: 0)
+                      .width
               )
         else {
             feedbackIsVisible = false
@@ -199,16 +198,24 @@ final class CountryMapScoutCardNode: SKNode {
             return
         }
 
+        let frame = blocksAttack ? layout.overlayFrame : layout.nonBlockingOverlayFrame
         feedbackIsVisible = true
         feedbackLabel.text = text
         overlayLayer.alpha = alpha
         overlayLayer.isHidden = false
-        feedbackPanel.update(size: layout.overlayFrame.size)
-        feedbackPanel.position = CGPoint(x: layout.overlayFrame.midX, y: layout.overlayFrame.midY)
+        feedbackPanel.update(size: frame.size)
+        feedbackPanel.position = CGPoint(x: frame.midX, y: frame.midY)
         feedbackLabel.fontSize = fontSize
-        feedbackLabel.position = CGPoint(x: layout.overlayFrame.midX, y: layout.overlayFrame.midY)
-        overlayHitFrame = layout.overlayFrame
-        attackHitFrame = nil
+        feedbackLabel.position = CGPoint(x: frame.midX, y: frame.midY)
+        overlayHitFrame = frame
+        if blocksAttack {
+            // Blocking feedback (locked/completed/status/recoverableError)
+            // covers the whole card and disables the Attack target.
+            attackHitFrame = nil
+        }
+        // When blocksAttack == false (flavor), the overlay is confined to
+        // `nonBlockingOverlayFrame`, which excludes `attackFrame`, so the
+        // existing Attack target is preserved untouched and stays tappable.
     }
 
     func clearLayout() {
@@ -281,8 +288,8 @@ final class CountryMapScoutCardNode: SKNode {
     ) -> PreparedPresentation? {
         let metrics = metrics(for: layout.layoutClass)
         switch content {
-        case .countryComplete(let countryNumber):
-            let text = "Country \(countryNumber) conquered."
+        case .countryComplete(let countryNumber, let finalCityName):
+            let text = "Country \(countryNumber) conquered · \(finalCityName)"
             guard let fontSize = fittedFontSize(
                 text,
                 startingAt: metrics.titleSize,

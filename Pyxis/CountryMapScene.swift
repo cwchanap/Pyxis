@@ -208,6 +208,19 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return
         }
         if scoutCardNode.cardHitFrame?.contains(point) == true {
+            // Tapping the Scout card body shows the current scout's flavor
+            // text as a non-blocking overlay. It never mutates state, routes,
+            // or emits gameplay feedback, and only fires when a real scout is
+            // showing (not the country-complete card) and entry would
+            // otherwise be allowed. Input priority stays overlay -> Attack ->
+            // Scout body: when flavor is up its overlay excludes Attack, so an
+            // Attack tap falls through to `attackHitFrame` above.
+            if case .scout(let scout) = CountryMapScoutCardContent.project(from: state),
+               state.stageStatus != .countryComplete,
+               !isRoutingToBattle,
+               transientFeedback?.kind.blocksScoutEntry != true {
+                showFeedback(.flavor(scout.flavorText))
+            }
             return
         }
         if currentCityControlFrame?.contains(point) == true {
@@ -770,7 +783,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             layout: scoutCardLayout,
             isEntryEnabled: state.stageStatus != .countryComplete
                 && !isRoutingToBattle
-                && transientFeedback == nil
+                && transientFeedback?.kind.blocksScoutEntry != true
         )
         guard result == .presented else {
             isScoutCardFitFailed = true
@@ -855,7 +868,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func applyFeedbackPresentation() {
         scoutCardNode.applyFeedback(
             text: transientFeedback?.text,
-            alpha: transientFeedback?.alpha ?? 0
+            alpha: transientFeedback?.alpha ?? 0,
+            blocksAttack: transientFeedback?.kind.blocksScoutEntry ?? false
         )
     }
 

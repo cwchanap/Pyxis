@@ -39,11 +39,11 @@ struct CountryMapScoutCardNodeTests {
         let layout = try scoutCardLayout(named: "small phone")
 
         #expect(node.apply(
-            content: .countryComplete(countryNumber: 4),
+            content: .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"),
             layout: layout,
             isEntryEnabled: true
         ) == .presented)
-        #expect(node.titleTextForTesting == "Country 4 conquered.")
+        #expect(node.titleTextForTesting == "Country 1 conquered · Crownspire Keep")
         #expect(node.countryCompleteTitleFrameForTesting == layout.cardFrame)
         #expect(node.cardHitFrame == layout.cardFrame)
         #expect(node.attackHitFrame == nil)
@@ -303,17 +303,17 @@ struct CountryMapScoutCardNodeTests {
         ) == .presented)
         let base = node.baseContentReadbackForTesting
 
-        node.applyFeedback(text: "City 3 is locked", alpha: 0.72)
+        node.applyFeedback(text: "Falconridge is locked", alpha: 0.72, blocksAttack: true)
 
         #expect(node.baseContentReadbackForTesting == base)
-        #expect(node.feedbackTextForTesting == "City 3 is locked")
+        #expect(node.feedbackTextForTesting == "Falconridge is locked")
         #expect(abs(node.feedbackAlphaForTesting - 0.72) < 0.001)
         #expect(node.localZPositionsForTesting == .init(base: 0, content: 1, overlay: 2))
         #expect(node.zPosition == GameUITheme.Z.hud)
         #expect(node.overlayHitFrame == layout.overlayFrame)
         #expect(node.attackHitFrame == nil)
 
-        node.applyFeedback(text: nil, alpha: 0)
+        node.applyFeedback(text: nil, alpha: 0, blocksAttack: true)
 
         #expect(node.feedbackTextForTesting == nil)
         #expect(node.overlayHitFrame == nil)
@@ -321,15 +321,78 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.baseContentReadbackForTesting == base)
     }
 
+    @Test func nonBlockingFlavorUsesNonBlockingOverlayAndPreservesAttackTarget() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = try scoutCardLayout(named: "small phone")
+        #expect(node.apply(
+            content: .scout(testScout()),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        let base = node.baseContentReadbackForTesting
+
+        node.applyFeedback(
+            text: "Arrow towers command the high ridge road.",
+            alpha: 1,
+            blocksAttack: false
+        )
+
+        // Flavor overlays the informational area only and leaves Attack tappable.
+        #expect(node.feedbackTextForTesting == "Arrow towers command the high ridge road.")
+        #expect(abs(node.feedbackAlphaForTesting - 1) < 0.001)
+        #expect(node.overlayHitFrame == layout.nonBlockingOverlayFrame)
+        #expect(!layout.nonBlockingOverlayFrame.intersects(layout.attackFrame))
+        #expect(node.attackHitFrame == layout.attackFrame)
+        #expect(node.baseContentReadbackForTesting == base)
+
+        // Clearing flavor restores the scout overlay to nil and keeps Attack live.
+        node.applyFeedback(text: nil, alpha: 0, blocksAttack: false)
+        #expect(node.feedbackTextForTesting == nil)
+        #expect(node.overlayHitFrame == nil)
+        #expect(node.attackHitFrame == layout.attackFrame)
+    }
+
+    @Test func nonBlockingFlavorOnPadAlsoPreservesAttackAcrossTheWiderGap() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = try scoutCardLayout(named: "narrow iPad")
+        #expect(node.apply(
+            content: .scout(testScout()),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+
+        node.applyFeedback(text: "Pad flavor copy.", alpha: 1, blocksAttack: false)
+
+        #expect(node.overlayHitFrame == layout.nonBlockingOverlayFrame)
+        #expect(!layout.nonBlockingOverlayFrame.intersects(layout.attackFrame))
+        #expect(node.attackHitFrame == layout.attackFrame)
+    }
+
+    @Test func nonBlockingFlavorKeepsAttackNilWhenEntryIsDisabled() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = try scoutCardLayout(named: "small phone")
+        #expect(node.apply(
+            content: .scout(testScout()),
+            layout: layout,
+            isEntryEnabled: false
+        ) == .presented)
+
+        node.applyFeedback(text: "Flavor while disabled.", alpha: 1, blocksAttack: false)
+
+        #expect(node.overlayHitFrame == layout.nonBlockingOverlayFrame)
+        #expect(node.attackHitFrame == nil)
+    }
+
     @Test func everyFeedbackCopyFamilyFitsTheActualLabelOnMinimumPhoneAndPad() throws {
         let messages = [
-            "City 15 is locked",
-            "City 15 complete",
-            "Country 1 conquered.",
-            "City 15: Reinforced Keep",
+            "Crownspire Keep is locked",
+            "Crownspire Keep complete",
+            "Country 1 conquered · Crownspire Keep",
+            "Next: Crownspire Keep",
             "Buildings dealt 999999 idle damage.",
             "No building damage while away.",
-            "Cannot enter city yet."
+            "Cannot enter city yet.",
+            "The final keep rises above the capital."
         ]
         let fixtures = [
             (name: "small phone", startingSize: CGFloat(13)),
@@ -346,7 +409,7 @@ struct CountryMapScoutCardNodeTests {
             ) == .presented)
 
             for message in messages {
-                node.applyFeedback(text: message, alpha: 1)
+                node.applyFeedback(text: message, alpha: 1, blocksAttack: true)
                 let labelFrame = try #require(node.feedbackLabelFrameForTesting)
 
                 #expect(node.feedbackTextForTesting == message)
@@ -384,7 +447,7 @@ struct CountryMapScoutCardNodeTests {
             layout: invalidTitleLayout,
             isEntryEnabled: true
         ) == .requiredContentDoesNotFit)
-        node.applyFeedback(text: nil, alpha: 0)
+        node.applyFeedback(text: nil, alpha: 0, blocksAttack: true)
 
         #expect(node.baseContentReadbackForTesting == visibleBase)
         #expect(node.cardHitFrame == nil)
@@ -401,17 +464,17 @@ struct CountryMapScoutCardNodeTests {
             layout: layout,
             isEntryEnabled: false
         ) == .presented)
-        node.applyFeedback(text: "Cannot enter city yet.", alpha: 1)
-        node.applyFeedback(text: nil, alpha: 0)
+        node.applyFeedback(text: "Cannot enter city yet.", alpha: 1, blocksAttack: true)
+        node.applyFeedback(text: nil, alpha: 0, blocksAttack: true)
         #expect(node.attackHitFrame == nil)
 
         #expect(node.apply(
-            content: .countryComplete(countryNumber: 1),
+            content: .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"),
             layout: layout,
             isEntryEnabled: true
         ) == .presented)
-        node.applyFeedback(text: "City 1 complete", alpha: 1)
-        node.applyFeedback(text: nil, alpha: 0)
+        node.applyFeedback(text: "Willowford complete", alpha: 1, blocksAttack: true)
+        node.applyFeedback(text: nil, alpha: 0, blocksAttack: true)
         #expect(node.attackHitFrame == nil)
     }
 
@@ -423,7 +486,7 @@ struct CountryMapScoutCardNodeTests {
             layout: layout,
             isEntryEnabled: true
         ) == .presented)
-        node.applyFeedback(text: "Transient", alpha: 1)
+        node.applyFeedback(text: "Transient", alpha: 1, blocksAttack: true)
 
         node.clearLayout()
 
@@ -725,7 +788,8 @@ private func replacing(
         disadvantagedFrame: layout.disadvantagedFrame,
         exposedLaneFrame: exposedLaneFrame ?? layout.exposedLaneFrame,
         attackFrame: layout.attackFrame,
-        overlayFrame: layout.overlayFrame
+        overlayFrame: layout.overlayFrame,
+        nonBlockingOverlayFrame: layout.nonBlockingOverlayFrame
     )
 }
 
