@@ -236,7 +236,7 @@ struct CountryMapScoutCardTextLayoutTests {
         let fallbackWidth = cardLayout.rewardFrame.maxX - cardLayout.goldIconFrame.minX
 
         for cityNumber in Country1CityCatalog.cityRange {
-            let title = KingdomGameState().displayCityTitle(for: cityNumber)
+            let title = Country1CityCatalog.definition(for: cityNumber).displayTitle
             let reward = KingdomGameState.goldReward(for: cityNumber)
 
             #expect(CountryMapScoutCardTextLayout.fittedFontSize(
