@@ -265,7 +265,7 @@ struct CountryMapSceneTests {
 
         #expect(store.load().stageStatus == .cityConqueredPendingMap)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 4: Spiked Gate")
+        #expect(scene.visibleFeedbackTextForTesting == "Next: Bramblegate")
         #expect(sound.calls == [
             .play(.goldReward),
             .play(.cityConquest)
@@ -319,7 +319,7 @@ struct CountryMapSceneTests {
 
         #expect(store.load().stageStatus == .countryComplete)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "Country 1 conquered.")
+        #expect(scene.visibleFeedbackTextForTesting == "Country 1 conquered at Crownspire Keep.")
         #expect(sound.calls == [
             .play(.goldReward),
             .play(.countryCompletion)
@@ -362,7 +362,7 @@ struct CountryMapSceneTests {
 
         #expect(store.load() == initialState)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
     }
 
     @Test func completedCountryCityNodeShowsExactFeedbackWithoutMutationOrRoute() throws {
@@ -383,22 +383,22 @@ struct CountryMapSceneTests {
 
         #expect(store.load() == initialState)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 15 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Crownspire Keep complete")
         #expect(scene.feedbackElapsedForTesting == 0)
         #expect(scene.feedbackRemainingDurationForTesting == 1.5)
         #expect(scene.projectedScoutCardContentForTesting
-            == .countryComplete(countryNumber: 1))
+            == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
         #expect(scene.scoutCardBaseContentForTesting == baseContent)
 
         scene.advanceFeedbackForTesting(by: 1.49)
-        #expect(scene.visibleFeedbackTextForTesting == "City 15 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Crownspire Keep complete")
         #expect(abs((scene.feedbackRemainingDurationForTesting ?? 0) - 0.01) < 0.001)
 
         scene.advanceFeedbackForTesting(by: 0.01)
         #expect(scene.visibleFeedbackTextForTesting == nil)
         #expect(scene.feedbackRemainingDurationForTesting == nil)
         #expect(scene.projectedScoutCardContentForTesting
-            == .countryComplete(countryNumber: 1))
+            == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
         #expect(scene.scoutCardBaseContentForTesting == baseContent)
     }
 
@@ -413,7 +413,8 @@ struct CountryMapSceneTests {
         let scene = makeScene(store: store, router: RouteSpy())
 
         #expect(scene.visibleFeedbackTextForTesting == nil)
-        #expect(scene.projectedScoutCardContentForTesting == .countryComplete(countryNumber: 1))
+        #expect(scene.projectedScoutCardContentForTesting
+            == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
     }
 
     @Test func cityButtonReturnsToActiveBattleWithoutMutatingStore() throws {
@@ -625,7 +626,7 @@ struct CountryMapSceneTests {
 
         scene.enterCityForTesting(3)
 
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge complete")
     }
 
     @Test func lockedFeedbackOverlaysUnchangedCardAndExpiresAtExactDuration() throws {
@@ -642,7 +643,7 @@ struct CountryMapSceneTests {
 
         scene.enterCityForTesting(3)
 
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.feedbackElapsedForTesting == 0)
         #expect(scene.feedbackRemainingDurationForTesting == 1.5)
         let feedbackContent = try #require(scene.scoutCardBaseContentForTesting)
@@ -662,11 +663,11 @@ struct CountryMapSceneTests {
         scene.touchesEnded([MockTouch(location: overlayPoint)], with: nil)
 
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.feedbackElapsedForTesting == 0)
 
         scene.advanceFeedbackForTesting(by: 1.49)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(abs((scene.feedbackRemainingDurationForTesting ?? 0) - 0.01) < 0.001)
 
         scene.advanceFeedbackForTesting(by: 0.01)
@@ -695,9 +696,108 @@ struct CountryMapSceneTests {
             with: nil
         )
 
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge complete")
         #expect(scene.feedbackElapsedForTesting == 0.75)
         #expect(scene.feedbackRemainingDurationForTesting == 0.75)
+    }
+
+    @Test func bodyTapShowsNonBlockingFlavorThenAttackStillRoutesOnce() throws {
+        // Pending City 5 completed -> City 6 (Granite Pass) unlocked.
+        let initialState = KingdomGameState(
+            cityLevel: 5,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 5,
+            completedCityCount: 5,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let feedback = CountryMapFeedbackRecorder()
+        let scene = makeScene(store: store, router: router, feedback: feedback)
+        let cardFrame = try #require(scene.scoutCardHitFrameForTesting)
+        let attackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
+        let bodyPoint = CGPoint(x: cardFrame.minX + 10, y: cardFrame.midY)
+
+        // Sanity: the body point is on the scout card but outside Attack.
+        #expect(cardFrame.contains(bodyPoint))
+        #expect(!attackFrame.contains(bodyPoint))
+
+        // Tapping the Scout card BODY shows City 6's flavor (non-blocking),
+        // with no state mutation, routing, or gameplay feedback.
+        scene.touchesEnded([MockTouch(location: bodyPoint)], with: nil)
+
+        #expect(store.load() == initialState)
+        #expect(router.battleRequestCount == 0)
+        #expect(feedback.calls.isEmpty)
+        #expect(scene.visibleFeedbackTextForTesting == "Stone walls seal the mountain road ahead.")
+        #expect(scene.feedbackRemainingDurationForTesting == 2.5)
+        // Flavor is non-blocking: overlay excludes Attack, Attack stays tappable.
+        let overlayFrame = try #require(scene.scoutCardOverlayHitFrameForTesting)
+        #expect(!overlayFrame.intersects(attackFrame))
+        #expect(scene.scoutCardAttackHitFrameForTesting == attackFrame)
+
+        // Before the flavor expires, tapping Attack still routes exactly once
+        // and City 6 persists as the active battle.
+        scene.touchesEnded(
+            [MockTouch(location: CGPoint(x: attackFrame.midX, y: attackFrame.midY))],
+            with: nil
+        )
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.cityNumberInCountry == 6)
+        #expect(saved.cityLevel == 6)
+        #expect(saved.cityRemainingPower == KingdomGameState.cityMaxPower(for: 6))
+        #expect(router.battleRequestCount == 1)
+        #expect(scene.isRoutingToBattleForTesting)
+    }
+
+    @Test func bodyTapDoesNotShowFlavorForCountryCompleteCard() throws {
+        let initialState = KingdomGameState(
+            cityLevel: 15,
+            cityRemainingPower: 0,
+            cityNumberInCountry: 15,
+            completedCityCount: 15,
+            stageStatus: .countryComplete
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: RouteSpy())
+        let cardFrame = try #require(scene.scoutCardHitFrameForTesting)
+        let bodyPoint = CGPoint(x: cardFrame.minX + 10, y: cardFrame.midY)
+
+        scene.touchesEnded([MockTouch(location: bodyPoint)], with: nil)
+
+        // No scout is projected for the country-complete card, so no flavor.
+        #expect(scene.visibleFeedbackTextForTesting == nil)
+    }
+
+    @Test func blockingLockedFeedbackStillClearsAttackTarget() throws {
+        let initialState = KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: RouteSpy())
+        let attackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
+
+        // Tapping a locked city surfaces blocking feedback.
+        scene.enterCityForTesting(3)
+
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
+        let overlayFrame = try #require(scene.scoutCardOverlayHitFrameForTesting)
+        // Blocking feedback covers the whole card (including Attack).
+        #expect(overlayFrame.intersects(attackFrame))
+        #expect(scene.scoutCardAttackHitFrameForTesting == nil)
+
+        // While blocking feedback is up, an Attack tap is consumed by the
+        // overlay and does not route.
+        scene.touchesEnded(
+            [MockTouch(location: CGPoint(x: attackFrame.midX, y: attackFrame.midY))],
+            with: nil
+        )
+        #expect(store.load() == initialState)
     }
 
     @Test func idleFeedbackPreservesExistingWordingAndLongDuration() throws {
@@ -725,11 +825,13 @@ struct CountryMapSceneTests {
         let scene = makeScene(store: store, router: RouteSpy())
         let baseContent = scene.scoutCardBaseContentForTesting
 
-        #expect(scene.projectedScoutCardContentForTesting == .countryComplete(countryNumber: 1))
+        #expect(scene.projectedScoutCardContentForTesting
+            == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
 
         scene.enterCityForTesting(15)
         #expect(scene.visibleFeedbackTextForTesting == nil)
-        #expect(scene.projectedScoutCardContentForTesting == .countryComplete(countryNumber: 1))
+        #expect(scene.projectedScoutCardContentForTesting
+            == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
         #expect(scene.scoutCardBaseContentForTesting == baseContent)
     }
 
@@ -767,7 +869,7 @@ struct CountryMapSceneTests {
         scene.enterCityForTesting(3)
         scene.update(1_000)
 
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.feedbackElapsedForTesting == 0)
 
         scene.update(1_000.4)
@@ -776,7 +878,7 @@ struct CountryMapSceneTests {
         scene.enterCityForTesting(4)
         scene.update(2_000)
 
-        #expect(scene.visibleFeedbackTextForTesting == "City 4 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Bramblegate is locked")
         #expect(scene.feedbackElapsedForTesting == 0)
     }
 
@@ -799,7 +901,7 @@ struct CountryMapSceneTests {
         scene.layoutGateWillResume(at: .init(timeIntervalSinceReferenceDate: 500))
         scene.update(1_000)
 
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.feedbackElapsedForTesting == elapsedBeforePause)
 
         scene.update(1_000.2)
@@ -829,7 +931,7 @@ struct CountryMapSceneTests {
         )
         scene.update(2_000)
 
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.feedbackElapsedForTesting == elapsedBeforePause)
 
         scene.update(2_000.2)
@@ -896,7 +998,7 @@ struct CountryMapSceneTests {
         #expect(store.load() == latestState)
         #expect(countingStore.defaults.stateSaveCount == 0)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 2 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Pinewatch complete")
         guard case .scout(let scout) = scene.projectedScoutCardContentForTesting else {
             Issue.record("Expected refreshed Scout Card content")
             return
@@ -945,9 +1047,9 @@ struct CountryMapSceneTests {
         #expect(router.battleRequestCount == 0)
         #expect(scene.visibleFeedbackTextForTesting == nil)
         #expect(scene.projectedScoutCardContentForTesting
-            == .countryComplete(countryNumber: 1))
+            == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
         #expect(scene.scoutCardBaseContentForTesting?.title
-            == "Country 1 conquered.")
+            == "Country 1 conquered · Crownspire Keep")
         #expect(scene.scoutCardAttackHitFrameForTesting == nil)
         #expect(scene.isCurrentCityButtonHiddenForTesting)
         #expect(scene.cityVisualStateForTesting(15) == .completed)
@@ -1631,7 +1733,7 @@ struct CountryMapSceneTests {
 
         #expect(store.load() == initialState)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.feedbackRemainingDurationForTesting == 1.5)
     }
 
@@ -1651,7 +1753,7 @@ struct CountryMapSceneTests {
 
         #expect(store.load() == initialState)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 2 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Pinewatch complete")
         #expect(scene.feedbackRemainingDurationForTesting == 1.5)
     }
 
@@ -1707,7 +1809,7 @@ struct CountryMapSceneTests {
         scene.touchesEnded([MockTouch(location: overlayPoint)], with: nil)
 
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.feedbackElapsedForTesting == 0)
     }
 
@@ -1792,7 +1894,7 @@ struct CountryMapSceneTests {
         scene.requestCurrentCityBattleForTesting()
 
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge complete")
         guard case .scout(let scout) = scene.projectedScoutCardContentForTesting else {
             Issue.record("Expected Scout Card content")
             return
@@ -1993,7 +2095,7 @@ struct CountryMapSceneTests {
 
         // Show a transient feedback so update would normally advance it.
         scene.enterCityForTesting(3)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
 
         // Prime the update clock.
         scene.update(10)
@@ -2006,7 +2108,7 @@ struct CountryMapSceneTests {
         // advanceFeedback from running, so the feedback elapsed stays at 0.
         scene.update(11)
         #expect(scene.feedbackElapsedForTesting == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
     }
 
     @Test("Country Map openFeedbackSettings is blocked when the map is unavailable")
@@ -2210,7 +2312,7 @@ struct CountryMapSceneTests {
         scene.handleTouchForTesting(at: cityPoint)
 
         #expect(feedback.discreteEvents == [.invalidAction])
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(store.load().stageStatus == .cityConqueredPendingMap)
     }
 
@@ -2229,7 +2331,7 @@ struct CountryMapSceneTests {
         scene.handleTouchForTesting(at: cityPoint)
 
         #expect(feedback.discreteEvents == [.invalidAction])
-        #expect(scene.visibleFeedbackTextForTesting == "City 2 complete")
+        #expect(scene.visibleFeedbackTextForTesting == "Pinewatch complete")
     }
 
     @Test("Country Map advanceFeedback is a no-op when no transient feedback is active")
@@ -2305,7 +2407,7 @@ struct CountryMapSceneTests {
 
         // Show feedback - the scout card feedback alpha should be > 0.
         scene.enterCityForTesting(3)
-        #expect(scene.visibleFeedbackTextForTesting == "City 3 is locked")
+        #expect(scene.visibleFeedbackTextForTesting == "Falconridge is locked")
         #expect(scene.visibleFeedbackAlphaForTesting > 0)
     }
 

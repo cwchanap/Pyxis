@@ -15,14 +15,34 @@ struct CountryMapTransientFeedbackTests {
         let completed = CountryMapTransientFeedback.completed(cityNumber: 12)
 
         #expect(locked.kind == .locked)
-        #expect(locked.text == "City 7 is locked")
+        #expect(locked.text == "Emberford is locked")
         #expect(locked.totalDuration == 1.5)
         #expect(locked.fadeDuration == 0.3)
 
         #expect(completed.kind == .completed)
-        #expect(completed.text == "City 12 complete")
+        #expect(completed.text == "Ashbridge complete")
         #expect(completed.totalDuration == 1.5)
         #expect(completed.fadeDuration == 0.3)
+    }
+
+    @Test func flavorIsNonBlockingAndUsesLongDuration() {
+        let flavor = CountryMapTransientFeedback.flavor("Stone walls seal the mountain road ahead.")
+
+        #expect(flavor.kind == .flavor)
+        #expect(flavor.text == "Stone walls seal the mountain road ahead.")
+        #expect(flavor.totalDuration == 2.5)
+        #expect(flavor.fadeDuration == 0.3)
+    }
+
+    @Test func onlyFlavorDoesNotBlockScoutEntry() {
+        #expect(CountryMapTransientFeedback.Kind.flavor.blocksScoutEntry == false)
+        #expect(CountryMapTransientFeedback.Kind.locked.blocksScoutEntry == true)
+        #expect(CountryMapTransientFeedback.Kind.completed.blocksScoutEntry == true)
+        #expect(CountryMapTransientFeedback.Kind.status.blocksScoutEntry == true)
+        #expect(CountryMapTransientFeedback.Kind.recoverableError.blocksScoutEntry == true)
+
+        #expect(CountryMapTransientFeedback.flavor("any").kind.blocksScoutEntry == false)
+        #expect(CountryMapTransientFeedback.locked(cityNumber: 1).kind.blocksScoutEntry == true)
     }
 
     @Test func statusAndRecoverableErrorsUseLongDuration() {
@@ -70,11 +90,11 @@ struct CountryMapTransientFeedbackTests {
         #expect(CountryMapTransientFeedback.idle(
             result: .init(elapsedSeconds: 10, damageDealt: 9, conqueredCities: 1, goldEarned: 4),
             state: pendingState
-        )?.text == "City 4: Spiked Gate")
+        )?.text == "Next: Bramblegate")
         #expect(CountryMapTransientFeedback.idle(
             result: .init(elapsedSeconds: 10, damageDealt: 9, conqueredCities: 1, goldEarned: 4),
             state: countryCompleteState
-        )?.text == "Country 1 conquered.")
+        )?.text == "Country 1 conquered at Crownspire Keep.")
     }
 
     @Test func alphaIsOpaqueUntilTheFinalFadeWindowThenFallsLinearly() {

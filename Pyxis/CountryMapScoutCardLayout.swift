@@ -13,6 +13,7 @@ struct CountryMapScoutCardLayout: Equatable {
     let exposedLaneFrame: CGRect
     let attackFrame: CGRect
     let overlayFrame: CGRect
+    let nonBlockingOverlayFrame: CGRect
 
     static func compute(
         in informationRegionFrame: CGRect,
@@ -94,6 +95,13 @@ struct CountryMapScoutCardLayout: Equatable {
             height: 12
         )
 
+        let nonBlockingOverlayFrame = CGRect(
+            x: informationRegionFrame.minX,
+            y: informationRegionFrame.minY,
+            width: attackFrame.minX - informationRegionFrame.minX,
+            height: informationRegionFrame.height
+        )
+
         return Self(
             layoutClass: .phone,
             cardFrame: informationRegionFrame,
@@ -106,7 +114,8 @@ struct CountryMapScoutCardLayout: Equatable {
             disadvantagedFrame: disadvantagedFrame,
             exposedLaneFrame: exposedLaneFrame,
             attackFrame: attackFrame,
-            overlayFrame: informationRegionFrame
+            overlayFrame: informationRegionFrame,
+            nonBlockingOverlayFrame: nonBlockingOverlayFrame
         )
     }
 
@@ -181,6 +190,13 @@ struct CountryMapScoutCardLayout: Equatable {
             height: 14
         )
 
+        let nonBlockingOverlayFrame = CGRect(
+            x: informationRegionFrame.minX,
+            y: informationRegionFrame.minY,
+            width: attackFrame.minX - informationRegionFrame.minX,
+            height: informationRegionFrame.height
+        )
+
         return Self(
             layoutClass: .pad,
             cardFrame: informationRegionFrame,
@@ -193,7 +209,8 @@ struct CountryMapScoutCardLayout: Equatable {
             disadvantagedFrame: disadvantagedFrame,
             exposedLaneFrame: exposedLaneFrame,
             attackFrame: attackFrame,
-            overlayFrame: informationRegionFrame
+            overlayFrame: informationRegionFrame,
+            nonBlockingOverlayFrame: nonBlockingOverlayFrame
         )
     }
 }

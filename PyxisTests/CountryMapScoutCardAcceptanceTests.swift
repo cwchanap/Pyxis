@@ -169,7 +169,7 @@ struct CountryMapScoutCardAcceptanceTests {
             )
             #expect(
                 feedback.scene.visibleFeedbackTextForTesting
-                    == "City 4 is locked"
+                    == "Bramblegate is locked"
             )
             assertSameRequiredStrings(
                 feedback.scene.scoutCardBaseContentForTesting,
@@ -186,7 +186,7 @@ struct CountryMapScoutCardAcceptanceTests {
             )
             #expect(
                 feedback.scene.visibleFeedbackTextForTesting
-                    == "City 2 complete"
+                    == "Pinewatch complete"
             )
             assertSameRequiredStrings(
                 feedback.scene.scoutCardBaseContentForTesting,
@@ -205,12 +205,12 @@ struct CountryMapScoutCardAcceptanceTests {
             let completeBase = try #require(
                 complete.scene.scoutCardBaseContentForTesting
             )
-            #expect(completeBase.title == "Country 1 conquered.")
+            #expect(completeBase.title == "Country 1 conquered · Crownspire Keep")
             #expect(completeBase.attack == nil)
             #expect(complete.scene.scoutCardAttackHitFrameForTesting == nil)
             #expect(
                 complete.scene.visibleScoutCardTextsForTesting
-                    == ["Country 1 conquered."]
+                    == ["Country 1 conquered · Crownspire Keep"]
             )
         }
     }

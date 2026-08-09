@@ -13,6 +13,17 @@ struct CountryMapScoutCardLayoutTests {
         #expect(cardLayout.cardFrame == informationRegion)
         #expect(cardLayout.overlayFrame == informationRegion)
 
+        // The non-blocking flavor overlay spans the informational area plus
+        // the Attack gap but stops at the Attack frame's leading edge, so it
+        // never intersects the Attack target (edge-touching rects report
+        // `intersects == false` in Core Graphics).
+        #expect(cardLayout.nonBlockingOverlayFrame.minX == cardLayout.cardFrame.minX)
+        #expect(cardLayout.nonBlockingOverlayFrame.maxX == cardLayout.attackFrame.minX)
+        #expect(cardLayout.nonBlockingOverlayFrame.minY == cardLayout.cardFrame.minY)
+        #expect(cardLayout.nonBlockingOverlayFrame.height == cardLayout.cardFrame.height)
+        #expect(cardLayout.overlayFrame.contains(cardLayout.nonBlockingOverlayFrame))
+        #expect(!cardLayout.nonBlockingOverlayFrame.intersects(cardLayout.attackFrame))
+
         let allFrames = [
             cardLayout.cardFrame,
             cardLayout.badgeFrame,
@@ -163,6 +174,7 @@ struct CountryMapScoutCardLayoutTests {
         #expect(first.exposedLaneFrame == second.exposedLaneFrame)
         #expect(first.attackFrame == second.attackFrame)
         #expect(first.overlayFrame == second.overlayFrame)
+        #expect(first.nonBlockingOverlayFrame == second.nonBlockingOverlayFrame)
     }
 }
 

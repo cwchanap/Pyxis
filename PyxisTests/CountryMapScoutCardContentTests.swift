@@ -149,7 +149,10 @@ struct CountryMapScoutCardContentTests {
             stageStatus: .countryComplete
         )
 
-        #expect(CountryMapScoutCardContent.project(from: state) == .countryComplete(countryNumber: 1))
+        #expect(
+            CountryMapScoutCardContent.project(from: state)
+                == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep")
+        )
     }
 
     @Test

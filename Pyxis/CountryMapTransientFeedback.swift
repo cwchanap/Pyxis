@@ -12,6 +12,13 @@ struct CountryMapTransientFeedback: Equatable {
         case completed
         case status
         case recoverableError
+        case flavor
+
+        /// `false` only for `.flavor`, which overlays the Scout card without
+        /// blocking Attack or scout entry. All other kinds block both.
+        var blocksScoutEntry: Bool {
+            self != .flavor
+        }
     }
 
     let kind: Kind
@@ -37,7 +44,7 @@ struct CountryMapTransientFeedback: Equatable {
     static func locked(cityNumber: Int) -> Self {
         .init(
             kind: .locked,
-            text: "City \(cityNumber) is locked",
+            text: "\(Country1CityCatalog.definition(for: cityNumber).name) is locked",
             totalDuration: 1.5,
             fadeDuration: 0.3
         )
@@ -46,7 +53,7 @@ struct CountryMapTransientFeedback: Equatable {
     static func completed(cityNumber: Int) -> Self {
         .init(
             kind: .completed,
-            text: "City \(cityNumber) complete",
+            text: "\(Country1CityCatalog.definition(for: cityNumber).name) complete",
             totalDuration: 1.5,
             fadeDuration: 0.3
         )
@@ -70,6 +77,18 @@ struct CountryMapTransientFeedback: Equatable {
         )
     }
 
+    /// Non-blocking Scout card flavor text. Uses the same 2.5s timing as
+    /// `status`/`recoverableError` but overlays only the informational area
+    /// (via `nonBlockingOverlayFrame`), leaving the Attack target live.
+    static func flavor(_ text: String) -> Self {
+        .init(
+            kind: .flavor,
+            text: text,
+            totalDuration: 2.5,
+            fadeDuration: 0.3
+        )
+    }
+
     static func idle(
         result: KingdomGameState.IdleProgressResult,
         state: KingdomGameState
@@ -79,10 +98,9 @@ struct CountryMapTransientFeedback: Equatable {
         let text: String
         if result.conqueredCities > 0 {
             if state.stageStatus == .countryComplete {
-                text = "Country \(state.countryNumber) conquered."
+                text = "Country \(state.countryNumber) conquered at \(Country1CityCatalog.definition(for: 15).name)."
             } else if let cityNumber = state.unlockedMapCityNumber {
-                let trait = KingdomGameState.defenseTrait(forCityNumber: cityNumber)
-                text = "City \(cityNumber): \(trait.displayName)"
+                text = "Next: \(Country1CityCatalog.definition(for: cityNumber).name)"
             } else {
                 assertionFailure("Idle conquest must unlock a city or complete the country")
                 return nil
