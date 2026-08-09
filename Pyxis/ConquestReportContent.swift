@@ -20,12 +20,8 @@ struct ConquestReportContent: Equatable {
 
     static func project(
         from result: BattleResult,
-        cityTitle: String,
-        isCountryComplete: Bool
+        title: String
     ) -> Self {
-        let title = isCountryComplete
-            ? "Country \(result.cityKey.countryNumber) Conquered"
-            : "\(cityTitle) Conquered"
         var lines = [
             "Gold earned: +\(CompactNumberFormatter.string(from: result.goldEarned))"
         ]

@@ -16,10 +16,11 @@ struct CountryMapScoutCardContentTests {
                 == .scout(
                     .init(
                         cityNumber: 1,
-                        displayTitle: "Country 1 - City 1",
+                        displayTitle: "City 1 · Willowford",
                         defenseTrait: .standardWatch,
                         exposedLane: .right,
-                        goldReward: KingdomGameState.goldReward(for: 1)
+                        goldReward: KingdomGameState.goldReward(for: 1),
+                        flavorText: "A quiet crossing where the campaign begins."
                     )
                 )
         )
@@ -44,10 +45,11 @@ struct CountryMapScoutCardContentTests {
             content == .scout(
                 .init(
                     cityNumber: 2,
-                    displayTitle: "Country 1 - City 2",
+                    displayTitle: definition.displayTitle,
                     defenseTrait: definition.defenseTrait,
                     exposedLane: definition.laneDefenseProfile.exposedLane,
-                    goldReward: KingdomGameState.goldReward(for: 2)
+                    goldReward: KingdomGameState.goldReward(for: 2),
+                    flavorText: definition.flavorText
                 )
             )
         )
@@ -77,10 +79,11 @@ struct CountryMapScoutCardContentTests {
                     == .scout(
                         .init(
                             cityNumber: nextCityNumber,
-                            displayTitle: "Country 1 - City \(nextCityNumber)",
+                            displayTitle: definition.displayTitle,
                             defenseTrait: definition.defenseTrait,
                             exposedLane: definition.laneDefenseProfile.exposedLane,
-                            goldReward: KingdomGameState.goldReward(for: nextCityNumber)
+                            goldReward: KingdomGameState.goldReward(for: nextCityNumber),
+                            flavorText: definition.flavorText
                         )
                     )
             )
@@ -126,10 +129,11 @@ struct CountryMapScoutCardContentTests {
                     == .scout(
                         .init(
                             cityNumber: item.cityNumber,
-                            displayTitle: "Country 1 - City \(item.cityNumber)",
+                            displayTitle: definition.displayTitle,
                             defenseTrait: item.trait,
                             exposedLane: item.exposedLane,
-                            goldReward: KingdomGameState.goldReward(for: item.cityNumber)
+                            goldReward: KingdomGameState.goldReward(for: item.cityNumber),
+                            flavorText: definition.flavorText
                         )
                     )
             )
@@ -152,8 +156,8 @@ struct CountryMapScoutCardContentTests {
     func displayTitlesAndLaneNamesUsePlayerFacingNames() {
         let state = KingdomGameState(cityNumberInCountry: 7, completedCityCount: 6)
 
-        #expect(state.displayCityTitle(for: 7) == "Country 1 - City 7")
-        #expect(state.displayCityTitle == "Country 1 - City 7")
+        #expect(state.displayCityTitle(for: 7) == "Emberford")
+        #expect(state.displayCityTitle == "Emberford")
         #expect(BattleLane.left.displayName == "Left")
         #expect(BattleLane.center.displayName == "Center")
         #expect(BattleLane.right.displayName == "Right")

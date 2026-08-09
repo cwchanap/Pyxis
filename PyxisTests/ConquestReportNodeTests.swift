@@ -24,7 +24,7 @@ private func reportLayout(
 
 private func fullContent() -> ConquestReportContent {
     ConquestReportContent(
-        title: "Country 1 - City 3 Conquered",
+        title: "Falconridge Silenced",
         summaryLines: ["Gold earned: +8", "Battle time: 1m", "MVP: Cavalry · 60%", "Deployed: 0 · Lost: 0"],
         achievements: [.favorableUnit, .exposedLane]
     )
@@ -45,7 +45,7 @@ struct ConquestReportNodeTests {
     @Test func threeRowsHideUnusedLabelAndNoBadgesHideBothSprites() throws {
         let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
         let content = ConquestReportContent(
-            title: "Country 1 - City 3 Conquered",
+            title: "Falconridge Silenced",
             summaryLines: ["Gold earned: +8", "Battle time: 1m", "Deployed: 0 · Lost: 0"],
             achievements: []
         )

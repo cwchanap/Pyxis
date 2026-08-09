@@ -11,10 +11,9 @@ struct ConquestReportContentTests {
     @Test func liveReportUsesPersistedResultFields() {
         let content = ConquestReportContent.project(
             from: makeResult(mode: .live, seconds: 65),
-            cityTitle: "Country 1 - City 3",
-            isCountryComplete: false
+            title: "Falconridge Silenced"
         )
-        #expect(content.title == "Country 1 - City 3 Conquered")
+        #expect(content.title == "Falconridge Silenced")
         #expect(content.summaryLines == [
             "Gold earned: +1.5K",
             "Battle time: 1m 5s",
@@ -27,8 +26,7 @@ struct ConquestReportContentTests {
     @Test func idleReportUsesBuildingCopyAndNoDuration() {
         let content = ConquestReportContent.project(
             from: makeResult(mode: .idle, seconds: 90_061),
-            cityTitle: "Country 1 - City 3",
-            isCountryComplete: false
+            title: "Falconridge Silenced"
         )
         #expect(content.summaryLines[1] == "Conquered by your buildings")
         #expect(!content.summaryLines.contains { $0.contains("Battle time") })
@@ -38,8 +36,7 @@ struct ConquestReportContentTests {
         for pair in [(SoldierType?.none, Int?.none), (.archer, nil), (nil, 63)] {
             let content = ConquestReportContent.project(
                 from: makeResult(mvp: pair.0, share: pair.1),
-                cityTitle: "Country 1 - City 3",
-                isCountryComplete: false
+                title: "Falconridge Silenced"
             )
             #expect(content.summaryLines.count == 3)
             #expect(!content.summaryLines.contains { $0.hasPrefix("MVP:") })
@@ -61,21 +58,21 @@ struct ConquestReportContentTests {
                     favorable: combination.0,
                     exposed: combination.1
                 ),
-                cityTitle: "Country 1 - City 3",
-                isCountryComplete: false
+                title: "Falconridge Silenced"
             )
             #expect(content.summaryLines.last == "Deployed: 0 · Lost: 0")
             #expect(content.achievements == combination.2)
         }
     }
 
-    @Test func countryCompleteIgnoresCityTitle() {
+    @Test func callerOwnedTitleIsUsedVerbatim() {
+        // The caller now owns the title; `project` no longer synthesizes a
+        // "Country N Conquered" branch, so the passed title is used as-is.
         let content = ConquestReportContent.project(
             from: makeResult(city: 15),
-            cityTitle: "Ignored",
-            isCountryComplete: true
+            title: "Crownspire Keep Falls"
         )
-        #expect(content.title == "Country 1 Conquered")
+        #expect(content.title == "Crownspire Keep Falls")
     }
 
     @Test(arguments: [
@@ -88,8 +85,7 @@ struct ConquestReportContentTests {
     func durationGoldenStrings(seconds: TimeInterval, expected: String) {
         let content = ConquestReportContent.project(
             from: makeResult(seconds: seconds),
-            cityTitle: "Country 1 - City 3",
-            isCountryComplete: false
+            title: "Falconridge Silenced"
         )
         #expect(content.summaryLines[1] == "Battle time: \(expected)")
     }
@@ -98,8 +94,7 @@ struct ConquestReportContentTests {
         for seconds in [-1.0, .infinity, .nan] {
             let content = ConquestReportContent.project(
                 from: makeResult(seconds: seconds),
-                cityTitle: "Country 1 - City 3",
-                isCountryComplete: false
+                title: "Falconridge Silenced"
             )
             #expect(content.summaryLines[1] == "Battle time: 0s")
         }
@@ -113,8 +108,7 @@ struct ConquestReportContentTests {
         for seconds in oversized {
             let content = ConquestReportContent.project(
                 from: makeResult(seconds: seconds),
-                cityTitle: "Country 1 - City 3",
-                isCountryComplete: false
+                title: "Falconridge Silenced"
             )
             #expect(content.summaryLines[1].hasPrefix("Battle time: "))
             #expect(content.summaryLines[1].contains("h"))

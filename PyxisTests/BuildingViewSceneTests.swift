@@ -748,7 +748,7 @@ struct BuildingViewSceneTests {
         #expect(savedState.cityRemainingPower == 0)
         #expect(savedState.stageStatus == .cityConqueredPendingMap)
         #expect(savedState.lastBackgroundedAt == nil)
-        #expect(scene.feedbackTextForTesting == "Buildings conquered Country 1 - City 1.")
+        #expect(scene.feedbackTextForTesting == "Buildings conquered Willowford.")
         #expect(!router.didRequestBattle)
         #expect(router.battleRequestCount == 0)
         #expect(savedState.pendingBattleResult?.conquestMode == .idle)

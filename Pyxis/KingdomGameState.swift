@@ -324,11 +324,26 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     func displayCityTitle(for cityNumber: Int) -> String {
-        "Country \(countryNumber) - City \(cityNumber)"
+        if countryNumber == 1,
+           let definition = Country1CityCatalog.definitionIfPresent(for: cityNumber) {
+            return definition.name
+        }
+        return "Country \(countryNumber) - City \(cityNumber)"
     }
 
     var displayCityTitle: String {
         displayCityTitle(for: cityNumberInCountry)
+    }
+
+    /// Caller-owned conquest title with no ambient state: the authored
+    /// `definition.conquestTitle` for Country 1 in-range cities, and the
+    /// legacy `"Country N - City M Conquered"` fallback otherwise.
+    static func displayConquestTitle(for cityKey: CityKey) -> String {
+        guard cityKey.countryNumber == 1,
+              let definition = Country1CityCatalog.definitionIfPresent(for: cityKey.cityNumber) else {
+            return "Country \(cityKey.countryNumber) - City \(cityKey.cityNumber) Conquered"
+        }
+        return definition.conquestTitle
     }
 
     var hasNextCityInCountry: Bool {

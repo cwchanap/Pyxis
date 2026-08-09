@@ -10,6 +10,7 @@ enum CountryMapScoutCardContent: Equatable {
         let defenseTrait: CityDefenseTrait
         let exposedLane: BattleLane
         let goldReward: Int
+        let flavorText: String
     }
 
     case scout(Scout)
@@ -29,10 +30,11 @@ enum CountryMapScoutCardContent: Equatable {
         return .scout(
             Scout(
                 cityNumber: cityNumber,
-                displayTitle: state.displayCityTitle(for: cityNumber),
+                displayTitle: definition.displayTitle,
                 defenseTrait: definition.defenseTrait,
                 exposedLane: definition.laneDefenseProfile.exposedLane,
-                goldReward: KingdomGameState.goldReward(for: cityNumber)
+                goldReward: KingdomGameState.goldReward(for: cityNumber),
+                flavorText: definition.flavorText
             )
         )
     }
