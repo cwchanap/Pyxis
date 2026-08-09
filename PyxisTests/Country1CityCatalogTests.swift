@@ -9,13 +9,37 @@ import Testing
 struct Country1CityCatalogTests {
     private struct ExpectedDefinition {
         let cityNumber: Int
+        let name: String
+        let flavorText: String
+        let conquestTitle: String
         let defenseTrait: CityDefenseTrait
         let fortifiedLane: BattleLane
         let exposedLane: BattleLane
 
+        init(
+            _ cityNumber: Int,
+            _ name: String,
+            _ flavorText: String,
+            _ conquestTitle: String,
+            _ defenseTrait: CityDefenseTrait,
+            _ fortifiedLane: BattleLane,
+            _ exposedLane: BattleLane
+        ) {
+            self.cityNumber = cityNumber
+            self.name = name
+            self.flavorText = flavorText
+            self.conquestTitle = conquestTitle
+            self.defenseTrait = defenseTrait
+            self.fortifiedLane = fortifiedLane
+            self.exposedLane = exposedLane
+        }
+
         var definition: CityDefinition {
             CityDefinition(
                 cityNumber: cityNumber,
+                name: name,
+                flavorText: flavorText,
+                conquestTitle: conquestTitle,
                 defenseTrait: defenseTrait,
                 laneDefenseProfile: LaneDefenseProfile(
                     fortifiedLane: fortifiedLane,
@@ -26,21 +50,21 @@ struct Country1CityCatalogTests {
     }
 
     private static let expectedDefinitions: [ExpectedDefinition] = [
-        ExpectedDefinition(cityNumber: 1, defenseTrait: .standardWatch, fortifiedLane: .left, exposedLane: .right),
-        ExpectedDefinition(cityNumber: 2, defenseTrait: .standardWatch, fortifiedLane: .center, exposedLane: .left),
-        ExpectedDefinition(cityNumber: 3, defenseTrait: .arrowTower, fortifiedLane: .right, exposedLane: .center),
-        ExpectedDefinition(cityNumber: 4, defenseTrait: .spikedGate, fortifiedLane: .left, exposedLane: .right),
-        ExpectedDefinition(cityNumber: 5, defenseTrait: .arrowTower, fortifiedLane: .center, exposedLane: .left),
-        ExpectedDefinition(cityNumber: 6, defenseTrait: .stoneWall, fortifiedLane: .right, exposedLane: .center),
-        ExpectedDefinition(cityNumber: 7, defenseTrait: .burningOil, fortifiedLane: .left, exposedLane: .right),
-        ExpectedDefinition(cityNumber: 8, defenseTrait: .stoneWall, fortifiedLane: .center, exposedLane: .left),
-        ExpectedDefinition(cityNumber: 9, defenseTrait: .arcaneWard, fortifiedLane: .right, exposedLane: .center),
-        ExpectedDefinition(cityNumber: 10, defenseTrait: .spikedGate, fortifiedLane: .left, exposedLane: .right),
-        ExpectedDefinition(cityNumber: 11, defenseTrait: .reinforcedKeep, fortifiedLane: .center, exposedLane: .left),
-        ExpectedDefinition(cityNumber: 12, defenseTrait: .burningOil, fortifiedLane: .right, exposedLane: .center),
-        ExpectedDefinition(cityNumber: 13, defenseTrait: .arcaneWard, fortifiedLane: .left, exposedLane: .right),
-        ExpectedDefinition(cityNumber: 14, defenseTrait: .stoneWall, fortifiedLane: .center, exposedLane: .left),
-        ExpectedDefinition(cityNumber: 15, defenseTrait: .reinforcedKeep, fortifiedLane: .right, exposedLane: .center)
+        .init(1, "Willowford", "A quiet crossing where the campaign begins.", "Willowford Secured", .standardWatch, .left, .right),
+        .init(2, "Pinewatch", "A hill watchtown guarding the old trade road.", "Pinewatch Secured", .standardWatch, .center, .left),
+        .init(3, "Falconridge", "Arrow towers command the high ridge road.", "Falconridge Silenced", .arrowTower, .right, .center),
+        .init(4, "Bramblegate", "Iron spikes guard a narrow frontier gate.", "Bramblegate Broken", .spikedGate, .left, .right),
+        .init(5, "Highcrest", "A proud hill fortress crowns the frontier.", "Highcrest Falls", .arrowTower, .center, .left),
+        .init(6, "Granite Pass", "Stone walls seal the mountain road ahead.", "Granite Pass Open", .stoneWall, .right, .center),
+        .init(7, "Emberford", "Burning oil guards the bridge inland.", "Emberford Secured", .burningOil, .left, .right),
+        .init(8, "Greywall", "Layered stone walls protect a busy town.", "Greywall Falls", .stoneWall, .center, .left),
+        .init(9, "Runewatch", "Arcane wards shimmer over the night road.", "Runewatch Unbound", .arcaneWard, .right, .center),
+        .init(10, "Ironthorn Gate", "A hardened gate blocks the inner road.", "Ironthorn Gate Broken", .spikedGate, .left, .right),
+        .init(11, "Kingshield Keep", "A reinforced fortress guards the royal road.", "Kingshield Keep Falls", .reinforcedKeep, .center, .left),
+        .init(12, "Ashbridge", "Fire cauldrons guard the last crossing.", "Ashbridge Secured", .burningOil, .right, .center),
+        .init(13, "Starveil Citadel", "Arcane wards protect the capital heights.", "Starveil Citadel Falls", .arcaneWard, .left, .right),
+        .init(14, "Stonecrown", "Massive stone walls ring the royal seat.", "Stonecrown Breached", .stoneWall, .center, .left),
+        .init(15, "Crownspire Keep", "The final keep rises above the capital.", "Crownspire Keep Falls", .reinforcedKeep, .right, .center)
     ]
 
     @Test func catalogIsCompleteUniqueOrderedAndMatchesAuthoredCombatMetadata() {
@@ -100,5 +124,47 @@ struct Country1CityCatalogTests {
 
         #expect(KingdomGameState.defenseTrait(forCityNumber: -4) == .standardWatch)
         #expect(KingdomGameState.defenseTrait(forCityNumber: 18) == .reinforcedKeep)
+    }
+
+    @Test func authoredIdentityFieldsAreNonEmptyAndWithinCoarseLengthBounds() {
+        for expected in Self.expectedDefinitions {
+            #expect(!expected.name.isEmpty, "City \(expected.cityNumber) name must be non-empty")
+            #expect(!expected.flavorText.isEmpty, "City \(expected.cityNumber) flavorText must be non-empty")
+            #expect(!expected.conquestTitle.isEmpty, "City \(expected.cityNumber) conquestTitle must be non-empty")
+
+            #expect(expected.name.count <= 18, "City \(expected.cityNumber) name exceeds 18 chars: \(expected.name)")
+            #expect(expected.flavorText.count <= 48, "City \(expected.cityNumber) flavorText exceeds 48 chars: \(expected.flavorText)")
+            #expect(expected.conquestTitle.count <= 24, "City \(expected.cityNumber) conquestTitle exceeds 24 chars: \(expected.conquestTitle)")
+        }
+
+        let actualDefinitions = Country1CityCatalog.definitions
+        #expect(actualDefinitions == Self.expectedDefinitions.map(\.definition))
+    }
+
+    @Test func authoredCityNamesAreUniqueCaseInsensitively() {
+        let loweredNames = Self.expectedDefinitions.map { $0.name.lowercased() }
+        #expect(Set(loweredNames).count == loweredNames.count)
+    }
+
+    @Test func displayTitleCombinesCityNumberAndAuthoredName() {
+        for expected in Self.expectedDefinitions {
+            #expect(expected.definition.displayTitle == "City \(expected.cityNumber) · \(expected.name)")
+        }
+
+        let actualDefinitions = Country1CityCatalog.definitions
+        for definition in actualDefinitions {
+            #expect(definition.displayTitle == "City \(definition.cityNumber) · \(definition.name)")
+        }
+    }
+
+    @Test func definitionIfPresentReturnsNilOutsideCityRangeAndTheAuthoredDefinitionInside() {
+        #expect(Country1CityCatalog.definitionIfPresent(for: -4) == nil)
+        #expect(Country1CityCatalog.definitionIfPresent(for: 0) == nil)
+        #expect(Country1CityCatalog.definitionIfPresent(for: 16) == nil)
+        #expect(Country1CityCatalog.definitionIfPresent(for: 18) == nil)
+
+        for expected in Self.expectedDefinitions {
+            #expect(Country1CityCatalog.definitionIfPresent(for: expected.cityNumber) == expected.definition)
+        }
     }
 }
