@@ -314,6 +314,15 @@ struct CountryMapScoutCardAcceptanceTests {
                     )
 
                     #expect(!harness.scene.isMapUnavailableForTesting)
+                    // Matrix carries the authored identity for the city it
+                    // projects (city 7): the projected Scout must carry city 7's
+                    // authored title + flavor, and the node must render that
+                    // authored title verbatim.
+                    #expect(scout.cityNumber == definition.cityNumber)
+                    #expect(scout.displayTitle == definition.displayTitle)
+                    #expect(scout.displayTitle == "City 7 · Emberford")
+                    #expect(scout.flavorText == definition.flavorText)
+                    #expect(scout.flavorText == "Burning oil guards the bridge inland.")
                     assertRequiredScoutContent(
                         base,
                         scout: scout,
@@ -321,6 +330,7 @@ struct CountryMapScoutCardAcceptanceTests {
                         usesGoldFallback:
                             scenario.missingNames.contains("gold-burst")
                     )
+                    #expect(base.title == definition.displayTitle)
                     #expect(
                         harness.scene.visibleScoutCardTextsForTesting
                             == expectedVisibleLabelTexts(from: base)

@@ -423,6 +423,119 @@ struct CountryMapScoutCardNodeTests {
         }
     }
 
+    @Test func everyCatalogFlavorFitsTheNonBlockingOverlayAndPreservesAttackOnMinimumPhoneAndPad() throws {
+        // Non-blocking flavor (`.flavor`) must overlay only the informational
+        // area (`nonBlockingOverlayFrame`) and leave the Attack target live for
+        // every one of the 15 authored city flavors. A flavor that the
+        // `applyFeedback` guard has to drop (overflow past the 8pt floor) fails
+        // loudly here so the authoring drift is caught at test time.
+        let flavors = Country1CityCatalog.definitions.map(\.flavorText)
+        #expect(flavors.count == Country1CityCatalog.cityRange.count)
+        #expect(Set(flavors).count == flavors.count)
+        let fixtures = ["small phone", "narrow iPad"]
+        var seenFlavors = Set<String>()
+
+        for fixtureName in fixtures {
+            let layout = try scoutCardLayout(named: fixtureName)
+            let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+            #expect(node.apply(
+                content: .scout(testScout()),
+                layout: layout,
+                isEntryEnabled: true
+            ) == .presented)
+            // Sanity: the non-blocking overlay is geometrically disjoint from
+            // Attack in every fixture before any flavor is overlaid.
+            #expect(!layout.nonBlockingOverlayFrame.intersects(layout.attackFrame))
+
+            for flavor in flavors {
+                seenFlavors.insert(flavor)
+                node.applyFeedback(text: flavor, alpha: 1, blocksAttack: false)
+
+                // (a) The flavor was shown (not dropped by the fit guard) and
+                //     its label fits inside `nonBlockingOverlayFrame`.
+                let labelFrame = try #require(node.feedbackLabelFrameForTesting,
+                    "\(fixtureName): flavor was dropped by the fit guard: \(flavor)")
+                #expect(node.feedbackTextForTesting == flavor,
+                    "\(fixtureName): flavor not visible: \(flavor)")
+                #expect(layout.nonBlockingOverlayFrame.contains(labelFrame),
+                    "\(fixtureName): label escapes nonBlockingOverlayFrame: \(flavor)")
+                #expect(node.overlayHitFrame == layout.nonBlockingOverlayFrame,
+                    "\(fixtureName): overlay hit frame is not non-blocking: \(flavor)")
+
+                // (b) The label never reaches across to the Attack target.
+                #expect(!labelFrame.intersects(layout.attackFrame),
+                    "\(fixtureName): label intersects attackFrame: \(flavor)")
+
+                // (c) Flavor never disables Attack — the target is preserved.
+                #expect(node.attackHitFrame == layout.attackFrame,
+                    "\(fixtureName): Attack not preserved for flavor: \(flavor)")
+
+                // Flavor shrinks under the same whole-point bold policy as the
+                // blocking copy families, single line, never below the 8pt floor.
+                #expect(node.feedbackLabelNumberOfLinesForTesting == 1)
+                #expect(node.feedbackFontNameForTesting == GameUITheme.Font.bold)
+                #expect(node.feedbackFontSizeForTesting >= 8)
+            }
+        }
+
+        #expect(seenFlavors == Set(flavors))
+    }
+
+    @Test func everyAuthoredCityNameFitsEveryBlockingCopyFamilyOnMinimumPhoneAndPad() throws {
+        // All named blocking copy (`locked`/`completed`/`Next:`/final card/
+        // final idle/error/idle-damage) must fit the full overlay and disable
+        // Attack. Enumerating every authored city name through each form
+        // catches authoring drift — a future too-long city name would overflow.
+        let finalCityName = Country1CityCatalog.definition(for: 15).name
+        var messages = [String]()
+        for definition in Country1CityCatalog.definitions {
+            messages.append("\(definition.name) is locked")
+            messages.append("\(definition.name) complete")
+            messages.append("Next: \(definition.name)")
+        }
+        messages.append("Country 1 conquered · \(finalCityName)")
+        messages.append("Country 1 conquered at \(finalCityName).")
+        messages.append("Cannot enter city yet.")
+        messages.append("Buildings dealt 999999 idle damage.")
+        messages.append("No building damage while away.")
+
+        let fixtures = [
+            (name: "small phone", startingSize: CGFloat(13)),
+            (name: "narrow iPad", startingSize: CGFloat(16))
+        ]
+
+        for fixture in fixtures {
+            let layout = try scoutCardLayout(named: fixture.name)
+            let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+            #expect(node.apply(
+                content: .scout(testScout()),
+                layout: layout,
+                isEntryEnabled: true
+            ) == .presented)
+
+            for message in messages {
+                node.applyFeedback(text: message, alpha: 1, blocksAttack: true)
+                let labelFrame = try #require(node.feedbackLabelFrameForTesting,
+                    "\(fixture.name): blocking copy was dropped by the fit guard: \(message)")
+
+                #expect(node.feedbackTextForTesting == message,
+                    "\(fixture.name): \(message)")
+                #expect(layout.overlayFrame.contains(labelFrame),
+                    "\(fixture.name): \(message)")
+                #expect(node.overlayHitFrame == layout.overlayFrame,
+                    "\(fixture.name): \(message)")
+                // Blocking copy always disables Attack.
+                #expect(node.attackHitFrame == nil,
+                    "\(fixture.name): blocking copy did not disable Attack: \(message)")
+                #expect(node.feedbackLabelIsInstalledForTesting)
+                #expect(node.feedbackLabelNumberOfLinesForTesting == 1)
+                #expect(node.feedbackFontNameForTesting == GameUITheme.Font.bold)
+                #expect(node.feedbackFontSizeForTesting >= 8)
+                #expect(node.feedbackFontSizeForTesting <= fixture.startingSize)
+            }
+        }
+    }
+
     @Test func failedApplyInvalidatesStaleAttackEligibilityBeforeFeedbackClears() throws {
         let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
         let layout = try scoutCardLayout(named: "small phone")
