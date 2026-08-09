@@ -841,9 +841,34 @@ struct KingdomGameStateTests {
         #expect(state.completedCityCount == 0)
         #expect(state.cityLevel == 1)
         #expect(state.stageStatus == .battleActive)
-        #expect(state.displayCityTitle == "Country 1 - City 1")
+        #expect(state.displayCityTitle == "Willowford")
         #expect(state.mapStatus(for: 1) == .unlocked)
         #expect(state.mapStatus(for: 2) == .locked)
+    }
+
+    @Test func displayCityTitleUsesAuthoredNameForCountryOneCities() {
+        let state = KingdomGameState()
+
+        #expect(state.displayCityTitle(for: 1) == "Willowford")
+        #expect(state.displayCityTitle(for: 3) == "Falconridge")
+        #expect(state.displayCityTitle(for: 15) == "Crownspire Keep")
+    }
+
+    @Test func displayCityTitleFallsBackToLegacyForUnsupportedValues() {
+        let state = KingdomGameState()
+
+        // Out of range (country 1): authored lookup is nil, legacy format used.
+        #expect(state.displayCityTitle(for: 0) == "Country 1 - City 0")
+        #expect(state.displayCityTitle(for: 99) == "Country 1 - City 99")
+    }
+
+    @Test func displayConquestTitleUsesAuthoredTitleForCountryOneCities() {
+        #expect(KingdomGameState.displayConquestTitle(for: CityKey(countryNumber: 1, cityNumber: 15)) == "Crownspire Keep Falls")
+        #expect(KingdomGameState.displayConquestTitle(for: CityKey(countryNumber: 1, cityNumber: 3)) == "Falconridge Silenced")
+    }
+
+    @Test func displayConquestTitleFallsBackToLegacyForUnsupportedKeys() {
+        #expect(KingdomGameState.displayConquestTitle(for: CityKey(countryNumber: 2, cityNumber: 3)) == "Country 2 - City 3 Conquered")
     }
 
     @Test func firstLaunchCanAffordStarterBarracks() {

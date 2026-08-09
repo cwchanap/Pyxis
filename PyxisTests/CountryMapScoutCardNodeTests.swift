@@ -12,15 +12,16 @@ struct CountryMapScoutCardNodeTests {
         let layout = try scoutCardLayout(named: "small phone")
         let scout = CountryMapScoutCardContent.Scout(
             cityNumber: 3,
-            displayTitle: "Country 1 - City 3",
+            displayTitle: "City 3 · Falconridge",
             defenseTrait: .arrowTower,
             exposedLane: .center,
-            goldReward: 27
+            goldReward: 27,
+            flavorText: "Arrow towers command the high ridge road."
         )
 
         #expect(node.apply(content: .scout(scout), layout: layout, isEntryEnabled: true) == .presented)
         #expect(node.badgeTextForTesting == "3")
-        #expect(node.titleTextForTesting == "Country 1 - City 3")
+        #expect(node.titleTextForTesting == "City 3 · Falconridge")
         #expect(node.traitLineTextsForTesting.joined(separator: " ")
             == "Arrow Tower · Durable and fast melee troops perform better.")
         #expect(node.favorableTextForTesting == "+ Inf Cav")
@@ -605,10 +606,11 @@ struct CountryMapScoutCardNodeTests {
                             seenRewards.insert(reward)
                             let scout = CountryMapScoutCardContent.Scout(
                                 cityNumber: cityNumber,
-                                displayTitle: KingdomGameState().displayCityTitle(for: cityNumber),
+                                displayTitle: Country1CityCatalog.definition(for: cityNumber).displayTitle,
                                 defenseTrait: trait,
                                 exposedLane: lane,
-                                goldReward: reward
+                                goldReward: reward,
+                                flavorText: Country1CityCatalog.definition(for: cityNumber).flavorText
                             )
                             #expect(node.apply(
                                 content: .scout(scout),
@@ -648,7 +650,7 @@ private final class ScoutCardImageLoaderSpy {
 
 private func testScout(
     cityNumber: Int = 3,
-    displayTitle: String = "Country 1 - City 3",
+    displayTitle: String = "City 3 · Falconridge",
     trait: CityDefenseTrait = .arrowTower,
     lane: BattleLane = .left,
     goldReward: Int = 27
@@ -658,7 +660,8 @@ private func testScout(
         displayTitle: displayTitle,
         defenseTrait: trait,
         exposedLane: lane,
-        goldReward: goldReward
+        goldReward: goldReward,
+        flavorText: Country1CityCatalog.definition(for: cityNumber).flavorText
     )
 }
 

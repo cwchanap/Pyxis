@@ -64,7 +64,7 @@ struct BattleSceneTests {
         )
         let scene = makeScene(store: store)
 
-        #expect(scene.cityTitleTextForTesting == "Country 1 - City 3")
+        #expect(scene.cityTitleTextForTesting == "Falconridge")
     }
 
     @Test func combatUsesCurrentCityLaneDefenseMultipliers() throws {
@@ -2368,7 +2368,7 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: pendingConqueredState(city: 3, mode: .live))
         let scene = makeScene(store: store)
         #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(scene.conquestReportTitleForTesting == "Country 1 - City 3 Conquered")
+        #expect(scene.conquestReportTitleForTesting == "Falconridge Silenced")
         #expect(scene.conquestReportLinesForTesting[1] == "Battle time: 1m 5s")
         #expect(!scene.isGoldBurstVisibleForTesting)
         #expect(!scene.isCityConquestFeedbackRunningForTesting)
@@ -2409,7 +2409,7 @@ struct BattleSceneTests {
         let before = scene.gameStateForTesting
         scene.advanceCombatForTesting(deltaTime: 10)
         scene.spawnSoldierForTesting()
-        #expect(scene.conquestReportTitleForTesting == "Country 1 Conquered")
+        #expect(scene.conquestReportTitleForTesting == "Crownspire Keep Falls")
         #expect(scene.gameStateForTesting == before)
         #expect(scene.liveSoldierCountForTesting == 0)
     }
@@ -2437,7 +2437,7 @@ struct BattleSceneTests {
     @Test func zeroDeploymentLossAndNoMVPRemainReadable() throws {
         let store = try makeStore(initialState: pendingConqueredState(city: 3))
         let scene = makeScene(store: store)
-        #expect(scene.conquestReportTitleForTesting == "Country 1 - City 3 Conquered")
+        #expect(scene.conquestReportTitleForTesting == "Falconridge Silenced")
         #expect(scene.conquestReportLinesForTesting == [
             "Gold earned: +8",
             "Battle time: 1m 5s",
@@ -2492,7 +2492,7 @@ struct BattleSceneTests {
         ))
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
-        #expect(scene.conquestReportTitleForTesting == "Country 1 Conquered")
+        #expect(scene.conquestReportTitleForTesting == "Crownspire Keep Falls")
         scene.tapConquestContinueForTesting()
         scene.tapConquestContinueForTesting()
         #expect(router.countryMapRequestCount == 1)
@@ -2538,7 +2538,7 @@ struct BattleSceneTests {
         #expect(!texts.contains { $0.hasPrefix("HP:") })
         #expect(texts.contains("30"))
         #expect(texts.contains("0"))
-        #expect(texts.contains("Country 1 - City 1"))
+        #expect(texts.contains("Willowford"))
         #expect(texts.contains("Infantry"))
         #expect(texts.contains("Spawn"))
 

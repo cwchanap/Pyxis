@@ -3061,8 +3061,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func conquestReportContent(for result: BattleResult) -> ConquestReportContent {
         .project(
             from: result,
-            cityTitle: state.displayCityTitle(for: result.cityKey.cityNumber),
-            isCountryComplete: state.stageStatus == .countryComplete
+            title: KingdomGameState.displayConquestTitle(for: result.cityKey)
         )
     }
 
