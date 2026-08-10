@@ -4,7 +4,7 @@
 
 **Goal:** Make Cities 5, 10, and 15 feel like escalating Country 1 milestones through lightweight BattleScene presentation only, while preserving existing combat, rewards, persistence, progression, routing, and conquest-report semantics.
 
-**Architecture:** Add one framework-free `Country1MilestonePresentation` selector that maps only City 5/10/15 to three fixed tiers. `BattleScene` remains the sole runtime owner of the arrival banner, enemy-city accent, fresh-conquest flourish, same-scene dedupe state, and City 15 `Country 1 Complete` label. Authored strings continue to come from `CityDefinition`, and conquest presentation continues to use the existing `.freshLive` / `.freshIdle` / `.restored` boundary.
+**Architecture:** Add one framework-free `Country1MilestonePresentation` selector that maps only City 5/10/15 to three fixed tiers. `BattleScene` remains the sole runtime owner of the arrival banner, static enemy-city accent, fresh-conquest flourish, same-scene dedupe state, and City 15 `Country 1 Complete` label. Authored strings continue to come from `CityDefinition`, and conquest presentation continues to use the existing `.freshLive` / `.freshIdle` / `.restored` boundary and existing unsupported-geometry authority.
 
 **Tech Stack:** Swift 5, SpriteKit, UIKit (`UIAccessibility.isReduceMotionEnabled` only), Swift Testing, Xcode/iOS Simulator.
 
@@ -23,22 +23,43 @@
 - Resize/redraw/layout refresh may reposition current milestone nodes but must not restart one-shot presentation.
 - Any conquest report presentation dismisses a still-visible arrival banner before the report is applied, so the two presentations never compete.
 - Fresh `.freshLive` and `.freshIdle` milestone reports receive one flourish; `.restored` reports never replay that one-shot flourish.
-- City 15 `Country 1 Complete` is semantic report state and therefore remains visible on restored pending reports.
+- City 15 `Country 1 Complete` is required semantic report state and remains visible on restored pending reports.
+- If City 15 required completion text cannot fit, fail closed through the existing conquest-report unsupported-geometry path. Never silently hide it while treating the report as presented.
 - Read Reduce Motion directly from `UIAccessibility.isReduceMotionEnabled`; do not add a persisted setting, protocol, manager, or dependency seam.
+- The enemy-city accent is **static** in HPA-390. Do not add a looping pulse; motion is limited to arrival transition and fresh conquest flourish.
 - No new gameplay SFX/haptic event, sound asset, image asset, milestone engine, presentation service, registry, reusable node framework, or generic theme model.
 - No persisted milestone-consumption token in `KingdomGameState`, `BattleResult`, `CityDefinition`, or `UserDefaults`.
 - Keep the existing `ConquestReportContent`, `ConquestReportLayout`, `ConquestReportNode`, Continue transaction, and report fit-failure authority intact.
+- Automated geometry gates cover `568×320`, `667×375`, and `320×568`.
 - No `project.pbxproj` edits; the repository uses `PBXFileSystemSynchronizedRootGroup`.
 - New production files: exactly one (`Pyxis/Country1MilestonePresentation.swift`). All SpriteKit behavior stays in `BattleScene.swift`.
 - Run simulator tests with `-parallel-testing-enabled NO`.
 
 ## File Structure
 
-- `Pyxis/Country1MilestonePresentation.swift` — pure City 5/10/15 selection only; no UIKit/SpriteKit, strings, colors, durations, or persistence.
-- `Pyxis/BattleScene.swift` — owns milestone nodes, fixed style constants, layout, input precedence, arrival lifetime, Reduce Motion branching, conquest flourish, and same-scene dedupe.
+- `Pyxis/Country1MilestonePresentation.swift` — pure Country 1 City 5/10/15 selection only; no UIKit/SpriteKit, strings, colors, durations, or persistence.
+- `Pyxis/BattleScene.swift` — owns milestone nodes, fixed style constants, layout, input precedence, arrival lifetime, Reduce Motion branching, conquest flourish, fail-closed City 15 fit, and same-scene dedupe.
 - `PyxisTests/Country1MilestonePresentationTests.swift` — focused pure selector contract.
-- `PyxisTests/BattleSceneTests.swift` — behavior-oriented integration checks for arrival copy/input/dedupe/layout, city accent, fresh/restored conquest behavior, City 15 completion state, and Continue routing.
+- `PyxisTests/BattleSceneTests.swift` — behavior-oriented integration checks for arrival copy/input/dedupe/layout, city accent, fresh/restored conquest behavior, City 15 completion state/failure, and Continue routing.
 - `CLAUDE.md` — records milestone ownership and the no-persistence/no-framework boundary.
+
+## Risks and Go/No-Go Gates
+
+### Risk 1 — City 15 outside-panel required text
+
+`Country 1 Complete` is the only new required report content outside `ConquestReportLayout.panelFrame`. It must fit inside `safeFrame` without touching the report or Continue.
+
+Task 3 is not green until `city15MilestoneReportFitsSupportedGates` passes at `568×320`, `667×375`, and `320×568`.
+
+If no frame fits, use the existing `isConquestReportFitFailed` + `.unsupportedGeometry` path. Do not add a new layout engine, change `ConquestReportLayout`, or silently omit the label.
+
+### Risk 2 — narrow portrait arrival copy
+
+`City 15 · Crownspire Keep` makes `320×568` the hardest width. Task 2 is not green until title/subtitle frames remain contained and non-overlapping at all three geometry gates.
+
+### Risk 3 — one-shot replay
+
+`applyPendingConquestReport` is called for resize and Continue disabling. One-shot flourish belongs only in `presentPendingConquestReport(origin:)`; static geometry belongs in `applyPendingConquestReport`/layout methods. Arrival presentation is entered only during active-scene mounting.
 
 ---
 
@@ -52,7 +73,7 @@
 - Produces: `Country1MilestonePresentation.make(forCityNumber: Int) -> Country1MilestonePresentation?`
 - Produces: `Country1MilestonePresentation.Tier` with `.first`, `.second`, `.finale`.
 - Produces: `Country1MilestonePresentation.isCountryFinale: Bool`.
-- Consumes: integer city number only. This file must not import SpriteKit/UIKit or read `KingdomGameState`.
+- Consumes: integer city number only. The file must not import SpriteKit/UIKit or read `KingdomGameState`.
 
 - [ ] **Step 1: Write the failing selector tests**
 
@@ -154,7 +175,7 @@ git commit -m "feat: add Country 1 milestone selector"
 
 ---
 
-### Task 2: Add the arrival banner and enemy-city accent
+### Task 2: Add the arrival banner and static enemy-city accent
 
 **Files:**
 - Modify: `Pyxis/BattleScene.swift` — scene state/nodes, `didMove(to:)`, `handleTouch(at:)`, `buildInterface()`, `layoutInterface()`, `layoutBattlefield(...)`, DEBUG accessors.
@@ -163,12 +184,12 @@ git commit -m "feat: add Country 1 milestone selector"
 **Interfaces:**
 - Consumes: `Country1MilestonePresentation.make(forCityNumber:)` from Task 1.
 - Consumes: `Country1CityCatalog.definitionIfPresent(for:)` for authored arrival text.
-- Produces internally: `presentMilestoneArrivalIfNeeded()`, `dismissMilestoneArrival()`, `finishMilestoneArrivalDismissal()`, `layoutMilestoneArrival()`, `layoutMilestoneCityAccent()`.
+- Produces internally: `currentMilestonePresentation`, `presentMilestoneArrivalIfNeeded()`, `dismissMilestoneArrival(animated:)`, `finishMilestoneArrivalDismissal()`, `layoutMilestoneArrival()`, `layoutMilestoneCityAccent()`.
 - Produces DEBUG semantics: milestone tier, arrival title/subtitle, visible state, presentation count, banner/title/subtitle frames, city-accent frame.
 
 - [ ] **Step 1: Add the normalized active-milestone fixture**
 
-In `BattleSceneTests`, add:
+In `BattleSceneTests`:
 
 ```swift
 private func activeMilestoneState(city: Int, gold: Int = 100) -> KingdomGameState {
@@ -182,12 +203,12 @@ private func activeMilestoneState(city: Int, gold: Int = 100) -> KingdomGameStat
 }
 ```
 
-`completedCityCount = city - 1` is required because `KingdomGameState` normalizes the active city from progression.
+`completedCityCount = city - 1` is required because `KingdomGameState` normalizes active progression.
 
 - [ ] **Step 2: Write RED arrival/ordinary/non-modal tests**
 
 ```swift
-@Test("City 5 presents authored milestone arrival and an enemy-city accent")
+@Test("City 5 presents authored milestone arrival and a static enemy-city accent")
 func city5PresentsMilestoneArrival() throws {
     let scene = makeScene(
         store: try makeStore(initialState: activeMilestoneState(city: 5))
@@ -220,7 +241,7 @@ func ordinaryCityHasNoMilestonePresentation() throws {
 }
 ```
 
-The `update` assertion proves the banner does not add itself to BattleScene's combat pause guard.
+The `update` assertion proves the arrival banner is not added to BattleScene's combat pause guard.
 
 - [ ] **Step 3: Write RED input-precedence and same-scene dedupe tests**
 
@@ -255,16 +276,15 @@ func milestoneArrivalDoesNotReplayOnLayoutRefresh() throws {
 }
 ```
 
-- [ ] **Step 4: Write RED compact arrival-layout test**
-
-Use the two landscape gates already used by Building View and current compact validation:
+- [ ] **Step 4: Write RED three-gate arrival-layout test**
 
 ```swift
-@Test("Milestone arrival text fits supported landscape gates")
-func milestoneArrivalFitsLandscapeGates() throws {
+@Test("City 15 milestone arrival fits supported BattleScene gates")
+func city15MilestoneArrivalFitsSupportedGates() throws {
     for size in [
         CGSize(width: 568, height: 320),
-        CGSize(width: 667, height: 375)
+        CGSize(width: 667, height: 375),
+        CGSize(width: 320, height: 568)
     ] {
         let scene = makeScene(
             store: try makeStore(initialState: activeMilestoneState(city: 15)),
@@ -274,18 +294,20 @@ func milestoneArrivalFitsLandscapeGates() throws {
         let title = try #require(scene.milestoneArrivalTitleFrameForTesting)
         let subtitle = try #require(scene.milestoneArrivalSubtitleFrameForTesting)
 
-        #expect(banner.contains(title))
-        #expect(banner.contains(subtitle))
-        #expect(!title.intersects(subtitle))
         #expect(banner.minX >= 0)
         #expect(banner.maxX <= size.width)
         #expect(banner.minY >= 0)
         #expect(banner.maxY <= size.height)
+        #expect(banner.contains(title))
+        #expect(banner.contains(subtitle))
+        #expect(!title.intersects(subtitle))
+        #expect(scene.milestoneArrivalTitleForTesting == "City 15 · Crownspire Keep")
+        #expect(scene.milestoneArrivalSubtitleForTesting == "The final keep rises above the capital.")
     }
 }
 ```
 
-- [ ] **Step 5: Run the new BattleScene tests and confirm RED**
+- [ ] **Step 5: Run focused tests and confirm RED**
 
 ```bash
 xcodebuild test \
@@ -297,22 +319,21 @@ xcodebuild test \
   -only-testing:PyxisTests/BattleSceneTests/ordinaryCityHasNoMilestonePresentation \
   -only-testing:PyxisTests/BattleSceneTests/milestoneArrivalConsumesUnderlyingTap \
   -only-testing:PyxisTests/BattleSceneTests/milestoneArrivalDoesNotReplayOnLayoutRefresh \
-  -only-testing:PyxisTests/BattleSceneTests/milestoneArrivalFitsLandscapeGates
+  -only-testing:PyxisTests/BattleSceneTests/city15MilestoneArrivalFitsSupportedGates
 ```
 
-Expected: FAIL because the milestone BattleScene surface does not exist.
+Expected: FAIL because milestone BattleScene presentation does not exist.
 
-- [ ] **Step 6: Add scene-owned milestone state and nodes**
+- [ ] **Step 6: Add only the required BattleScene state/nodes**
 
-Near the existing effect/presentation state in `BattleScene`, add:
+Near existing scene presentation fields:
 
 ```swift
-private enum MilestoneStyle {
-    static let arrivalDuration: TimeInterval = 1.5
-    static let fadeDuration: TimeInterval = 0.18
-    static let arrivalActionKey = "milestoneArrival"
-    static let arrivalZ = GameUITheme.Z.modal - 5
-    static let cityAccentZ: CGFloat = 3
+private var currentMilestonePresentation: Country1MilestonePresentation? {
+    guard state.currentCityKey.countryNumber == 1 else { return nil }
+    return Country1MilestonePresentation.make(
+        forCityNumber: state.currentCityKey.cityNumber
+    )
 }
 
 private let milestoneArrivalNode = SKNode()
@@ -325,82 +346,68 @@ private var isMilestoneArrivalVisible = false
 #if DEBUG
 private var milestoneArrivalPresentationCountForTestingStorage = 0
 #endif
-
-private var currentMilestonePresentation: Country1MilestonePresentation? {
-    Country1MilestonePresentation.make(forCityNumber: state.currentCityKey.cityNumber)
-}
 ```
 
-Do not cache city strings or write milestone state into `KingdomGameState`.
+Keep style constants as a small private `MilestoneStyle` enum inside `BattleScene`; do not create another production file.
 
-- [ ] **Step 7: Configure the nodes once in `buildInterface()`**
+- [ ] **Step 7: Configure the nodes once**
 
-Add this BattleScene helper and call it once after the battlefield layers/nodes are built:
+In `buildInterface()` after existing battlefield construction:
 
 ```swift
-private func configureMilestonePresentationNodes() {
-    milestoneArrivalNode.zPosition = MilestoneStyle.arrivalZ
-    milestoneArrivalNode.isHidden = true
+milestoneArrivalPanel.fillColor = GameUITheme.Color.panelFill
+milestoneArrivalPanel.strokeColor = GameUITheme.Color.gold
+milestoneArrivalPanel.lineWidth = 2
+milestoneArrivalNode.addChild(milestoneArrivalPanel)
 
-    milestoneArrivalPanel.fillColor = GameUITheme.Color.panelFill
-    milestoneArrivalPanel.strokeColor = GameUITheme.Color.gold
-    milestoneArrivalNode.addChild(milestoneArrivalPanel)
-
-    milestoneArrivalTitleLabel.fontColor = GameUITheme.Color.textPrimary
-    milestoneArrivalTitleLabel.horizontalAlignmentMode = .center
-    milestoneArrivalTitleLabel.verticalAlignmentMode = .center
-    milestoneArrivalNode.addChild(milestoneArrivalTitleLabel)
-
-    milestoneArrivalSubtitleLabel.fontColor = GameUITheme.Color.textSecondary
-    milestoneArrivalSubtitleLabel.horizontalAlignmentMode = .center
-    milestoneArrivalSubtitleLabel.verticalAlignmentMode = .center
-    milestoneArrivalNode.addChild(milestoneArrivalSubtitleLabel)
-
-    milestoneCityAccent.fillColor = .clear
-    milestoneCityAccent.strokeColor = GameUITheme.Color.gold
-    milestoneCityAccent.zPosition = MilestoneStyle.cityAccentZ
-    milestoneCityAccent.isHidden = true
-
-    addChild(milestoneArrivalNode)
-    environmentLayer.addChild(milestoneCityAccent)
+for label in [milestoneArrivalTitleLabel, milestoneArrivalSubtitleLabel] {
+    label.horizontalAlignmentMode = .center
+    label.verticalAlignmentMode = .center
+    milestoneArrivalNode.addChild(label)
 }
+milestoneArrivalTitleLabel.fontColor = GameUITheme.Color.textPrimary
+milestoneArrivalSubtitleLabel.fontColor = GameUITheme.Color.textSecondary
+milestoneArrivalNode.zPosition = GameUITheme.Z.modal - 1
+milestoneArrivalNode.isHidden = true
+addChild(milestoneArrivalNode)
+
+milestoneCityAccent.fillColor = .clear
+milestoneCityAccent.strokeColor = GameUITheme.Color.gold
+milestoneCityAccent.zPosition = 3
+milestoneCityAccent.isHidden = true
+environmentLayer.addChild(milestoneCityAccent)
 ```
 
-Do not create a reusable banner/accent node type.
+The city accent remains static: do not install a repeat/pulse `SKAction` on it.
 
-- [ ] **Step 8: Add the three fixed visual strengths**
+- [ ] **Step 8: Add tier styling without a theme object**
 
 ```swift
-private func applyMilestoneTierStyle(_ presentation: Country1MilestonePresentation) {
+private func applyMilestoneCityAccentStyle(
+    _ presentation: Country1MilestonePresentation
+) {
     switch presentation.tier {
     case .first:
-        milestoneArrivalPanel.lineWidth = 2
         milestoneCityAccent.lineWidth = 2
         milestoneCityAccent.glowWidth = 1
-        milestoneCityAccent.alpha = 0.60
     case .second:
-        milestoneArrivalPanel.lineWidth = 3
         milestoneCityAccent.lineWidth = 3
         milestoneCityAccent.glowWidth = 3
-        milestoneCityAccent.alpha = 0.78
     case .finale:
-        milestoneArrivalPanel.lineWidth = 4
         milestoneCityAccent.lineWidth = 4
         milestoneCityAccent.glowWidth = 5
-        milestoneCityAccent.alpha = 0.95
     }
 }
 ```
 
-Tests do not freeze these exact style constants; they remain private presentation details.
+No pulse is added in this ticket. HPA-567 may revisit motion if playtesting shows static treatment is insufficient.
 
-- [ ] **Step 9: Implement authored copy and exact 1.5-second auto-dismiss**
+- [ ] **Step 9: Present the authored arrival exactly once per mounted scene**
 
 ```swift
 private func presentMilestoneArrivalIfNeeded() {
     guard !hasPresentedMilestoneArrival,
           state.stageStatus == .battleActive,
-          state.pendingBattleResult == nil,
           let presentation = currentMilestonePresentation,
           let definition = Country1CityCatalog.definitionIfPresent(
               for: state.currentCityKey.cityNumber
@@ -416,56 +423,78 @@ private func presentMilestoneArrivalIfNeeded() {
 
     milestoneArrivalTitleLabel.text = definition.displayTitle
     milestoneArrivalSubtitleLabel.text = definition.flavorText
-    applyMilestoneTierStyle(presentation)
-    layoutMilestoneArrival()
-
-    milestoneArrivalNode.removeAction(forKey: MilestoneStyle.arrivalActionKey)
+    milestoneArrivalNode.removeAllActions()
     milestoneArrivalNode.isHidden = false
     milestoneArrivalNode.alpha = 0
     milestoneArrivalNode.setScale(UIAccessibility.isReduceMotionEnabled ? 1 : 0.96)
+    layoutMilestoneArrival()
 
-    let fadeIn = SKAction.fadeAlpha(to: 1, duration: MilestoneStyle.fadeDuration)
-    let appear = UIAccessibility.isReduceMotionEnabled
-        ? fadeIn
+    let appear: SKAction = UIAccessibility.isReduceMotionEnabled
+        ? SKAction.fadeIn(withDuration: 0.15)
         : SKAction.group([
-            fadeIn,
-            SKAction.scale(to: 1, duration: MilestoneStyle.fadeDuration)
+            SKAction.fadeIn(withDuration: 0.15),
+            SKAction.scale(to: 1, duration: 0.15)
         ])
-    let visibleDuration = MilestoneStyle.arrivalDuration - MilestoneStyle.fadeDuration * 2
-    let wait = SKAction.wait(forDuration: visibleDuration)
-    let fadeOut = SKAction.fadeOut(withDuration: MilestoneStyle.fadeDuration)
+    let hold = SKAction.wait(forDuration: 1.20)
+    let fade = SKAction.fadeOut(withDuration: 0.15)
     let finish = SKAction.run { [weak self] in
         self?.finishMilestoneArrivalDismissal()
     }
     milestoneArrivalNode.run(
-        SKAction.sequence([appear, wait, fadeOut, finish]),
-        withKey: MilestoneStyle.arrivalActionKey
+        SKAction.sequence([appear, hold, fade, finish]),
+        withKey: "milestoneArrival"
     )
-}
-
-private func finishMilestoneArrivalDismissal() {
-    milestoneArrivalNode.isHidden = true
-    milestoneArrivalNode.alpha = 1
-    milestoneArrivalNode.setScale(1)
-    isMilestoneArrivalVisible = false
-}
-
-private func dismissMilestoneArrival() {
-    guard isMilestoneArrivalVisible else { return }
-    milestoneArrivalNode.removeAction(forKey: MilestoneStyle.arrivalActionKey)
-    finishMilestoneArrivalDismissal()
 }
 ```
 
-`0.18 + 1.14 + 0.18 = 1.5` seconds. Reduce Motion uses only fades because its scale is always `1`.
+- [ ] **Step 10: Add consumed-tap and immediate-report dismissal paths**
 
-- [ ] **Step 10: Lay out the banner inside the existing safe/content width**
+```swift
+private func dismissMilestoneArrival(animated: Bool = true) {
+    guard isMilestoneArrivalVisible || !milestoneArrivalNode.isHidden else {
+        return
+    }
+    isMilestoneArrivalVisible = false
+    milestoneArrivalNode.removeAction(forKey: "milestoneArrival")
 
-Keep one small geometry method in BattleScene:
+    guard animated else {
+        finishMilestoneArrivalDismissal()
+        return
+    }
+
+    milestoneArrivalNode.run(SKAction.sequence([
+        SKAction.fadeOut(withDuration: 0.12),
+        SKAction.run { [weak self] in
+            self?.finishMilestoneArrivalDismissal()
+        }
+    ]))
+}
+
+private func finishMilestoneArrivalDismissal() {
+    isMilestoneArrivalVisible = false
+    milestoneArrivalNode.removeAllActions()
+    milestoneArrivalNode.alpha = 0
+    milestoneArrivalNode.setScale(1)
+    milestoneArrivalNode.isHidden = true
+}
+```
+
+In `handleTouch(at:)`, insert immediately after the existing conquest report / fit-failure branch and before Settings handling:
+
+```swift
+if isMilestoneArrivalVisible {
+    dismissMilestoneArrival()
+    return
+}
+```
+
+Task 3 uses `dismissMilestoneArrival(animated: false)` before report application so a report never overlaps an arrival fade.
+
+- [ ] **Step 11: Lay out and fit the arrival banner**
 
 ```swift
 private func layoutMilestoneArrival() {
-    guard isMilestoneArrivalVisible || hasPresentedMilestoneArrival else { return }
+    guard !milestoneArrivalNode.isHidden else { return }
 
     let metrics = layoutMetrics()
     let insets = view?.safeAreaInsets ?? .zero
@@ -479,7 +508,10 @@ private func layoutMilestoneArrival() {
     let desiredCenterY = battlefieldLayout.isVisible
         ? battlefieldLayout.frame.midY
         : (safeMinY + safeMaxY) / 2
-    let centerY = min(max(desiredCenterY, safeMinY + height / 2), safeMaxY - height / 2)
+    let centerY = min(
+        max(desiredCenterY, safeMinY + height / 2),
+        safeMaxY - height / 2
+    )
     let frame = CGRect(
         x: size.width / 2 - width / 2,
         y: centerY - height / 2,
@@ -495,18 +527,24 @@ private func layoutMilestoneArrival() {
     )
     milestoneArrivalTitleLabel.fontSize = metrics.compactHeight ? 17 : 20
     milestoneArrivalSubtitleLabel.fontSize = metrics.compactHeight ? 12 : 14
-    milestoneArrivalTitleLabel.position = CGPoint(x: frame.midX, y: frame.midY + height * 0.18)
-    milestoneArrivalSubtitleLabel.position = CGPoint(x: frame.midX, y: frame.midY - height * 0.18)
+    milestoneArrivalTitleLabel.position = CGPoint(
+        x: frame.midX,
+        y: frame.midY + height * 0.18
+    )
+    milestoneArrivalSubtitleLabel.position = CGPoint(
+        x: frame.midX,
+        y: frame.midY - height * 0.18
+    )
     fitLabel(milestoneArrivalTitleLabel, maxWidth: frame.width - 24)
     fitLabel(milestoneArrivalSubtitleLabel, maxWidth: frame.width - 24)
 }
 ```
 
-The compact test is the required regression gate for the fixed Country 1 strings; do not add a new generic layout type.
+The three-gate test is the acceptance authority for these authored strings. Do not add a new text-layout type.
 
-- [ ] **Step 11: Lay out the city accent from the actual rendered city frame**
+- [ ] **Step 12: Lay out the static city accent from the real enemy-city frame**
 
-At the tail of `layoutBattlefield(...)`, after the city is fitted/positioned and `layoutCityHPBar()` runs, call:
+At the tail of `layoutBattlefield(...)`, after the city is fitted/positioned and `layoutCityHPBar()` runs:
 
 ```swift
 private func layoutMilestoneCityAccent() {
@@ -518,7 +556,7 @@ private func layoutMilestoneCityAccent() {
         return
     }
 
-    applyMilestoneTierStyle(presentation)
+    applyMilestoneCityAccentStyle(presentation)
     let cityFrame = enemyCityNode.calculateAccumulatedFrame()
     let inset: CGFloat
     switch presentation.tier {
@@ -536,11 +574,11 @@ private func layoutMilestoneCityAccent() {
 }
 ```
 
-Do not change `enemyCityNode.position`, scale, battlefield gate points, HP-bar geometry, or any hit target.
+Do not change enemy-city position/scale, lane gates, HP-bar geometry, or hit routing.
 
-- [ ] **Step 12: Wire lifecycle and input precedence**
+- [ ] **Step 13: Wire mount/layout lifecycle**
 
-In `didMove(to:)`, preserve restored-report authority:
+In `didMove(to:)`, preserve pending-report authority:
 
 ```swift
 redraw()
@@ -552,18 +590,11 @@ if state.pendingBattleResult != nil, !hasPresentedPendingConquestReport {
 }
 ```
 
-In `handleTouch(at:)`, insert this immediately after conquest report/fit-failure handling and before Settings:
+At the end of `layoutInterface()`, call `layoutMilestoneArrival()`. At the tail of the visible `layoutBattlefield(...)` path, call `layoutMilestoneCityAccent()`.
 
-```swift
-if isMilestoneArrivalVisible {
-    dismissMilestoneArrival()
-    return
-}
-```
+Neither layout method may call a presentation entry point or start a one-shot animation.
 
-At the end of `layoutInterface()`, call `layoutMilestoneArrival()` so resize moves the existing banner without invoking a presentation entry point.
-
-- [ ] **Step 13: Add semantic DEBUG accessors**
+- [ ] **Step 14: Add semantic DEBUG accessors**
 
 ```swift
 var milestoneTierForTesting: Int? {
@@ -603,15 +634,13 @@ var milestoneCityAccentFrameForTesting: CGRect? {
 }
 ```
 
-Do not expose stroke/glow constants or private node-tree structure.
-
-- [ ] **Step 14: Run the five focused tests and confirm GREEN**
+- [ ] **Step 15: Run the focused tests and confirm GREEN**
 
 Run the Step 5 command again.
 
 Expected: PASS.
 
-- [ ] **Step 15: Run the full BattleScene suite**
+- [ ] **Step 16: Run the full BattleScene suite**
 
 ```bash
 xcodebuild test \
@@ -622,9 +651,9 @@ xcodebuild test \
   -only-testing:PyxisTests/BattleSceneTests
 ```
 
-Expected: PASS, including existing Settings precedence, combat timing, report restoration, layout, and routing coverage.
+Expected: PASS, including existing Settings precedence, combat timing, report restoration, narrow portrait, layout, and routing coverage.
 
-- [ ] **Step 16: Commit the arrival/accent slice**
+- [ ] **Step 17: Commit the arrival/accent slice**
 
 ```bash
 git add Pyxis/BattleScene.swift PyxisTests/BattleSceneTests.swift
@@ -633,16 +662,17 @@ git commit -m "feat: add milestone arrival presentation"
 
 ---
 
-### Task 3: Add fresh-only conquest flourish and City 15 completion state
+### Task 3: Add fresh-only conquest flourish and fail-closed City 15 completion
 
 **Files:**
-- Modify: `Pyxis/BattleScene.swift` — report accent/finale nodes, `applyPendingConquestReport`, `presentPendingConquestReport`, DEBUG accessors.
-- Modify: `PyxisTests/BattleSceneTests.swift` — fresh/restored milestone report tests, City 15 semantic state, compact report layout, Continue route.
+- Modify: `Pyxis/BattleScene.swift` — report accent/finale nodes, required-content fit preflight, `applyPendingConquestReport`, `presentPendingConquestReport`, DEBUG accessors.
+- Modify: `PyxisTests/BattleSceneTests.swift` — fresh/restored milestone report tests, City 15 semantic state, three-gate report layout, fail-closed fixture, Continue route.
 
 **Interfaces:**
 - Consumes: `BattleResult.cityKey` as report identity authority.
 - Consumes: existing `ConquestReportLayout.safeFrame`, `.panelFrame`, `.continueFrame`.
-- Produces internally: `applyMilestoneConquestPresentation(result:layout:)`, `presentFreshMilestoneConquestFlourishIfNeeded(origin:)`, `countryCompleteFrame(for:)`.
+- Consumes: existing BattleScene report fit-failure branch and `.unsupportedGeometry` router callback.
+- Produces internally: `countryCompleteFrame(for:)`, `milestoneConquestRequiredContentFits(result:layout:)`, `milestoneConquestAccentFrame(for:presentation:)`, `applyMilestoneConquestPresentation(result:layout:)`, `presentFreshMilestoneConquestFlourishIfNeeded(origin:)`.
 - Produces DEBUG semantics: flourish count, report-accent frame, `Country 1 Complete` text/frame, current report layout.
 
 - [ ] **Step 1: Write RED fresh/restored milestone report tests**
@@ -666,7 +696,7 @@ func freshCity5ConquestPresentsMilestoneFlourishOnce() throws {
     let scene = makeScene(store: try makeStore(initialState: state))
     let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
 
-    scene.handleTouchForTesting(at: gearFrame.center) // consume arrival only
+    scene.handleTouchForTesting(at: gearFrame.center) // consumes arrival only
     scene.spawnSoldierForTesting()
     scene.advanceCombatForTesting(deltaTime: 3)
 
@@ -694,11 +724,9 @@ func restoredCity10ReportDoesNotReplayMilestoneFlourish() throws {
 }
 ```
 
-The level-6 Barracks follows the same high-level-unit pattern already used by the existing City 15 live-conquest test and is more than sufficient for City 5.
+- [ ] **Step 2: Extend fresh and restored City 15 behavior tests**
 
-- [ ] **Step 2: Extend the existing fresh City 15 test**
-
-At the end of `battleFinalCityOutcomeEmitsRewardThenCountryCompletion`, add:
+At the end of existing `battleFinalCityOutcomeEmitsRewardThenCountryCompletion`:
 
 ```swift
 #expect(scene.countryCompleteTextForTesting == "Country 1 Complete")
@@ -706,22 +734,18 @@ At the end of `battleFinalCityOutcomeEmitsRewardThenCountryCompletion`, add:
 #expect(!scene.isMilestoneArrivalVisibleForTesting)
 ```
 
-This locks semantic completion text on a fresh finale without changing the existing feedback assertions.
-
-- [ ] **Step 3: Extend the existing restored City 15 Continue test**
-
-In `countryCompleteContinueRoutesToFinalMapOnce`, before tapping Continue, add:
+In existing `countryCompleteContinueRoutesToFinalMapOnce`, before tapping Continue:
 
 ```swift
 #expect(scene.conquestReportTitleForTesting == "Crownspire Keep Falls")
 #expect(scene.countryCompleteTextForTesting == "Country 1 Complete")
 #expect(scene.milestoneConquestFlourishCountForTesting == 0)
-let countryCompleteFrame = try #require(scene.countryCompleteFrameForTesting)
+let finalFrame = try #require(scene.countryCompleteFrameForTesting)
 let continueFrame = try #require(scene.popupContinueButtonFrameForTesting)
-#expect(!countryCompleteFrame.intersects(continueFrame))
+#expect(!finalFrame.intersects(continueFrame))
 ```
 
-Keep the existing route transaction unchanged:
+Keep the existing two taps and assertions unchanged:
 
 ```swift
 scene.tapConquestContinueForTesting()
@@ -730,14 +754,15 @@ scene.tapConquestContinueForTesting()
 #expect(store.load().pendingBattleResult == nil)
 ```
 
-- [ ] **Step 4: Add RED compact City 15 report-layout test**
+- [ ] **Step 3: Add RED three-gate City 15 report-layout test**
 
 ```swift
-@Test("City 15 milestone report treatment fits supported landscape gates")
-func city15MilestoneReportFitsLandscapeGates() throws {
+@Test("City 15 milestone report treatment fits supported gates")
+func city15MilestoneReportFitsSupportedGates() throws {
     for size in [
         CGSize(width: 568, height: 320),
-        CGSize(width: 667, height: 375)
+        CGSize(width: 667, height: 375),
+        CGSize(width: 320, height: 568)
     ] {
         let scene = makeScene(
             store: try makeStore(initialState: pendingConqueredState(
@@ -761,7 +786,36 @@ func city15MilestoneReportFitsLandscapeGates() throws {
 }
 ```
 
-- [ ] **Step 5: Run the new/extended report tests and confirm RED**
+This is the primary Task 3 go/no-go test.
+
+- [ ] **Step 4: Add RED fail-closed City 15 required-text test**
+
+Use a deliberately short height where the existing compact idle report panel still fits but the required 22pt completion row plus 8pt gap cannot fit above or below a centered panel:
+
+```swift
+@Test("City 15 completion fails closed when required label has no safe frame")
+func city15CompletionUsesExistingFitFailureWhenLabelCannotFit() throws {
+    let size = CGSize(width: 568, height: 239)
+    let router = BattleRouterSpy()
+    let store = try makeStore(initialState: pendingConqueredState(
+        city: 15,
+        mode: .idle,
+        countryComplete: true
+    ))
+    let scene = makeScene(store: store, router: router, size: size)
+
+    #expect(scene.isConquestReportFitFailedForTesting)
+    #expect(scene.countryCompleteTextForTesting == nil)
+    #expect(scene.milestoneConquestAccentFrameForTesting == nil)
+    #expect(router.lastLayoutGateReason == .unsupportedGeometry)
+    #expect(router.layoutGateRequestCount == 1)
+    #expect(store.load().pendingBattleResult != nil)
+}
+```
+
+The 239pt fixture is not a supported gameplay size; it exists only to prove required milestone text joins the already-existing fail-closed report behavior rather than disappearing silently.
+
+- [ ] **Step 5: Run new/extended report tests and confirm RED**
 
 ```bash
 xcodebuild test \
@@ -773,14 +827,15 @@ xcodebuild test \
   -only-testing:PyxisTests/BattleSceneTests/restoredCity10ReportDoesNotReplayMilestoneFlourish \
   -only-testing:PyxisTests/BattleSceneTests/battleFinalCityOutcomeEmitsRewardThenCountryCompletion \
   -only-testing:PyxisTests/BattleSceneTests/countryCompleteContinueRoutesToFinalMapOnce \
-  -only-testing:PyxisTests/BattleSceneTests/city15MilestoneReportFitsLandscapeGates
+  -only-testing:PyxisTests/BattleSceneTests/city15MilestoneReportFitsSupportedGates \
+  -only-testing:PyxisTests/BattleSceneTests/city15CompletionUsesExistingFitFailureWhenLabelCannotFit
 ```
 
-Expected: FAIL because report milestone presentation does not exist.
+Expected: FAIL because milestone report treatment does not exist.
 
-- [ ] **Step 6: Add the report accent/finale nodes and scene-local dedupe state**
+- [ ] **Step 6: Add the report accent/finale nodes and dedupe state**
 
-Near the current conquest-report fields:
+Near current conquest report fields:
 
 ```swift
 private let milestoneConquestAccent = SKShapeNode()
@@ -809,9 +864,9 @@ countryCompleteLabel.isHidden = true
 addChild(countryCompleteLabel)
 ```
 
-Do not modify `ConquestReportNode` or add another summary row.
+Do not modify `ConquestReportNode`, `ConquestReportContent`, or `ConquestReportLayout`.
 
-- [ ] **Step 7: Compute the finale-label frame outside the existing report**
+- [ ] **Step 7: Compute the City 15 required-label frame**
 
 ```swift
 private func countryCompleteFrame(for layout: ConquestReportLayout) -> CGRect? {
@@ -837,31 +892,75 @@ private func countryCompleteFrame(for layout: ConquestReportLayout) -> CGRect? {
 }
 ```
 
-This keeps the completion label out of report rows and out of Continue geometry.
+- [ ] **Step 8: Preflight required milestone content before applying the report**
 
-- [ ] **Step 8: Apply static milestone report treatment on every successful report layout**
+```swift
+private func milestoneConquestRequiredContentFits(
+    result: BattleResult,
+    layout: ConquestReportLayout
+) -> Bool {
+    guard result.cityKey.countryNumber == 1,
+          let presentation = Country1MilestonePresentation.make(
+              forCityNumber: result.cityKey.cityNumber
+          ),
+          presentation.isCountryFinale else {
+        return true
+    }
+
+    return countryCompleteFrame(for: layout) != nil
+}
+```
+
+This is intentionally a Boolean preflight, not a new layout/result type.
+
+- [ ] **Step 9: Keep the decorative report accent inside safeFrame**
+
+```swift
+private func milestoneConquestAccentFrame(
+    for layout: ConquestReportLayout,
+    presentation: Country1MilestonePresentation
+) -> CGRect {
+    let desiredInset: CGFloat
+    switch presentation.tier {
+    case .first: desiredInset = 5
+    case .second: desiredInset = 7
+    case .finale: desiredInset = 9
+    }
+
+    let availableInset = max(0, min(
+        desiredInset,
+        layout.panelFrame.minX - layout.safeFrame.minX,
+        layout.safeFrame.maxX - layout.panelFrame.maxX,
+        layout.panelFrame.minY - layout.safeFrame.minY,
+        layout.safeFrame.maxY - layout.panelFrame.maxY
+    ))
+    return layout.panelFrame.insetBy(dx: -availableInset, dy: -availableInset)
+}
+```
+
+The accent is decorative, so it clamps rather than expanding the required-layout contract.
+
+- [ ] **Step 10: Apply static milestone report state without one-shot animation**
 
 ```swift
 private func applyMilestoneConquestPresentation(
     result: BattleResult,
     layout: ConquestReportLayout
 ) {
-    guard let presentation = Country1MilestonePresentation.make(
-        forCityNumber: result.cityKey.cityNumber
-    ) else {
+    guard result.cityKey.countryNumber == 1,
+          let presentation = Country1MilestonePresentation.make(
+              forCityNumber: result.cityKey.cityNumber
+          ) else {
         milestoneConquestAccent.isHidden = true
         milestoneConquestAccent.path = nil
         countryCompleteLabel.isHidden = true
         return
     }
 
-    let inset: CGFloat
-    switch presentation.tier {
-    case .first: inset = 5
-    case .second: inset = 7
-    case .finale: inset = 9
-    }
-    let accentFrame = layout.panelFrame.insetBy(dx: -inset, dy: -inset)
+    let accentFrame = milestoneConquestAccentFrame(
+        for: layout,
+        presentation: presentation
+    )
     milestoneConquestAccent.path = CGPath(
         roundedRect: accentFrame,
         cornerWidth: layout.panelCornerRadius + 4,
@@ -896,26 +995,45 @@ private func applyMilestoneConquestPresentation(
 }
 ```
 
-This method owns static state only. It never increments one-shot counts or starts animation.
+The final-frame optional cannot be nil in a successfully presented City 15 report because Step 8 joins it to the report guard. The defensive `guard` remains local safety, not a second fail-open policy.
 
-- [ ] **Step 9: Dismiss arrival and apply static milestone state from `applyPendingConquestReport`**
+- [ ] **Step 11: Join City 15 required text to the existing report fit-failure branch**
 
-After `pendingResultForPresentation()` succeeds, dismiss any still-visible arrival before applying the report:
+In `applyPendingConquestReport(resetsContinueState:)`, immediately after resolving the pending result:
 
 ```swift
 guard let result = pendingResultForPresentation() else { return false }
-dismissMilestoneArrival()
+dismissMilestoneArrival(animated: false)
 ```
 
-Then preserve the existing report layout/apply guard. Immediately after `conquestReportNode.apply(...) == .presented`, add:
+Then extend the existing guard:
 
 ```swift
+guard let layout = conquestReportLayout(for: content),
+      milestoneConquestRequiredContentFits(result: result, layout: layout),
+      conquestReportNode.apply(
+          content: content,
+          layout: layout,
+          isContinueEnabled: isConquestContinueEnabled
+      ) == .presented else {
+    isConquestReportVisible = true
+    isConquestReportFitFailed = true
+    conquestReportNode.isHidden = true
+    milestoneConquestAccent.isHidden = true
+    milestoneConquestAccent.path = nil
+    countryCompleteLabel.isHidden = true
+    router?.battleScene(self, didRequestLayoutGate: .unsupportedGeometry)
+    return false
+}
+
 applyMilestoneConquestPresentation(result: result, layout: layout)
 ```
 
-`applyPendingConquestReport` is also called on resize and when disabling Continue, so this path may reposition static nodes but must never call the fresh-flourish method.
+Preserve the current feedback-settings accessibility call, `isConquestContinueEnabled` reset, content projection, visible flags, and `hasPresentedPendingConquestReport` behavior around this guard.
 
-- [ ] **Step 10: Add fresh-only one-shot flourish at the existing origin boundary**
+This is the only fail-closed path; do not create a milestone-specific layout gate.
+
+- [ ] **Step 12: Add fresh-only one-shot flourish at the existing origin boundary**
 
 ```swift
 private func presentFreshMilestoneConquestFlourishIfNeeded(
@@ -924,6 +1042,7 @@ private func presentFreshMilestoneConquestFlourishIfNeeded(
     guard origin != .restored,
           !hasPresentedMilestoneConquestFlourish,
           let result = state.pendingBattleResult,
+          result.cityKey.countryNumber == 1,
           Country1MilestonePresentation.make(
               forCityNumber: result.cityKey.cityNumber
           ) != nil else {
@@ -956,9 +1075,9 @@ Inside `presentPendingConquestReport(...)`, call it only after `applyPendingConq
 presentFreshMilestoneConquestFlourishIfNeeded(origin: origin)
 ```
 
-Keep the existing fresh-only gold-burst branch unchanged. Restored reports retain the static accent from Step 8 but get no one-shot animation/count.
+Keep the existing fresh-only gold-burst branch unchanged. Never call the flourish method from `applyPendingConquestReport`, `layoutInterface`, or redraw.
 
-- [ ] **Step 11: Add semantic DEBUG accessors**
+- [ ] **Step 13: Add semantic DEBUG accessors**
 
 ```swift
 var milestoneConquestFlourishCountForTesting: Int {
@@ -974,12 +1093,7 @@ var countryCompleteTextForTesting: String? {
 }
 
 var countryCompleteFrameForTesting: CGRect? {
-    guard !countryCompleteLabel.isHidden,
-          let content = lastAppliedConquestReportContent,
-          let layout = conquestReportLayout(for: content) else {
-        return nil
-    }
-    return countryCompleteFrame(for: layout)
+    countryCompleteLabel.isHidden ? nil : sceneFrame(for: countryCompleteLabel)
 }
 
 var lastConquestReportLayoutForTesting: ConquestReportLayout? {
@@ -988,15 +1102,13 @@ var lastConquestReportLayoutForTesting: ConquestReportLayout? {
 }
 ```
 
-Do not expose animation actions or private style constants.
-
-- [ ] **Step 12: Run the five report tests and confirm GREEN**
+- [ ] **Step 14: Run new/extended report tests and confirm GREEN**
 
 Run the Step 5 command again.
 
 Expected: PASS.
 
-- [ ] **Step 13: Run all BattleScene tests**
+- [ ] **Step 15: Run all BattleScene tests**
 
 ```bash
 xcodebuild test \
@@ -1007,9 +1119,9 @@ xcodebuild test \
   -only-testing:PyxisTests/BattleSceneTests
 ```
 
-Expected: PASS. In particular, existing `restoredPendingReportIsStatic`, `liveConquestUsesFreshLiveEffectsOnce`, `battleForegroundIdleUsesFreshIdleGoldOnly`, `repeatedDidMoveResizeAndRedrawDoNotDuplicateOrReplay`, and `countryCompleteContinueRoutesToFinalMapOnce` remain green.
+Expected: PASS. Existing restored/fresh effect, fit-failure, Settings, narrow-portrait, and Continue transaction tests must remain green.
 
-- [ ] **Step 14: Commit the conquest slice**
+- [ ] **Step 16: Commit the conquest slice**
 
 ```bash
 git add Pyxis/BattleScene.swift PyxisTests/BattleSceneTests.swift
@@ -1021,7 +1133,7 @@ git commit -m "feat: add milestone conquest presentation"
 ### Task 4: Document ownership and run full verification
 
 **Files:**
-- Modify: `CLAUDE.md` — extend the existing BattleScene architecture bullet.
+- Modify: `CLAUDE.md` — BattleScene milestone ownership note.
 - Verify: `docs/superpowers/specs/2026-08-09-country-1-milestone-presentation-design.md`
 - Verify: `docs/superpowers/plans/2026-08-10-country-1-milestone-presentation-implementation.md`
 
@@ -1031,15 +1143,15 @@ git commit -m "feat: add milestone conquest presentation"
 
 - [ ] **Step 1: Add the repository ownership note**
 
-Append this paragraph to the existing `BattleScene` bullet under `## Architecture -> 5. Scenes`:
+Extend the existing `BattleScene` architecture bullet with:
 
 ```markdown
-Country 1 milestone presentation (HPA-390) is also BattleScene-owned. `Country1MilestonePresentation` is only a pure City 5/10/15 tier selector; authored names/flavor/conquest copy remain in `Country1CityCatalog`. The arrival banner, enemy-city accent, fresh-only conquest flourish, Reduce Motion branching, and same-scene dedupe are transient scene state and are never persisted. City 15 adds `Country 1 Complete` around the existing report without changing `Crownspire Keep Falls`, report acknowledgement/save, or Country Map routing. Do not add a milestone service/engine, presentation fields to `CityDefinition`, or durable consumed-presentation state without a concrete new requirement.
+Country 1 milestone presentation (HPA-390) is BattleScene-owned. `Country1MilestonePresentation` is only a pure City 5/10/15 tier selector; authored names/flavor/conquest copy remain in `Country1CityCatalog`. Arrival, the static enemy-city accent, fresh-only conquest flourish, Reduce Motion branching, and same-scene dedupe are transient scene state and are never persisted. City 15 adds required `Country 1 Complete` around the existing report; if that label cannot fit, it uses the existing report unsupported-geometry gate. `Crownspire Keep Falls`, report acknowledgement/save, and Country Map routing remain unchanged. Do not add a milestone service/engine, presentation fields to `CityDefinition`, durable consumed-presentation state, or looping city-accent animation without a concrete new requirement.
 ```
 
 Do not edit `AGENTS.md`; it is a symlink to `CLAUDE.md`.
 
-- [ ] **Step 2: Run focused selector + BattleScene verification**
+- [ ] **Step 2: Run focused selector and BattleScene verification**
 
 ```bash
 xcodebuild test \
@@ -1100,20 +1212,19 @@ Expected production shape:
 
 - `Pyxis/Country1MilestonePresentation.swift` is the only new production file.
 - Runtime edits are concentrated in `Pyxis/BattleScene.swift`.
-- No milestone persistence, service/manager/protocol/registry, new asset, or project-file registration appears.
+- `ConquestReportContent`, `ConquestReportLayout`, `ConquestReportNode`, persistence, assets, and project registration remain unchanged.
+- No milestone service/manager/protocol/registry or persisted state appears.
 
 - [ ] **Step 7: Run the manual City 5 -> 10 -> 15 milestone smoke**
 
-Verify this exact journey:
-
-1. **City 5 / Highcrest** — arrival shows `City 5 · Highcrest` plus `A proud hill fortress crowns the frontier.`; accent is modest; one skip tap only hides the banner; combat continues; fresh conquest uses `Highcrest Falls` and one modest report flourish.
-2. **City 10 / Ironthorn Gate** — arrival/report accents are visibly stronger than City 5 while using the same structure; authored copy remains `City 10 · Ironthorn Gate` / `A hardened gate blocks the inner road.` / `Ironthorn Gate Broken`.
-3. **City 15 / Crownspire Keep** — strongest treatment; authored conquest title remains `Crownspire Keep Falls`; `Country 1 Complete` is visible before Continue; Continue returns to the completed Country Map exactly once.
-4. Repeat one milestone with **Reduce Motion enabled** in iOS Settings: required text/framing remain; scale emphasis is absent and only fades/static treatment remain.
-5. Exercise one fresh idle conquest through background/foreground at a milestone: report origin is fresh idle and the flourish occurs once.
-6. Recreate a scene with a pending milestone report: restored report shows static milestone treatment, City 15 completion text when applicable, no arrival banner, and no replayed one-shot flourish.
-7. At `568×320` and `667×375`, arrival title/subtitle and City 15 completion state remain readable; report treatment does not block/overlap Continue.
-8. Confirm gold, city HP, rewards, unlocks, lane behavior, unit behavior, building behavior, and save/progression results match ordinary-city behavior.
+1. **City 5 / Highcrest:** arrival shows `City 5 · Highcrest` + `A proud hill fortress crowns the frontier.`; static accent is modest; one skip tap only hides arrival; combat continues; fresh conquest title remains `Highcrest Falls` and flourish occurs once.
+2. **City 10 / Ironthorn Gate:** static arrival/report treatment is stronger than City 5 while reusing the same structure; authored copy remains unchanged.
+3. **City 15 / Crownspire Keep:** strongest treatment; conquest title remains `Crownspire Keep Falls`; `Country 1 Complete` is visible before Continue; Continue returns to the completed Country Map exactly once.
+4. Repeat one milestone with **Reduce Motion enabled:** required text and framing remain; scale emphasis is absent; the enemy-city accent remains static in both modes.
+5. Exercise a fresh idle milestone conquest through background/foreground: flourish occurs once.
+6. Recreate a scene with a pending milestone report: static treatment remains, no arrival appears, and no one-shot flourish replays.
+7. Check `568×320`, `667×375`, and `320×568`: required arrival/finale text remains readable and Continue stays unobstructed.
+8. Confirm gold, HP, rewards, unlocks, lanes, units, buildings, persistence, and progression match ordinary-city behavior.
 
 - [ ] **Step 8: Commit documentation after verification**
 
@@ -1126,16 +1237,19 @@ git commit -m "docs: document milestone presentation ownership"
 
 ## Plan Self-Review Checklist
 
-- Every approved design requirement maps to Tasks 1-4.
-- Selector names/signatures are consistent everywhere: `Country1MilestonePresentation.make(forCityNumber:)`, `.Tier`, `.isCountryFinale`.
-- All code snippets reference types/properties that already exist or are introduced earlier in this plan.
+The plan is complete only when all of these remain true during implementation:
+
+- Every design requirement maps to Tasks 1-4.
+- Selector names/signatures are identical across tasks: `Country1MilestonePresentation.make(forCityNumber:)`, `.Tier`, `.isCountryFinale`.
 - Authored city strings are never copied into the selector or persisted state.
 - BattleScene's existing fresh/restored report origin remains the only one-shot conquest gate.
-- Arrival and conquest one-shot entry points are never called from resize/redraw/layout methods.
-- A conquest report explicitly dismisses any still-visible arrival before report application.
-- Compact arrival text has an automated containment/non-overlap gate at `568×320` and `667×375`.
-- City 15 completion text exists for fresh and restored reports while restored one-shot flourish count remains zero.
-- `ConquestReportContent`, `ConquestReportNode`, `ConquestReportLayout`, `KingdomGameState`, `BattleResult`, `Country1CityCatalog`, `CityDefinition`, `KingdomGameStore`, and `GameViewController` require no production changes.
+- Resize/redraw uses layout/application methods only and cannot call arrival/flourish presentation entry points.
+- Any report application immediately removes an arrival banner before report nodes are shown.
+- City 15 completion text exists for fresh and restored reports; missing required-label geometry routes through existing `isConquestReportFitFailed` / `.unsupportedGeometry` handling.
+- `city15MilestoneReportFitsSupportedGates` passes `568×320`, `667×375`, and `320×568` before Task 3 is considered green.
+- `city15MilestoneArrivalFitsSupportedGates` passes the same three fixtures before Task 2 is considered green.
+- The enemy-city accent is static; no pulse/repeat action is introduced.
+- No change to `ConquestReportContent`, `ConquestReportNode`, `ConquestReportLayout`, `KingdomGameState`, `BattleResult`, `Country1CityCatalog`, `CityDefinition`, `KingdomGameStore`, or `GameViewController` is required by this plan.
 - No new production file beyond `Country1MilestonePresentation.swift` is required.
 - Reduced Motion does not require dependency injection or persistence.
 - Existing Continue acknowledgement -> save -> Country Map flow remains the only completion transaction.
