@@ -57,7 +57,7 @@ Use three narrowly scoped extensions:
 2. **`ConquestReportLayout`** — one concrete extension for the required finale label: input says whether country-completion content is present, and output provides `countryCompleteFrame`. The pure layout remains the single geometry fail-closed authority.
 3. **`BattleScene`** — owns transient SpriteKit presentation: arrival lifetime/input, static enemy-city accent, fresh-only report flourish, required-label rendering, Reduce Motion branching, and same-scene dedupe.
 
-No additional production layer is introduced.
+This is a concrete extension of the existing report layout for a shipping required-content consumer, not a general milestone/report framework.
 
 The flow is:
 
@@ -195,7 +195,7 @@ Extend `ConquestReportLayout` with:
 let countryCompleteFrame: CGRect?
 ```
 
-Keep the existing report panel's height/content unchanged. When `includesCountryCompletion` is true, the layout reserves a fixed completion-label height plus gap **above** the report panel, centers the label+panel group as one unit inside `safeFrame`, and returns both frames.
+Keep the existing report panel's height/content unchanged. When `includesCountryCompletion` is true, compute the unchanged report-panel height first, reserve a fixed completion-label height plus gap above it, and center the **label + panel group** as one unit inside `safeFrame`. `panelFrame` still describes only the original report panel; `countryCompleteFrame` describes the required label outside it.
 
 Conceptually:
 
