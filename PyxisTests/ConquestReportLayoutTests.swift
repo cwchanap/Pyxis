@@ -23,7 +23,8 @@ private func makeLayout(
     size: CGSize = CGSize(width: 375, height: 667),
     insets: ConquestReportSafeAreaInsets = ConquestReportSafeAreaInsets(top: 0, left: 0, bottom: 0, right: 0),
     rows: Int,
-    achievements: Int
+    achievements: Int,
+    includesCountryCompletion: Bool = false
 ) -> ConquestReportLayout? {
     let compactHeight = size.height < 500
     let horizontalMargin = max(8, min(compactHeight ? 16 : 18, size.width * 0.045))
@@ -34,7 +35,8 @@ private func makeLayout(
         battleContentWidth: battleContentWidth,
         summaryRowCount: rows,
         achievementCount: achievements,
-        compactHeight: compactHeight
+        compactHeight: compactHeight,
+        includesCountryCompletion: includesCountryCompletion
     ))
 }
 
@@ -185,5 +187,51 @@ struct ConquestReportLayoutTests {
         #expect(standard.titleMinimumFontSize == 14)
         #expect(standard.summaryMinimumFontSize == 12)
         #expect(standard.continueMinimumFontSize == 15)
+    }
+
+    @Test("Country completion fits all HPA-390 supported geometry gates")
+    func countryCompletionFitsSupportedGates() throws {
+        for size in [
+            CGSize(width: 568, height: 320),
+            CGSize(width: 667, height: 375),
+            CGSize(width: 320, height: 568)
+        ] {
+            let layout = try #require(makeLayout(
+                size: size,
+                rows: 4,
+                achievements: 2,
+                includesCountryCompletion: true
+            ))
+            let completion = try #require(layout.countryCompleteFrame)
+
+            #expect(layout.safeFrame.contains(layout.panelFrame))
+            #expect(layout.safeFrame.contains(completion))
+            #expect(!completion.intersects(layout.panelFrame))
+            #expect(!completion.intersects(layout.continueFrame))
+            #expect(layout.panelFrame.contains(layout.titleFrame))
+            #expect(layout.summaryRowFrames.allSatisfy { layout.panelFrame.contains($0) })
+            #expect(layout.badgeFrames.allSatisfy { layout.panelFrame.contains($0) })
+        }
+    }
+
+    @Test("Country completion reservation is the reason a compact boundary fails")
+    func countryCompletionFailsClosedAtPureBoundary() throws {
+        let size = CGSize(width: 568, height: 205)
+
+        let base = try #require(makeLayout(
+            size: size,
+            rows: 3,
+            achievements: 0,
+            includesCountryCompletion: false
+        ))
+        #expect(base.panelFrame.height == 180)
+        #expect(base.countryCompleteFrame == nil)
+
+        #expect(makeLayout(
+            size: size,
+            rows: 3,
+            achievements: 0,
+            includesCountryCompletion: true
+        ) == nil)
     }
 }

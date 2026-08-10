@@ -186,6 +186,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private let milestoneArrivalTitleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let milestoneArrivalSubtitleLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let milestoneCityAccent = SKShapeNode()
+    private let milestoneConquestAccent = SKShapeNode()
+    private let countryCompleteLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let cityHPBarBackground = SKShapeNode()
     private let cityHPBarFill = SKShapeNode()
     private let goldStatusIcon = SKSpriteNode(imageNamed: BattleAssetName.goldBurst)
@@ -216,6 +218,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private(set) var isConquestReportFitFailed = false
     private var hasPresentedMilestoneArrival = false
     private var isMilestoneArrivalVisible = false
+    private var hasPresentedMilestoneConquestFlourish = false
     private var lastAppliedConquestReportContent: ConquestReportContent?
     private var isGoldBurstRemovalScheduled = false
     private var goldBurstRemovalTask: Task<Void, Never>?
@@ -227,6 +230,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var conquestEffectPresentationCountForTestingStorage = 0
     private var lastGoldBurstAnchorForTestingStorage: CGPoint?
     private var lastConquestReportLayoutInputForTestingStorage: ConquestReportLayout.Input?
+    private var milestoneConquestFlourishCountForTestingStorage = 0
+    private var lastMilestoneFlourishCityForTestingStorage: Int?
     #endif
 
     private var feedbackText = ""
@@ -671,6 +676,20 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         milestoneCityAccent.strokeColor = GameUITheme.Color.gold
         milestoneCityAccent.isHidden = true
         environmentLayer.addChild(milestoneCityAccent)
+
+        milestoneConquestAccent.fillColor = .clear
+        milestoneConquestAccent.strokeColor = GameUITheme.Color.gold
+        milestoneConquestAccent.zPosition = GameUITheme.Z.modal - 0.25
+        milestoneConquestAccent.isHidden = true
+        addChild(milestoneConquestAccent)
+
+        countryCompleteLabel.text = "Country 1 Complete"
+        countryCompleteLabel.fontColor = GameUITheme.Color.gold
+        countryCompleteLabel.horizontalAlignmentMode = .center
+        countryCompleteLabel.verticalAlignmentMode = .center
+        countryCompleteLabel.zPosition = GameUITheme.Z.modal + 0.25
+        countryCompleteLabel.isHidden = true
+        addChild(countryCompleteLabel)
 
         configureHUDIcon(goldStatusIcon, name: ButtonName.goldInfo)
         configureHUDIcon(soldierStatusIcon, name: ButtonName.goldInfo)
@@ -1616,9 +1635,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let cityFrame = enemyCityNode.calculateAccumulatedFrame()
         let expansion: CGFloat
         switch tier {
-        case .first: expansion = 5
-        case .second: expansion = 7
-        case .finale: expansion = 9
+        case .first:
+            expansion = 5
+            milestoneConquestAccent.lineWidth = 2
+            milestoneConquestAccent.glowWidth = 1
+        case .second:
+            expansion = 7
+            milestoneConquestAccent.lineWidth = 3
+            milestoneConquestAccent.glowWidth = 3
+        case .finale:
+            expansion = 9
+            milestoneConquestAccent.lineWidth = 4
+            milestoneConquestAccent.glowWidth = 5
         }
 
         let insets = view?.safeAreaInsets ?? .zero
@@ -3303,9 +3331,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
     }
 
-    private func conquestReportLayout(for content: ConquestReportContent) -> ConquestReportLayout? {
+    private func conquestReportLayout(
+        for content: ConquestReportContent,
+        result: BattleResult
+    ) -> ConquestReportLayout? {
         let metrics = layoutMetrics()
         let insets = view?.safeAreaInsets ?? .zero
+        let tier = result.cityKey.countryNumber == 1
+            ? Country1MilestoneTier.forCity(result.cityKey.cityNumber)
+            : nil
         let input = ConquestReportLayout.Input(
             sceneSize: size,
             safeAreaInsets: .init(top: insets.top, left: insets.left,
@@ -3313,7 +3347,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             battleContentWidth: metrics.contentWidth,
             summaryRowCount: content.summaryLines.count,
             achievementCount: content.achievements.count,
-            compactHeight: metrics.compactHeight
+            compactHeight: metrics.compactHeight,
+            includesCountryCompletion: tier?.isCountryFinale == true
         )
         #if DEBUG
         lastConquestReportLayoutInputForTestingStorage = input
@@ -3321,18 +3356,83 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return .compute(input)
     }
 
+    private func applyMilestoneConquestPresentation(
+        result: BattleResult,
+        layout: ConquestReportLayout
+    ) -> Bool {
+        let tier = result.cityKey.countryNumber == 1
+            ? Country1MilestoneTier.forCity(result.cityKey.cityNumber)
+            : nil
+        guard let tier else {
+            milestoneConquestAccent.isHidden = true
+            milestoneConquestAccent.path = nil
+            countryCompleteLabel.isHidden = true
+            return true
+        }
+
+        let expansion: CGFloat
+        switch tier {
+        case .first: expansion = 5
+        case .second: expansion = 7
+        case .finale: expansion = 9
+        }
+        var accentFrame = layout.panelFrame
+            .insetBy(dx: -expansion, dy: -expansion)
+            .intersection(layout.safeFrame)
+        if let completion = layout.countryCompleteFrame,
+           accentFrame.maxY > completion.minY - 2 {
+            accentFrame.size.height = max(0, completion.minY - 2 - accentFrame.minY)
+        }
+        if accentFrame.width > 0, accentFrame.height > 0 {
+            milestoneConquestAccent.path = CGPath(
+                roundedRect: accentFrame,
+                cornerWidth: layout.panelCornerRadius + 4,
+                cornerHeight: layout.panelCornerRadius + 4,
+                transform: nil
+            )
+            milestoneConquestAccent.isHidden = false
+        } else {
+            milestoneConquestAccent.isHidden = true
+            milestoneConquestAccent.path = nil
+        }
+
+        guard tier.isCountryFinale else {
+            countryCompleteLabel.isHidden = true
+            return true
+        }
+        guard let frame = layout.countryCompleteFrame else {
+            assertionFailure("Finale report layout omitted required Country 1 Complete frame")
+            return false
+        }
+
+        countryCompleteLabel.text = "Country 1 Complete"
+        countryCompleteLabel.position = CGPoint(x: frame.midX, y: frame.midY)
+        let fits = fitMilestoneLabel(
+            countryCompleteLabel,
+            fontName: GameUITheme.Font.bold,
+            startingAt: layoutMetrics().compactHeight ? 15 : 18,
+            minimum: 15,
+            maximumWidth: frame.width
+        )
+        countryCompleteLabel.isHidden = !fits
+        return fits
+    }
+
     @discardableResult
     private func presentPendingConquestReport(
         origin: ConquestReportPresentationOrigin,
         resetsContinueState: Bool
     ) -> Bool {
-        guard applyPendingConquestReport(resetsContinueState: resetsContinueState) else {
+        guard let result = applyPendingConquestReport(
+            resetsContinueState: resetsContinueState
+        ) else {
             return false
         }
         #if DEBUG
         lastConquestReportOriginForTestingStorage = origin
         conquestEffectPresentationCountForTestingStorage += origin == .restored ? 0 : 1
         #endif
+        presentFreshMilestoneConquestFlourishIfNeeded(result: result, origin: origin)
         if origin != .restored,
            let anchor = conquestReportNode.goldEffectAnchor(in: self) {
             playGoldBurst(at: anchor)
@@ -3340,34 +3440,65 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return true
     }
 
+    private func presentFreshMilestoneConquestFlourishIfNeeded(
+        result: BattleResult,
+        origin: ConquestReportPresentationOrigin
+    ) {
+        guard origin != .restored,
+              !hasPresentedMilestoneConquestFlourish,
+              result.cityKey.countryNumber == 1,
+              Country1MilestoneTier.forCity(result.cityKey.cityNumber) != nil else {
+            return
+        }
+
+        hasPresentedMilestoneConquestFlourish = true
+        #if DEBUG
+        milestoneConquestFlourishCountForTestingStorage += 1
+        lastMilestoneFlourishCityForTestingStorage = result.cityKey.cityNumber
+        #endif
+
+        milestoneConquestAccent.removeAllActions()
+        milestoneConquestAccent.alpha = 0.45
+        milestoneConquestAccent.setScale(UIAccessibility.isReduceMotionEnabled ? 1 : 0.97)
+        let fade = SKAction.fadeAlpha(to: 1, duration: 0.24)
+        let emphasis = UIAccessibility.isReduceMotionEnabled
+            ? fade
+            : SKAction.group([fade, SKAction.scale(to: 1, duration: 0.24)])
+        milestoneConquestAccent.run(emphasis)
+    }
+
     @discardableResult
-    private func applyPendingConquestReport(resetsContinueState: Bool) -> Bool {
-        guard let result = pendingResultForPresentation() else { return false }
+    private func applyPendingConquestReport(resetsContinueState: Bool) -> BattleResult? {
+        guard let result = pendingResultForPresentation() else { return nil }
+        dismissMilestoneArrival(animated: false)
         feedbackSettingsController?.setSettingsAccessibilityActionable(false)
         if resetsContinueState { isConquestContinueEnabled = true }
         let content = conquestReportContent(for: result)
         lastAppliedConquestReportContent = content
-        guard let layout = conquestReportLayout(for: content),
+        guard let layout = conquestReportLayout(for: content, result: result),
               conquestReportNode.apply(
                   content: content,
                   layout: layout,
                   isContinueEnabled: isConquestContinueEnabled
-              ) == .presented else {
+              ) == .presented,
+              applyMilestoneConquestPresentation(result: result, layout: layout) else {
             isConquestReportVisible = true
             isConquestReportFitFailed = true
             conquestReportNode.isHidden = true
+            milestoneConquestAccent.isHidden = true
+            countryCompleteLabel.isHidden = true
             // A fresh live/idle conquest that cannot render blocks all scene
             // input, but the fit-failed flag alone never surfaces to the
             // controller unless a layout event happens to refresh the gate.
             // Notify the router immediately so the unsupported-geometry gate
             // appears without waiting for a resize/safe-area change.
             router?.battleScene(self, didRequestLayoutGate: .unsupportedGeometry)
-            return false
+            return nil
         }
         isConquestReportVisible = true
         isConquestReportFitFailed = false
         hasPresentedPendingConquestReport = true
-        return true
+        return result
     }
 
     private func continueFromConquestReport() {
@@ -3385,7 +3516,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // keep the pending result, restore Continue, and stay on the battle
         // scene so the player can retry once geometry recovers. Do not
         // acknowledge, save, or route — none of those steps may run.
-        guard applyPendingConquestReport(resetsContinueState: false) else {
+        guard applyPendingConquestReport(resetsContinueState: false) != nil else {
             isConquestContinueEnabled = true
             return
         }
@@ -3506,6 +3637,30 @@ extension BattleScene {
 
     var milestoneCityAccentFrameForTesting: CGRect? {
         milestoneCityAccent.isHidden ? nil : sceneFrame(for: milestoneCityAccent)
+    }
+
+    var milestoneConquestFlourishCountForTesting: Int {
+        milestoneConquestFlourishCountForTestingStorage
+    }
+
+    var lastMilestoneFlourishCityForTesting: Int? {
+        lastMilestoneFlourishCityForTestingStorage
+    }
+
+    var milestoneConquestAccentFrameForTesting: CGRect? {
+        milestoneConquestAccent.isHidden ? nil : sceneFrame(for: milestoneConquestAccent)
+    }
+
+    var countryCompleteTextForTesting: String? {
+        countryCompleteLabel.isHidden ? nil : countryCompleteLabel.text
+    }
+
+    var countryCompleteFrameForTesting: CGRect? {
+        countryCompleteLabel.isHidden ? nil : sceneFrame(for: countryCompleteLabel)
+    }
+
+    func dismissMilestoneArrivalForTesting() {
+        dismissMilestoneArrival(animated: false)
     }
 
     var lastUpdateTimeForTesting: TimeInterval? {
@@ -4034,7 +4189,7 @@ extension BattleScene {
     }
 
     var isConquestPopupVisibleForTesting: Bool {
-        isConquestReportVisible
+        isConquestReportVisible && !isConquestReportFitFailed
     }
 
     static func isPendingResultPresentableForTesting(
