@@ -168,6 +168,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         battlefieldLayout.enemyCityImpactPoint
     }
 
+    private var currentMilestoneTier: Country1MilestoneTier? {
+        guard state.currentCityKey.countryNumber == 1 else { return nil }
+        return Country1MilestoneTier.forCity(state.currentCityKey.cityNumber)
+    }
+
     private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
     private let defenseTraitLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
@@ -177,6 +182,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private let leftHUDPanel = PanelNode(size: CGSize(width: 160, height: 78))
     private let rightHUDPanel = PanelNode(size: CGSize(width: 190, height: 86))
     private let feedbackPanel = PanelNode(size: CGSize(width: 260, height: 34))
+    private let milestoneArrivalPanel = PanelNode(size: .zero)
+    private let milestoneArrivalTitleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let milestoneArrivalSubtitleLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let milestoneCityAccent = SKShapeNode()
     private let cityHPBarBackground = SKShapeNode()
     private let cityHPBarFill = SKShapeNode()
     private let goldStatusIcon = SKSpriteNode(imageNamed: BattleAssetName.goldBurst)
@@ -205,12 +214,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var isConquestReportVisible = false
     private var isConquestContinueEnabled = true
     private(set) var isConquestReportFitFailed = false
+    private var hasPresentedMilestoneArrival = false
+    private var isMilestoneArrivalVisible = false
     private var lastAppliedConquestReportContent: ConquestReportContent?
     private var isGoldBurstRemovalScheduled = false
     private var goldBurstRemovalTask: Task<Void, Never>?
 
     private enum ConquestReportPresentationOrigin { case freshLive, freshIdle, restored }
     #if DEBUG
+    private var milestoneArrivalPresentationCountForTestingStorage = 0
     private var lastConquestReportOriginForTestingStorage: ConquestReportPresentationOrigin?
     private var conquestEffectPresentationCountForTestingStorage = 0
     private var lastGoldBurstAnchorForTestingStorage: CGPoint?
@@ -307,6 +319,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if state.pendingBattleResult != nil, !hasPresentedPendingConquestReport {
             _ = presentPendingConquestReport(origin: .restored, resetsContinueState: true)
+        } else {
+            presentMilestoneArrivalIfNeeded()
         }
     }
 
@@ -369,6 +383,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 return
             }
             continueFromConquestReport()
+            return
+        }
+
+        if isMilestoneArrivalVisible {
+            dismissMilestoneArrival()
             return
         }
 
@@ -501,6 +520,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         hideManualTypeMenuWithoutLayoutIfNeeded()
+        dismissMilestoneArrival(animated: false)
         guard feedbackSettingsController.open() else {
             return
         }
@@ -634,6 +654,23 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         addChild(leftHUDPanel)
         addChild(rightHUDPanel)
         addChild(feedbackPanel)
+
+        milestoneArrivalPanel.zPosition = GameUITheme.Z.modal - 1
+        milestoneArrivalPanel.isHidden = true
+        milestoneArrivalTitleLabel.fontColor = GameUITheme.Color.textPrimary
+        milestoneArrivalTitleLabel.horizontalAlignmentMode = .center
+        milestoneArrivalTitleLabel.verticalAlignmentMode = .center
+        milestoneArrivalSubtitleLabel.fontColor = GameUITheme.Color.textSecondary
+        milestoneArrivalSubtitleLabel.horizontalAlignmentMode = .center
+        milestoneArrivalSubtitleLabel.verticalAlignmentMode = .center
+        milestoneArrivalPanel.addChild(milestoneArrivalTitleLabel)
+        milestoneArrivalPanel.addChild(milestoneArrivalSubtitleLabel)
+        addChild(milestoneArrivalPanel)
+
+        milestoneCityAccent.fillColor = .clear
+        milestoneCityAccent.strokeColor = GameUITheme.Color.gold
+        milestoneCityAccent.isHidden = true
+        environmentLayer.addChild(milestoneCityAccent)
 
         configureHUDIcon(goldStatusIcon, name: ButtonName.goldInfo)
         configureHUDIcon(soldierStatusIcon, name: ButtonName.goldInfo)
@@ -986,6 +1023,152 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
            hasPresentedPendingConquestReport || isConquestReportFitFailed {
             _ = applyPendingConquestReport(resetsContinueState: false)
         }
+
+        if isMilestoneArrivalVisible {
+            _ = layoutMilestoneArrival()
+        }
+    }
+
+    private func fitMilestoneLabel(
+        _ label: SKLabelNode,
+        fontName: String,
+        startingAt: CGFloat,
+        minimum: CGFloat,
+        maximumWidth: CGFloat
+    ) -> Bool {
+        guard let text = label.text,
+              let size = SingleLineTextFitter.fittedFontSize(
+                  text,
+                  startingAt: startingAt,
+                  minimum: minimum,
+                  maximumWidth: maximumWidth,
+                  measure: { candidate, fontSize in
+                      let font = UIFont(name: fontName, size: fontSize)
+                          ?? UIFont.systemFont(ofSize: fontSize)
+                      return (candidate as NSString).size(withAttributes: [.font: font]).width
+                  }
+              ) else {
+            return false
+        }
+        label.fontName = fontName
+        label.fontSize = size
+        return true
+    }
+
+    @discardableResult
+    private func layoutMilestoneArrival() -> Bool {
+        guard isMilestoneArrivalVisible || hasPresentedMilestoneArrival else { return false }
+
+        let metrics = layoutMetrics()
+        let insets = view?.safeAreaInsets ?? .zero
+        let safeWidth = size.width - insets.left - insets.right
+        let safeHeight = size.height - insets.top - insets.bottom
+        let width = min(metrics.contentWidth, safeWidth - 24)
+        let height: CGFloat = metrics.compactHeight ? 64 : 76
+        guard width >= 120, safeHeight >= height + 24 else {
+            finishMilestoneArrivalDismissal()
+            return false
+        }
+
+        let safeMinY = insets.bottom + 12
+        let safeMaxY = size.height - insets.top - 12
+        let desiredCenterY = battlefieldLayout.isVisible
+            ? battlefieldLayout.frame.midY
+            : (safeMinY + safeMaxY) / 2
+        let centerY = min(max(desiredCenterY, safeMinY + height / 2), safeMaxY - height / 2)
+
+        milestoneArrivalPanel.update(size: CGSize(width: width, height: height))
+        milestoneArrivalPanel.position = CGPoint(x: size.width / 2, y: centerY)
+        milestoneArrivalTitleLabel.position = CGPoint(x: 0, y: height * 0.18)
+        milestoneArrivalSubtitleLabel.position = CGPoint(x: 0, y: -height * 0.18)
+
+        let titleFits = fitMilestoneLabel(
+            milestoneArrivalTitleLabel,
+            fontName: GameUITheme.Font.bold,
+            startingAt: metrics.compactHeight ? 17 : 20,
+            minimum: 12,
+            maximumWidth: width - 24
+        )
+        let subtitleFits = fitMilestoneLabel(
+            milestoneArrivalSubtitleLabel,
+            fontName: GameUITheme.Font.medium,
+            startingAt: metrics.compactHeight ? 12 : 14,
+            minimum: 12,
+            maximumWidth: width - 24
+        )
+        let localBounds = CGRect(x: -width / 2, y: -height / 2, width: width, height: height)
+        guard titleFits,
+              subtitleFits,
+              localBounds.contains(milestoneArrivalTitleLabel.frame),
+              localBounds.contains(milestoneArrivalSubtitleLabel.frame),
+              !milestoneArrivalTitleLabel.frame.intersects(milestoneArrivalSubtitleLabel.frame) else {
+            finishMilestoneArrivalDismissal()
+            return false
+        }
+        return true
+    }
+
+    private func presentMilestoneArrivalIfNeeded() {
+        guard state.stageStatus == .battleActive,
+              state.pendingBattleResult == nil,
+              currentMilestoneTier != nil,
+              !hasPresentedMilestoneArrival,
+              let definition = Country1CityCatalog.definitionIfPresent(
+                  for: state.currentCityKey.cityNumber
+              ) else {
+            return
+        }
+
+        hasPresentedMilestoneArrival = true
+        isMilestoneArrivalVisible = true
+        milestoneArrivalTitleLabel.text = definition.displayTitle
+        milestoneArrivalSubtitleLabel.text = definition.flavorText
+        guard layoutMilestoneArrival() else { return }
+
+        milestoneArrivalPanel.isHidden = false
+        milestoneArrivalPanel.alpha = 0
+        milestoneArrivalPanel.setScale(UIAccessibility.isReduceMotionEnabled ? 1 : 0.97)
+        #if DEBUG
+        milestoneArrivalPresentationCountForTestingStorage += 1
+        #endif
+
+        let appear = UIAccessibility.isReduceMotionEnabled
+            ? SKAction.fadeIn(withDuration: 0.15)
+            : SKAction.group([
+                SKAction.fadeIn(withDuration: 0.15),
+                SKAction.scale(to: 1, duration: 0.15)
+            ])
+        let wait = SKAction.wait(forDuration: 1.15)
+        let disappear = SKAction.fadeOut(withDuration: 0.20)
+        let finish = SKAction.run { [weak self] in
+            self?.finishMilestoneArrivalDismissal()
+        }
+        milestoneArrivalPanel.run(
+            SKAction.sequence([appear, wait, disappear, finish]),
+            withKey: "milestoneArrival"
+        )
+    }
+
+    private func finishMilestoneArrivalDismissal() {
+        milestoneArrivalPanel.removeAllActions()
+        milestoneArrivalPanel.isHidden = true
+        milestoneArrivalPanel.alpha = 1
+        milestoneArrivalPanel.setScale(1)
+        isMilestoneArrivalVisible = false
+    }
+
+    private func dismissMilestoneArrival(animated: Bool = true) {
+        guard isMilestoneArrivalVisible else { return }
+        isMilestoneArrivalVisible = false
+        milestoneArrivalPanel.removeAllActions()
+        guard animated else {
+            finishMilestoneArrivalDismissal()
+            return
+        }
+        milestoneArrivalPanel.run(SKAction.sequence([
+            SKAction.fadeOut(withDuration: 0.10),
+            SKAction.run { [weak self] in self?.finishMilestoneArrivalDismissal() }
+        ]))
     }
 
     private func resetFontSizes() {
@@ -1378,6 +1561,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             setBattlefieldHidden(true)
             removeLaneNodes()
             removeLaneIndicatorNodes()
+            layoutMilestoneCityAccent()
             return
         }
 
@@ -1417,6 +1601,60 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         drawLanePaths()
         layoutLaneIndicators()
         syncSoldierNodes()
+        layoutMilestoneCityAccent()
+    }
+
+    private func layoutMilestoneCityAccent() {
+        guard let tier = currentMilestoneTier,
+              battlefieldLayout.isVisible,
+              let enemyCityNode else {
+            milestoneCityAccent.isHidden = true
+            milestoneCityAccent.path = nil
+            return
+        }
+
+        let cityFrame = enemyCityNode.calculateAccumulatedFrame()
+        let expansion: CGFloat
+        switch tier {
+        case .first: expansion = 5
+        case .second: expansion = 7
+        case .finale: expansion = 9
+        }
+
+        let insets = view?.safeAreaInsets ?? .zero
+        let safeFrame = CGRect(
+            x: insets.left,
+            y: insets.bottom,
+            width: max(0, size.width - insets.left - insets.right),
+            height: max(0, size.height - insets.top - insets.bottom)
+        )
+        let accentFrame = cityFrame
+            .insetBy(dx: -expansion, dy: -expansion)
+            .intersection(safeFrame)
+        guard !accentFrame.isNull, accentFrame.width > 0, accentFrame.height > 0 else {
+            milestoneCityAccent.isHidden = true
+            milestoneCityAccent.path = nil
+            return
+        }
+
+        milestoneCityAccent.path = CGPath(
+            roundedRect: accentFrame,
+            cornerWidth: 12,
+            cornerHeight: 12,
+            transform: nil
+        )
+        switch tier {
+        case .first:
+            milestoneCityAccent.lineWidth = 2
+            milestoneCityAccent.glowWidth = 1
+        case .second:
+            milestoneCityAccent.lineWidth = 3
+            milestoneCityAccent.glowWidth = 3
+        case .finale:
+            milestoneCityAccent.lineWidth = 4
+            milestoneCityAccent.glowWidth = 5
+        }
+        milestoneCityAccent.isHidden = false
     }
 
     private func layoutCityHPBar() {
@@ -3226,6 +3464,50 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
 #if DEBUG
 extension BattleScene {
+    var milestoneTierForTesting: Int? {
+        currentMilestoneTier?.rawValue
+    }
+
+    var isMilestoneArrivalVisibleForTesting: Bool {
+        isMilestoneArrivalVisible
+    }
+
+    var milestoneArrivalPresentationCountForTesting: Int {
+        milestoneArrivalPresentationCountForTestingStorage
+    }
+
+    var milestoneArrivalTitleForTesting: String? {
+        milestoneArrivalTitleLabel.text
+    }
+
+    var milestoneArrivalSubtitleForTesting: String? {
+        milestoneArrivalSubtitleLabel.text
+    }
+
+    var milestoneArrivalTitleFontSizeForTesting: CGFloat {
+        milestoneArrivalTitleLabel.fontSize
+    }
+
+    var milestoneArrivalSubtitleFontSizeForTesting: CGFloat {
+        milestoneArrivalSubtitleLabel.fontSize
+    }
+
+    var milestoneArrivalFrameForTesting: CGRect? {
+        milestoneArrivalPanel.isHidden ? nil : sceneFrame(for: milestoneArrivalPanel)
+    }
+
+    var milestoneArrivalTitleFrameForTesting: CGRect? {
+        milestoneArrivalPanel.isHidden ? nil : sceneFrame(for: milestoneArrivalTitleLabel)
+    }
+
+    var milestoneArrivalSubtitleFrameForTesting: CGRect? {
+        milestoneArrivalPanel.isHidden ? nil : sceneFrame(for: milestoneArrivalSubtitleLabel)
+    }
+
+    var milestoneCityAccentFrameForTesting: CGRect? {
+        milestoneCityAccent.isHidden ? nil : sceneFrame(for: milestoneCityAccent)
+    }
+
     var lastUpdateTimeForTesting: TimeInterval? {
         lastUpdateTime
     }
