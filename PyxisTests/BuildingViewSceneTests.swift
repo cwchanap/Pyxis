@@ -144,6 +144,123 @@ struct BuildingViewSceneTests {
             == "No favorable camp action available.")
     }
 
+    @Test("Ready recommendation delegates one build through the existing mutation path")
+    func readyRecommendationBuildsExactlyOnce() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30))
+        let feedback = BuildingViewFeedbackRecorder()
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+        let frame = try #require(scene.buildingLayoutFramesForTesting?.recommendationRow)
+
+        scene.handleTouchForTesting(at: center(of: frame))
+
+        let saved = store.load()
+        #expect(saved.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .barracks)
+        #expect(saved.gold == 15)
+        #expect(feedback.discreteEvents == [.buildingChanged])
+        #expect(scene.recommendedCampPrimaryTextForTesting == "Recommended Camp · Ready")
+        #expect(scene.recommendedCampSecondaryTextForTesting
+            == "Upgrade Barracks · Lot 1 · 12g · Infantry starter")
+    }
+
+    @Test("Ready recommendation delegates one upgrade through the existing mutation path")
+    func readyRecommendationUpgradesExactlyOnce() throws {
+        let key = CityKey(countryNumber: 1, cityNumber: 5)
+        let initialState = KingdomGameState(
+            gold: 30,
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            cityBattleStates: [key.storageKey: CityBattleState(
+                slots: [1: CityBuilding(type: .barracks, level: 1)]
+            )]
+        )
+        let store = try makeStore(initialState: initialState)
+        let feedback = BuildingViewFeedbackRecorder()
+        let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
+        let frame = try #require(scene.buildingLayoutFramesForTesting?.recommendationRow)
+
+        scene.handleTouchForTesting(at: center(of: frame))
+
+        let saved = store.load()
+        #expect(saved.cityBattleStateForCurrentCity.building(inSlot: 1)?.level == 2)
+        #expect(saved.gold == 18)
+        #expect(saved.cityBattleStateForCurrentCity.building(inSlot: 2) == nil)
+        #expect(saved.cityBattleStateForCurrentCity.slots.count == 1)
+        #expect(feedback.discreteEvents == [.buildingChanged])
+    }
+
+    @Test("Save-for recommendation consumes its row touch without a gameplay action")
+    func saveForRecommendationTouchIsConsumed() throws {
+        let initialState = KingdomGameState(gold: 10)
+        let store = try makeStore(initialState: initialState)
+        let feedback = BuildingViewFeedbackRecorder()
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router, feedback: feedback)
+        let frame = try #require(scene.buildingLayoutFramesForTesting?.recommendationRow)
+        let slot = try #require(scene.childNode(withName: "//buildingSlot-1"))
+        scene.selectSlotForTesting(2)
+        slot.position = center(of: frame)
+
+        let before = store.load()
+        let beforeRouterCount = router.battleRequestCount
+
+        scene.handleTouchForTesting(at: center(of: frame))
+
+        #expect(store.load() == before)
+        #expect(scene.selectedSlotForTesting == 2)
+        #expect(router.battleRequestCount == beforeRouterCount)
+        #expect(feedback.calls.isEmpty)
+    }
+
+    @Test("No-action recommendation consumes its row touch without a gameplay action")
+    func noActionRecommendationTouchIsConsumed() throws {
+        let initialState = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: 6,
+            completedCityCount: 5
+        )
+        let store = try makeStore(initialState: initialState)
+        let feedback = BuildingViewFeedbackRecorder()
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router, feedback: feedback)
+        let frame = try #require(scene.buildingLayoutFramesForTesting?.recommendationRow)
+        let slot = try #require(scene.childNode(withName: "//buildingSlot-1"))
+        scene.selectSlotForTesting(2)
+        slot.position = center(of: frame)
+
+        let before = store.load()
+        let beforeRouterCount = router.battleRequestCount
+
+        scene.handleTouchForTesting(at: center(of: frame))
+
+        #expect(store.load() == before)
+        #expect(scene.selectedSlotForTesting == 2)
+        #expect(router.battleRequestCount == beforeRouterCount)
+        #expect(feedback.calls.isEmpty)
+    }
+
+    @Test("Visible Settings consumes recommendation-row touches before recommendation activation")
+    func settingsPrecedesRecommendationTouch() throws {
+        let initialState = KingdomGameState(gold: 30)
+        let store = try makeStore(initialState: initialState)
+        let feedback = BuildingViewFeedbackRecorder()
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router, feedback: feedback)
+        let frame = try #require(scene.buildingLayoutFramesForTesting?.recommendationRow)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.handleTouchForTesting(at: center(of: gearFrame))
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        let before = store.load()
+        scene.handleTouchForTesting(at: center(of: frame))
+
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(store.load() == before)
+        #expect(scene.selectedSlotForTesting == nil)
+        #expect(router.battleRequestCount == 0)
+        #expect(feedback.calls.isEmpty)
+    }
+
     @Test("Building View layout and routing gates take priority over Settings")
     func buildingViewLayoutAndRoutingGatesPreventSettingsTouches() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
