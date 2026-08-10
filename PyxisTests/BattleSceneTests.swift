@@ -54,6 +54,136 @@ struct BattleSceneTests {
 
     }
 
+    private func activeMilestoneState(city: Int, gold: Int = 100) -> KingdomGameState {
+        KingdomGameState(
+            gold: gold,
+            cityLevel: city,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            stageStatus: .battleActive
+        )
+    }
+
+    @Test("City 5 presents authored milestone arrival without pausing combat")
+    func city5PresentsReadableArrivalWithoutPausingCombat() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: activeMilestoneState(city: 5))
+        )
+
+        #expect(scene.milestoneTierForTesting == 1)
+        #expect(scene.isMilestoneArrivalVisibleForTesting)
+        #expect(scene.milestoneArrivalTitleForTesting == "City 5 · Highcrest")
+        #expect(scene.milestoneArrivalSubtitleForTesting == "A proud hill fortress crowns the frontier.")
+        #expect(scene.milestoneArrivalTitleFontSizeForTesting >= 12)
+        #expect(scene.milestoneArrivalSubtitleFontSizeForTesting >= 12)
+        #expect(scene.milestoneCityAccentFrameForTesting != nil)
+
+        scene.update(10)
+        scene.update(11)
+        #expect(scene.lastAdvanceCombatDeltaForTesting == 1)
+    }
+
+    @Test("Ordinary cities create no milestone presentation")
+    func ordinaryCityHasNoMilestonePresentation() throws {
+        let scene = makeScene(store: try makeStore(initialState: KingdomGameState(
+            cityLevel: 6,
+            cityNumberInCountry: 6,
+            completedCityCount: 5
+        )))
+
+        #expect(scene.milestoneTierForTesting == nil)
+        #expect(!scene.isMilestoneArrivalVisibleForTesting)
+        #expect(scene.milestoneCityAccentFrameForTesting == nil)
+    }
+
+    @Test("Arrival consumes one Settings-gear tap and the next tap opens Settings")
+    func milestoneArrivalConsumesUnderlyingTap() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: activeMilestoneState(city: 5))
+        )
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(!scene.isMilestoneArrivalVisibleForTesting)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Arrival does not replay on didMove redraw or layout refresh")
+    func milestoneArrivalDoesNotReplayOnLayoutRefresh() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: activeMilestoneState(city: 10))
+        )
+        let count = scene.milestoneArrivalPresentationCountForTesting
+
+        scene.refreshLayoutForCurrentEnvironment()
+        scene.redrawForTesting(shouldLayout: true)
+        scene.repeatDidMoveForTesting()
+
+        #expect(scene.milestoneArrivalPresentationCountForTesting == count)
+    }
+
+    @Test("VoiceOver Settings activation dismisses milestone arrival before opening")
+    func milestoneArrivalDismissesForAccessibilitySettingsActivation() throws {
+        let size = CGSize(width: 390, height: 844)
+        let containerView = UIView(frame: CGRect(origin: .zero, size: size))
+        let adapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let scene = makeScene(
+            store: try makeStore(initialState: activeMilestoneState(city: 5)),
+            size: size,
+            feedbackSettingsAccessibilityAdapter: adapter
+        )
+        let retainedGear = try #require(accessibilityElements(in: containerView).onlyElement)
+
+        #expect(scene.isMilestoneArrivalVisibleForTesting)
+        #expect(retainedGear.accessibilityActivate())
+
+        #expect(!scene.isMilestoneArrivalVisibleForTesting)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Finale arrival stays readable at supported narrow and landscape gates")
+    func finaleArrivalFitsSupportedGates() throws {
+        for size in [
+            CGSize(width: 568, height: 320),
+            CGSize(width: 667, height: 375),
+            CGSize(width: 320, height: 568)
+        ] {
+            let scene = makeScene(
+                store: try makeStore(initialState: activeMilestoneState(
+                    city: KingdomGameState.firstCountryCityCount
+                )),
+                size: size
+            )
+            let banner = try #require(scene.milestoneArrivalFrameForTesting)
+            let title = try #require(scene.milestoneArrivalTitleFrameForTesting)
+            let subtitle = try #require(scene.milestoneArrivalSubtitleFrameForTesting)
+
+            #expect(banner.contains(title))
+            #expect(banner.contains(subtitle))
+            #expect(!title.intersects(subtitle))
+            #expect(scene.milestoneArrivalTitleFontSizeForTesting >= 12)
+            #expect(scene.milestoneArrivalSubtitleFontSizeForTesting >= 12)
+        }
+    }
+
+    @Test("Arrival layout failure releases input instead of leaving an invisible interceptor")
+    func milestoneArrivalFailsOpenOnUnusableGeometry() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: activeMilestoneState(city: 5)),
+            size: CGSize(width: 110, height: 568)
+        )
+
+        #expect(!scene.isMilestoneArrivalVisibleForTesting)
+        #expect(scene.milestoneArrivalFrameForTesting == nil)
+    }
+
     @Test func battleSceneDisplaysCampaignCityTitle() throws {
         let store = try makeStore(
             initialState: KingdomGameState(
