@@ -8,6 +8,12 @@ HPA-390 is the next player-visible HPA-360 roadmap slice. HPA-366 (Country 1 cit
 
 This design intentionally keeps milestone behavior presentation-only. It does not change combat, rewards, progression, persistence, buildings, lane rules, unit rules, or idle progress.
 
+### Relationship to HPA-366
+
+HPA-366 intentionally left overall country completion on the Country Map after Continue and kept the City 15 Battle report title as `Crownspire Keep Falls`. HPA-390 explicitly supersedes only that earlier presentation constraint by adding a visible `Country 1 Complete` state to the City 15 report presentation before Continue.
+
+The authored conquest title remains `Crownspire Keep Falls`, and the existing pending-result acknowledgement, save, and Country Map routing transaction remains unchanged.
+
 ## Goals
 
 Make Cities 5, 10, and 15 feel like increasingly important Country 1 moments while preserving Pyxis's simple casual loop.
