@@ -1177,7 +1177,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func dismissMilestoneArrival(animated: Bool = true) {
-        guard isMilestoneArrivalVisible else { return }
+        guard isMilestoneArrivalVisible || !milestoneArrivalPanel.isHidden else { return }
         isMilestoneArrivalVisible = false
         milestoneArrivalPanel.removeAllActions()
         guard animated else {
