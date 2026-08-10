@@ -51,13 +51,15 @@ struct RecommendedCampRecommendationTests {
     private func makeState(
         city: Int,
         gold: Int,
-        cityState: CityBattleState = CityBattleState()
+        cityState: CityBattleState = CityBattleState(),
+        stageStatus: KingdomGameState.StageStatus = .battleActive
     ) -> KingdomGameState {
         let key = CityKey(countryNumber: 1, cityNumber: city)
         return KingdomGameState(
             gold: gold,
             cityNumberInCountry: city,
             completedCityCount: city - 1,
+            stageStatus: stageStatus,
             cityBattleStates: [key.storageKey: cityState]
         )
     }
@@ -145,9 +147,44 @@ func upgradeTieBreakIsLevelThenSlot() {
 }
 ```
 
-- [ ] Add a lowest-empty-lot test by occupying slots 1 and 2 with neutral buildings on City 5; expect the Barracks build in slot 3.
+- [ ] Add the lowest-empty-lot test with two valid City 5 Archery Ranges occupying the first two lots:
 
-- [ ] Add an explicit five-building cap regression. Seed five Barracks with levels `[3, 1, 1, 4, 2]` in slots `1...5`; expect an **upgrade** of slot 2 at 12g. The build cap must not turn an existing favored type into `No recommendation` and no max level may be invented.
+```swift
+@Test("A build uses the lowest empty lot")
+func buildUsesLowestEmptyLot() {
+    let cityState = CityBattleState(slots: [
+        1: CityBuilding(type: .archeryRange),
+        2: CityBuilding(type: .archeryRange)
+    ])
+    let state = makeState(city: 5, gold: 100, cityState: cityState)
+
+    #expect(RecommendedCampRecommendation.make(for: state) == .ready(
+        action: .init(kind: .build, buildingType: .barracks, slot: 3, cost: 15),
+        reason: "Infantry favored"
+    ))
+}
+```
+
+- [ ] Add the explicit five-building cap regression:
+
+```swift
+@Test("The five-building type cap still allows upgrading an existing favored building")
+func typeCapStillAllowsUpgrade() {
+    let cityState = CityBattleState(slots: [
+        1: CityBuilding(type: .barracks, level: 3),
+        2: CityBuilding(type: .barracks, level: 1),
+        3: CityBuilding(type: .barracks, level: 1),
+        4: CityBuilding(type: .barracks, level: 4),
+        5: CityBuilding(type: .barracks, level: 2)
+    ])
+    let state = makeState(city: 5, gold: 100, cityState: cityState)
+
+    #expect(RecommendedCampRecommendation.make(for: state) == .ready(
+        action: .init(kind: .upgrade, buildingType: .barracks, slot: 2, cost: 12),
+        reason: "Infantry favored"
+    ))
+}
+```
 
 - [ ] Add the real locked/non-standard fallback regression:
 
@@ -162,9 +199,31 @@ func city6DoesNotFallBackToInfantry() {
 }
 ```
 
-- [ ] Add a non-active-stage test with `stageStatus: .cityConqueredPendingMap`; expect `.none(message: "No favorable camp action available.")`.
+- [ ] Add non-active and determinism tests:
 
-- [ ] Add determinism by projecting the same City 5 state twice and asserting equal results.
+```swift
+@Test("Non-active stage has no recommendation")
+func nonActiveStageHasNoRecommendation() {
+    let state = makeState(
+        city: 5,
+        gold: 100,
+        stageStatus: .cityConqueredPendingMap
+    )
+
+    #expect(RecommendedCampRecommendation.make(for: state) == .none(
+        message: "No favorable camp action available."
+    ))
+}
+
+@Test("Identical state produces identical recommendation")
+func identicalStateIsDeterministic() {
+    let state = makeState(city: 5, gold: 100)
+    #expect(RecommendedCampRecommendation.make(for: state)
+        == RecommendedCampRecommendation.make(for: state))
+}
+```
+
+Do not create malformed/no-empty-lot fixtures that `CityBattleState.normalize()` would reject. With current per-type caps and authored favorable sets, “all 25 lots occupied while every favorable type is absent” is not a reachable normalized state.
 
 ### 3. Run RED
 
@@ -328,15 +387,23 @@ func buildingViewRendersReadyRecommendedCamp() throws {
 }
 ```
 
-- [ ] Add Save-for copy using City 1 with 10g:
-  - primary `Recommended Camp · Save for`
-  - secondary `Build Barracks · Lot 1 · Need 5g · Infantry starter`.
+- [ ] Add Save-for copy using City 1 with 10g and assert:
 
-- [ ] Add No-recommendation copy using normalized City 6:
-  - primary `Recommended Camp`
-  - secondary `No favorable camp action available.`.
+```swift
+#expect(scene.recommendedCampPrimaryTextForTesting == "Recommended Camp · Save for")
+#expect(scene.recommendedCampSecondaryTextForTesting
+    == "Build Barracks · Lot 1 · Need 5g · Infantry starter")
+```
 
-- [ ] Extend the existing DEBUG `BuildingLayoutFrames` with `recommendationRow`. Add DEBUG accessors for primary/secondary text and font sizes.
+- [ ] Add No-recommendation copy using a normalized City 6 state and assert:
+
+```swift
+#expect(scene.recommendedCampPrimaryTextForTesting == "Recommended Camp")
+#expect(scene.recommendedCampSecondaryTextForTesting
+    == "No favorable camp action available.")
+```
+
+- [ ] Extend the existing DEBUG `BuildingLayoutFrames` with `manualRegion` and `recommendationRow`. Add DEBUG accessors for primary/secondary text and font sizes.
 
 ### 2. Add RED packing tests before scene implementation
 
@@ -352,7 +419,15 @@ func buildingViewRendersReadyRecommendedCamp() throws {
 
 `manualRegion` is a DEBUG frame for the unchanged old action-panel region, not a new production layout type.
 
-- [ ] For all existing build button frames plus upgrade/Battle, assert no intersection with `recommendationRow`.
+- [ ] For every build button frame plus upgrade/Battle:
+
+```swift
+for frame in frames.buildButtonFrames.values {
+    #expect(!frames.recommendationRow.intersects(frame))
+}
+#expect(!frames.recommendationRow.intersects(frames.upgradeButton))
+#expect(!frames.recommendationRow.intersects(frames.battleButton))
+```
 
 - [ ] Reuse the current compact-landscape and portrait fixtures to assert the row is contained, grid remains non-empty, and manual controls remain inside the panel. Do not add a new geometry matrix.
 
@@ -428,7 +503,26 @@ let recommendationFrame = CGRect(
 )
 ```
 
-- [ ] Layout the background to `recommendationFrame`. Center the two labels vertically within it with one small gap. Reset nominal font sizes on every `layoutInterface()` call:
+- [ ] Apply `recommendationFrame` without adding another layout type:
+
+```swift
+recommendationRow.position = CGPoint(x: recommendationFrame.midX, y: recommendationFrame.midY)
+recommendationBackground.path = CGPath(
+    roundedRect: CGRect(
+        x: -recommendationFrame.width / 2,
+        y: -recommendationFrame.height / 2,
+        width: recommendationFrame.width,
+        height: recommendationFrame.height
+    ),
+    cornerWidth: 9,
+    cornerHeight: 9,
+    transform: nil
+)
+```
+
+Place the two labels locally above/below the row center with a small gap.
+
+- [ ] Reset nominal font sizes on every `layoutInterface()` call:
   - very-short: primary 11, secondary 10;
   - other layouts: primary 13, secondary 12.
 
@@ -440,16 +534,13 @@ let recommendationFrame = CGRect(
 
 ### 6. Render exactly two lines from the pure value
 
-- [ ] At the start of `redraw()`:
+- [ ] At the start of `redraw()`, bind a non-optional local before switching:
 
 ```swift
-renderedRecommendation = RecommendedCampRecommendation.make(for: state)
-```
+let recommendation = RecommendedCampRecommendation.make(for: state)
+renderedRecommendation = recommendation
 
-- [ ] Set the two labels as follows, using `BuildingType.shortDisplayName`:
-
-```swift
-switch renderedRecommendation {
+switch recommendation {
 case let .ready(action, reason):
     recommendationPrimaryLabel.text = "Recommended Camp · Ready"
     recommendationSecondaryLabel.text =
@@ -467,10 +558,6 @@ case let .saveFor(action, missingGold, reason):
 case let .none(message):
     recommendationPrimaryLabel.text = "Recommended Camp"
     recommendationSecondaryLabel.text = message
-
-case nil:
-    recommendationPrimaryLabel.text = nil
-    recommendationSecondaryLabel.text = nil
 }
 ```
 
@@ -520,14 +607,25 @@ func readyRecommendedCampTapBuildsExactlyOnce() throws {
 }
 ```
 
-- [ ] Add Ready upgrade with a City 5 fixture containing Barracks levels in slots 2/3/7. Tap once and assert only slot 2 increments.
+- [ ] Add Ready upgrade with a normalized City 5 state containing Barracks at slots 2/3/7 with levels 1/2/1. Tap once and assert slot 2 becomes level 2 while slot 7 remains level 1.
 
-- [ ] Add Save-for and No-recommendation row tests. Before tapping, select an unrelated lot (for example lot 9). After tapping the recommendation row assert:
-  - saved state unchanged;
+- [ ] Add Save-for and No-recommendation row tests. Before tapping, select lot 9. After tapping the recommendation row assert:
+  - saved state is unchanged;
   - `selectedSlotForTesting == 9`;
   - no `.invalidAction` or construction feedback.
 
-- [ ] Prove the row consumes touches rather than merely missing other hit targets: in the Save-for test, temporarily move `buildingSlot-1` under the recommendation-row center using the node's parent coordinate conversion, tap the row, and assert lot 1 is **not** selected.
+- [ ] Prove the row consumes touches rather than merely missing other hit targets. In the Save-for test, move slot 1 under the row center:
+
+```swift
+let slotNode = try #require(scene.childNode(withName: "//buildingSlot-1"))
+let parent = try #require(slotNode.parent)
+slotNode.position = parent.convert(
+    CGPoint(x: frame.midX, y: frame.midY),
+    from: scene
+)
+scene.handleTouchForTesting(at: CGPoint(x: frame.midX, y: frame.midY))
+#expect(scene.selectedSlotForTesting == 9)
+```
 
 - [ ] Add stale-card regression:
   1. render City 1 Ready Barracks build with 30g;
