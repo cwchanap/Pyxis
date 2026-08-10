@@ -408,7 +408,7 @@ No pulse is added in this ticket. HPA-567 may revisit motion if playtesting show
 private func presentMilestoneArrivalIfNeeded() {
     guard !hasPresentedMilestoneArrival,
           state.stageStatus == .battleActive,
-          let presentation = currentMilestonePresentation,
+          currentMilestonePresentation != nil,
           let definition = Country1CityCatalog.definitionIfPresent(
               for: state.currentCityKey.cityNumber
           ) else {
