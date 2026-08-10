@@ -24,6 +24,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private enum ButtonName {
         static let upgrade = "upgradeBuildingButton"
         static let battle = "buildingViewBattleButton"
+        static let recommendedCamp = "recommendedCampCard"
     }
 
     private enum SlotName {
@@ -106,12 +107,17 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
     private var selectedSlot: Int?
     private var feedbackText = "Select a city lot."
+    private var renderedRecommendation: RecommendedCampRecommendation?
 
     private let titlePanel = PanelNode(size: CGSize(width: 320, height: 64))
     private let actionPanel = PanelNode(size: CGSize(width: 320, height: 138))
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let goldLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let feedbackLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let recommendationRow = SKNode()
+    private let recommendationBackground = SKShapeNode()
+    private let recommendationPrimaryLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let recommendationSecondaryLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let backdropNode = SKSpriteNode(imageNamed: AssetName.backdrop)
     private let gridLayer = SKNode()
     private let upgradeButton = SKNode()
@@ -385,6 +391,22 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         configureLabel(goldLabel, fontSize: 18, color: GameUITheme.Color.gold)
         configureLabel(feedbackLabel, fontSize: 15, color: GameUITheme.Color.textSecondary)
 
+        recommendationRow.name = ButtonName.recommendedCamp
+        recommendationBackground.name = ButtonName.recommendedCamp
+        recommendationBackground.fillColor = GameUITheme.Color.panelFill
+        recommendationBackground.strokeColor = GameUITheme.Color.panelStroke
+        recommendationBackground.lineWidth = 1.5
+        configureLabel(recommendationPrimaryLabel, fontSize: 13, color: GameUITheme.Color.textPrimary)
+        configureLabel(recommendationSecondaryLabel, fontSize: 12, color: GameUITheme.Color.textSecondary)
+        recommendationPrimaryLabel.name = ButtonName.recommendedCamp
+        recommendationSecondaryLabel.name = ButtonName.recommendedCamp
+        recommendationBackground.zPosition = 0
+        recommendationPrimaryLabel.zPosition = 1
+        recommendationSecondaryLabel.zPosition = 1
+        recommendationRow.addChild(recommendationBackground)
+        recommendationRow.addChild(recommendationPrimaryLabel)
+        recommendationRow.addChild(recommendationSecondaryLabel)
+
         for type in BuildingType.allCases {
             let bundle = BuildButtonBundle(
                 button: SKNode(),
@@ -422,6 +444,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             titleLabel,
             goldLabel,
             feedbackLabel,
+            recommendationRow,
             upgradeButton,
             battleButton
         ].forEach { $0.zPosition = GameUITheme.Z.hud + 1 }
@@ -430,6 +453,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         addChild(titleLabel)
         addChild(goldLabel)
         addChild(feedbackLabel)
+        addChild(recommendationRow)
         BuildingType.allCases.compactMap { buildButtonBundles[$0]?.button }.forEach(addChild)
         addChild(upgradeButton)
         addChild(battleButton)
@@ -598,11 +622,20 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
 
         let titleHeight: CGFloat = veryShortLandscape ? 48 : (compactHeight ? 56 : 68)
         let actionHeight: CGFloat = veryShortLandscape ? 132 : (compactHeight ? 158 : 176)
+        let recommendationHeight: CGFloat = veryShortLandscape ? 28 : (compactHeight ? 32 : 36)
+        let panelVerticalInset: CGFloat = veryShortLandscape ? 2 : 4
+        let controlGap: CGFloat = veryShortLandscape ? 4 : 5
         let topMargin = veryShortLandscape ? max(safeTop + 4, 8) : max(safeTop + 8, compactHeight ? 12 : 14)
         let bottomMargin = veryShortLandscape ? max(safeBottom + 4, 8) : max(safeBottom + 8, compactHeight ? 10 : 14)
         let panelGridGap: CGFloat = veryShortLandscape ? 8 : 18
         let titleCenterY = size.height - topMargin - titleHeight / 2
         let actionCenterY = bottomMargin + actionHeight / 2
+        let actionPanelFrame = CGRect(
+            x: size.width / 2 - contentWidth / 2,
+            y: actionCenterY - actionHeight / 2,
+            width: contentWidth,
+            height: actionHeight
+        )
 
         titlePanel.update(size: CGSize(width: contentWidth, height: titleHeight))
         titlePanel.position = CGPoint(x: size.width / 2, y: titleCenterY)
@@ -647,8 +680,6 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             feedbackSettingsController?.applyGearFrame(.zero)
         }
         feedbackSettingsController?.reapply(layout: feedbackSettingsLayoutForCurrentEnvironment())
-
-        feedbackLabel.position = CGPoint(x: size.width / 2, y: actionCenterY + actionHeight * 0.33)
 
         let gridTop = titleCenterY - titleHeight / 2 - panelGridGap
         let gridBottom = actionCenterY + actionHeight / 2 + panelGridGap
@@ -716,7 +747,44 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         let buttonAreaWidth = contentWidth - 28
         let buildButtonWidth = (buttonAreaWidth - buttonGap * 2) / 3
         let buildStartX = size.width / 2 - buttonAreaWidth / 2 + buildButtonWidth / 2
-        let buildTopY = actionCenterY + actionHeight * 0.13
+
+        let panelMinY = actionCenterY - actionHeight / 2
+        let panelMaxY = actionCenterY + actionHeight / 2
+        let bottomButtonY = panelMinY + panelVerticalInset + buttonHeight / 2
+        let secondBuildRowY = bottomButtonY + buttonHeight + controlGap
+        let firstBuildRowY = secondBuildRowY + buttonHeight + controlGap
+        let recommendationFrame = CGRect(
+            x: size.width / 2 - (contentWidth - 28) / 2,
+            y: panelMaxY - panelVerticalInset - recommendationHeight,
+            width: contentWidth - 28,
+            height: recommendationHeight
+        )
+        let firstBuildTop = firstBuildRowY + buttonHeight / 2
+        let feedbackBandMinY = firstBuildTop + controlGap
+        let feedbackBandMaxY = recommendationFrame.minY - controlGap
+        feedbackLabel.position = CGPoint(
+            x: size.width / 2,
+            y: (feedbackBandMinY + feedbackBandMaxY) / 2
+        )
+
+        recommendationRow.position = CGPoint(
+            x: recommendationFrame.midX,
+            y: recommendationFrame.midY
+        )
+        recommendationBackground.path = CGPath(
+            roundedRect: CGRect(
+                x: -recommendationFrame.width / 2,
+                y: -recommendationFrame.height / 2,
+                width: recommendationFrame.width,
+                height: recommendationFrame.height
+            ),
+            cornerWidth: 9,
+            cornerHeight: 9,
+            transform: nil
+        )
+        let labelOffset: CGFloat = veryShortLandscape ? 7 : 8
+        recommendationPrimaryLabel.position = CGPoint(x: 0, y: labelOffset)
+        recommendationSecondaryLabel.position = CGPoint(x: 0, y: -labelOffset)
 
         for (index, type) in BuildingType.allCases.enumerated() {
             guard let bundle = buildButtonBundles[type] else {
@@ -726,7 +794,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             let row = index / 3
             let column = index % 3
             let x = buildStartX + CGFloat(column) * (buildButtonWidth + buttonGap)
-            let y = buildTopY - CGFloat(row) * (buttonHeight + buttonGap)
+            let y = row == 0 ? firstBuildRowY : secondBuildRowY
             layoutButton(
                 bundle.button,
                 background: bundle.background,
@@ -746,7 +814,18 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         let bottomButtonWidth = (buttonAreaWidth - buttonGap) / 2
         let leftX = size.width / 2 - bottomButtonWidth / 2 - buttonGap / 2
         let rightX = size.width / 2 + bottomButtonWidth / 2 + buttonGap / 2
-        let bottomButtonY = actionCenterY - actionHeight * 0.34
+        let upgradeButtonFrame = CGRect(
+            x: leftX - bottomButtonWidth / 2,
+            y: bottomButtonY - buttonHeight / 2,
+            width: bottomButtonWidth,
+            height: buttonHeight
+        )
+        let battleButtonFrame = CGRect(
+            x: rightX - bottomButtonWidth / 2,
+            y: bottomButtonY - buttonHeight / 2,
+            width: bottomButtonWidth,
+            height: buttonHeight
+        )
         layoutButton(
             upgradeButton,
             background: upgradeBackground,
@@ -765,6 +844,8 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             fitLabel(goldLabel, maxWidth: headerTextColumnFrame.width)
         }
         fitLabel(feedbackLabel, maxWidth: contentWidth - 28)
+        fitLabel(recommendationPrimaryLabel, maxWidth: recommendationFrame.width - 14)
+        fitLabel(recommendationSecondaryLabel, maxWidth: recommendationFrame.width - 14)
         fitLabel(upgradeLabel, maxWidth: bottomButtonWidth - 18)
         fitLabel(battleLabel, maxWidth: bottomButtonWidth - 18)
 
@@ -775,11 +856,21 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             titleTextColumn: headerTextColumnFrame,
             titleLabel: sceneFrame(for: titleLabel) ?? .zero,
             goldLabel: sceneFrame(for: goldLabel) ?? .zero,
-            actionPanel: sceneFrame(for: actionPanel) ?? .zero,
+            actionPanel: actionPanelFrame,
+            recommendationRow: recommendationFrame,
+            recommendationPrimaryLabel: sceneFrame(for: recommendationPrimaryLabel) ?? .zero,
+            recommendationSecondaryLabel: sceneFrame(for: recommendationSecondaryLabel) ?? .zero,
+            feedbackLabel: sceneFrame(for: feedbackLabel) ?? .zero,
             grid: gridFrameForSlots(),
-            buildButtonFrames: buildButtonFrameMap(),
-            upgradeButton: sceneFrame(for: upgradeButton) ?? .zero,
-            battleButton: sceneFrame(for: battleButton) ?? .zero
+            buildButtonFrames: buildButtonFrameMap(
+                buttonAreaWidth: buttonAreaWidth,
+                buttonGap: buttonGap,
+                buttonHeight: buttonHeight,
+                firstBuildRowY: firstBuildRowY,
+                secondBuildRowY: secondBuildRowY
+            ),
+            upgradeButton: upgradeButtonFrame,
+            battleButton: battleButtonFrame
         )
     }
 
@@ -789,6 +880,8 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         titleLabel.fontSize = veryShortLandscape ? 22 : 26
         goldLabel.fontSize = veryShortLandscape ? 15 : 18
         feedbackLabel.fontSize = veryShortLandscape ? 13 : 15
+        recommendationPrimaryLabel.fontSize = veryShortLandscape ? 11 : 13
+        recommendationSecondaryLabel.fontSize = veryShortLandscape ? 10 : 12
         buildButtonBundles.values.forEach { $0.label.fontSize = veryShortLandscape ? 13 : 15 }
         upgradeLabel.fontSize = veryShortLandscape ? 13 : 15
         battleLabel.fontSize = veryShortLandscape ? 13 : 15
@@ -805,10 +898,33 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     }
 
     private func redraw() {
+        let recommendation = RecommendedCampRecommendation.make(for: state)
+        renderedRecommendation = recommendation
+
         titleLabel.text = "City Lots"
         goldLabel.text = "Gold: \(state.gold)"
         feedbackLabel.text = feedbackText
         battleLabel.text = "Battle"
+
+        switch recommendation {
+        case let .ready(action, reason):
+            recommendationPrimaryLabel.text = "Recommended Camp · Ready"
+            recommendationSecondaryLabel.text =
+                "\(action.kind == .build ? "Build" : "Upgrade") "
+                + "\(action.buildingType.shortDisplayName) · Lot \(action.slot) · "
+                + "\(action.cost)g · \(reason)"
+
+        case let .saveFor(action, missingGold, reason):
+            recommendationPrimaryLabel.text = "Recommended Camp · Save for"
+            recommendationSecondaryLabel.text =
+                "\(action.kind == .build ? "Build" : "Upgrade") "
+                + "\(action.buildingType.shortDisplayName) · Lot \(action.slot) · "
+                + "Need \(missingGold)g · \(reason)"
+
+        case let .noAction(message):
+            recommendationPrimaryLabel.text = "Recommended Camp"
+            recommendationSecondaryLabel.text = message
+        }
 
         for type in BuildingType.allCases {
             guard let bundle = buildButtonBundles[type] else {
@@ -1214,16 +1330,39 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         var titleLabel = CGRect.zero
         var goldLabel = CGRect.zero
         var actionPanel = CGRect.zero
+        var recommendationRow = CGRect.zero
+        var recommendationPrimaryLabel = CGRect.zero
+        var recommendationSecondaryLabel = CGRect.zero
+        var feedbackLabel = CGRect.zero
         var grid = CGRect.zero
         var buildButtonFrames: [BuildingType: CGRect] = [:]
         var upgradeButton = CGRect.zero
         var battleButton = CGRect.zero
     }
 
-    private func buildButtonFrameMap() -> [BuildingType: CGRect] {
+    private func buildButtonFrameMap(
+        buttonAreaWidth: CGFloat,
+        buttonGap: CGFloat,
+        buttonHeight: CGFloat,
+        firstBuildRowY: CGFloat,
+        secondBuildRowY: CGFloat
+    ) -> [BuildingType: CGRect] {
+        let buildButtonWidth = (buttonAreaWidth - buttonGap * 2) / 3
+        let buildStartX = size.width / 2 - buttonAreaWidth / 2 + buildButtonWidth / 2
         var frames: [BuildingType: CGRect] = [:]
-        for (type, bundle) in buildButtonBundles {
-            frames[type] = sceneFrame(for: bundle.button) ?? .zero
+        for (index, type) in BuildingType.allCases.enumerated() {
+            let row = index / 3
+            let column = index % 3
+            let center = CGPoint(
+                x: buildStartX + CGFloat(column) * (buildButtonWidth + buttonGap),
+                y: row == 0 ? firstBuildRowY : secondBuildRowY
+            )
+            frames[type] = CGRect(
+                x: center.x - buildButtonWidth / 2,
+                y: center.y - buttonHeight / 2,
+                width: buildButtonWidth,
+                height: buttonHeight
+            )
         }
         return frames
     }
@@ -1281,6 +1420,10 @@ extension BuildingViewScene {
         let titleLabel: CGRect
         let goldLabel: CGRect
         let actionPanel: CGRect
+        let recommendationRow: CGRect
+        let recommendationPrimaryLabel: CGRect
+        let recommendationSecondaryLabel: CGRect
+        let feedbackLabel: CGRect
         let grid: CGRect
         let buildButtonFrames: [BuildingType: CGRect]
         let upgradeButton: CGRect
@@ -1296,6 +1439,10 @@ extension BuildingViewScene {
             titleLabel: layoutFrames.titleLabel,
             goldLabel: layoutFrames.goldLabel,
             actionPanel: layoutFrames.actionPanel,
+            recommendationRow: layoutFrames.recommendationRow,
+            recommendationPrimaryLabel: layoutFrames.recommendationPrimaryLabel,
+            recommendationSecondaryLabel: layoutFrames.recommendationSecondaryLabel,
+            feedbackLabel: layoutFrames.feedbackLabel,
             grid: layoutFrames.grid,
             buildButtonFrames: layoutFrames.buildButtonFrames,
             upgradeButton: layoutFrames.upgradeButton,
@@ -1380,6 +1527,14 @@ extension BuildingViewScene {
 
     var goldTextForTesting: String? {
         goldLabel.text
+    }
+
+    var recommendedCampPrimaryTextForTesting: String? {
+        recommendationPrimaryLabel.text
+    }
+
+    var recommendedCampSecondaryTextForTesting: String? {
+        recommendationSecondaryLabel.text
     }
 
     var feedbackTextForTesting: String {
