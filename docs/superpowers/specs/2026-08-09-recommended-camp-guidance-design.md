@@ -8,13 +8,15 @@ The feature must make the existing building system easier to use without creatin
 
 ## Product constraints
 
-- Keep every existing manual lot, build, upgrade, and Battle interaction available and behaviorally unchanged.
+- Keep every existing manual lot, build, upgrade, Settings, and Battle interaction available and behaviorally unchanged.
 - Show exactly one recommendation state: `Ready`, `Save for`, or `No recommendation`.
-- One tap may execute at most one ready build or upgrade.
+- One tap may execute at most one Ready build or upgrade.
 - Opening Building View, waiting, backgrounding, resizing, or seeing the card never spends gold.
 - An unaffordable preferred action remains the recommendation as `Save for`; never replace it with a cheaper neutral or later favorable action.
 - Non-standard cities only recommend authored favorable soldier types.
 - `Standard Watch` uses one explicit Infantry-first fallback.
+- The visible card is at most two single-line labels on every supported layout. Do not add a third stacked title/action/reason label.
+- The whole recommendation row consumes its touches in all three states. Only a still-current `Ready` state may mutate; `Save for` and `No recommendation` are inert and must not fall through to lot selection or emit invalid-action feedback.
 - No persistence, planner/service/manager/protocol, score, strategy registry, multi-action optimization, or future extension framework.
 - Execute purchases only through the existing `KingdomGameState.buildBuilding` / `upgradeBuilding` mutation and `BuildingViewScene` save/feedback paths.
 
@@ -25,10 +27,12 @@ The current code already owns every input needed by this feature:
 - `KingdomGameState.currentCityDefenseTrait` supplies the current authored trait.
 - `CityDefenseTrait.favorableSoldierTypes` supplies favorable soldier types in authored priority order.
 - `BuildingType.soldierType` maps each current building to its soldier type.
+- `BuildingType.shortDisplayName` supplies compact existing building copy for the row.
 - `KingdomGameState.isBuildingTypeUnlocked(_:)` owns unlock rules.
 - `CityBattleState.slotRange`, `building(inSlot:)`, `buildingCount(for:)`, and `maxBuildingsPerType` own lot/cap state.
 - `KingdomGameState.buildingBuildCost(for:)` and `buildingUpgradeCost(for:currentLevel:)` own prices.
 - `BuildingViewScene.buildSelectedSlot(_:)` / `upgradeSelectedSlot()` already own mutation, persistence, settlement-conquest handling, and semantic feedback.
+- `BuildingViewScene.fitLabel` and the existing DEBUG `BuildingLayoutFrames` snapshot already support compact scene-owned presentation testing.
 
 Do not duplicate any of those rules in a new subsystem.
 
@@ -58,13 +62,14 @@ enum RecommendedCampRecommendation: Equatable {
 }
 ```
 
-`RecommendedCampRecommendation` imports no SpriteKit/UIKit and owns only this ticket's deterministic projection and concise display copy. `BuildingViewScene` owns rendering and the explicit tap.
+`RecommendedCampRecommendation` imports no SpriteKit/UIKit and owns only this ticket's deterministic projection and concise reason/message copy. `BuildingViewScene` owns rendering and the explicit tap.
 
 ### Alternatives rejected
 
 1. **Inline all policy in `BuildingViewScene`** — fewer files, but mixes the important deterministic rule with SpriteKit and makes the policy table harder to test directly.
 2. **Put recommendation methods on `KingdomGameState`** — testable, but makes the campaign/economy model own a Building View assistance feature it does not need.
 3. **Planner/service/protocol architecture** — no current second consumer; explicitly outside HPA-365 and the roadmap's current-consumer rule.
+4. **New pure layout type / `RecommendedCampNode`** — unnecessary for one two-line row; extend the existing scene layout and DEBUG snapshot instead.
 
 ## Deterministic recommendation policy
 
@@ -85,6 +90,8 @@ Resolve the building by the existing `BuildingType.allCases.first { $0.soldierTy
 
 Skip a candidate whose building type is locked.
 
+The current Country 1 catalog has no city where an earlier favorable type is locked while a later favorable type is usable. Tests therefore must not invent a synthetic trait/unlock seam just to exercise that impossible ordering. City 6 (`Stone Wall`: Mage, Siege) is the concrete lock case because both favorable buildings are still locked there; it must produce `No recommendation`, never the Standard Watch Infantry fallback.
+
 ### 3. Derive one structural action for each candidate
 
 Inspect candidates in order and stop at the first one with a structurally valid action.
@@ -99,7 +106,7 @@ For a candidate building type:
    - an empty lot exists.
 4. A build uses the lowest-numbered empty lot.
 
-The per-type cap prevents an additional build; it does **not** prevent upgrading an already existing building because upgrades do not increase the type count.
+The per-type cap prevents an additional build; it does **not** prevent upgrading an already existing building. `upgradeBuilding` has no maximum-level rule, so HPA-365 must not invent one. A fixture with five buildings of the favored type still recommends the lowest `(level, slot)` upgrade.
 
 If a candidate has no structural action, continue to the next authored favorable candidate. If all candidates fail, return `No recommendation`.
 
@@ -112,42 +119,86 @@ After the first structural action is chosen:
 
 Do not continue searching after an unaffordable preferred action. This preserves the first favorable action instead of replacing it with a weaker cheap purchase.
 
-## Recommendation copy
+## Recommendation copy and two-line packing
 
-Keep copy short and generated from the same value used for execution.
+The card has exactly two single-line labels: `primary` and `secondary`. There is no separate third title label.
+
+Use compact existing names (`BuildingType.shortDisplayName`) and preserve the player facts rather than adding wrapping or another text-layout abstraction.
 
 Examples:
 
-- `Recommended Camp · Ready`
-  - `Build Barracks · Lot 1 · 15g`
-  - `Infantry is favored vs Arrow Tower.`
-- `Recommended Camp · Save for`
-  - `Upgrade Mage Tower · Lot 4 · 30g`
-  - `Need 12g more · Mage is favored vs Stone Wall.`
-- `Recommended Camp`
-  - `No recommendation`
-  - `No favorable camp action is available.`
+- Ready
+  - primary: `Recommended Camp · Ready`
+  - secondary: `Build Barracks · Lot 1 · 15g · Infantry starter`
+- Save for
+  - primary: `Recommended Camp · Save for`
+  - secondary: `Upgrade Mage · Lot 4 · Need 12g · Mage favored`
+- No recommendation
+  - primary: `Recommended Camp`
+  - secondary: `No favorable camp action available.`
 
-For `Standard Watch`, the reason is `Infantry is the safe starter here.`
+Reason phrases stay intentionally compact:
 
-If a supported layout cannot fit one of these strings at the existing minimum label size, shorten the copy rather than introducing wrapping or a new text-layout framework.
+- `Standard Watch`: `Infantry starter`
+- favorable type: `<Soldier> favored`
+
+`Ready` must still show build/upgrade, target lot, exact cost, and one reason. `Save for` must still show the preferred action, target lot, and exact missing gold. If a supported fixture would make either label smaller than 10 pt after the existing `fitLabel` behavior, shorten the copy while preserving those facts; do not add wrapping, scrolling, or a new layout engine.
 
 ## Building View presentation
 
-Render one compact recommendation row at the top of the existing action panel.
+Treat the action panel as two vertical regions, bottom anchored as one panel:
 
-Keep the current manual-control area anchored to the bottom exactly as today:
+```text
+actionPanel (grows upward)
+  [recommendation row: two labels]
+  [small fixed gap]
+  [manual region: same height and bottom-relative geometry as today]
+    feedbackLabel
+    build palette row 1
+    build palette row 2
+    upgrade | Battle
+```
 
-1. Treat the current `132 / 158 / 176` point action heights as `manualActionHeight` for very-short / compact / regular layouts.
-2. Add one small recommendation row plus a fixed gap above that manual frame.
-3. Grow `actionPanel` upward only; calculate existing feedback/build/upgrade/Battle controls from the unchanged bottom-anchored manual frame.
-4. Reserve the new row from the scenic grid by moving only `gridBottom` upward.
+The existing `132 / 158 / 176` point action heights become `manualActionHeight` for very-short / compact / regular layouts. The recommendation row uses `28 / 36 / 40` points, with a `4` point gap in very-short landscape and `6` points otherwise. This reduces the short-landscape grid loss compared with the earlier three-line `36 / 44 / 48` proposal.
 
-The recommendation row uses the current theme and scene-owned SpriteKit nodes; no new reusable component is required. Reuse the current label fitting helper and expose the row frame through the existing DEBUG layout snapshot for acceptance tests.
+Keep the current manual-control absolute positions by calculating them from the unchanged manual region:
 
-`Ready` uses an enabled treatment and one hit frame covering the row. `Save for` and `No recommendation` are visually informational and do not execute or emit invalid-action feedback when tapped.
+- `feedbackLabel` -> `manualActionCenterY + manualActionHeight * 0.33`
+- palette top -> `manualActionCenterY + manualActionHeight * 0.13`
+- upgrade/Battle -> `manualActionCenterY - manualActionHeight * 0.34`
 
-Settings/modal input keeps highest precedence. The recommendation row is checked before manual palette/upgrade/Battle/lot input, but its frame must not overlap those controls.
+Do **not** reuse the enlarged `actionCenterY` / `actionHeight` fractions for those controls; that would move the manual UI and collide with the new row.
+
+Keep `actionPanel` bottom anchored at the current `bottomMargin` and grow it upward. Place the recommendation row immediately above the manual region. Move only `gridBottom` to the enlarged action panel top plus the existing panel/grid gap.
+
+The row uses scene-owned `SKShapeNode` + two `SKLabelNode`s and existing theme/Z-order. Expose the row frame and both label font sizes through the existing DEBUG snapshot/hooks for focused acceptance tests. No new reusable node or layout type.
+
+### Short-landscape acceptance
+
+The existing `568 x 320` fixture is the packing gate. It must assert:
+
+- recommendation row contained by `actionPanel`;
+- recommendation row above `feedbackLabel` / manual region;
+- no intersection with build/upgrade/Battle controls;
+- grid remains non-empty and between panels;
+- both recommendation labels remain at least 10 pt after fitting.
+
+Reuse the existing compact landscape and portrait fixtures for containment/non-overlap. Do not create a new exhaustive geometry matrix.
+
+## Input behavior
+
+Settings/modal input keeps highest precedence. Then the recommendation row is checked before palette/upgrade/Battle/lot input.
+
+Use one hit frame for all three recommendation states:
+
+```swift
+if recommendationRowContains(point) {
+    activateRecommendedCamp()
+    return
+}
+```
+
+That `return` is required even for `Save for` and `No recommendation`. Their taps are intentionally inert: no gold change, no building mutation, no `.invalidAction`, no route, and no selected-lot change. Without the unconditional consume, the current final lot-selection branch could receive a tap that visually belongs to the card.
 
 ## Rendering lifecycle
 
@@ -164,13 +215,14 @@ Do not cache or persist a recommendation beyond the currently rendered scene val
 
 ## Explicit purchase and stale-state rule
 
-The rendered recommendation is only an offer. Immediately before a Ready tap spends anything:
+The rendered recommendation is only an offer. Immediately before any recommendation-row tap can spend anything:
 
 1. Reload the current `KingdomGameState` from the existing store into the scene.
 2. Recompute the recommendation from that fresh state.
 3. Compare it with the currently rendered recommendation.
 4. If it changed, redraw and return without mutation or invalid-action feedback.
-5. If it is still the same `Ready` action, select its target slot and delegate exactly once:
+5. If it is unchanged but is `Save for` / `No recommendation`, redraw and return without mutation.
+6. If it is still the same `Ready` action, select its target slot and delegate exactly once:
    - `build` -> existing `buildSelectedSlot(_:)`
    - `upgrade` -> existing `upgradeSelectedSlot()`
 
@@ -178,54 +230,87 @@ Those methods remain authoritative for settlement-before-mutation, save-before-f
 
 The fresh equality check is intentionally simple. If unrelated state changed but the same exact action is still Ready, it may proceed; if affordability, target slot, city state, or action changed, the tap becomes a refresh.
 
+## Test fixture contract
+
+`KingdomGameState.init` normalizes an active city to `completedCityCount + 1`. A helper that sets only `cityNumberInCountry` silently falls back to City 1, so every multi-city pure-policy fixture must seed progression consistently:
+
+```swift
+private func makeState(
+    city: Int,
+    gold: Int,
+    cityState: CityBattleState = CityBattleState()
+) -> KingdomGameState {
+    let key = CityKey(countryNumber: 1, cityNumber: city)
+    return KingdomGameState(
+        gold: gold,
+        cityNumberInCountry: city,
+        completedCityCount: city - 1,
+        cityBattleStates: [key.storageKey: cityState]
+    )
+}
+```
+
+Pin policy tests to real current catalog cases:
+
+- City 1 — `Standard Watch`, Infantry fallback.
+- City 5 — `Arrow Tower`, authored order `[Infantry, Cavalry]`; both buildings are unlocked. Use this for first-candidate order and Save-for non-substitution.
+- City 6 — `Stone Wall`, `[Mage, Siege]`; both are locked, so an empty camp is `No recommendation` and does not fall back to Infantry.
+- Five Barracks on City 5 — cap is reached for builds, but the lowest `(level, slot)` Barracks upgrade remains valid.
+
+Do not add a production trait/unlock injection seam solely to manufacture an “earlier locked, later unlocked” case that the current catalog cannot produce.
+
 ## Testing strategy
 
 ### Pure policy table
 
 Add focused Swift Testing coverage for:
 
-- Standard Watch Infantry build fallback.
+- City 1 Standard Watch Infantry build fallback.
 - Ready vs Save-for for the same exact action.
+- City 5 authored favorable order chooses Infantry/Barracks before Cavalry/Stable.
+- City 5 unaffordable Barracks upgrade remains Save-for even when a Stable build would be affordable.
 - Existing favorable building -> upgrade instead of another build.
 - Lowest-level then lowest-slot upgrade tie-break.
 - Lowest empty lot for a build.
-- Authored favorable order.
-- Locked earlier favorable type -> next structurally valid favorable type.
-- An unaffordable preferred action does not fall through to a later/cheaper candidate.
-- A type already at the building-count cap is never proposed as another build; its existing lowest-level building may still be upgraded.
-- No structurally valid favorable action -> No recommendation.
+- Five favored buildings -> still upgrade the lowest `(level, slot)`; do not invent a max level.
+- City 6 all favorable types locked -> No recommendation, with no Standard Watch fallback.
+- Full/no-empty-lot structural failure -> No recommendation when no candidate has an action.
 - Non-active stage -> No recommendation.
 - Identical state -> identical value.
 
 ### Building View flow
 
-Extend `BuildingViewSceneTests` with representative behavior, not a geometry matrix:
+Extend `BuildingViewSceneTests` with representative behavior:
 
-- Ready card displays the projected action/reason and has one enabled hit frame.
-- Save-for / No-recommendation do not mutate state when tapped.
+- Ready/Save-for/No-recommendation render through the same two-label row.
 - Ready tap performs exactly one existing build/upgrade mutation, saves it, and recomputes the next card.
-- Stale rendered card: mutate the store after render, tap the old Ready row, verify no second spend occurs and the card refreshes to the fresh suggestion.
-- Existing manual build/upgrade/Battle/lot tests remain green.
-- Existing supported layout fixtures verify the recommendation frame fits inside the action panel and does not overlap manual controls.
+- Stale rendered card refreshes without a second spend.
+- Save-for / No-recommendation taps are swallowed: state unchanged, no invalid feedback, selected slot unchanged.
+- Settings keeps precedence over recommendation touches.
+- `568 x 320` short landscape keeps both labels >= 10 pt and preserves row/manual/grid separation.
+- Existing compact landscape/portrait and manual control tests remain green.
 
 ## Manual smoke
 
 On the smallest supported portrait and landscape layouts:
 
-1. Enter a Standard Watch city with an empty camp and confirm the Infantry starter suggestion.
-2. Enter a counter-trait city and confirm the authored favorable type drives the card.
-3. Verify `Save for` reports exact missing gold and remains inert.
-4. Buy one Ready recommendation; verify one gold deduction, target lot/level change, feedback, and immediate next recommendation.
-5. Use the manual palette, upgrade button, lot selection, Settings, and Battle controls to confirm they remain unchanged.
-6. Background/foreground Building View and confirm catch-up may refresh the card but never auto-purchases.
+1. Enter City 1 with an empty camp and confirm the Infantry starter suggestion.
+2. Enter City 5 and confirm Infantry is preferred before Cavalry.
+3. Enter City 6 with an empty camp and confirm there is no recommendation because Mage/Siege are locked; no Infantry fallback appears.
+4. Verify `Save for` reports exact missing gold and its row tap changes neither gold nor selected lot.
+5. Buy one Ready recommendation; verify one gold deduction, target lot/level change, existing feedback, and immediate next recommendation.
+6. Use the manual palette, upgrade button, lot selection, Settings, and Battle controls to confirm they remain unchanged.
+7. Background/foreground Building View and confirm catch-up may refresh the card but never auto-purchases.
 
 ## Risks
 
-1. **Action-panel crowding** — preserve the existing manual frame and add one top row rather than reshuffling all controls; use current fit helpers and existing supported fixtures.
-2. **Recommendation/purchase drift** — compare the fresh pure value against the rendered value immediately before delegating to the existing mutation path.
-3. **Policy creep** — the function is first-valid favorable action only; no scoring, optimization, history, lane synthesis, or multi-buy planning.
-4. **Cheap fallback changes the intended decision** — affordability only changes `Ready` to `Save for`; it never changes candidate selection.
-5. **Duplicated gameplay rules** — resolve unlocks, caps, costs, trait order, and mutation results from existing model APIs only.
+1. **Short-landscape crowding** — two labels only, smaller row heights, frozen manual-region geometry, and a 10 pt readability gate on `568 x 320`.
+2. **Recommendation/manual-control collision** — all legacy feedback/palette/upgrade/Battle positions derive from the unchanged manual region, never the enlarged action-panel fractions.
+3. **Recommendation/purchase drift** — compare the fresh pure value against the rendered value immediately before delegating to the existing mutation path.
+4. **Informational-card fallthrough** — one row hit frame always consumes touches; Save-for/None never reach the lot branch.
+5. **Fixture false greens** — active City N fixtures must set `completedCityCount = N - 1`.
+6. **Policy creep** — the function is first-valid favorable action only; no scoring, optimization, history, lane synthesis, or multi-buy planning.
+7. **Duplicated gameplay rules** — resolve unlocks, caps, costs, trait order, and mutation results from existing model APIs only.
 
 ## Non-goals
 
@@ -235,4 +320,5 @@ On the smallest supported portrait and landscape layouts:
 - Lane-placement advice or combat simulation/scoring.
 - New currencies, inventory, build queues, demolition/refunds, adjacency, production chains, or placement optimization.
 - Recommendation persistence, analytics, history, explanation drill-down, localization framework, or reusable recommendation architecture.
+- New recommendation layout/component types.
 - HPA-390 milestone presentation or HPA-567 campaign validation.
