@@ -4,7 +4,7 @@
 
 **Goal:** Add one deterministic Recommended Camp suggestion and one explicit one-tap purchase to Building View while keeping every manual building path and all existing economy/persistence semantics unchanged.
 
-**Architecture:** Add one framework-free `RecommendedCampRecommendation` pure value/function beside the Building View feature. It projects existing city trait, building, unlock, cap, and cost state into `Ready`, `Save for`, or `No recommendation`. `BuildingViewScene` renders one compact row and, only for a still-current Ready action, delegates to its existing build/upgrade methods. No new service, protocol, persistence, planner, scoring engine, or generic recommendation layer.
+**Architecture:** Add one framework-free `RecommendedCampRecommendation` pure value/function beside the Building View feature. It projects existing city trait, building, unlock, cap, and cost state into `Ready`, `Save for`, or `No recommendation`. `BuildingViewScene` renders one two-line row above a frozen manual-control region and, only for a still-current Ready action, delegates to its existing build/upgrade methods. All recommendation states consume their row touch. No new service, protocol, persistence, planner, scoring engine, layout type, reusable node, or generic recommendation layer.
 
 **Tech Stack:** Swift 5, SpriteKit, Foundation-only pure model code, Swift Testing, Xcode/iOS Simulator.
 
@@ -14,14 +14,16 @@
 - Candidate order is the current `CityDefenseTrait.favorableSoldierTypes`; `Standard Watch` alone uses Infantry-first fallback.
 - First structurally valid favorable action wins. Affordability changes only `Ready` vs `Save for`; it never chooses a different action.
 - Existing favorable building -> upgrade the lowest level, tie by lowest slot. No existing building -> build in lowest empty slot.
-- Use existing unlock, type-cap, build-cost, upgrade-cost, and soldier/building mapping APIs.
-- Type cap blocks another build only; it does not block upgrading an existing building.
+- Use existing unlock, type-cap, build-cost, upgrade-cost, `BuildingType.soldierType`, and `BuildingType.shortDisplayName` APIs.
+- Type cap blocks another build only; it does not block upgrading an existing building. Do not invent a max building level.
 - No automatic spending. One Ready tap invokes one existing mutation path at most once.
-- Re-read/recompute immediately before a Ready purchase. A changed suggestion refreshes instead of spending.
+- Re-read/recompute immediately before a recommendation-row tap can spend. A changed suggestion refreshes instead of spending.
+- Save-for and No-recommendation row taps are swallowed: no mutation, no `.invalidAction`, no route, no selected-slot change.
 - Manual lot/build/upgrade/Battle/Settings behavior stays unchanged.
+- The visible recommendation card is exactly two single-line labels on supported layouts. The `568 x 320` fixture must keep both at >= 10 pt after fitting.
+- Keep the existing manual action region bottom-relative geometry. Grow the action panel upward only.
 - No `project.pbxproj` edits: the repository uses `PBXFileSystemSynchronizedRootGroup`.
 - New production files: exactly one (`RecommendedCampRecommendation.swift`).
-- Prefer existing colors, label fitting, `PanelNode`/shape patterns, and test helpers over new UI abstractions.
 - Run simulator tests with `-parallel-testing-enabled NO`.
 
 ---
@@ -31,57 +33,142 @@
 **Files:**
 - Create: `Pyxis/RecommendedCampRecommendation.swift`
 - Create: `PyxisTests/RecommendedCampRecommendationTests.swift`
-- Read/reuse only: `Pyxis/CityDefenseTrait.swift`, `Pyxis/CityBuildingState.swift`, `Pyxis/KingdomGameState.swift`
+- Read/reuse only: `Pyxis/CityDefenseTrait.swift`, `Pyxis/CityBuildingState.swift`, `Pyxis/KingdomGameState.swift`, `Pyxis/Country1CityCatalog.swift`
 
-### 1. Write the failing pure-policy table first
+**Interfaces:**
+- Produces `RecommendedCampRecommendation.make(for:)` for `BuildingViewScene`.
+- Consumes only current pure model APIs; no SpriteKit/UIKit and no injected policy dependencies.
 
-- [ ] Create `RecommendedCampRecommendationTests.swift` using Swift Testing.
-- [ ] Add test helpers that construct a `KingdomGameState` for a requested current city and seed `CityBattleState.slots` directly. Keep fixtures explicit; do not introduce production fixture builders.
-- [ ] Add these failing tests before production code:
+### 1. Write normalized current-city fixtures first
+
+- [ ] Create `PyxisTests/RecommendedCampRecommendationTests.swift` with this helper. `KingdomGameState.init` normalizes active play to `completedCityCount + 1`; setting only `cityNumberInCountry` would silently test City 1.
 
 ```swift
-@Test("Standard Watch recommends the Infantry starter build")
-func standardWatchRecommendsInfantryStarterBuild() {
+import Testing
+@testable import Pyxis
+
+struct RecommendedCampRecommendationTests {
+    private func makeState(
+        city: Int,
+        gold: Int,
+        cityState: CityBattleState = CityBattleState()
+    ) -> KingdomGameState {
+        let key = CityKey(countryNumber: 1, cityNumber: city)
+        return KingdomGameState(
+            gold: gold,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            cityBattleStates: [key.storageKey: cityState]
+        )
+    }
+}
+```
+
+- [ ] Pin tests to actual current catalog behavior instead of introducing a production trait/unlock injection seam:
+  - City 1: `Standard Watch` -> fallback Infantry.
+  - City 5: `Arrow Tower` -> `[Infantry, Cavalry]`; both Barracks and Stable are unlocked.
+  - City 6: `Stone Wall` -> `[Mage, Siege]`; both are locked at City 6.
+
+The current catalog has no city where an earlier favorable building is locked while a later favorable building is usable. Do not add a synthetic production seam merely to create that case.
+
+### 2. Write the failing policy table
+
+- [ ] Add the City 1 starter and affordability tests:
+
+```swift
+@Test("City 1 recommends the Standard Watch Infantry starter")
+func city1RecommendsInfantryStarter() {
     let state = makeState(city: 1, gold: 15)
 
     #expect(RecommendedCampRecommendation.make(for: state) == .ready(
         action: .init(kind: .build, buildingType: .barracks, slot: 1, cost: 15),
-        reason: "Infantry is the safe starter here."
+        reason: "Infantry starter"
     ))
 }
 
-@Test("Unaffordable preferred action remains Save for")
-func unaffordablePreferredActionDoesNotFallThrough() {
-    // Use a non-standard city with at least two favorable candidates.
-    // Seed the first favorable candidate with an upgrade whose cost is above
-    // current gold while a later favorable action would be affordable.
-    // Expect Save-for for the first action, not the later action.
-}
+@Test("The same City 1 action becomes Save for when unaffordable")
+func city1BuildBecomesSaveFor() {
+    let state = makeState(city: 1, gold: 10)
 
-@Test("Upgrade target is lowest level then lowest slot")
-func upgradeTieBreakIsLevelThenSlot() {
-    // Same favorable building type in multiple slots with e.g. levels 2, 1, 1.
-    // Expect the lower-numbered level-1 slot.
+    #expect(RecommendedCampRecommendation.make(for: state) == .saveFor(
+        action: .init(kind: .build, buildingType: .barracks, slot: 1, cost: 15),
+        missingGold: 5,
+        reason: "Infantry starter"
+    ))
 }
 ```
 
-- [ ] Cover the complete HPA-365 table:
-  - identical state -> identical result,
-  - Ready build,
-  - Save-for same build,
-  - existing favorable type -> upgrade rather than a second build,
-  - lowest-level/lowest-slot upgrade tie-break,
-  - lowest-numbered empty lot for a build,
-  - authored favorable order,
-  - locked earlier favorable type -> next structurally valid favorable type,
-  - unaffordable first valid action -> Save-for without substitution,
-  - count-cap state never proposes another build and can still upgrade an existing building,
-  - all favorable structural actions invalid -> No recommendation,
-  - non-active stage -> No recommendation.
+- [ ] Add City 5 authored-order and non-substitution tests. A level-3 Barracks costs 33g to upgrade; a Stable build costs 28g, so 28g proves the first unaffordable favorable action is preserved instead of substituting the later affordable candidate.
 
-### 2. Run RED
+```swift
+@Test("City 5 authored order prefers Infantry before Cavalry")
+func city5PrefersInfantryBeforeCavalry() {
+    let state = makeState(city: 5, gold: 100)
 
-- [ ] Run only the new suite and confirm it fails because the type does not exist:
+    #expect(RecommendedCampRecommendation.make(for: state) == .ready(
+        action: .init(kind: .build, buildingType: .barracks, slot: 1, cost: 15),
+        reason: "Infantry favored"
+    ))
+}
+
+@Test("City 5 keeps an unaffordable Barracks upgrade instead of affordable Stable")
+func city5SaveForDoesNotSubstituteLaterCandidate() {
+    let cityState = CityBattleState(slots: [
+        1: CityBuilding(type: .barracks, level: 3)
+    ])
+    let state = makeState(city: 5, gold: 28, cityState: cityState)
+
+    #expect(RecommendedCampRecommendation.make(for: state) == .saveFor(
+        action: .init(kind: .upgrade, buildingType: .barracks, slot: 1, cost: 33),
+        missingGold: 5,
+        reason: "Infantry favored"
+    ))
+}
+```
+
+- [ ] Add the concrete tie-break test:
+
+```swift
+@Test("Upgrade tie-break is lowest level then lowest slot")
+func upgradeTieBreakIsLevelThenSlot() {
+    let cityState = CityBattleState(slots: [
+        2: CityBuilding(type: .barracks, level: 1),
+        3: CityBuilding(type: .barracks, level: 2),
+        7: CityBuilding(type: .barracks, level: 1)
+    ])
+    let state = makeState(city: 5, gold: 100, cityState: cityState)
+
+    #expect(RecommendedCampRecommendation.make(for: state) == .ready(
+        action: .init(kind: .upgrade, buildingType: .barracks, slot: 2, cost: 12),
+        reason: "Infantry favored"
+    ))
+}
+```
+
+- [ ] Add a lowest-empty-lot test by occupying slots 1 and 2 with neutral buildings on City 5; expect the Barracks build in slot 3.
+
+- [ ] Add an explicit five-building cap regression. Seed five Barracks with levels `[3, 1, 1, 4, 2]` in slots `1...5`; expect an **upgrade** of slot 2 at 12g. The build cap must not turn an existing favored type into `No recommendation` and no max level may be invented.
+
+- [ ] Add the real locked/non-standard fallback regression:
+
+```swift
+@Test("City 6 with only locked favorable buildings has no recommendation")
+func city6DoesNotFallBackToInfantry() {
+    let state = makeState(city: 6, gold: 1_000)
+
+    #expect(RecommendedCampRecommendation.make(for: state) == .none(
+        message: "No favorable camp action available."
+    ))
+}
+```
+
+- [ ] Add a non-active-stage test with `stageStatus: .cityConqueredPendingMap`; expect `.none(message: "No favorable camp action available.")`.
+
+- [ ] Add determinism by projecting the same City 5 state twice and asserting equal results.
+
+### 3. Run RED
+
+- [ ] Run the new suite and confirm failure because `RecommendedCampRecommendation` does not exist:
 
 ```bash
 xcodebuild test \
@@ -94,9 +181,9 @@ xcodebuild test \
 
 Use an available simulator from `-showdestinations` if `iPhone 17` is unavailable.
 
-### 3. Implement one pure value/function
+### 4. Implement the pure projection
 
-- [ ] Create `Pyxis/RecommendedCampRecommendation.swift` with exactly this feature-sized shape:
+- [ ] Create `Pyxis/RecommendedCampRecommendation.swift` with this feature-local shape:
 
 ```swift
 enum RecommendedCampRecommendation: Equatable {
@@ -117,35 +204,82 @@ enum RecommendedCampRecommendation: Equatable {
     case none(message: String)
 
     static func make(for state: KingdomGameState) -> RecommendedCampRecommendation {
-        // feature-local pure projection only
+        guard state.stageStatus == .battleActive else {
+            return .none(message: "No favorable camp action available.")
+        }
+
+        let trait = state.currentCityDefenseTrait
+        let candidates: [SoldierType] = trait == .standardWatch
+            ? [.infantry]
+            : trait.favorableSoldierTypes
+        let cityState = state.cityBattleStateForCurrentCity
+
+        for soldierType in candidates {
+            guard let buildingType = BuildingType.allCases.first(where: {
+                $0.soldierType == soldierType
+            }), state.isBuildingTypeUnlocked(buildingType) else {
+                continue
+            }
+
+            let existing = cityState.slots.compactMap { slot, building in
+                building.type == buildingType ? (slot, building) : nil
+            }.min {
+                if $0.1.level != $1.1.level {
+                    return $0.1.level < $1.1.level
+                }
+                return $0.0 < $1.0
+            }
+
+            let action: Action
+            if let existing {
+                action = Action(
+                    kind: .upgrade,
+                    buildingType: buildingType,
+                    slot: existing.0,
+                    cost: KingdomGameState.buildingUpgradeCost(
+                        for: buildingType,
+                        currentLevel: existing.1.level
+                    )
+                )
+            } else {
+                guard cityState.buildingCount(for: buildingType) < CityBattleState.maxBuildingsPerType,
+                      let slot = CityBattleState.slotRange.first(where: {
+                          cityState.building(inSlot: $0) == nil
+                      }) else {
+                    continue
+                }
+                action = Action(
+                    kind: .build,
+                    buildingType: buildingType,
+                    slot: slot,
+                    cost: KingdomGameState.buildingBuildCost(for: buildingType)
+                )
+            }
+
+            let reason = trait == .standardWatch
+                ? "Infantry starter"
+                : "\(soldierType.displayName) favored"
+
+            if state.gold >= action.cost {
+                return .ready(action: action, reason: reason)
+            }
+            return .saveFor(
+                action: action,
+                missingGold: action.cost - state.gold,
+                reason: reason
+            )
+        }
+
+        return .none(message: "No favorable camp action available.")
     }
 }
 ```
 
-- [ ] Implement candidate order:
-  - guard `state.stageStatus == .battleActive`, else `.none`;
-  - `.standardWatch` -> `[.infantry]`;
-  - otherwise use `state.currentCityDefenseTrait.favorableSoldierTypes` unchanged.
-- [ ] Resolve candidate `BuildingType` by existing `BuildingType.allCases.first { $0.soldierType == soldierType }`; do not add a second mapping table.
-- [ ] Skip locked candidates using `state.isBuildingTypeUnlocked(_:)`.
-- [ ] For each candidate in order:
-  - collect existing matching `(slot, building)` rows;
-  - if non-empty, choose minimum `(building.level, slot)` and create an upgrade action with `KingdomGameState.buildingUpgradeCost`;
-  - otherwise require type count below `CityBattleState.maxBuildingsPerType`, choose the first empty `CityBattleState.slotRange` slot, and create a build action with `KingdomGameState.buildingBuildCost`;
-  - first structural action stops candidate search.
-- [ ] Classify the chosen action only after selection:
-  - affordable -> `.ready`;
-  - unaffordable -> `.saveFor(missingGold: cost - state.gold)`.
-- [ ] Use short feature-local reason copy:
-  - Standard Watch -> `Infantry is the safe starter here.`
-  - favorable -> `<Soldier> is favored vs <Trait>.`
-  - no action -> neutral `No favorable camp action is available.`
-- [ ] Do not import SpriteKit/UIKit and do not add protocol/service/manager/scoring/persistence types.
+- [ ] Keep this file free of SpriteKit/UIKit, persistence, scoring, manager/service/protocol types, and a second soldier/building mapping table.
 
-### 4. Run GREEN and commit
+### 5. Run GREEN and commit
 
-- [ ] Run the new suite until green.
-- [ ] Run adjacent model tests to catch accidental rule duplication/drift:
+- [ ] Run the pure suite plus adjacent model tests:
 
 ```bash
 xcodebuild test \
@@ -166,43 +300,65 @@ git commit -m "feat: add deterministic Recommended Camp policy"
 
 ---
 
-## Task 2 — Render the compact Recommended Camp row without moving manual controls
+## Task 2 — Render a two-line row above a frozen manual-control region
 
 **Files:**
 - Modify: `Pyxis/BuildingViewScene.swift`
 - Modify: `PyxisTests/BuildingViewSceneTests.swift`
 
-### 1. Add RED presentation/layout tests
+**Interfaces:**
+- Consumes `RecommendedCampRecommendation.make(for:)` from Task 1.
+- Produces one scene-owned recommendation row frame, two labels, and DEBUG inspection hooks used by Task 3.
 
-- [ ] Add a representative Ready presentation test to `BuildingViewSceneTests`:
+### 1. Add RED presentation assertions
+
+- [ ] Add Ready copy assertions for the existing City 1 fixture:
 
 ```swift
-@Test("Building View renders one Ready Recommended Camp row")
+@Test("Building View renders Ready Recommended Camp in two lines")
 func buildingViewRendersReadyRecommendedCamp() throws {
     let scene = makeScene(
         store: try makeStore(initialState: KingdomGameState(gold: 15)),
         router: RouteSpy()
     )
 
-    #expect(scene.recommendedCampTitleForTesting == "Recommended Camp · Ready")
-    #expect(scene.recommendedCampActionForTesting?.contains("Build Barracks") == true)
-    #expect(scene.recommendedCampActionForTesting?.contains("Lot 1") == true)
-    #expect(scene.recommendedCampReasonForTesting == "Infantry is the safe starter here.")
+    #expect(scene.recommendedCampPrimaryTextForTesting == "Recommended Camp · Ready")
+    #expect(scene.recommendedCampSecondaryTextForTesting
+        == "Build Barracks · Lot 1 · 15g · Infantry starter")
 }
 ```
 
-- [ ] Add Save-for and No-recommendation rendering assertions using policy fixtures rather than creating separate scene policy logic.
-- [ ] Extend the existing `BuildingLayoutFrames` DEBUG snapshot with `recommendationRow`.
-- [ ] Across the existing supported Building View layout fixtures, assert:
-  - recommendation row is contained by `actionPanel`;
-  - recommendation row does not intersect any build button, upgrade button, or Battle button;
-  - manual button frames remain within the action panel;
-  - grid remains non-empty and does not intersect the recommendation row.
-- [ ] Do not add a new exhaustive geometry matrix; reuse the layouts already exercised by `BuildingViewSceneTests`.
+- [ ] Add Save-for copy using City 1 with 10g:
+  - primary `Recommended Camp · Save for`
+  - secondary `Build Barracks · Lot 1 · Need 5g · Infantry starter`.
 
-### 2. Run RED
+- [ ] Add No-recommendation copy using normalized City 6:
+  - primary `Recommended Camp`
+  - secondary `No favorable camp action available.`.
 
-- [ ] Run focused Building View tests and confirm the new hooks/row do not exist yet:
+- [ ] Extend the existing DEBUG `BuildingLayoutFrames` with `recommendationRow`. Add DEBUG accessors for primary/secondary text and font sizes.
+
+### 2. Add RED packing tests before scene implementation
+
+- [ ] Extend the existing `568 x 320` short-landscape test. After the row exists, require:
+
+```swift
+#expect(frames.actionPanel.contains(frames.recommendationRow))
+#expect(frames.recommendationRow.minY >= frames.manualRegion.maxY)
+#expect(frames.grid.minY > frames.actionPanel.maxY)
+#expect(scene.recommendedCampPrimaryFontSizeForTesting >= 10)
+#expect(scene.recommendedCampSecondaryFontSizeForTesting >= 10)
+```
+
+`manualRegion` is a DEBUG frame for the unchanged old action-panel region, not a new production layout type.
+
+- [ ] For all existing build button frames plus upgrade/Battle, assert no intersection with `recommendationRow`.
+
+- [ ] Reuse the current compact-landscape and portrait fixtures to assert the row is contained, grid remains non-empty, and manual controls remain inside the panel. Do not add a new geometry matrix.
+
+### 3. Run RED
+
+- [ ] Run focused Building View tests and confirm the new row/hooks do not exist:
 
 ```bash
 xcodebuild test \
@@ -213,56 +369,117 @@ xcodebuild test \
   -only-testing:PyxisTests/BuildingViewSceneTests
 ```
 
-### 3. Add scene-owned row nodes
+### 4. Add only scene-owned row nodes
 
-- [ ] In `BuildingViewScene`, add only scene-local nodes:
-  - `recommendationBackground: SKShapeNode`,
-  - `recommendationTitleLabel: SKLabelNode`,
-  - `recommendationActionLabel: SKLabelNode`,
-  - `recommendationReasonLabel: SKLabelNode`.
-- [ ] Add `ButtonName.recommendedCamp = "recommendedCampCard"` and name the row/background/labels consistently so the existing scene hit-testing pattern can be reused.
-- [ ] Add `private var renderedRecommendation: RecommendedCampRecommendation?`.
-- [ ] Configure/add the nodes in `buildInterface()` using existing fonts/colors/Z-order. Do not create a reusable `RecommendedCampNode` class.
+- [ ] Add these nodes to `BuildingViewScene`:
+  - `recommendationRow = SKNode()`
+  - `recommendationBackground = SKShapeNode()`
+  - `recommendationPrimaryLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)`
+  - `recommendationSecondaryLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)`
 
-### 4. Preserve the existing manual-control geometry
+- [ ] Add `ButtonName.recommendedCamp = "recommendedCampCard"`, name the row/background/labels with that semantic button name, and add `private var renderedRecommendation: RecommendedCampRecommendation?`.
 
-- [ ] Refactor the current action-panel layout into two vertical regions:
+- [ ] Configure/add the nodes in `buildInterface()` with current theme/Z-order. Do not create `RecommendedCampNode`, a pure layout type, or another reusable UI layer.
+
+### 5. Freeze existing manual-control positions while growing the panel upward
+
+- [ ] Replace the old `actionHeight` calculation with:
 
 ```swift
 let manualActionHeight: CGFloat = veryShortLandscape ? 132 : (compactHeight ? 158 : 176)
-let recommendationHeight: CGFloat = veryShortLandscape ? 36 : (compactHeight ? 44 : 48)
-let recommendationGap: CGFloat = 6
+let recommendationHeight: CGFloat = veryShortLandscape ? 28 : (compactHeight ? 36 : 40)
+let recommendationGap: CGFloat = veryShortLandscape ? 4 : 6
 let actionHeight = manualActionHeight + recommendationGap + recommendationHeight
 
 let manualActionCenterY = bottomMargin + manualActionHeight / 2
 let actionCenterY = bottomMargin + actionHeight / 2
 ```
 
-- [ ] Keep `actionPanel` bottom anchored at the existing `bottomMargin` and grow it upward.
-- [ ] Calculate existing `feedbackLabel`, build palette, upgrade, and Battle positions from `manualActionCenterY` + `manualActionHeight`, preserving their prior absolute bottom-relative placement.
-- [ ] Place the recommendation row above the manual frame using the existing button-area horizontal inset (`contentWidth - 28`).
-- [ ] Move `gridBottom` only to the enlarged `actionPanel` top + existing `panelGridGap`.
-- [ ] Use `fitLabel` for all three row labels. Prefer short copy over wrapping/new text-layout code.
-- [ ] Add `recommendationRow` to `LayoutFrames` and its DEBUG projection.
+- [ ] Keep `actionPanel` bottom anchored exactly as before.
 
-### 5. Recompute and render from the pure value
+- [ ] Preserve the legacy positions by changing only their reference region:
 
-- [ ] At the start of `redraw()`, assign:
+```swift
+feedbackLabel.position = CGPoint(
+    x: size.width / 2,
+    y: manualActionCenterY + manualActionHeight * 0.33
+)
+
+let buildTopY = manualActionCenterY + manualActionHeight * 0.13
+let bottomButtonY = manualActionCenterY - manualActionHeight * 0.34
+```
+
+Do not calculate these from enlarged `actionCenterY` / `actionHeight`.
+
+- [ ] Define the manual region and recommendation row geometry:
+
+```swift
+let manualRegion = CGRect(
+    x: size.width / 2 - contentWidth / 2,
+    y: bottomMargin,
+    width: contentWidth,
+    height: manualActionHeight
+)
+let recommendationFrame = CGRect(
+    x: size.width / 2 - (contentWidth - 28) / 2,
+    y: manualRegion.maxY + recommendationGap,
+    width: contentWidth - 28,
+    height: recommendationHeight
+)
+```
+
+- [ ] Layout the background to `recommendationFrame`. Center the two labels vertically within it with one small gap. Reset nominal font sizes on every `layoutInterface()` call:
+  - very-short: primary 11, secondary 10;
+  - other layouts: primary 13, secondary 12.
+
+- [ ] Run existing `fitLabel` on both labels. If the short-landscape test would push either below 10, shorten the row copy; do not add wrapping or change `fitLabel` globally.
+
+- [ ] Move `gridBottom` only to `actionPanel.maxY + panelGridGap`. Keep the existing `minimumSlotSize` rule unchanged.
+
+- [ ] Store `manualRegion` and `recommendationRow` in the existing layout snapshot for DEBUG tests.
+
+### 6. Render exactly two lines from the pure value
+
+- [ ] At the start of `redraw()`:
 
 ```swift
 renderedRecommendation = RecommendedCampRecommendation.make(for: state)
 ```
 
-- [ ] Render cases without re-deriving policy in the scene:
-  - Ready: `Recommended Camp · Ready`, enabled background, exact action/cost, reason.
-  - Save-for: `Recommended Camp · Save for`, unavailable/neutral background, exact action/cost + missing gold, reason.
-  - None: `Recommended Camp`, `No recommendation`, neutral message.
-- [ ] Keep the existing `feedbackLabel` for manual mutation/lifecycle feedback; do not overload it as recommendation state.
+- [ ] Set the two labels as follows, using `BuildingType.shortDisplayName`:
 
-### 6. Run GREEN and commit
+```swift
+switch renderedRecommendation {
+case let .ready(action, reason):
+    recommendationPrimaryLabel.text = "Recommended Camp · Ready"
+    recommendationSecondaryLabel.text =
+        "\(action.kind == .build ? "Build" : "Upgrade") "
+        + "\(action.buildingType.shortDisplayName) · Lot \(action.slot) · "
+        + "\(action.cost)g · \(reason)"
 
-- [ ] Run `BuildingViewSceneTests` plus the pure recommendation suite.
-- [ ] Confirm existing Settings/palette/upgrade/Battle/slot precedence tests remain green.
+case let .saveFor(action, missingGold, reason):
+    recommendationPrimaryLabel.text = "Recommended Camp · Save for"
+    recommendationSecondaryLabel.text =
+        "\(action.kind == .build ? "Build" : "Upgrade") "
+        + "\(action.buildingType.shortDisplayName) · Lot \(action.slot) · "
+        + "Need \(missingGold)g · \(reason)"
+
+case let .none(message):
+    recommendationPrimaryLabel.text = "Recommended Camp"
+    recommendationSecondaryLabel.text = message
+
+case nil:
+    recommendationPrimaryLabel.text = nil
+    recommendationSecondaryLabel.text = nil
+}
+```
+
+- [ ] Keep `feedbackLabel` separate for manual/lifecycle feedback.
+
+### 7. Run GREEN and commit
+
+- [ ] Run `BuildingViewSceneTests` and the pure recommendation suite. Confirm the existing short/compact landscape, Settings, palette, upgrade, Battle, and slot tests stay green.
+
 - [ ] Commit:
 
 ```bash
@@ -272,25 +489,29 @@ git commit -m "feat: render Recommended Camp guidance"
 
 ---
 
-## Task 3 — Add one-tap Ready execution with stale-state refresh
+## Task 3 — Consume all row touches and execute only a still-current Ready action
 
 **Files:**
 - Modify: `Pyxis/BuildingViewScene.swift`
 - Modify: `PyxisTests/BuildingViewSceneTests.swift`
 
+**Interfaces:**
+- Consumes `renderedRecommendation` and Task 2 row frame.
+- Delegates mutations only to existing `buildSelectedSlot(_:)` / `upgradeSelectedSlot()`.
+
 ### 1. Add RED interaction tests
 
-- [ ] Add one successful Ready-build flow that locks the existing save/feedback path:
+- [ ] Add Ready build execution:
 
 ```swift
-@Test("Ready Recommended Camp tap delegates one build through existing mutation path")
+@Test("Ready Recommended Camp tap delegates exactly one existing build")
 func readyRecommendedCampTapBuildsExactlyOnce() throws {
     let store = try makeStore(initialState: KingdomGameState(gold: 30))
     let feedback = BuildingViewFeedbackRecorder()
     let scene = makeScene(store: store, router: RouteSpy(), feedback: feedback)
     let frame = try #require(scene.recommendedCampFrameForTesting)
 
-    scene.handleTouchForTesting(at: center(of: frame))
+    scene.handleTouchForTesting(at: CGPoint(x: frame.midX, y: frame.midY))
 
     let saved = store.load()
     #expect(saved.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .barracks)
@@ -299,36 +520,58 @@ func readyRecommendedCampTapBuildsExactlyOnce() throws {
 }
 ```
 
-- [ ] Add a representative Ready-upgrade flow and assert the target is the projected lowest-level/lowest-slot building.
-- [ ] Add Save-for and No-recommendation taps: no state mutation, no invalid-action feedback.
-- [ ] Add the required stale-card regression:
-  1. create/render a Ready build recommendation;
-  2. load a second copy from the store, perform/save the recommended build externally;
-  3. tap the original rendered Ready row;
-  4. expect no second gold spend/upgrade;
-  5. expect the scene to reload and show the now-current upgrade recommendation.
-- [ ] Add one overlap/priority assertion showing an open Settings modal still consumes recommendation-row touches.
+- [ ] Add Ready upgrade with a City 5 fixture containing Barracks levels in slots 2/3/7. Tap once and assert only slot 2 increments.
+
+- [ ] Add Save-for and No-recommendation row tests. Before tapping, select an unrelated lot (for example lot 9). After tapping the recommendation row assert:
+  - saved state unchanged;
+  - `selectedSlotForTesting == 9`;
+  - no `.invalidAction` or construction feedback.
+
+- [ ] Prove the row consumes touches rather than merely missing other hit targets: in the Save-for test, temporarily move `buildingSlot-1` under the recommendation-row center using the node's parent coordinate conversion, tap the row, and assert lot 1 is **not** selected.
+
+- [ ] Add stale-card regression:
+  1. render City 1 Ready Barracks build with 30g;
+  2. load another state copy, build Barracks slot 1, and save it externally;
+  3. tap the stale row in the original scene;
+  4. assert saved gold remains 15 and Barracks stays level 1 (no second action);
+  5. assert the scene refreshes to the current Barracks upgrade recommendation.
+
+- [ ] Add Settings precedence by opening Settings, tapping the recommendation row, and asserting no building/gold change.
 
 ### 2. Run RED
 
-- [ ] Run focused scene tests and confirm row taps are inert before implementation.
+- [ ] Run focused `BuildingViewSceneTests` and confirm recommendation-row taps are still inert/unhandled.
 
-### 3. Implement one explicit activation method
+### 3. Insert recommendation input at one precedence point
 
-- [ ] In `handleTouch(at:)`, keep current ordering:
-  1. layout/routing gates,
-  2. open Settings modal,
-  3. Settings gear,
-  4. **Recommended Camp row**,
-  5. manual build palette,
-  6. upgrade,
-  7. Battle,
+- [ ] Keep `handleTouch(at:)` ordering:
+  1. layout/routing gates;
+  2. visible Settings modal;
+  3. Settings gear;
+  4. recommendation row;
+  5. build palette;
+  6. upgrade;
+  7. Battle;
   8. lot selection.
-- [ ] Add `activateRecommendedCamp()` with exactly this flow:
+
+- [ ] Use one hit frame for **all** recommendation states and always return after a hit:
+
+```swift
+if buttonContains(recommendationRow, point: point) {
+    activateRecommendedCamp()
+    return
+}
+```
+
+### 4. Implement one activation method
+
+- [ ] Add:
 
 ```swift
 private func activateRecommendedCamp() {
-    guard let renderedRecommendation else { return }
+    guard let renderedRecommendation else {
+        return
+    }
 
     state = store.load()
     let freshRecommendation = RecommendedCampRecommendation.make(for: state)
@@ -353,14 +596,18 @@ private func activateRecommendedCamp() {
 }
 ```
 
-- [ ] Ready row hit-testing calls this method once. Save-for/None may pass through this method but must return without mutation and without `.invalidAction` feedback.
-- [ ] Do not duplicate any result switch, `store.save`, settlement, conquest, or gameplay-feedback logic; `buildSelectedSlot` / `upgradeSelectedSlot` remain the only scene purchase paths.
+This means Save-for/None reload/recompute/redraw but do not change `selectedSlot`, emit invalid feedback, or mutate state. A stale row refreshes without spending.
+
+- [ ] Do not duplicate result switches, `store.save`, settlement, conquest, or gameplay-feedback logic. `buildSelectedSlot` / `upgradeSelectedSlot` remain the only scene purchase paths.
+
 - [ ] Do not auto-select or auto-execute on redraw, lifecycle, `didMove`, or resize.
 
-### 4. Run GREEN and commit
+### 5. Run GREEN and commit
 
 - [ ] Run the pure policy + full Building View scene suites.
+
 - [ ] Re-run the existing save-before-feedback and settlement-conquest tests specifically; the Recommended Camp path must inherit those semantics rather than bypass them.
+
 - [ ] Commit:
 
 ```bash
@@ -376,13 +623,15 @@ git commit -m "feat: execute Ready camp recommendation"
 - Modify: `CLAUDE.md`
 - Verify: all HPA-365 production/tests
 
-### 1. Document the small ownership boundary
+### 1. Document the ownership boundary
 
 - [ ] Add one concise Building View architecture note to `CLAUDE.md`:
-  - `RecommendedCampRecommendation` is a pure feature-local projection.
-  - it reads current authored trait/building/cost state only;
+  - `RecommendedCampRecommendation` is a pure feature-local projection;
+  - it reads current authored trait/building/unlock/cap/cost state only;
   - it is not persisted;
-  - Building View revalidates before an explicit purchase and delegates to existing build/upgrade mutations;
+  - Building View renders a two-line row above the unchanged manual-control region;
+  - all row states consume touches, but only a still-current Ready action may mutate;
+  - Building View revalidates before purchase and delegates to existing build/upgrade mutations;
   - no recommendation platform/service should be added without a concrete second consumer.
 
 ### 2. Scope searches
@@ -406,13 +655,35 @@ Expected implementation files are limited to:
 - `PyxisTests/RecommendedCampRecommendationTests.swift`
 - `PyxisTests/BuildingViewSceneTests.swift`
 - `CLAUDE.md`
-- the paired design/plan docs already on the planning branch/implementation branch as appropriate.
+- the paired HPA-365 design/plan docs.
 
 No `Pyxis.xcodeproj/project.pbxproj` change.
 
-### 3. Full automated verification
+### 3. Focused acceptance verification
 
-- [ ] Run unit tests with parallel testing disabled:
+- [ ] Run the two feature suites first:
+
+```bash
+xcodebuild test \
+  -project Pyxis.xcodeproj \
+  -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO \
+  -only-testing:PyxisTests/RecommendedCampRecommendationTests \
+  -only-testing:PyxisTests/BuildingViewSceneTests
+```
+
+- [ ] Confirm the focused run includes:
+  - City 1 / 5 / 6 normalized fixtures;
+  - five-building upgrade-at-cap row;
+  - short-landscape two-line >= 10 pt gate;
+  - Save-for/None touch swallow with selected slot unchanged;
+  - stale-card no-second-spend;
+  - existing save-before-feedback and settlement-conquest behavior.
+
+### 4. Full automated verification
+
+- [ ] Run unit tests:
 
 ```bash
 xcodebuild test \
@@ -441,28 +712,31 @@ swiftlint lint --no-cache
 git diff --check origin/main...HEAD
 ```
 
-### 4. Manual smoke
+### 5. Manual smoke
 
-- [ ] On smallest supported portrait and landscape fixtures/device:
-  - Standard Watch -> Infantry starter card.
-  - Counter-trait city -> authored favorable suggestion.
-  - Save-for shows exact missing gold and does nothing when tapped.
+- [ ] On the smallest supported portrait and landscape layouts:
+  - City 1 -> Infantry starter card.
+  - City 5 -> Infantry/Barracks before Cavalry/Stable.
+  - City 6 empty camp -> No recommendation; no neutral Infantry fallback.
+  - Save-for shows exact missing gold; tapping it leaves gold and selected lot unchanged.
   - Ready tap spends once, builds/upgrades the shown lot, emits existing construction feedback, and immediately shows the next suggestion.
-  - Manual lot/build/upgrade controls still work.
+  - recommendation copy remains two lines and readable in `568 x 320` short landscape.
+  - manual lot/build/upgrade controls still work.
   - Settings still blocks underlying touches.
   - Battle route still works.
-  - Background/foreground may refresh recommendation after idle progress but never purchases automatically.
+  - background/foreground may refresh recommendation after idle progress but never purchases automatically.
 
-### 5. Final acceptance checklist
+### 6. Final acceptance checklist
 
 - [ ] Identical state produces identical recommendation.
 - [ ] One tap spends at most once and only via existing mutation/save code.
 - [ ] First favorable action is preserved as Save-for when unaffordable.
-- [ ] No locked/disadvantaged/invalid build or missing upgrade target can be executable.
-- [ ] Standard Watch uses only the documented Infantry fallback.
-- [ ] Manual Building View paths are unchanged.
+- [ ] City 6 never proposes locked Mage/Siege or the Standard Watch Infantry fallback.
+- [ ] Five favored buildings still yield an upgrade recommendation; no max level was invented.
+- [ ] Save-for/None row taps are consumed with no state, feedback, route, or selected-slot side effect.
+- [ ] Manual Building View paths keep their previous bottom-relative positions and behavior.
+- [ ] `568 x 320` keeps both row labels >= 10 pt, a non-empty grid, and no control intersections.
 - [ ] No persistence or recommendation architecture was added.
-- [ ] Player-visible row fits supported compact layouts.
 
 - [ ] Commit final docs/verification update:
 
@@ -473,4 +747,4 @@ git commit -m "docs: document Recommended Camp ownership"
 
 ## Implementation outcome
 
-One pure production file plus a focused Building View slice. No new gameplay mechanic, persistence field, economy rule, scene, service layer, generic planner, or future-facing abstraction. HPA-390 remains the next roadmap implementation after HPA-365; HPA-567 remains the post-366/365/390 campaign validation checkpoint.
+One pure production file plus a focused Building View slice. No new gameplay mechanic, persistence field, economy rule, scene, service layer, generic planner, reusable layout/component type, or future-facing abstraction. HPA-390 remains the next roadmap implementation after HPA-365; HPA-567 remains the post-366/365/390 campaign validation checkpoint.
