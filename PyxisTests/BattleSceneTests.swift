@@ -109,6 +109,7 @@ struct BattleSceneTests {
 
         scene.handleTouchForTesting(at: gearFrame.center)
         #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.milestoneArrivalFrameForTesting == nil)
     }
 
     @Test("Arrival does not replay on didMove redraw or layout refresh")
