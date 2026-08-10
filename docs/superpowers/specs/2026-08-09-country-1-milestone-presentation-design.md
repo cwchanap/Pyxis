@@ -4,15 +4,9 @@
 
 Approved design for HPA-390: **Add presentation-only milestone treatment for Cities 5, 10, and 15**.
 
-HPA-390 is the next player-visible HPA-360 roadmap slice. HPA-366 (Country 1 city identity) and HPA-365 (Recommended Camp guidance) are complete, while HPA-567 remains the campaign-validation checkpoint after HPA-390.
+HPA-390 is the final player-visible HPA-360 roadmap slice before the HPA-567 Country 1 validation checkpoint. HPA-366 (Country 1 city identity) and HPA-365 (Recommended Camp guidance) are complete.
 
 This design intentionally keeps milestone behavior presentation-only. It does not change combat, rewards, progression, persistence, buildings, lane rules, unit rules, or idle progress.
-
-### Relationship to HPA-366
-
-HPA-366 intentionally left overall country completion on the Country Map after Continue and kept the City 15 Battle report title as `Crownspire Keep Falls`. HPA-390 explicitly supersedes only that earlier presentation constraint by adding a visible `Country 1 Complete` state to the City 15 report presentation before Continue.
-
-The authored conquest title remains `Crownspire Keep Falls`, and the existing pending-result acknowledgement, save, and Country Map routing transaction remains unchanged.
 
 ## Goals
 
@@ -26,7 +20,7 @@ Each milestone gets:
 
 City 15 additionally makes `Country 1 Complete` explicit before Continue returns to the completed country map.
 
-The implementation must stay small enough that removing or revising the presentation later is cheap.
+The implementation must stay small enough that removing or revising the presentation after HPA-567 playtesting is cheap.
 
 ## Non-goals
 
@@ -48,11 +42,13 @@ The current repository already owns every lifecycle boundary HPA-390 needs:
 - `Country1CityCatalog` / `CityDefinition` own the 15 authored names, one-line flavor text, and conquest titles.
 - `BattleScene` owns the enemy-city node, combat HUD, input routing, effects layer, scene resize handling, and Settings/modal precedence.
 - `BattleScene.presentPendingConquestReport(origin:resetsContinueState:)` already distinguishes `.freshLive`, `.freshIdle`, and `.restored` conquest presentation.
+- `BattleScene.applyPendingConquestReport(resetsContinueState:)` already owns the single conquest-report fit-failure path: set `isConquestReportFitFailed`, hide the report, and ask the router for `.unsupportedGeometry`.
 - Fresh reports already receive a one-shot gold burst, while restored reports intentionally do not replay that effect.
 - `ConquestReportLayout` already computes the safe report panel and Continue geometry.
 - `ConquestReportNode` already owns the report content and Continue hit target.
+- `BattleSceneTests` already exercise both compact landscape and narrow portrait geometry, including `320×568`.
 
-HPA-390 should extend those scene-local presentation seams instead of creating a second presentation subsystem.
+HPA-390 extends those scene-local presentation seams instead of creating a second presentation subsystem.
 
 ## Approaches considered
 
@@ -102,6 +98,8 @@ All player-facing milestone city text remains derived from the existing catalog:
 
 No parallel city-name or conquest-message switch is allowed.
 
+HPA-390 intentionally supersedes only one HPA-366 presentation rule: overall country completion is no longer shown exclusively after Continue on the Country Map. The City 15 conquest title remains `Crownspire Keep Falls`, and the existing acknowledgement -> save -> Country Map transaction remains unchanged.
+
 ## Arrival banner
 
 ### Presentation
@@ -124,6 +122,7 @@ Use the current theme fonts/colors and a simple panel/shape treatment. Do not ad
 - Resize/redraw/layout refresh may reposition the current banner but must not restart its presentation or reset its auto-dismiss timer.
 - If a new BattleScene is reconstructed later, replay is acceptable before public release.
 - Do not persist a consumed token.
+- Any conquest-report presentation dismisses a still-visible arrival banner before applying the report so the two presentation surfaces never compete.
 
 ### Input precedence
 
@@ -145,13 +144,13 @@ The accent is a scene-owned `SKShapeNode` (or similarly minimal existing SpriteK
 
 Escalation is deliberately modest:
 
-- City 5: thin/static accent;
+- City 5: thin accent;
 - City 10: stronger stroke/glow treatment;
 - City 15: strongest frame/glow treatment.
 
-The same basic shape/effect is reused at all three tiers. Escalation comes from a few fixed stroke/alpha/scale constants, not separate implementations.
+The same basic shape is reused at all three tiers. Escalation comes from a few fixed stroke/glow/inset constants, not separate implementations.
 
-The accent may use a subtle pulse when Reduce Motion is off. With Reduce Motion on it remains static or fade-only.
+**HPA-390 keeps this enemy-city accent static.** A looping/pulsing city accent is explicitly deferred. The only motion in this ticket is the short arrival transition and the fresh conquest flourish. This avoids creating another long-lived animation lifecycle solely for decoration.
 
 Layout refresh updates the accent geometry without replaying the arrival presentation.
 
@@ -181,6 +180,8 @@ Escalate the same accent by milestone tier. Do not modify conquest reward calcul
 
 The existing authored conquest title remains the primary result text; HPA-390 must not repeat that title in another label.
 
+The report accent is decorative. If the accent itself cannot be drawn cleanly inside the safe frame, reduce/clamp/hide the accent rather than blocking Continue. Required text is what participates in fail-closed layout behavior.
+
 ### City 15 country-complete state
 
 For City 15 fresh and restored reports, display a clear `Country 1 Complete` label associated with the report presentation.
@@ -189,13 +190,15 @@ The label is semantic state, not a one-shot animation, so it remains visible whe
 
 Keep it outside the report's existing summary rows rather than expanding `ConquestReportContent` to five rows or changing achievement semantics. Position it from the computed report/safe frames so it remains inside the safe area and does not overlap the report content or Continue.
 
+`Country 1 Complete` is required HPA-390 text. If no valid frame exists for it, **the whole conquest presentation fails closed through BattleScene's existing report fit-failure authority**: mark `isConquestReportFitFailed`, hide the report/milestone treatment, request `.unsupportedGeometry`, and keep the pending result unacknowledged. Do not silently hide the completion label while treating the report as successfully presented.
+
 Continue remains the existing `ConquestReportNode` control and follows the existing acknowledge -> save -> Country Map route. HPA-390 adds no alternate completion transaction.
 
 ## Motion and accessibility
 
 Use `UIAccessibility.isReduceMotionEnabled` at presentation time.
 
-Normal motion may use only short, non-looping emphasis such as fade/scale/pulse. Reduced-motion behavior uses static framing and fades only.
+Normal motion may use only short, non-looping emphasis such as fade/scale on arrival and fresh conquest. Reduced-motion behavior uses static framing and fades only.
 
 All milestone meaning is carried by text:
 
@@ -205,7 +208,7 @@ All milestone meaning is carried by text:
 
 Animation, glow, and color are reinforcement only.
 
-Do not introduce a persisted motion setting, dependency protocol, manager, or accessibility subsystem for this ticket. Reduced-motion behavior is verified manually in the HPA-390 smoke unless an existing test seam makes automated verification essentially free.
+Do not introduce a persisted motion setting, dependency protocol, manager, or accessibility subsystem for this ticket. Reduced-motion behavior is verified manually unless an existing test seam makes automated verification essentially free.
 
 ## Sound and haptics
 
@@ -228,10 +231,16 @@ None of this state is persisted in `KingdomGameState`, `BattleResult`, `CityDefi
 
 Milestone decoration must respect the currently supported BattleScene layouts rather than introducing new layout infrastructure.
 
+Automated fit gates cover all three representative constraints:
+
+- `568×320` — very short landscape;
+- `667×375` — compact landscape;
+- `320×568` — narrow portrait and the hardest width for `City 15 · Crownspire Keep`.
+
 Arrival banner:
 
 - fits within the current safe/content width;
-- both text lines remain contained and non-overlapping;
+- both text lines remain contained and non-overlapping at all three fixtures;
 - does not require moving existing HUD or battle controls.
 
 Enemy-city accent:
@@ -242,11 +251,13 @@ Enemy-city accent:
 Conquest flourish / City 15 label:
 
 - derives from the already-computed `ConquestReportLayout` safe/panel frames;
-- remains within the safe area;
-- does not intersect required report text or Continue;
-- never changes the existing Continue hit frame.
+- report accent remains decorative and must not change Continue behavior;
+- required `Country 1 Complete` remains within the safe area;
+- required label does not intersect report content or Continue;
+- never changes the existing Continue hit frame;
+- no valid City 15 required-label frame means existing unsupported-geometry handling, not silent omission.
 
-If required milestone text cannot meet the existing supported-layout minimums, use the repository's existing fit/layout-gate behavior rather than silently clipping required text.
+If required milestone text cannot meet supported-layout constraints, use the repository's existing layout-gate authority rather than silently clipping or dropping required text.
 
 ## Error handling
 
@@ -254,8 +265,27 @@ There is no new persistence or external I/O.
 
 - Ordinary or out-of-scope cities simply have no milestone selection.
 - Catalog text continues to use the existing HPA-366 lookup/fallback behavior.
-- If the conquest report itself cannot fit, the existing BattleScene unsupported-geometry path remains authoritative; do not create a milestone-specific error mode.
-- Decorative accent failure must never block combat or Continue.
+- If the conquest report itself cannot fit, the existing BattleScene unsupported-geometry path remains authoritative.
+- If City 15's required `Country 1 Complete` frame cannot fit, use that same unsupported-geometry path.
+- Decorative accent failure must never mutate gameplay or block Continue by itself; required text fit is the fail-closed condition.
+
+## Risks and fallback policy
+
+### Risk 1 — outside-panel City 15 fit
+
+The City 15 completion label is the only new required report content positioned outside `ConquestReportLayout.panelFrame`. This is the highest-risk geometry in HPA-390 because it must remain inside `safeFrame` without touching the report or Continue across short landscape and narrow portrait layouts.
+
+Go/no-go verification is the dedicated City 15 fit test at `568×320`, `667×375`, and `320×568`. Task 3 is not green until all three pass.
+
+If the label cannot fit, **fail closed using the existing report layout gate**. Do not solve the failure by adding a new layout engine, expanding `ConquestReportLayout`, persisting presentation state, or introducing another modal.
+
+### Risk 2 — arrival text width
+
+`City 15 · Crownspire Keep` is the longest milestone arrival title and `320×568` is the tightest width. Automated arrival frame/title/subtitle containment at all three fixtures is the gate. Use existing label fitting; do not create a new text-layout abstraction.
+
+### Risk 3 — one-shot replay
+
+`applyPendingConquestReport` runs for layout reapplication and Continue disabling. One-shot flourish must remain only in `presentPendingConquestReport(origin:)`, while arrival presentation is only entered from initial active-scene mounting. Tests lock resize/redraw against replay.
 
 ## Testing strategy
 
@@ -278,13 +308,17 @@ Do not test arbitrary style constants as a public contract.
 Extend `BattleSceneTests` with focused behavior checks for the real integration:
 
 - a milestone active scene presents the authored arrival title/flavor;
+- combat continues while the arrival is visible;
 - a tap while arrival is visible dismisses and is consumed before an underlying control;
 - resize/redraw does not replay the arrival presentation;
 - ordinary cities do not create milestone presentation;
+- arrival title/subtitle frames fit and remain non-overlapping at `568×320`, `667×375`, and `320×568`;
 - fresh milestone conquest presents the flourish once;
 - layout reapply does not replay it;
 - restored milestone report does not replay one-shot flourish;
 - City 15 report exposes `Country 1 Complete` for both fresh and restored presentation;
+- City 15 required label/report/Continue geometry fits at all three fixtures;
+- a no-frame City 15 case follows the existing fit-failure gate rather than silently hiding required text;
 - Continue remains actionable through the existing transaction and route.
 
 Use DEBUG accessors only for semantic state/count/text/frame assertions needed to prove these behaviors. Avoid broad snapshots of private node trees.
@@ -298,12 +332,13 @@ Existing BattleScene conquest-report, Settings/modal precedence, layout, fresh/r
 Run a City 5 -> City 10 -> City 15 milestone smoke covering:
 
 - clear visual escalation;
-- readable compact/short layouts;
+- readable short-landscape and narrow-portrait layouts;
 - arrival auto-dismiss and tap-to-skip behavior;
 - skip tap never activates an underlying control;
 - fresh live/idle conquest presentation;
 - City 15 `Country 1 Complete` readability and Continue behavior;
 - Reduce Motion enabled;
+- static enemy-city accent (no looping pulse);
 - no gameplay/reward/progression differences from ordinary cities.
 
 ## Expected production scope
@@ -325,18 +360,20 @@ If implementation starts requiring a presentation manager, new persistence, a ge
 - Milestone text comes from the shared city definition; there is no parallel city-name/message switch.
 - City 5, 10, and 15 presentation escalates clearly while reusing the same simple treatment.
 - Arrival banner is non-modal, auto-dismisses, may be skipped by one consumed tap, and does not replay from resize/redraw in the mounted scene.
-- Enemy-city accent changes presentation only and does not alter combat geometry or interaction.
+- Arrival required text fits at `568×320`, `667×375`, and `320×568`.
+- Enemy-city accent is static in HPA-390, changes presentation only, and does not alter combat geometry or interaction.
 - Fresh live/idle milestone conquest shows a one-shot flourish; restored reports do not replay the one-shot effect.
 - City 15 clearly shows `Country 1 Complete` before the existing Continue route returns to the completed map.
-- Flourish/finale presentation does not obscure required report content or alter/block Continue.
+- If City 15 completion text cannot fit, the existing unsupported-geometry gate is used; the label is never silently omitted.
+- City 15 report treatment fits at `568×320`, `667×375`, and `320×568` without obscuring required report content or Continue.
 - Reduced Motion preserves all milestone meaning with static/fade-only treatment.
 - No gameplay mutation, reward calculation, progression rule, idle behavior, save schema, or durable consumed-presentation state changes.
 - Focused selection and representative BattleScene behavior tests pass, followed by full unit/UI/lint verification and the manual milestone smoke.
 
 ## Implementation boundary summary
 
-HPA-390 is intentionally a thin BattleScene presentation slice:
+HPA-390 remains a thin BattleScene presentation slice:
 
-`current city -> tiny milestone selector -> scene-owned arrival/accent -> existing fresh/restored conquest boundary -> scene-owned report flourish`
+`current city -> tiny milestone selector -> scene-owned arrival/static city accent -> existing fresh/restored conquest boundary -> scene-owned report flourish + City 15 required label`
 
 Everything else remains owned by the systems already in `main`.
