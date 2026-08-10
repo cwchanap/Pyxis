@@ -102,6 +102,48 @@ struct BuildingViewSceneTests {
         #expect(feedback.calls.isEmpty)
     }
 
+    @Test("Building View renders Ready Recommended Camp in two lines")
+    func buildingViewRendersReadyRecommendedCamp() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: KingdomGameState(gold: 15)),
+            router: RouteSpy()
+        )
+
+        #expect(scene.recommendedCampPrimaryTextForTesting == "Recommended Camp · Ready")
+        #expect(scene.recommendedCampSecondaryTextForTesting
+            == "Build Barracks · Lot 1 · 15g · Infantry starter")
+    }
+
+    @Test("Building View renders Save for Recommended Camp in two lines")
+    func buildingViewRendersSaveForRecommendedCamp() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: KingdomGameState(gold: 10)),
+            router: RouteSpy()
+        )
+
+        #expect(scene.recommendedCampPrimaryTextForTesting == "Recommended Camp · Save for")
+        #expect(scene.recommendedCampSecondaryTextForTesting
+            == "Build Barracks · Lot 1 · Need 5g · Infantry starter")
+    }
+
+    @Test("Building View renders no-action Recommended Camp in two lines")
+    func buildingViewRendersNoActionRecommendedCamp() throws {
+        let scene = makeScene(
+            store: try makeStore(
+                initialState: KingdomGameState(
+                    gold: 100,
+                    cityNumberInCountry: 6,
+                    completedCityCount: 5
+                )
+            ),
+            router: RouteSpy()
+        )
+
+        #expect(scene.recommendedCampPrimaryTextForTesting == "Recommended Camp")
+        #expect(scene.recommendedCampSecondaryTextForTesting
+            == "No favorable camp action available.")
+    }
+
     @Test("Building View layout and routing gates take priority over Settings")
     func buildingViewLayoutAndRoutingGatesPreventSettingsTouches() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
@@ -799,6 +841,14 @@ struct BuildingViewSceneTests {
         let scene = makeScene(size: size, store: store, router: RouteSpy())
         let frames = try #require(scene.buildingLayoutFramesForTesting)
 
+        #expect(frames.actionPanel.height == 158)
+        #expect(frames.actionPanel.contains(frames.recommendationRow))
+        #expect(frames.recommendationRow.contains(frames.recommendationPrimaryLabel))
+        #expect(frames.recommendationRow.contains(frames.recommendationSecondaryLabel))
+        #expect(!frames.recommendationPrimaryLabel.intersects(frames.recommendationSecondaryLabel))
+        #expect(!frames.recommendationRow.intersects(frames.feedbackLabel))
+        #expect(!frames.recommendationRow.intersects(frames.upgradeButton))
+        #expect(!frames.recommendationRow.intersects(frames.battleButton))
         #expect(frames.scene.contains(frames.titlePanel))
         #expect(frames.scene.contains(frames.actionPanel))
         #expect(frames.scene.contains(frames.grid))
@@ -809,6 +859,7 @@ struct BuildingViewSceneTests {
         }
         for frame in buildFrames {
             #expect(!frames.grid.intersects(frame))
+            #expect(!frame.intersects(frames.recommendationRow))
             #expect(!frame.intersects(frames.upgradeButton))
             #expect(!frame.intersects(frames.battleButton))
         }
@@ -819,6 +870,7 @@ struct BuildingViewSceneTests {
         }
         #expect(!frames.grid.intersects(frames.upgradeButton))
         #expect(!frames.grid.intersects(frames.battleButton))
+        #expect(!frames.grid.intersects(frames.recommendationRow))
         #expect(!frames.upgradeButton.intersects(frames.battleButton))
     }
 
@@ -828,6 +880,14 @@ struct BuildingViewSceneTests {
         let scene = makeScene(size: size, store: store, router: RouteSpy())
         let frames = try #require(scene.buildingLayoutFramesForTesting)
 
+        #expect(frames.actionPanel.height == 132)
+        #expect(frames.actionPanel.contains(frames.recommendationRow))
+        #expect(frames.recommendationRow.contains(frames.recommendationPrimaryLabel))
+        #expect(frames.recommendationRow.contains(frames.recommendationSecondaryLabel))
+        #expect(!frames.recommendationPrimaryLabel.intersects(frames.recommendationSecondaryLabel))
+        #expect(!frames.recommendationRow.intersects(frames.feedbackLabel))
+        #expect(!frames.recommendationRow.intersects(frames.upgradeButton))
+        #expect(!frames.recommendationRow.intersects(frames.battleButton))
         #expect(frames.scene.contains(frames.titlePanel))
         #expect(frames.scene.contains(frames.actionPanel))
         #expect(frames.scene.contains(frames.grid))
@@ -839,6 +899,7 @@ struct BuildingViewSceneTests {
         }
         for frame in buildFrames {
             #expect(!frames.grid.intersects(frame))
+            #expect(!frame.intersects(frames.recommendationRow))
             #expect(!frame.intersects(frames.upgradeButton))
             #expect(!frame.intersects(frames.battleButton))
             #expect(frame.minY - frames.upgradeButton.maxY > minimumControlGap)
@@ -851,6 +912,7 @@ struct BuildingViewSceneTests {
         }
         #expect(!frames.grid.intersects(frames.upgradeButton))
         #expect(!frames.grid.intersects(frames.battleButton))
+        #expect(!frames.grid.intersects(frames.recommendationRow))
         #expect(!frames.upgradeButton.intersects(frames.battleButton))
     }
 
