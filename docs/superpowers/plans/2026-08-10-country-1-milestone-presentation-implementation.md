@@ -790,7 +790,7 @@ This is the primary Task 3 go/no-go test.
 
 - [ ] **Step 4: Add RED fail-closed City 15 required-text test**
 
-Use a deliberately short height where the existing compact idle report panel still fits but the required 22pt completion row plus 8pt gap cannot fit above or below a centered panel:
+The existing compact idle City 15 report has three summary rows and no badges by default, so `ConquestReportLayout` computes a 180pt compact panel. At `568×239`, that base report still fits, leaving only 29.5pt above and below a centered panel. The new completion row needs 22pt plus an 8pt gap = 30pt, so this fixture isolates the new HPA-390 required-label failure rather than reproducing the old report-fit failure.
 
 ```swift
 @Test("City 15 completion fails closed when required label has no safe frame")
@@ -812,8 +812,6 @@ func city15CompletionUsesExistingFitFailureWhenLabelCannotFit() throws {
     #expect(store.load().pendingBattleResult != nil)
 }
 ```
-
-The 239pt fixture is not a supported gameplay size; it exists only to prove required milestone text joins the already-existing fail-closed report behavior rather than disappearing silently.
 
 - [ ] **Step 5: Run new/extended report tests and confirm RED**
 
