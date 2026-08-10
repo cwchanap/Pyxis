@@ -1637,16 +1637,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         switch tier {
         case .first:
             expansion = 5
-            milestoneConquestAccent.lineWidth = 2
-            milestoneConquestAccent.glowWidth = 1
         case .second:
             expansion = 7
-            milestoneConquestAccent.lineWidth = 3
-            milestoneConquestAccent.glowWidth = 3
         case .finale:
             expansion = 9
-            milestoneConquestAccent.lineWidth = 4
-            milestoneConquestAccent.glowWidth = 5
         }
 
         let insets = view?.safeAreaInsets ?? .zero
@@ -3372,9 +3366,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         let expansion: CGFloat
         switch tier {
-        case .first: expansion = 5
-        case .second: expansion = 7
-        case .finale: expansion = 9
+        case .first:
+            expansion = 5
+            milestoneConquestAccent.lineWidth = 2
+            milestoneConquestAccent.glowWidth = 1
+        case .second:
+            expansion = 7
+            milestoneConquestAccent.lineWidth = 3
+            milestoneConquestAccent.glowWidth = 3
+        case .finale:
+            expansion = 9
+            milestoneConquestAccent.lineWidth = 4
+            milestoneConquestAccent.glowWidth = 5
         }
         var accentFrame = layout.panelFrame
             .insetBy(dx: -expansion, dy: -expansion)
