@@ -196,7 +196,8 @@ func city5PresentsReadableArrivalWithoutPausingCombat() throws {
     #expect(scene.isMilestoneArrivalVisibleForTesting)
     #expect(scene.milestoneArrivalTitleForTesting == "City 5 · Highcrest")
     #expect(scene.milestoneArrivalSubtitleForTesting == "A proud hill fortress crowns the frontier.")
-    #expect(scene.milestoneArrivalMinimumFontSizeForTesting >= 12)
+    #expect(scene.milestoneArrivalTitleFontSizeForTesting >= 12)
+    #expect(scene.milestoneArrivalSubtitleFontSizeForTesting >= 12)
     #expect(scene.milestoneCityAccentFrameForTesting != nil)
 
     scene.update(10)
@@ -643,7 +644,33 @@ No action/pulse is installed on `milestoneCityAccent`.
 
 - [ ] **Step 15: Add semantic DEBUG accessors only**
 
-Expose tier, visibility/count/copy, arrival/panel/label frames, title/subtitle font sizes, and city accent frame. Do not expose style constants or private node arrays.
+Expose:
+
+```swift
+var milestoneTierForTesting: Int? { currentMilestoneTier?.rawValue }
+var isMilestoneArrivalVisibleForTesting: Bool { isMilestoneArrivalVisible }
+var milestoneArrivalPresentationCountForTesting: Int {
+    milestoneArrivalPresentationCountForTestingStorage
+}
+var milestoneArrivalTitleForTesting: String? { milestoneArrivalTitleLabel.text }
+var milestoneArrivalSubtitleForTesting: String? { milestoneArrivalSubtitleLabel.text }
+var milestoneArrivalTitleFontSizeForTesting: CGFloat { milestoneArrivalTitleLabel.fontSize }
+var milestoneArrivalSubtitleFontSizeForTesting: CGFloat { milestoneArrivalSubtitleLabel.fontSize }
+var milestoneArrivalFrameForTesting: CGRect? {
+    milestoneArrivalPanel.isHidden ? nil : sceneFrame(for: milestoneArrivalPanel)
+}
+var milestoneArrivalTitleFrameForTesting: CGRect? {
+    milestoneArrivalPanel.isHidden ? nil : sceneFrame(for: milestoneArrivalTitleLabel)
+}
+var milestoneArrivalSubtitleFrameForTesting: CGRect? {
+    milestoneArrivalPanel.isHidden ? nil : sceneFrame(for: milestoneArrivalSubtitleLabel)
+}
+var milestoneCityAccentFrameForTesting: CGRect? {
+    milestoneCityAccent.isHidden ? nil : sceneFrame(for: milestoneCityAccent)
+}
+```
+
+Do not expose style constants or private node arrays.
 
 - [ ] **Step 16: Run focused + full BattleScene tests**
 
@@ -1226,13 +1253,28 @@ Do not read `state.pendingBattleResult` inside the flourish.
 
 - [ ] **Step 16: Add semantic DEBUG accessors**
 
-Expose only:
+Expose:
 
-- milestone flourish count;
-- last flourish city number;
-- report accent frame;
-- `Country 1 Complete` text/frame;
-- a testing-only arrival dismissal method used by fresh-conquest fixtures if needed.
+```swift
+var milestoneConquestFlourishCountForTesting: Int {
+    milestoneConquestFlourishCountForTestingStorage
+}
+var lastMilestoneFlourishCityForTesting: Int? {
+    lastMilestoneFlourishCityForTestingStorage
+}
+var milestoneConquestAccentFrameForTesting: CGRect? {
+    milestoneConquestAccent.isHidden ? nil : sceneFrame(for: milestoneConquestAccent)
+}
+var countryCompleteTextForTesting: String? {
+    countryCompleteLabel.isHidden ? nil : countryCompleteLabel.text
+}
+var countryCompleteFrameForTesting: CGRect? {
+    countryCompleteLabel.isHidden ? nil : sceneFrame(for: countryCompleteLabel)
+}
+func dismissMilestoneArrivalForTesting() {
+    dismissMilestoneArrival(animated: false)
+}
+```
 
 Do not expose style constants/actions or a second layout model.
 
@@ -1383,7 +1425,7 @@ Before implementation is considered complete, verify all remain true:
 - `openFeedbackSettings()` dismisses arrival for the VoiceOver path as well as normal touch flow.
 - Enemy-city accent is static; no pulse/loop lifecycle was added.
 - `ConquestReportLayout` owns `countryCompleteFrame` and required geometry failure; no BattleScene geometry preflight/fallback exists.
-- Base report geometry remains byte-for-byte equivalent in behavior when `includesCountryCompletion == false` (existing exact-height tests pass).
+- Base report geometry remains equivalent in behavior when `includesCountryCompletion == false` (existing exact-height tests pass).
 - The pure 205pt boundary test explicitly proves base-report-fit versus completion-group-failure.
 - `BattleScene` handles only required-label typography after layout; decorative accent clipping never causes report failure.
 - `applyPendingConquestReport` returns the exact successfully resolved `BattleResult`, and the flourish consumes that value rather than re-reading state.
