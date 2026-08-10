@@ -2506,6 +2506,18 @@ struct BattleSceneTests {
         #expect(scene.conquestEffectPresentationCountForTesting == 0)
     }
 
+    @Test("Restored City 10 gets static milestone treatment without flourish replay")
+    func restoredCity10ReportDoesNotReplayMilestoneFlourish() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState(city: 10, mode: .live))
+        )
+
+        #expect(scene.lastConquestReportOriginForTesting == "restored")
+        #expect(scene.milestoneConquestFlourishCountForTesting == 0)
+        #expect(scene.milestoneConquestAccentFrameForTesting != nil)
+        #expect(!scene.isMilestoneArrivalVisibleForTesting)
+    }
+
     @Test func liveConquestUsesFreshLiveEffectsOnce() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
         let scene = makeScene(store: store)
@@ -2623,10 +2635,62 @@ struct BattleSceneTests {
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         #expect(scene.conquestReportTitleForTesting == "Crownspire Keep Falls")
+        #expect(scene.countryCompleteTextForTesting == "Country 1 Complete")
+        #expect(scene.countryCompleteFrameForTesting != nil)
+        #expect(scene.milestoneConquestFlourishCountForTesting == 0)
         scene.tapConquestContinueForTesting()
         scene.tapConquestContinueForTesting()
         #expect(router.countryMapRequestCount == 1)
         #expect(store.load().pendingBattleResult == nil)
+    }
+
+    @Test("Fresh City 5 flourish uses the applied result once")
+    func freshCity5ConquestPresentsMilestoneFlourishOnce() throws {
+        let key = CityKey(countryNumber: 1, cityNumber: 5)
+        let state = KingdomGameState(
+            gold: 100,
+            cityLevel: 5,
+            cityRemainingPower: 1,
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            cityBattleStates: [
+                key.storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: 6)]
+                )
+            ]
+        )
+        let scene = makeScene(store: try makeStore(initialState: state))
+        scene.dismissMilestoneArrivalForTesting()
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3)
+
+        #expect(scene.lastConquestReportOriginForTesting == "freshLive")
+        #expect(scene.milestoneConquestFlourishCountForTesting == 1)
+        #expect(scene.lastMilestoneFlourishCityForTesting == 5)
+
+        let count = scene.milestoneConquestFlourishCountForTesting
+        scene.redrawForTesting(shouldLayout: true)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.milestoneConquestFlourishCountForTesting == count)
+    }
+
+    @Test("Finale completion layout failure reuses Battle unsupported-geometry gate")
+    func finaleCompletionLayoutFailureUsesExistingGate() throws {
+        let router = BattleRouterSpy()
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState(
+                city: KingdomGameState.firstCountryCityCount,
+                mode: .idle,
+                countryComplete: true
+            )),
+            router: router,
+            size: CGSize(width: 568, height: 205)
+        )
+
+        #expect(scene.isConquestReportFitFailedForTesting)
+        #expect(!scene.isConquestPopupVisibleForTesting)
+        #expect(router.lastLayoutGateReason == .unsupportedGeometry)
     }
 
     @Test func commanderHUDKeepsTopClustersAndActionsInsideScene() throws {
