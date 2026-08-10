@@ -213,6 +213,11 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             return
         }
 
+        if buttonContains(recommendationRow, point: point) {
+            activateRecommendedCamp()
+            return
+        }
+
         if let type = buildingType(at: point) {
             buildSelectedSlot(type)
             return
@@ -1062,6 +1067,30 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             feedbackText = "Empty lot \(slot) selected."
         }
         redraw()
+    }
+
+    private func activateRecommendedCamp() {
+        guard let renderedRecommendation else {
+            return
+        }
+
+        let freshRecommendation = RecommendedCampRecommendation.make(for: state)
+        guard freshRecommendation == renderedRecommendation else {
+            redraw()
+            return
+        }
+
+        guard case let .ready(action, _) = freshRecommendation else {
+            return
+        }
+
+        selectedSlot = action.slot
+        switch action.kind {
+        case .build:
+            buildSelectedSlot(action.buildingType)
+        case .upgrade:
+            upgradeSelectedSlot()
+        }
     }
 
     private func buildSelectedSlot(_ type: BuildingType) {
