@@ -274,9 +274,10 @@ Add focused Swift Testing coverage for:
 - Lowest empty lot for a build.
 - Five favored buildings -> still upgrade the lowest `(level, slot)`; do not invent a max level.
 - City 6 all favorable types locked -> No recommendation, with no Standard Watch fallback.
-- Full/no-empty-lot structural failure -> No recommendation when no candidate has an action.
 - Non-active stage -> No recommendation.
 - Identical state -> identical value.
+
+Do not add invalid normalized-state fixtures solely to manufacture an unreachable “no empty lot but no favorable building exists” case. Current model caps make that state unreachable for the authored favorable sets.
 
 ### Building View flow
 
