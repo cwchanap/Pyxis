@@ -18,9 +18,9 @@ struct Country1CityCatalogTests {
 
         init(
             _ cityNumber: Int,
-            _ name: String,
-            _ flavorText: String,
-            _ conquestTitle: String,
+            name: String,
+            flavorText: String,
+            conquestTitle: String,
             _ defenseTrait: CityDefenseTrait,
             _ fortifiedLane: BattleLane,
             _ exposedLane: BattleLane
@@ -50,21 +50,21 @@ struct Country1CityCatalogTests {
     }
 
     private static let expectedDefinitions: [ExpectedDefinition] = [
-        .init(1, "Willowford", "A quiet crossing where the campaign begins.", "Willowford Secured", .standardWatch, .left, .right),
-        .init(2, "Pinewatch", "A hill watchtown guarding the old trade road.", "Pinewatch Secured", .standardWatch, .center, .left),
-        .init(3, "Falconridge", "Arrow towers command the high ridge road.", "Falconridge Silenced", .arrowTower, .right, .center),
-        .init(4, "Bramblegate", "Iron spikes guard a narrow frontier gate.", "Bramblegate Broken", .spikedGate, .left, .right),
-        .init(5, "Highcrest", "A proud hill fortress crowns the frontier.", "Highcrest Falls", .arrowTower, .center, .left),
-        .init(6, "Granite Pass", "Stone walls seal the mountain road ahead.", "Granite Pass Open", .stoneWall, .right, .center),
-        .init(7, "Emberford", "Burning oil guards the bridge inland.", "Emberford Secured", .burningOil, .left, .right),
-        .init(8, "Greywall", "Layered stone walls protect a busy town.", "Greywall Falls", .stoneWall, .center, .left),
-        .init(9, "Runewatch", "Arcane wards shimmer over the night road.", "Runewatch Unbound", .arcaneWard, .right, .center),
-        .init(10, "Ironthorn Gate", "A hardened gate blocks the inner road.", "Ironthorn Gate Broken", .spikedGate, .left, .right),
-        .init(11, "Kingshield Keep", "A reinforced fortress guards the royal road.", "Kingshield Keep Falls", .reinforcedKeep, .center, .left),
-        .init(12, "Ashbridge", "Fire cauldrons guard the last crossing.", "Ashbridge Secured", .burningOil, .right, .center),
-        .init(13, "Starveil Citadel", "Arcane wards protect the capital heights.", "Starveil Citadel Falls", .arcaneWard, .left, .right),
-        .init(14, "Stonecrown", "Massive stone walls ring the royal seat.", "Stonecrown Breached", .stoneWall, .center, .left),
-        .init(15, "Crownspire Keep", "The final keep rises above the capital.", "Crownspire Keep Falls", .reinforcedKeep, .right, .center)
+        .init(1, name: "Willowford", flavorText: "A quiet crossing where the campaign begins.", conquestTitle: "Willowford Secured", .standardWatch, .left, .right),
+        .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left),
+        .init(3, name: "Falconridge", flavorText: "Arrow towers command the high ridge road.", conquestTitle: "Falconridge Silenced", .arrowTower, .right, .center),
+        .init(4, name: "Bramblegate", flavorText: "Iron spikes guard a narrow frontier gate.", conquestTitle: "Bramblegate Broken", .spikedGate, .left, .right),
+        .init(5, name: "Highcrest", flavorText: "A proud hill fortress crowns the frontier.", conquestTitle: "Highcrest Falls", .arrowTower, .center, .left),
+        .init(6, name: "Granite Pass", flavorText: "Stone walls seal the mountain road ahead.", conquestTitle: "Granite Pass Open", .stoneWall, .right, .center),
+        .init(7, name: "Emberford", flavorText: "Burning oil guards the bridge inland.", conquestTitle: "Emberford Secured", .burningOil, .left, .right),
+        .init(8, name: "Greywall", flavorText: "Layered stone walls protect a busy town.", conquestTitle: "Greywall Falls", .stoneWall, .center, .left),
+        .init(9, name: "Runewatch", flavorText: "Arcane wards shimmer over the night road.", conquestTitle: "Runewatch Unbound", .arcaneWard, .right, .center),
+        .init(10, name: "Ironthorn Gate", flavorText: "A hardened gate blocks the inner road.", conquestTitle: "Ironthorn Gate Broken", .spikedGate, .left, .right),
+        .init(11, name: "Kingshield Keep", flavorText: "A reinforced fortress guards the royal road.", conquestTitle: "Kingshield Keep Falls", .reinforcedKeep, .center, .left),
+        .init(12, name: "Ashbridge", flavorText: "Fire cauldrons guard the last crossing.", conquestTitle: "Ashbridge Secured", .burningOil, .right, .center),
+        .init(13, name: "Starveil Citadel", flavorText: "Arcane wards protect the capital heights.", conquestTitle: "Starveil Citadel Falls", .arcaneWard, .left, .right),
+        .init(14, name: "Stonecrown", flavorText: "Massive stone walls ring the royal seat.", conquestTitle: "Stonecrown Breached", .stoneWall, .center, .left),
+        .init(15, name: "Crownspire Keep", flavorText: "The final keep rises above the capital.", conquestTitle: "Crownspire Keep Falls", .reinforcedKeep, .right, .center)
     ]
 
     @Test func catalogIsCompleteUniqueOrderedAndMatchesAuthoredCombatMetadata() {
