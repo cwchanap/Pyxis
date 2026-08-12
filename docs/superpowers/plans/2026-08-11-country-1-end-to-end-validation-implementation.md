@@ -77,7 +77,7 @@ Record:
 - Save state: clean/default install
 ```
 
-Use that runtime baseline for the run. Rebuilding/reinstalling **the same runtime commit** is allowed when recovery requires it. Installing a different runtime-affecting commit creates a mixed baseline and requires a new run. Documentation-only changes do not affect the runtime baseline.
+The validation baseline is the recorded **runtime content**, not whether Xcode produced a fresh binary. Rebuilding/reinstalling from the same commit is allowed. A different commit is allowed only when its diff is non-runtime documentation/metadata; any change that can affect gameplay, UI, routing, feedback, persistence, layout, or presentation creates a mixed baseline and requires a new run.
 
 ### Build the normal app
 
@@ -248,7 +248,7 @@ cp "$CONTAINER/Library/Preferences/$BUNDLE.plist" "$BACKUP_DIR/city-<N>.plist"
 plutil -p "$BACKUP_DIR/city-<N>.plist" | grep -q 'pyxis.kingdomGameState'
 ```
 
-Then relaunch the same recorded build and continue.
+Then relaunch the same runtime baseline and continue.
 
 ### Recovery rule
 
@@ -256,7 +256,7 @@ Restoring **the tester's own unedited checkpoint** after accidental container lo
 
 Recovery procedure:
 
-1. Reinstall the same recorded runtime build if necessary.
+1. Reinstall the same recorded runtime baseline if necessary.
 2. Terminate Pyxis.
 3. Resolve the new app data container with `simctl get_app_container`.
 4. Copy the chosen checkpoint plist back to `Library/Preferences/cwchanap.Pyxis.plist`.
