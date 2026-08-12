@@ -337,8 +337,14 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             return false
         }
 
-        guard !isOutputActive else {
-            return true
+        if isOutputActive {
+            let isEngineRunning = backendQueue.sync {
+                backend.isEngineRunning
+            }
+            if isEngineRunning {
+                return true
+            }
+            isOutputActive = false
         }
 
         var sessionActivated = false
@@ -347,6 +353,9 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 try backend.setSessionActive(true, notifyOthers: false)
                 sessionActivated = true
                 try backend.startEngine()
+                guard backend.isEngineRunning else {
+                    throw ActivationError.engineNotRunningAfterStart
+                }
             }
             isOutputActive = true
             nextActivationAttemptAt = nil
@@ -479,6 +488,10 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
 
     private enum PreparationError: Error {
         case mismatchedPreparedSoundID
+    }
+
+    private enum ActivationError: Error {
+        case engineNotRunningAfterStart
     }
 }
 

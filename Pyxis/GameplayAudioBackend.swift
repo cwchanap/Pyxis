@@ -19,6 +19,8 @@ protocol GameplayAudioVoice: AnyObject {
 }
 
 protocol GameplayAudioBackend: AnyObject {
+    var isEngineRunning: Bool { get }
+
     func configureAmbientSession() throws
     func setSessionActive(_ active: Bool, notifyOthers: Bool) throws
     func prepareSound(_ resource: GameplaySoundResource) throws -> GameplayPreparedSound

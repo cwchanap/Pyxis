@@ -88,6 +88,28 @@ struct AVAudioEngineGameplayAudioBackendTests {
         #expect(completionCalled)
     }
 
+    @Test func voiceScheduleAfterEngineStopsDropsSoundWithoutCrashing() throws {
+        let backend = AVAudioEngineGameplayAudioBackend()
+        let resource = GameplaySoundResource(
+            id: .deployment,
+            resourceName: "deployment",
+            fileExtension: "caf",
+            soundClass: .nonAutomatic,
+            maximumDuration: nil
+        )
+        let prepared = try backend.prepareSound(resource)
+        let voice = backend.makeVoice(index: 0)
+        try backend.startEngine()
+        backend.stopEngine()
+
+        var completionCalled = false
+        voice.schedule(prepared) {
+            completionCalled = true
+        }
+
+        #expect(completionCalled)
+    }
+
     @Test func voiceStopDoesNotCrash() {
         let backend = AVAudioEngineGameplayAudioBackend()
         let voice = backend.makeVoice(index: 0)

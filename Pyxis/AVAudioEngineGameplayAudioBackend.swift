@@ -6,6 +6,13 @@
 import AVFoundation
 import Foundation
 
+@_silgen_name("PyxisScheduleAndPlayAudioBuffer")
+private func PyxisScheduleAndPlayAudioBuffer(
+    _ playerNode: AVAudioPlayerNode,
+    _ buffer: AVAudioPCMBuffer,
+    _ completion: @convention(block) @escaping () -> Void
+) -> Int32
+
 final class AVAudioPreparedSound: GameplayPreparedSound {
     let id: GameplaySoundID
     fileprivate let buffer: AVAudioPCMBuffer
@@ -27,6 +34,10 @@ final class AVAudioEngineGameplayAudioBackend: GameplayAudioBackend {
     private let notificationCenter: NotificationCenter
     private var notificationObservers: [NSObjectProtocol] = []
     private var isGraphConfigured = false
+
+    var isEngineRunning: Bool {
+        engine.isRunning
+    }
 
     /// Task 13 supplies these controller callbacks at the composition boundary.
     var interruptionBeganHandler: (() -> Void)?
@@ -224,18 +235,37 @@ private final class AVAudioEngineGameplayAudioVoice: GameplayAudioVoice {
             return
         }
 
-        playerNode.scheduleBuffer(
-            preparedSound.buffer,
-            at: nil,
-            options: [],
-            completionCallbackType: .dataPlayedBack
-        ) { _ in
-            completion()
+        let completionGate = OneShotCompletion(completion)
+        let didStart = PyxisScheduleAndPlayAudioBuffer(
+            playerNode,
+            preparedSound.buffer
+        ) {
+            completionGate.call()
         }
-        playerNode.play()
+        if didStart == 0 {
+            completionGate.call()
+        }
     }
 
     func stop() {
         playerNode.stop()
+    }
+}
+
+private final class OneShotCompletion {
+    private let lock = NSLock()
+    private var completion: (() -> Void)?
+
+    init(_ completion: @escaping () -> Void) {
+        self.completion = completion
+    }
+
+    func call() {
+        let action = lock.withLock {
+            let action = completion
+            completion = nil
+            return action
+        }
+        action?()
     }
 }

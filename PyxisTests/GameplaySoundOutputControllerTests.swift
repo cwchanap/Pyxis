@@ -130,6 +130,43 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.engineStartCount == 1)
     }
 
+    @Test func playbackReactivatesAnEngineThatStoppedOutsideControllerLifecycle() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        controller.play(.deployment)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+
+        backend.simulateAutonomousEngineStop()
+        controller.play(.attackMelee)
+        try await waitUntil { backend.scheduledSoundIDs == [.deployment, .attackMelee] }
+
+        #expect(
+            backend.activeSessionRequests == [
+                .init(active: true, notifyOthers: false),
+                .init(active: true, notifyOthers: false)
+            ]
+        )
+        #expect(backend.engineStartCount == 2)
+    }
+
+    @Test func playbackDropsWhenEngineRemainsStoppedAfterSuccessfulStart() async throws {
+        let backend = RecordingAudioBackend(engineRunsAfterStart: false)
+        let controller = try await preparedController(backend: backend)
+
+        controller.play(.deployment)
+        try await waitUntil { backend.engineStartCount == 1 }
+        try await settleOutput()
+
+        #expect(backend.scheduledSoundIDs.isEmpty)
+        #expect(
+            backend.activeSessionRequests == [
+                .init(active: true, notifyOthers: false),
+                .init(active: false, notifyOthers: true)
+            ]
+        )
+    }
+
     @Test func activationFailureDropsEventAndSuppressesRetriesForExactlyOneSecond() async throws {
         let backend = RecordingAudioBackend(activationFailuresRemaining: 1)
         let clock = MutableMonotonicClock(now: 10)
@@ -921,6 +958,7 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     private let blockingVoiceCreationCalls: Set<Int>
     private let voiceCreationDidBlock = DispatchSemaphore(value: 0)
     private let continueVoiceCreation = DispatchSemaphore(value: 0)
+    private let engineRunsAfterStart: Bool
     private let beforeFailingActivation: (() -> Void)?
     private var remainingActivationFailures: Int
     private var recordedCalls: [Call] = []
@@ -929,6 +967,7 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     private var recordedVoiceOperations: [Int: [VoiceOperation]] = [:]
     private var recordedVoiceCompletions: [Int: [() -> Void]] = [:]
     private var recordedPreparationFailureCount = 0
+    private var recordedEngineIsRunning = false
 
     init(
         blockingPreparationCall: Int? = nil,
@@ -938,7 +977,8 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         preparationFailuresOnCalls: Set<Int> = [],
         blockingLifecycleRecovery: Bool = false,
         blockingVoiceCreationCall: Int? = nil,
-        blockingVoiceCreationCalls: Set<Int> = []
+        blockingVoiceCreationCalls: Set<Int> = [],
+        engineRunsAfterStart: Bool = true
     ) {
         var allBlockingPreparationCalls = blockingPreparationCalls
         if let blockingPreparationCall {
@@ -954,6 +994,7 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
             allBlockingVoiceCreationCalls.insert(blockingVoiceCreationCall)
         }
         self.blockingVoiceCreationCalls = allBlockingVoiceCreationCalls
+        self.engineRunsAfterStart = engineRunsAfterStart
     }
 
     var calls: [Call] {
@@ -998,6 +1039,10 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
         withLock {
             recordedCalls.count { $0 == .startEngine }
         }
+    }
+
+    var isEngineRunning: Bool {
+        withLock { recordedEngineIsRunning }
     }
 
     var configuredAmbientSessionCount: Int {
@@ -1106,11 +1151,23 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     }
 
     func startEngine() throws {
-        record(.startEngine)
+        withLock {
+            recordedCalls.append(.startEngine)
+            recordedEngineIsRunning = engineRunsAfterStart
+        }
     }
 
     func stopEngine() {
-        record(.stopEngine)
+        withLock {
+            recordedCalls.append(.stopEngine)
+            recordedEngineIsRunning = false
+        }
+    }
+
+    func simulateAutonomousEngineStop() {
+        withLock {
+            recordedEngineIsRunning = false
+        }
     }
 
     func waitForBlockedPreparation() -> Bool {
@@ -1208,6 +1265,8 @@ private final class FailingSessionBackend: GameplayAudioBackend {
 
     enum SessionError: Error { case failed }
 
+    var isEngineRunning: Bool { false }
+
     func configureAmbientSession() throws {
         withLock { _configureAmbientSessionCount += 1 }
         throw SessionError.failed
@@ -1250,6 +1309,8 @@ private final class MismatchedIDBackend: GameplayAudioBackend {
     var scheduledSoundIDs: [GameplaySoundID] {
         withLock { _scheduledSoundIDs }
     }
+
+    var isEngineRunning: Bool { true }
 
     func configureAmbientSession() throws {}
 
@@ -1313,6 +1374,8 @@ private final class DeactivationFailingBackend: GameplayAudioBackend {
 
     enum DeactivationError: Error { case failed }
 
+    var isEngineRunning: Bool { true }
+
     func configureAmbientSession() throws {}
 
     func setSessionActive(_ active: Bool, notifyOthers: Bool) throws {
@@ -1369,6 +1432,8 @@ private final class EngineStartFailingBackend: GameplayAudioBackend {
     }
 
     enum EngineError: Error { case failed }
+
+    var isEngineRunning: Bool { false }
 
     var sessionRequests: [SessionRequest] {
         withLock { _sessionRequests }
