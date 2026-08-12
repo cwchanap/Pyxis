@@ -291,7 +291,7 @@ For a crash, broken route, build failure, persistence failure, or other function
 - publish the partial evidence already collected;
 - file the blocker separately with reproduction details;
 - do not treat the blocker itself as evidence for a new mechanic;
-- HPA-567 remains open until the blocker is resolved and the missing product journey can be validated, unless the blocker is itself intentionally accepted as the terminal roadmap outcome.
+- HPA-567 remains open until the blocker is resolved and the missing product journey can be validated.
 
 ### What decisions may come from a partial run?
 
@@ -387,7 +387,7 @@ Publish one canonical result comment containing:
 1. baseline metadata;
 2. City 1-N table;
 3. available City 1/5/10/15 deep checkpoints;
-4. deliberate idle checkpoint;
+4. deliberate idle checkpoint when reached;
 5. synthesis including progression/time burden;
 6. separately tracked blockers/polish;
 7. HPA-362/HPA-369/HPA-367 decisions.
@@ -425,7 +425,7 @@ Before completion verify only these essentials:
 [ ] Baseline commit/simulator/iOS recorded.
 [ ] Per-city rows exist through the final reached city.
 [ ] Required deep checkpoints reached so far are recorded.
-[ ] One deliberate 8h+ idle window was exercised unless a blocker ended the run before a suitable city existed.
+[ ] One deliberate 8h+ idle window was exercised unless a blocker or validated progression stop ended the run before a suitable city existed.
 [ ] Progression stall/time-budget findings are preserved rather than optimized away.
 [ ] HPA-362/HPA-369/HPA-367 each have an evidence-backed decision allowed by full/partial-run rules.
 [ ] Bugs/polish are separate issues.
