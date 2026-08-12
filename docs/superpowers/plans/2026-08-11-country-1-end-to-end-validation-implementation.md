@@ -297,7 +297,7 @@ For a crash, broken route, build failure, persistence failure, or other function
 
 - **PROTOTYPE / ACTIVATE** may be chosen from a partial run when repeated evidence already identifies the problem and the proposed item is clearly the smallest fit.
 - **KEEP DEFERRED** may be chosen from a partial run when evidence is missing/inconclusive or the problem exists but the proposed item is not clearly the right fit.
-- **DROP requires a complete City 1 -> 15 run.** Absence of a problem cannot be claimed for unseen cities.
+- **DROP requires a complete City 1 -> City 15 run.** Absence of a problem cannot be claimed for unseen cities.
 
 Do not discard useful Cities 1-N evidence merely because City N+1 was not reached.
 
