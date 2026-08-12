@@ -306,6 +306,8 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
             return
         }
 
+        reconcileStoppedOutputBeforeVoiceAllocation()
+
         guard let voiceIndex = selectVoiceIndex(for: soundClass) else {
             return
         }
@@ -330,6 +332,27 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 self?.markVoiceIdle(at: voiceIndex, generation: scheduleGeneration)
             }
         }
+    }
+
+    private func reconcileStoppedOutputBeforeVoiceAllocation() {
+        guard isOutputActive else {
+            return
+        }
+
+        let isEngineRunning = backendQueue.sync {
+            backend.isEngineRunning
+        }
+        guard !isEngineRunning else {
+            return
+        }
+
+        for index in voiceSlots.indices where voiceSlots[index].scheduledAt != nil {
+            voiceSlots[index].voice.stop()
+            voiceSlots[index].scheduledAt = nil
+            voiceSlots[index].soundClass = nil
+            voiceSlots[index].scheduleGeneration = nil
+        }
+        isOutputActive = false
     }
 
     private func activateOutputIfNeeded() -> Bool {
