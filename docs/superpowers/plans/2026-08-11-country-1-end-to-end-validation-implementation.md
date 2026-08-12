@@ -1,83 +1,85 @@
-# HPA-567 Country 1 End-to-End Validation Plan
+# HPA-567 — Country 1 End-to-End Validation Plan
 
-**Goal:** Run one human clean-save City 1 -> City 15 casual campaign on a fixed current-`main` build, preserve observations across sessions, and make evidence-backed decisions for HPA-362, HPA-369, and HPA-367 without changing production code.
+## Rationale
 
-**Architecture:** HPA-567 is a product-validation workflow, not software architecture. The shipping app remains unchanged; the human tester uses the normal Country Map -> Building View -> Battle -> Conquest loop, records a compact evidence set, checkpoints it to Linear during the long run, and publishes the canonical result after City 15. Bugs and narrow polish are split into separate Linear issues.
+HPA-567 answers one product question: **after the shipped Scout Card, Recommended Camp, conquest report, city identity, feedback, and milestone work, is Country 1 already rich enough for a casual player without another mechanic or durable campaign subsystem?**
 
-**Tech Stack:** Existing Swift/SpriteKit/UIKit iOS app, Xcode/iOS Simulator or a physical iPhone, Git for baseline identification, and Linear for evidence/decisions. No new dependencies, test harnesses, telemetry, launch arguments, reset APIs, or runtime services.
+This is a human product-validation run, not an implementation task. It adds no production code, test harness, telemetry, reset API, analytics, or scoring system.
 
-## Executor contract
+Record concrete observations under four friction classes:
 
-- **Human required:** Task 2 campaign playtest and Task 3 synthesis/roadmap decisions.
-- **Agent assistance allowed:** Task 1 mechanical baseline checks and Task 4 mechanical Linear publishing after the human has written the evidence/decisions.
-- Agents must not simulate the campaign, inspect source to choose player actions, invent missing notes, or infer subjective product evidence.
+- **confusion** — the next useful action or current state is unclear;
+- **repetition** — working taps/transitions become tedious;
+- **boredom/passivity** — a functioning battle leaves the player wanting meaningful engagement;
+- **attention pressure** — the game asks for more monitoring, optimization, or repeated input than the casual loop should require.
 
-## Global constraints
+Also record **reward/memory** and **history demand**, because those gate presentation/Chronicle decisions rather than battle mechanics.
 
-- HPA-567 adds **no production code** and no executable tests.
-- Start once from a clean/default install, then keep the same app installation/container and same installed build through City 15.
-- Use the normal casual path; do not optimize from developer knowledge.
-- Keep manual building and Default Spawn/manual spawning available throughout.
-- Exercise Scout Card, Recommended Camp, conquest report, city identity, feedback Settings, and milestone presentation naturally.
-- Record blockers separately; do not redesign or fix features during the campaign.
-- Do not add analytics, telemetry, a debug reset UI, campaign skip, UI-test campaign driver, state injection, or formal scoring.
-- Do not prototype HPA-362 or HPA-369 during this validation.
-- The durable validation result lives in Linear. Executing HPA-567 leaves the repository unchanged.
+### Why not automate it?
 
-## Current shipping facts used by the plan
+A UI-test campaign runner can prove progression works mechanically, but it cannot tell whether a battle is pleasantly passive, whether a recommendation feels understandable, or whether a completed city feels worth revisiting. It would also skip the exact interaction repetition being measured.
 
-- `KingdomGameStore` persists campaign state under `pyxis.kingdomGameState` in app-container `UserDefaults`.
-- `FeedbackPreferencesStore` persists Sound Effects/Haptics under `pyxis.feedback.*` in the same app container.
-- Bundle identifier: `cwchanap.Pyxis`.
-- `CountryMapScoutCardContent.Scout` exposes the authored **exposed lane only**; it does not describe the full fortified/exposed/standard role set.
-- `CountryMapTransientFeedback.completed` is the current completed-city interaction baseline: a short `"<city> complete"` transient, not history UI.
-- `BattleScene` presents the current three-lane battlefield.
-- City health grows as `20 * 2.15^(level-1)`, so a full campaign may naturally span multiple sessions.
+### Why not add telemetry?
+
+One validation run does not justify a new event surface, storage/export path, cleanup task, or analytics workflow. HPA-567 needs observed product friction, not infrastructure.
 
 ---
 
-## Task 1: Establish one trustworthy clean-install baseline
+## Executor and scope
 
-**Executor:** Human or agent-assisted mechanical setup.
+- **Human required:** the campaign playtest and the final product synthesis/decisions.
+- **Agent assistance allowed:** mechanical setup checks and faithful publishing of already-written human evidence to Linear.
+- Agents must not simulate play, choose actions from source/formulas, invent missing observations, or make subjective roadmap decisions.
+- The repository stays unchanged while HPA-567 executes.
 
-**Repository changes:** none.
+Use one **iPhone Simulator** as the primary environment. Prefer iPhone 17 when available because CI already uses it. A physical device is not a second validation matrix; use one only if a blocker appears simulator-specific.
 
-**Produces:** A fixed commit/build on one clean simulator or physical iPhone plus run metadata.
+**Haptics are out of scope for this run.** The shipping haptic output depends on hardware haptic capability, so Simulator cannot provide a meaningful tactile evaluation. Sound Effects remain in scope.
 
-### Step 1: Sync and record the exact baseline commit
+---
+
+## Shipping facts reused by the run
+
+- Campaign persistence: `UserDefaults.standard`, key `pyxis.kingdomGameState`.
+- Feedback preferences: `UserDefaults.standard`, prefix `pyxis.feedback`.
+- Bundle identifier: `cwchanap.Pyxis`.
+- Country 1 contains 15 cities.
+- Scout exposes the authored **exposed lane only**; it does not explain the full fortified/exposed/standard role set.
+- Battle shows the current three physical lanes.
+- Tapping a completed city currently produces the short `"<city> complete"` transient; there is no historical report.
+- Idle catch-up is building-driven, capped at 8 hours, runs at `1 / idleBuildingProductionScale`, and can conquer at most one city on one return.
+- City HP grows exponentially, so a complete campaign can naturally span multiple sessions.
+
+---
+
+## 1. Setup — one fixed Simulator baseline
+
+### Record the build
 
 ```bash
 git switch main
 git pull --ff-only
 git status --short
 git rev-parse HEAD
-```
-
-Required gate:
-
-- working tree is clean;
-- HEAD contains merged HPA-390 PR #30 or a later `main`;
-- copy the full SHA into the working HPA-567 note.
-
-If local work is mixed into the checkout, use a clean checkout/worktree rather than carrying it into the validation environment.
-
-### Step 2: Choose exactly one primary target
-
-For Simulator:
-
-```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis -showdestinations
 ```
 
-Prefer one current iPhone simulator such as iPhone 17 when available. Record device and iOS version.
+Record:
 
-For a physical iPhone, select that single connected device in Xcode and record its model/iOS version.
+```markdown
+## Country 1 validation run
 
-Do not create a device matrix for HPA-567.
+- Commit: <full SHA>
+- Simulator: <model>
+- iOS: <version>
+- Date started: <YYYY-MM-DD>
+- Starting Sound Effects: <on/off>
+- Save state: clean/default install
+```
 
-### Step 3: Build the normal app
+Use that runtime baseline for the run. Rebuilding/reinstalling **the same runtime commit** is allowed when recovery requires it. Installing a different runtime-affecting commit creates a mixed baseline and requires a new run. Documentation-only changes do not affect the runtime baseline.
 
-Simulator example:
+### Build the normal app
 
 ```bash
 xcodebuild \
@@ -87,96 +89,66 @@ xcodebuild \
   build
 ```
 
-For a physical device, use Xcode's normal Product -> Run flow on the recorded `main` commit.
+If that exact simulator is unavailable, use the one recorded above.
 
-If the normal build fails, stop and file the build failure separately. Do not treat it as product evidence.
+### Clean install
 
-### Step 4A: Simulator clean-install path
-
-Boot the selected simulator and check for an existing app container:
+Check/remove the current app container:
 
 ```bash
 xcrun simctl get_app_container booted cwchanap.Pyxis data
-```
-
-If installed:
-
-```bash
 xcrun simctl uninstall booted cwchanap.Pyxis
 ```
 
-Then reinstall/run the normal app from Xcode or the built product.
+If Pyxis is not installed, the uninstall failure is harmless. Reinstall/run the recorded build normally.
 
-### Step 4B: Physical-device clean-install path
-
-On the recorded physical iPhone:
-
-1. Delete Pyxis using the normal iOS delete-app flow.
-2. Without changing the recorded `main` commit, install/run Pyxis again from Xcode.
-3. Do not restore or inject app data.
-
-This is the physical-device equivalent of the simulator uninstall path; no reset feature is needed.
-
-### Step 5: Verify default state before starting City 1
-
-Confirm by observation:
+Before City 1, verify by observation:
 
 - no restored conquest report;
-- campaign begins at the normal first-city state;
-- no prior building/city progress is visible;
-- no prior accumulated gold is visible;
-- Sound Effects and Haptics reflect clean-install defaults.
+- normal first-city/default campaign state;
+- no previous building/city progress;
+- no previous accumulated gold;
+- Sound Effects reflect the clean-install default.
 
-If previous state survives app deletion, stop and file a persistence/reset blocker.
-
-### Step 6: Create the working evidence header
-
-Use:
-
-```markdown
-## Country 1 validation run
-
-- Commit: <full SHA>
-- Device: <simulator or physical device model>
-- iOS: <version>
-- Starting Sound Effects: <on/off>
-- Starting Haptics: <on/off>
-- Date started: <YYYY-MM-DD>
-- Save state: clean/default install
-- Continuity rule: same installation + same build through City 15
-```
-
-Do not publish a feature conclusion yet.
-
-### Step 7: Freeze the validation environment
-
-After City 1 begins:
-
-- do not uninstall/reinstall Pyxis;
-- do not reset `UserDefaults`;
-- do not install a newer build;
-- do not switch the running validation to another device;
-- do not inject state or skip cities.
-
-Normal app backgrounding/foregrounding and natural idle time are allowed.
-
-If a blocker forces reinstall or a different build, discard this run as a decision gate, fix/file the blocker separately, and restart HPA-567 from a new clean City 1 baseline.
+If old state survives deletion, stop and file a persistence blocker rather than adding reset code.
 
 ---
 
-## Task 2: Human-run City 1 -> City 15 campaign
+## 2. Run — normal casual play, with one deliberate idle check
 
-**Executor:** Human only.
+### Expected budget and timebox
 
-**Repository changes:** none.
+Plan for roughly **1–3 hours of active foreground play plus note-taking**, spread across sessions if needed, **plus one deliberate overnight idle window**. This is a scheduling estimate, not a balance target.
 
-**Produces:** A complete 15-city log, four deep checkpoints, and durable working snapshots after Cities 1/5/10.
+Use two validation timeboxes:
 
-### Step 1: Prepare the city-by-city table before playing
+- **20-minute city checkpoint:** after about 20 minutes of active foreground play on one unconquered city, explicitly record whether continued progress still feels acceptable to a casual player.
+- **30-minute city cap:** if the same city is still unconquered after about 30 minutes of active foreground play, stop forcing progress and record `casual progression stall — City N`.
+
+Also stop if the run reaches about **3 hours of active foreground play** before City 15 and record `campaign active-time budget exceeded — City N`.
+
+These thresholds are validation guardrails, not proposed production timers.
+
+A progression stall/time-budget stop is a **valid product outcome**, not an invalid test. Do not start expert optimization just to satisfy the City 15 checklist.
+
+### Casual behavior contract
+
+For each unlocked city:
+
+1. Read the Scout Card before entry.
+2. Enter through the normal map action.
+3. Use Building View when it looks useful; do not open it on a forced schedule.
+4. Consider Recommended Camp when visible; follow it when it feels sensible, otherwise use manual building naturally.
+5. Fight in the normal Battle Scene.
+6. Use Default Spawn/manual spawning when it feels naturally useful; do not maintain an expert cadence solely to speed the test.
+7. Read the conquest report before continuing.
+8. Record the city row immediately after conquest/return to map.
+
+Do not inspect source, formulas, tests, or hidden state between cities to choose the next action.
+
+### City-by-city log
 
 ```markdown
-### City-by-city run log
-
 | City | Preparation | Battle input | Result impression | Friction | Concrete note |
 | --- | --- | --- | --- | --- | --- |
 | 1 | | | | | |
@@ -196,435 +168,266 @@ If a blocker forces reinstall or a different build, discard this run as a decisi
 | 15 | | | | | |
 ```
 
-For `Friction`, use only `none`, `confusion`, `repetition`, `boredom`, `attention`, or a comma-separated combination when two distinct problems occurred.
+For `Friction`, use `none`, `confusion`, `repetition`, `boredom`, `attention`, or a combination when two distinct problems occurred. Do not use numeric ratings.
 
-Do not use numeric ratings.
+### Deep checkpoints — Cities 1, 5, 10, 15
 
-### Step 2: Follow the same casual behavior contract for every city
-
-For each unlocked city:
-
-1. Read the Scout Card before entry.
-2. Enter through the normal map action.
-3. Use Building View only when it looks useful.
-4. Consider Recommended Camp when visible; follow it when it feels sensible, otherwise use manual building naturally.
-5. Fight through the normal Battle Scene.
-6. Use Default Spawn/manual spawning only when it feels naturally useful; do not maintain an expert spawn cadence.
-7. Read the conquest report before continuing.
-8. Record the city row immediately after conquest/return to the map.
-
-Do not inspect source, tests, formulas, or hidden state between cities.
-
-### Step 3: Record the City 1 deep checkpoint
-
-Append:
+At each checkpoint record:
 
 ```markdown
-### Deep checkpoint — City 1
+### Deep checkpoint — City <N>
 
-- Clarity: <concrete sentence>
-- Repetition: <concrete sentence>
+- Clarity: <concrete observation>
+- Repetition: <concrete observation>
 - Battle engagement: <pleasantly passive / meaninglessly passive / appropriately active, with reason>
-- Attention cost: <concrete sentence>
-- Reward and memory: <concrete sentence>
-- History demand: <concrete sentence>
+- Attention cost: <concrete observation>
+- Reward and memory: <concrete observation>
+- History demand: <concrete observation>
 ```
 
-Every field needs an observed sentence; `No issue observed` is valid.
+At Cities 5/10/15 also record whether milestone presentation still adds meaningful weight.
 
-### Step 4: Persist the City 1 working snapshot to Linear
+At City 15, add whether the finale feels like a meaningful campaign ending.
 
-Paste the current evidence into HPA-567 as a comment headed:
+### One mandatory overnight idle window
+
+HPA-567 must deliberately exercise the core idle loop once; leaving it to chance would under-test the product.
+
+After City 5 and before the run ends, choose the **first suitable active city** where:
+
+- the city is not yet conquered;
+- at least one building exists;
+- the tester is ready to stop active play for the session.
+
+Background Pyxis for **at least 8 hours**, then return normally. Do not inject time or edit state.
+
+Record:
 
 ```markdown
-## Working checkpoint — after City 1
+### Deliberate idle checkpoint — City <N>
 
-Partial validation evidence only. No HPA-362/HPA-369/HPA-367 decision is final yet.
+- Before leaving: <what progress/state felt like>
+- Return feedback: <was the result legible and understandable?>
+- Reward value: <did the idle progress feel worthwhile?>
+- Next action: <was it obvious what to do next?>
+- Pressure: <did the system encourage healthy passive play or unwanted timer watching?>
 ```
 
-Include the run metadata, City 1 row, and City 1 deep checkpoint.
+If a city reaches the 20-minute checkpoint before this idle check has happened, use that city for the overnight window when it has at least one building. The 30-minute active cap excludes the overnight wait.
 
-This checkpoint is durability protection, not the canonical final result.
+### Settings check
 
-### Step 5: Continue Cities 2-4
+Exercise the existing Settings surface once at a non-critical moment. Sound Effects are in scope. Haptics may be toggled only as a UI/persistence control if desired; **do not evaluate tactile output on Simulator**.
 
-Keep one row per city and write the problem before thinking about a solution.
+### Completed-city history baseline
 
-Useful distinction:
+On the completed map, only treat **spontaneous** attempts/desire to inspect old cities as Chronicle evidence. If the tester naturally taps one, remember that the current shipping behavior is only the short `"<city> complete"` transient.
 
-- `repetition` — a working transition/tap becomes tedious;
-- `confusion` — the player cannot tell what action/state means;
-- `boredom` — the functioning battle leaves the player wanting meaningful engagement;
-- `attention` — the game pressures repeated monitoring/input.
-
-### Step 6: Record City 5 deep checkpoint and milestone impression
-
-Use the same six fields as City 1, plus one sentence on whether the first milestone treatment makes City 5 feel meaningfully different from Cities 2-4.
-
-Broken/overlapping milestone presentation is a bug. `I noticed it but it added little` is product evidence.
-
-### Step 7: Persist the City 5 working snapshot to Linear
-
-Post a second checkpoint headed:
-
-```markdown
-## Working checkpoint — after City 5
-
-Partial validation evidence only. No deferred-item decision is final yet.
-```
-
-Paste the run metadata, Cities 1-5 rows, and City 1/5 deep checkpoints.
-
-Never uninstall/reset the app between sessions after this point.
-
-### Step 8: Continue Cities 6-9 and exercise feedback Settings once
-
-Continue normal play. When it does not interrupt a critical moment, open the existing Settings surface, inspect Sound Effects/Haptics, make at most one preference change if useful, then return to the campaign.
-
-Record only product-relevant observations; this is not a broad Settings/accessibility regression pass.
-
-### Step 9: Record City 10 deep checkpoint
-
-Use the six fields plus one sentence on whether the second milestone remains special or has become repetitive.
-
-Also record which statement best matches the observed battle experience:
-
-- still pleasantly passive;
-- repeatedly wanting to choose a lane for a manual spawn;
-- repeatedly wanting one satisfying active moment;
-- wanting neither;
-- unclear because lane/battle information itself is insufficient.
-
-Do not choose the final HPA-362/HPA-369 outcome yet.
-
-### Step 10: Persist the City 10 working snapshot to Linear
-
-Post:
-
-```markdown
-## Working checkpoint — after City 10
-
-Partial validation evidence only. Final decisions wait until City 15.
-```
-
-Paste metadata, Cities 1-10 rows, and City 1/5/10 deep checkpoints.
-
-### Step 11: Continue Cities 11-14 across normal sessions as needed
-
-If the campaign naturally spans background/foreground sessions, keep the same installed app/build and record whether returning after idle progress feels clearer, more rewarding, or more confusing.
-
-Do not manufacture idle intervals solely for coverage.
-
-### Step 12: Record City 15 / finale deep checkpoint
-
-```markdown
-### Deep checkpoint — City 15 / finale
-
-- Clarity: <sentence>
-- Repetition: <sentence>
-- Battle engagement: <sentence>
-- Attention cost: <sentence>
-- Reward and memory: <sentence>
-- History demand: <sentence>
-- Finale treatment: <did City 15 feel like a meaningful campaign ending, and why?>
-```
-
-On the completed map, notice only **spontaneous** history behavior. Do not tap completed cities just to manufacture Chronicle demand.
-
-If you naturally tap a completed city, the shipping baseline is the current short `"<city> complete"` feedback. Wanting richer information after encountering that behavior is valid Chronicle evidence.
-
-### Step 13: Verify the human evidence is complete
-
-Before synthesis, confirm:
-
-```text
-[ ] Same app installation/container was kept from City 1 through City 15.
-[ ] Same installed build/commit was kept from City 1 through City 15.
-[ ] All 15 city rows are filled.
-[ ] Cities 1/5/10/15 contain all six deep-checkpoint categories.
-[ ] Working checkpoint snapshots were pasted to Linear after Cities 1/5/10.
-[ ] Any natural multi-session/background behavior was noted without manufacturing it.
-```
-
-Do not synthesize feature decisions from an incomplete or continuity-broken run.
+Do not manufacture history demand by systematically tapping completed cities.
 
 ---
 
-## Task 3: Human synthesis and three explicit decisions
+## 3. Durability — preserve notes and the expensive campaign state
 
-**Executor:** Human only.
+At Cities **1, 5, and 10**:
 
-**Repository changes:** none.
+1. Paste the current run metadata, rows, and completed deep checkpoints into HPA-567 as a Linear comment headed `Working checkpoint — after City N`. Mark it clearly as partial evidence, not a conclusion.
+2. On Simulator, snapshot the current app preference domain as recovery insurance.
 
-**Produces:** Campaign-wide problem synthesis and one unambiguous outcome for HPA-362, HPA-369, HPA-367.
+The known durable Pyxis state is stored in app-container `UserDefaults`, so the checkpoint can copy the current preferences plist without adding production code.
 
-### Step 1: Synthesize problems before solutions
+Example after terminating Pyxis:
 
-Fill:
-
-```markdown
-### Campaign-wide synthesis
-
-- Clarity: <dominant observed pattern + examples>
-- Repetition: <dominant observed pattern + examples>
-- Battle engagement: <dominant observed pattern + examples>
-- Attention cost: <dominant observed pattern + examples>
-- Reward and memory: <dominant observed pattern + examples>
-- History demand: <dominant observed pattern + examples>
+```bash
+BUNDLE=cwchanap.Pyxis
+BACKUP_DIR="$HOME/Desktop/pyxis-hpa-567-backups"
+mkdir -p "$BACKUP_DIR"
+xcrun simctl terminate booted "$BUNDLE" || true
+CONTAINER="$(xcrun simctl get_app_container booted "$BUNDLE" data)"
+cp "$CONTAINER/Library/Preferences/$BUNDLE.plist" "$BACKUP_DIR/city-<N>.plist"
+plutil -p "$BACKUP_DIR/city-<N>.plist" | grep -q 'pyxis.kingdomGameState'
 ```
 
-Do not name a proposed feature until the problem statement is written.
+Then relaunch the same recorded build and continue.
 
-### Step 2: Separate functional defects
+### Recovery rule
 
-Create:
+Restoring **the tester's own unedited checkpoint** after accidental container loss is allowed. Fabricating, editing, fast-forwarding, or combining save state is not.
+
+Recovery procedure:
+
+1. Reinstall the same recorded runtime build if necessary.
+2. Terminate Pyxis.
+3. Resolve the new app data container with `simctl get_app_container`.
+4. Copy the chosen checkpoint plist back to `Library/Preferences/cwchanap.Pyxis.plist`.
+5. Shut down and boot that Simulator before relaunching so preferences are reloaded.
+6. Verify the visible city/gold/building state matches the recorded checkpoint before continuing.
+7. Record in HPA-567 that a checkpoint restore occurred.
+
+If the restored state does not visibly match the checkpoint, do **not** continue from it. Keep the partial evidence and apply the early-termination rules below instead.
+
+---
+
+## 4. Early termination — partial runs remain useful
+
+A run may end before City 15 for two different reasons.
+
+### A. Product progression stall / active-time budget exceeded
+
+This is a valid terminal HPA-567 product result. Record:
+
+- last city reached;
+- approximate active foreground time;
+- whether the mandatory idle checkpoint had occurred and what it changed;
+- what a casual player would have needed to do to continue;
+- why continuing would have required tester obligation or expert optimization.
+
+The finding `campaign not completable under the casual contract` is publishable evidence.
+
+### B. Functional blocker
+
+For a crash, broken route, build failure, persistence failure, or other functional defect:
+
+- publish the partial evidence already collected;
+- file the blocker separately with reproduction details;
+- do not treat the blocker itself as evidence for a new mechanic;
+- HPA-567 remains open until the blocker is resolved and the missing product journey can be validated, unless the blocker is itself intentionally accepted as the terminal roadmap outcome.
+
+### What decisions may come from a partial run?
+
+- **PROTOTYPE / ACTIVATE** may be chosen from a partial run when repeated evidence already identifies the problem and the proposed item is clearly the smallest fit.
+- **KEEP DEFERRED** may be chosen from a partial run when evidence is missing/inconclusive or the problem exists but the proposed item is not clearly the right fit.
+- **DROP requires a complete City 1 -> 15 run.** Absence of a problem cannot be claimed for unseen cities.
+
+Do not discard useful Cities 1-N evidence merely because City N+1 was not reached.
+
+---
+
+## 5. Decisions — solve observed problems, not architectural opportunity
+
+First write the campaign/partial-run synthesis:
 
 ```markdown
-### Separate blockers / polish
+### Synthesis
 
-- None observed
+- Clarity: <dominant pattern + examples>
+- Repetition: <dominant pattern + examples>
+- Battle engagement: <dominant pattern + examples>
+- Attention cost: <dominant pattern + examples>
+- Reward and memory: <dominant pattern + examples>
+- History demand: <dominant pattern + examples>
+- Progression/time burden: <complete / stalled, with context>
+- Idle loop: <what the deliberate overnight window showed>
 ```
 
-Replace the default only for concrete reproducible issues. Record city/context, reproduction, expected behavior, and observed behavior.
+Separate functional bugs/polish before making feature decisions.
 
-A bug is not evidence that another mechanic is needed.
+### Shared outcomes
 
-### Step 3: Apply the shared outcome rule
-
-Use these meanings consistently:
-
-- **PROTOTYPE / ACTIVATE MINIMAL IMPLEMENTATION** — a repeated problem is evidenced and this item is the clearest small fit.
+- **PROTOTYPE / ACTIVATE MINIMAL IMPLEMENTATION** — repeated evidence shows an unmet problem and this item is the clearest small fit.
 - **KEEP DEFERRED** — evidence is missing/inconclusive, or the problem is real but this item is not clearly the right fit.
-- **DROP** — the relevant problem class was absent across the complete run, or shipping UX already covers it well enough that this item would duplicate value.
+- **DROP** — only after a complete run, the relevant problem class is absent or shipping UX already covers the value well enough.
 
-`DROP` means close/remove the item from the roadmap. `KEEP DEFERRED` means leave it in Backlog for future evidence.
+### HPA-362 — direct lane deployment
 
-Do not use a combined `KEEP DEFERRED / DROP` outcome.
+Choose `PROTOTYPE`, `KEEP DEFERRED`, or, after a complete run only, `DROP`.
 
-### Step 4: Decide HPA-362 — direct lane deployment
+Prototype only when the tester repeatedly wants to choose **which visible battlefield lane receives a manual soldier**.
 
-Choose `PROTOTYPE`, `KEEP DEFERRED`, or `DROP`.
+Interpret current information correctly:
 
-Prototype only when the observed desire is specifically to choose **which visible battlefield lane receives a manual soldier**.
-
-Interpret current lane information correctly:
-
-- Scout provides the **exposed lane only**;
-- Battle presents the three physical lanes;
+- Scout exposes only the **exposed lane**;
+- Battle shows all three physical lanes;
 - Scout does not explain the full fortified/exposed/standard role set.
 
-Therefore, `I do not understand fortified/standard because Scout does not explain them` is a clarity/presentation issue, **not** evidence for direct placement.
+Missing fortified/standard explanation is **clarity/presentation evidence**, not automatic evidence for direct lane placement.
 
-Do not activate HPA-362 for generic battle slowness, unclear preparation, missing lane explanation, weak milestones, or animation pacing.
+### HPA-369 — Rally
 
-Write:
+Choose `PROTOTYPE`, `KEEP DEFERRED`, or, after a complete run only, `DROP`.
 
-```markdown
-- HPA-362: <PROTOTYPE | KEEP DEFERRED | DROP>
-  - Evidence: <specific city observations>
-  - Problem this would solve: <one sentence>
-  - Fit: <why lane placement specifically is or is not the right response>
-```
-
-### Step 5: Decide HPA-369 — Rally
-
-Choose `PROTOTYPE`, `KEEP DEFERRED`, or `DROP`.
-
-Prototype only when battles are understandable but repeatedly feel emotionally flat and one obvious active moment would help without ongoing micromanagement or attention pressure.
+Prototype only when battles are understandable but repeatedly feel emotionally flat and one obvious active moment would help **without** ongoing micromanagement or attention pressure.
 
 Do not activate Rally merely because battles take time.
 
-Write:
+### HPA-367 — Campaign Chronicle
+
+Choose `ACTIVATE MINIMAL IMPLEMENTATION`, `KEEP DEFERRED`, or, after a complete run only, `DROP`.
+
+Activate only when the tester naturally wants completed-city history and the current completion-only transient feels materially insufficient.
+
+Enjoying conquest reports alone is not evidence for Chronicle persistence.
+
+### Battle experiment conflict rule
+
+Do not prototype HPA-362 and HPA-369 together by default. If both appear supported, choose the one that addresses the clearer repeated problem. Keep the other deferred unless the evidence shows two genuinely distinct unmet needs.
+
+For each downstream issue write:
 
 ```markdown
-- HPA-369: <PROTOTYPE | KEEP DEFERRED | DROP>
-  - Evidence: <specific city observations>
-  - Problem this would solve: <one sentence>
-  - Fit: <why one Rally moment is or is not the right response>
+## HPA-567 decision
+
+**Decision:** <Prototype | Activate minimal implementation | Keep deferred | Drop>
+
+**Evidence:** <specific observed behavior>
+
+**Fit:** <why this item specifically is or is not the right response>
+
+**Next action:** <prototype/activate | leave in Backlog | close/drop>
 ```
-
-### Step 6: Resolve HPA-362 versus HPA-369
-
-If both initially look like `PROTOTYPE`, compare the evidence.
-
-Prototype both only if the run contains two genuinely distinct, repeated unmet problems. Otherwise choose the experiment that directly addresses the clearer problem and apply `KEEP DEFERRED` or `DROP` to the other using the shared outcome rule.
-
-Never use `prototype both to see` as the reason.
-
-### Step 7: Decide HPA-367 — Campaign Chronicle
-
-Choose `ACTIVATE MINIMAL IMPLEMENTATION`, `KEEP DEFERRED`, or `DROP`.
-
-Activate only when the tester naturally wants completed-city history: e.g. wants a prior result, tries a completed city expecting history, or finds the current completion-only transient materially insufficient.
-
-Do not activate Chronicle merely because conquest reports are enjoyable.
-
-Write:
-
-```markdown
-- HPA-367: <ACTIVATE MINIMAL IMPLEMENTATION | KEEP DEFERRED | DROP>
-  - Evidence: <specific history-demand observations>
-  - Problem this would solve: <one sentence>
-  - Fit: <why a compact completed-city history card is or is not the right response>
-```
-
-### Step 8: Produce the final decision block
-
-Every decision must cite observed behavior, not architecture opportunity. `No evidence` is a valid reason only after it is mapped through the Keep deferred vs Drop rule.
 
 ---
 
-## Task 4: Publish the final human-written evidence to Linear
+## 6. Publishing and completion
 
-**Executor:** Human or agent-assisted mechanical publishing.
+### HPA-567 result
 
-**Repository changes:** none.
+Publish one canonical result comment containing:
 
-**Consumes:** Completed human Task 2 evidence and human Task 3 decisions. Agents must copy faithfully; they must not fill gaps or alter the decision logic.
+1. baseline metadata;
+2. City 1-N table;
+3. available City 1/5/10/15 deep checkpoints;
+4. deliberate idle checkpoint;
+5. synthesis including progression/time burden;
+6. separately tracked blockers/polish;
+7. HPA-362/HPA-369/HPA-367 decisions.
 
-### Step 1: Publish one canonical HPA-567 result comment
+Earlier City 1/5/10 comments remain durability snapshots only.
 
-After City 15, publish in this order:
+### Separate bugs/polish
 
-1. run metadata;
-2. complete 15-city table;
-3. City 1/5/10/15 deep checkpoints;
-4. campaign-wide synthesis;
-5. blockers/polish list;
-6. final HPA-362/HPA-369/HPA-367 decisions.
+File concrete functional problems separately with:
 
-Head it:
+- commit/simulator;
+- city/context;
+- reproduction;
+- expected behavior;
+- observed behavior.
 
-```markdown
-## Country 1 validation — final result
+Do not fix them inside HPA-567.
 
-Canonical result for HPA-567. Earlier City 1/5/10 checkpoint comments are partial snapshots only.
-```
+### HPA-360
 
-### Step 2: Publish the HPA-362 decision comment
+Update HPA-360 only when HPA-567 changes roadmap priorities. A validation that confirms existing deferral does not need a roadmap rewrite.
 
-```markdown
-## HPA-567 decision
+### Completion rule
 
-**Decision:** <Prototype | Keep deferred | Drop>
+HPA-567 may be completed when either:
 
-**Evidence:** <specific HPA-567 observations>
+1. **Full campaign:** City 1 -> 15 is recorded, including the deliberate idle checkpoint and explicit downstream decisions; or
+2. **Validated progression stop:** the run terminates under the 30-minute city cap or ~3-hour active campaign budget and clearly records that the casual contract could not complete Country 1.
 
-**Fit:** <why direct lane placement specifically does or does not address the observed problem; Scout exposes only the exposed lane>
+A functional blocker does not by itself satisfy completion; preserve the partial evidence, fix/resolve the blocker separately, then continue/re-run the missing journey.
 
-**Next action:** <prototype this issue | leave in Backlog | close/drop>
-```
-
-Do not expand HPA-362 scope while recording the decision.
-
-### Step 3: Publish the HPA-369 decision comment
-
-```markdown
-## HPA-567 decision
-
-**Decision:** <Prototype | Keep deferred | Drop>
-
-**Evidence:** <specific HPA-567 observations>
-
-**Fit:** <why one Rally moment specifically does or does not address the observed problem>
-
-**Next action:** <prototype this issue | leave in Backlog | close/drop>
-```
-
-### Step 4: Publish the HPA-367 decision comment
-
-```markdown
-## HPA-567 decision
-
-**Decision:** <Activate minimal implementation | Keep deferred | Drop>
-
-**Evidence:** <specific HPA-567 history-demand observations>
-
-**Fit:** <why the current completion-only map feedback is sufficient or why a compact history card is needed>
-
-**Next action:** <activate this issue | leave in Backlog | close/drop>
-```
-
-Do not broaden Chronicle into replay, achievements, timelines, or analytics.
-
-### Step 5: File concrete blockers/polish separately
-
-For each retained issue:
-
-```markdown
-## Context
-
-Found during HPA-567 Country 1 validation on <commit> / <device>.
-
-## Reproduction
-
-1. <step>
-2. <step>
-3. <step>
-
-## Expected
-
-<expected player-visible behavior>
-
-## Observed
-
-<actual player-visible behavior>
-
-## Scope
-
-Fix this behavior only. Do not use the issue to redesign unrelated campaign mechanics.
-```
-
-Link each follow-up from the final HPA-567 result.
-
-### Step 6: Update HPA-360 only if evidence changes priorities
-
-Update/comment HPA-360 only when HPA-567 activates or explicitly drops a child in a way that changes roadmap priorities.
-
-If the result simply keeps existing items deferred, leave HPA-360 unchanged.
-
-### Step 7: Final acceptance check
+Before completion verify only these essentials:
 
 ```text
-[ ] Human completed City 1 -> City 15 on one installation/build.
-[ ] All 15 rows are filled.
-[ ] City 1/5/10/15 deep checkpoints are complete.
-[ ] City 1/5/10 working snapshots exist in Linear.
-[ ] Confusion, repetition, boredom/passivity, attention pressure are distinguished.
-[ ] Reward/memory and history demand are covered.
-[ ] HPA-362 outcome is exactly Prototype, Keep deferred, or Drop.
-[ ] HPA-369 outcome is exactly Prototype, Keep deferred, or Drop.
-[ ] HPA-367 outcome is exactly Activate minimal implementation, Keep deferred, or Drop.
-[ ] Keep deferred vs Drop follows the explicit rule.
+[ ] Baseline commit/simulator/iOS recorded.
+[ ] Per-city rows exist through the final reached city.
+[ ] Required deep checkpoints reached so far are recorded.
+[ ] One deliberate 8h+ idle window was exercised unless a blocker ended the run before a suitable city existed.
+[ ] Progression stall/time-budget findings are preserved rather than optimized away.
+[ ] HPA-362/HPA-369/HPA-367 each have an evidence-backed decision allowed by full/partial-run rules.
 [ ] Bugs/polish are separate issues.
-[ ] HPA-360 changed only if roadmap priorities changed.
-[ ] No production/test/project files changed during execution.
+[ ] No production/test/project files changed for HPA-567 execution.
 ```
-
-Only then should HPA-567 move to Done.
-
-### Step 8: Verify the repository stayed untouched
-
-```bash
-git status --short
-```
-
-Expected: no changes created by executing HPA-567.
-
-If local temporary notes exist, make sure their evidence is durable in Linear, then remove the temporary files rather than committing a playtest-results subsystem.
-
----
-
-## Plan self-review
-
-### Review-feedback coverage
-
-- Human owns Task 2 and Task 3; agent scope is limited to mechanical Task 1/4 assistance.
-- Keep deferred and Drop are separate outcomes with explicit criteria.
-- Multi-session continuity keeps one installation/build and protects notes with City 1/5/10 Linear snapshots.
-- Physical-device delete/reinstall/default-state steps are explicit.
-- HPA-362 rubric matches shipping Scout behavior: exposed lane only, not a full lane-role explanation.
-
-### Scope check
-
-This remains one validation workflow. No production code, reset API, harness, telemetry, scoring model, or durable results store is introduced.
