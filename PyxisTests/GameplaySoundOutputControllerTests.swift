@@ -150,6 +150,29 @@ struct GameplaySoundOutputControllerTests {
         #expect(backend.engineStartCount == 2)
     }
 
+    @Test func stoppedEngineWithFullNonAutomaticPoolClearsStaleVoicesBeforeSelectingFreshEvent() async throws {
+        let backend = RecordingAudioBackend()
+        let controller = try await preparedController(backend: backend)
+
+        for expectedCount in 1...8 {
+            controller.play(.deployment)
+            try await waitUntil { backend.scheduledSoundIDs.count == expectedCount }
+        }
+
+        backend.simulateAutonomousEngineStop()
+        controller.play(.deployment)
+        try await waitUntil { backend.scheduledSoundIDs.count == 9 }
+
+        #expect(backend.engineStartCount == 2)
+        #expect(backend.voiceOperations(for: 6) == [
+            .schedule(.deployment), .stop, .schedule(.deployment)
+        ])
+        for index in 0...5 {
+            #expect(backend.voiceOperations(for: index) == [.schedule(.deployment), .stop])
+        }
+        #expect(backend.voiceOperations(for: 7) == [.schedule(.deployment), .stop])
+    }
+
     @Test func playbackDropsWhenEngineRemainsStoppedAfterSuccessfulStart() async throws {
         let backend = RecordingAudioBackend(engineRunsAfterStart: false)
         let controller = try await preparedController(backend: backend)
