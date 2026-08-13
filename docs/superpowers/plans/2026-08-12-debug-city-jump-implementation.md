@@ -14,7 +14,7 @@
 - Every new runtime line, symbol, and unique picker string must be inside `#if DEBUG ... #endif`.
 - Country 1 only; do not add a country parameter, multi-country model, registry, protocol, service, or dev-tools framework.
 - Picker values come only from `1...KingdomGameState.firstCountryCityCount`.
-- `DevJumpState.make(city:)` must also precondition that same valid range so programmer misuse fails loudly instead of silently normalizing.
+- `DevJumpState.make(city:)` must also precondition that valid range so programmer misuse fails loudly instead of silently normalizing.
 - DEBUG preset is exactly `gold = 1_000_000` and `normalSoldierUpgradeLevel = 15`.
 - A jump starts with empty `cityBattleStates` and no carried active siege, pending result, or background timestamp.
 - Selecting a city intentionally overwrites the development save; do not add backup/reset/restore machinery.
@@ -173,7 +173,7 @@ git commit -m "feat: add DEBUG city jump state"
 
 - [ ] **Step 1: Write RED controller tests for recognizer behavior, real adapter forwarding, hotspot, picker, and jump routing**
 
-Add the following tests inside the existing `@MainActor GameViewControllerTests`:
+Add these tests inside the existing `@MainActor GameViewControllerTests`:
 
 ```swift
 #if DEBUG
@@ -272,9 +272,6 @@ func debugCityJumpPickerContentIsBoundedToCountry1() throws {
     #expect(alert.message == "Replaces current save.")
     #expect(alert.actions.compactMap(\.title) == expectedTitles)
     #expect(alert.actions.last?.style == .cancel)
-    #expect(alert.popoverPresentationController?.sourceView === view)
-    #expect(alert.popoverPresentationController?.sourceRect
-        == controller.devJumpTriggerFrame(in: view))
 }
 
 @Test("DEBUG city jump overwrites the save and routes through the normal Battle scene")
@@ -308,7 +305,9 @@ func debugCityJumpOverwritesSaveAndPresentsBattle() throws {
 #endif
 ```
 
-The 64×64 adapter fixture intentionally makes the trigger frame equal the full view bounds, so the recognizer's untouched default location reaches the real picker path. If UIKit behavior on the target SDK makes that fixture unreliable, replace only this focused test seam; do not add a general recognizer harness or production abstraction.
+The 64×64 adapter fixture intentionally makes the trigger frame equal the full view bounds, so the recognizer's untouched location exercises the real picker path. If UIKit behavior on the target SDK makes that fixture unreliable, replace only this focused test seam; do not add a general recognizer harness or production abstraction.
+
+Popover source configuration is verified by the iPad manual smoke below rather than by an iPhone-only unit assertion; `popoverPresentationController` may be `nil` when a controller is not using popover presentation.
 
 - [ ] **Step 2: Run the controller suite and confirm RED**
 
@@ -518,7 +517,7 @@ Do not grep generic shipping strings such as `City 15`.
 
 On an iPhone simulator DEBUG build:
 
-1. Before using the dev gesture, perform ordinary one-tap Battle controls (spawn/Settings/other normal visible actions) and confirm they respond immediately rather than waiting for multi-tap recognition.
+1. Before using the dev gesture, perform ordinary one-tap Battle controls and confirm they respond immediately rather than waiting for multi-tap recognition.
 2. Five-tap the top-right hotspot.
 3. Verify title `[DEBUG] Jump to Country 1 City` and message `Replaces current save.`.
 4. Jump to City 1 and verify Battle opens with City 1.
@@ -551,7 +550,7 @@ On DEBUG iPhone:
 4. Cancel the action sheet and verify the same Settings modal remains usable.
 5. Open the picker again, choose City 10, and verify normal Battle scene replacement removes the old scene/modal naturally.
 
-Do not add a `presentedViewController`-style guard for SpriteKit Settings and do not teach `GameViewController` about `FeedbackSettingsController` state solely for HPA-618.
+Do not add a guard for SpriteKit Settings and do not teach `GameViewController` about `FeedbackSettingsController` state solely for HPA-618.
 
 - [ ] **Step 9: Perform the iPad action-sheet smoke**
 
