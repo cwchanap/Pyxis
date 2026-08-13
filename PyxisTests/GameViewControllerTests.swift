@@ -42,6 +42,138 @@ struct GameViewControllerTests {
         ])
     }
 
+#if DEBUG
+    @Test("DEBUG controller installs a non-delaying five-tap city-jump recognizer")
+    func debugControllerInstallsFiveTapCityJumpRecognizer() throws {
+        let store = try makeStore(initialState: .init())
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        let gesture = try #require(view.gestureRecognizers?
+            .compactMap { $0 as? UITapGestureRecognizer }
+            .first { $0.numberOfTapsRequired == 5 })
+
+        #expect(gesture.numberOfTapsRequired == 5)
+        #expect(gesture.cancelsTouchesInView == false)
+        #expect(gesture.delaysTouchesEnded == false)
+        #expect(controller.devJumpTriggerFrame(in: view)
+            == CGRect(x: 329, y: 0, width: 64, height: 64))
+    }
+
+    @Test("DEBUG recognizer adapter forwards its view and location into picker presentation")
+    func debugRecognizerAdapterActuallyPresentsPicker() throws {
+        let store = try makeStore(initialState: .init())
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        controller.view = view
+        controller.installDevJumpGesture(on: view)
+
+        let lifecycle = try makeSceneLifecycleFixture(rootViewController: controller)
+        lifecycle.window.isHidden = false
+        // Attaching a small root view to a visible UIWindow can resize it to
+        // the scene bounds on this SDK. Keep the adapter fixture's bounds
+        // equal to the full 64x64 hotspot promised by the test contract.
+        view.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
+        defer {
+            controller.dismiss(animated: false)
+            lifecycle.window.rootViewController = nil
+        }
+
+        let gesture = try #require(view.gestureRecognizers?
+            .compactMap { $0 as? UITapGestureRecognizer }
+            .first { $0.numberOfTapsRequired == 5 })
+
+        controller.handleDevJumpGesture(gesture)
+
+        let alert = try #require(controller.presentedViewController as? UIAlertController)
+        #expect(alert.title == "[DEBUG] Jump to Country 1 City")
+        #expect(controller.devJumpTriggerFrame(in: view) == view.bounds)
+    }
+
+    @Test("DEBUG city-jump hotspot ignores outside taps and presents only one picker inside")
+    func debugCityJumpHotspotPresentsOnePicker() throws {
+        let store = try makeStore(initialState: .init())
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+
+        let lifecycle = try makeSceneLifecycleFixture(rootViewController: controller)
+        lifecycle.window.isHidden = false
+        defer {
+            controller.dismiss(animated: false)
+            lifecycle.window.rootViewController = nil
+        }
+
+        controller.handleDevJumpTap(
+            at: CGPoint(x: 10, y: view.bounds.maxY - 10),
+            in: view
+        )
+        #expect(controller.presentedViewController == nil)
+
+        let trigger = controller.devJumpTriggerFrame(in: view)
+        controller.handleDevJumpTap(
+            at: CGPoint(x: trigger.midX, y: trigger.midY),
+            in: view
+        )
+        let firstAlert = try #require(controller.presentedViewController as? UIAlertController)
+
+        controller.handleDevJumpTap(
+            at: CGPoint(x: trigger.midX, y: trigger.midY),
+            in: view
+        )
+        #expect(controller.presentedViewController === firstAlert)
+    }
+
+    @Test("DEBUG city-jump picker lists exactly Country 1 and warns about overwrite")
+    func debugCityJumpPickerContentIsBoundedToCountry1() throws {
+        let store = try makeStore(initialState: .init())
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+
+        let alert = controller.makeDevJumpAlert(in: view)
+        let expectedTitles = (1...KingdomGameState.firstCountryCityCount)
+            .map { "City \($0)" } + ["Cancel"]
+
+        #expect(alert.preferredStyle == .actionSheet)
+        #expect(alert.title == "[DEBUG] Jump to Country 1 City")
+        #expect(alert.message == "Replaces current save.")
+        #expect(alert.actions.compactMap(\.title) == expectedTitles)
+        #expect(alert.actions.last?.style == .cancel)
+    }
+
+    @Test("DEBUG city jump overwrites the save and routes through the normal Battle scene")
+    func debugCityJumpOverwritesSaveAndPresentsBattle() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            gold: 7,
+            completedCityCount: KingdomGameState.firstCountryCityCount,
+            stageStatus: .countryComplete
+        ))
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        #expect(view.scene is CountryMapScene)
+
+        controller.performDevJump(to: 10, in: view)
+
+        let state = store.load()
+        #expect(state.countryNumber == 1)
+        #expect(state.completedCityCount == 9)
+        #expect(state.cityNumberInCountry == 10)
+        #expect(state.cityLevel == 10)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.gold == DevJumpState.gold)
+        #expect(state.normalSoldierUpgradeLevel == DevJumpState.soldierLevel)
+        #expect(state.cityBattleStates.isEmpty)
+
+        let battle = try #require(view.scene as? BattleScene)
+        #expect(battle.cityLevelForTesting == 10)
+    }
+#endif
+
     @Test func unsupportedGeometryPausesAndBlocksThenResumesWithoutBattleStateMutation() throws {
         let initialState = KingdomGameState(gold: 37)
         let store = try makeStore(initialState: initialState)
