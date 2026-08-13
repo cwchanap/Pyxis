@@ -138,7 +138,7 @@ The helper methods themselves live in the file's existing `#if DEBUG` extension.
 
 Do not add an invisible `UIView`. A separate view would become another input surface layered over SpriteKit for no benefit.
 
-The gesture handler should stay thin: resolve the `SKView`, read the gesture location, then delegate to a private method that tests the hotspot and opens the picker. The delegated method can be exercised directly in unit tests without trying to synthesize UIGestureRecognizer state.
+The gesture handler stays thin: resolve the `SKView`, read the gesture location, then delegate to the private hotspot method. The handler itself is directly executed by a cheap DEBUG test accessor so the 95% patch gate does not rely on an unexecuted adapter; hotspot behavior remains tested through the delegated method rather than a synthetic gesture harness.
 
 #### Picker
 
@@ -153,7 +153,7 @@ Do not present another picker when `GameViewController.presentedViewController` 
 
 Because `.actionSheet` presentation requires a popover anchor on iPad, set the alert's `popoverPresentationController?.sourceView` to the `SKView` and `sourceRect` to the same top-right hotspot before presentation. This is required runtime correctness for the repository's supported iPad orientation, not extra framework work.
 
-Each city action delegates to one private method:
+Each city action is only one executable forwarding line into the tested jump method. Capture the controller weakly and the short-lived alert's `SKView` strongly; do not add a multi-line guard or a forced unwrap solely for coverage.
 
 ```swift
 private func performDevJump(to city: Int, in view: SKView) {
@@ -200,39 +200,44 @@ A Release build must succeed with these symbols compiled out. Final verification
 Extend `PyxisTests/GameViewControllerTests.swift` to cover:
 
 - a five-tap recognizer is installed on the `SKView` and does not cancel SpriteKit touches;
+- the recognizer adapter itself executes once through a narrow DEBUG test accessor;
 - the top-right hotspot is exactly the expected 64×64 frame for a normal test view;
 - an outside hotspot point does not present the picker;
 - an inside hotspot point presents the action sheet once;
 - the action sheet contains exactly City 1...City 15 plus Cancel and the overwrite warning;
 - direct selection delegation overwrites an existing store and presents a `BattleScene` for the selected city.
 
-Keep the actual `@objc` recognizer adapter tiny. Tests exercise the delegated location method rather than inventing gesture-recognizer test infrastructure.
+Do not add a UIGestureRecognizer harness. Keep the recognizer adapter directly covered and each alert action to one executable forwarding line. If either grows, add focused coverage before readying the implementation PR rather than weakening the repository's 95% patch gate.
 
 The iPad popover source configuration remains visible in the picker construction path and gets a manual iPad smoke because CI runs on iPhone Simulator.
 
 ### Manual smoke
 
-In a DEBUG simulator build:
+In a DEBUG iPhone simulator build:
 
-1. From Battle, Map, or Building View, five-tap the top-right hotspot.
-2. Verify the picker appears and clearly states that it replaces the current save.
-3. Jump to representative Cities 1, 5, 10, and 15; each must land directly in Battle with the correct city identity and generous resources.
-4. On iPad portrait, open the picker and choose City 15; the action sheet must present without a popover crash.
+1. From Battle, five-tap the top-right hotspot and verify the picker/overwrite warning.
+2. Jump to representative Cities 1, 5, 10, and 15; each must land directly in Battle with the correct city identity and generous resources.
+3. Navigate to Country Map normally, five-tap the same top-right hotspot, choose City 10, and verify Battle opens at City 10.
+4. Navigate to Building View normally, five-tap the same top-right hotspot, choose City 10, and verify Battle opens at City 10.
 5. Conquer City 15 and verify the existing Country 1 completion flow still occurs normally.
 
-The pure factory test covers all 15 values; the manual pass does not need to click all 15 actions.
+In a DEBUG iPad portrait simulator build:
+
+6. Five-tap the hotspot, verify the action sheet presents without a popover crash, choose City 15, and verify Battle opens.
+
+The Map and Building View beats specifically prove that the controller-owned `SKView` gesture survives scene replacement. The pure factory test covers all 15 values; the manual pass does not need to click all 15 actions.
 
 ## Acceptance
 
 HPA-618 is complete when:
 
-- DEBUG five-tap in the top-right hotspot opens a City 1...15 picker;
+- DEBUG five-tap in the top-right hotspot opens a City 1...15 picker from Battle, Country Map, and Building View;
 - the picker states that the current save is replaced;
 - choosing any listed city saves a fresh active Country 1 state and immediately presents Battle;
 - the state uses `gold = 1_000_000`, `normalSoldierUpgradeLevel = 15`, and empty city building state;
 - City 15 remains an active battle, not a pre-completed country;
 - iPad action-sheet presentation is correctly popover-anchored;
-- automated factory/controller tests pass without introducing a dev-tools framework;
+- automated factory/controller tests pass without introducing a dev-tools framework and the controller adapter shape remains compatible with the 95% patch-coverage gate;
 - full unit/UI tests and SwiftLint pass with parallel testing disabled;
 - a Release build succeeds and its app binary contains no `[DEBUG] Jump to Country 1 City` string;
 - no shipping gameplay, persistence semantics, feedback policy, settings, or project-file registration changes are introduced.
