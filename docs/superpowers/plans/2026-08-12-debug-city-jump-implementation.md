@@ -2,38 +2,47 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a DEBUG-only five-tap Country 1 city picker that replaces the development save with a generous fresh battle state for City 1...15 and routes directly through the existing Battle scene.
+**Goal:** Add a DEBUG-only five-tap Country 1 city picker that replaces the development save with a generous fresh battle state for City 1...15 and routes through the existing Battle scene without adding latency to normal DEBUG taps.
 
-**Architecture:** Add one framework-free `DevJumpState` factory, entirely compiled only in DEBUG. Keep the one-consumer gesture, action sheet, save, and Battle routing inside the existing `GameViewController.swift` DEBUG boundary so it can call the existing private `presentBattleScene(in:)` router without another protocol or scene factory. Unit-test the pure state contract and the cheap UIKit glue needed to satisfy the repository's 95% patch-coverage gate; keep real cross-scene gesture behavior and iPad presentation as manual smoke.
+**Architecture:** Add one framework-free `DevJumpState` factory compiled only in DEBUG. Keep the one-consumer gesture, action sheet, save, and Battle routing inside the existing `GameViewController.swift` DEBUG boundary. Reuse `KingdomGameState` normalization, `KingdomGameStore.save(_:)`, and `presentBattleScene(in:)`; add no dev-tools framework, overlay builder, alternate router, or checkpoint model.
 
 **Tech Stack:** Swift 5, UIKit, SpriteKit, Swift Testing, `KingdomGameState`, `KingdomGameStore`, Xcode/iOS Simulator.
 
 ## Global Constraints
 
-- HPA-618 is a developer convenience tool, not HPA-567 validation evidence.
-- Every new runtime line/symbol/string must be inside `#if DEBUG ... #endif`.
+- HPA-618 is developer convenience only, not HPA-567 validation evidence.
+- Every new runtime line, symbol, and unique picker string must be inside `#if DEBUG ... #endif`.
 - Country 1 only; do not add a country parameter, multi-country model, registry, protocol, service, or dev-tools framework.
 - Picker values come only from `1...KingdomGameState.firstCountryCityCount`.
+- `DevJumpState.make(city:)` must also precondition that same valid range so programmer misuse fails loudly instead of silently normalizing.
 - DEBUG preset is exactly `gold = 1_000_000` and `normalSoldierUpgradeLevel = 15`.
 - A jump starts with empty `cityBattleStates` and no carried active siege, pending result, or background timestamp.
-- Selecting a city intentionally overwrites the current development save; do not add backup/reset/restore machinery.
-- City 15 starts as `.battleActive`; `countryComplete` is reached only by conquering City 15 normally.
-- Reuse `KingdomGameStore.save(_:)` and `GameViewController.presentBattleScene(in:)`; do not add another persistence or routing path.
-- Use one five-tap `UITapGestureRecognizer` on the `SKView`, `cancelsTouchesInView = false`, and a 64×64 pt top-right hotspot.
+- Selecting a city intentionally overwrites the development save; do not add backup/reset/restore machinery.
+- City 15 starts as `.battleActive`; country completion happens only by conquering City 15 normally.
+- Reuse `KingdomGameStore.save(_:)` and private `GameViewController.presentBattleScene(in:)`.
+- Use one five-tap `UITapGestureRecognizer` on the `SKView` with `cancelsTouchesInView = false` **and** `delaysTouchesEnded = false`.
+- Use one 64×64 pt top-right hotspot. Do not add an invisible `UIView` or `UIGestureRecognizerDelegate` hotspot filter.
 - Picker is `UIAlertController.Style.actionSheet`, title `[DEBUG] Jump to Country 1 City`, message `Replaces current save.`, City 1...15 actions, and Cancel.
-- Configure the action sheet's `popoverPresentationController` to the `SKView` and hotspot rect so iPad presentation is valid.
-- Do not edit `project.pbxproj`; synchronized Xcode groups discover new files.
+- Configure the action sheet popover to the `SKView` + hotspot rect for iPad.
+- DEBUG controller helpers are internal for `@testable import`; do not add one-to-one `...ForTesting` pass-through wrappers.
+- Keep each alert city handler to one executable forwarding line into `performDevJump(to:in:)`.
+- Do not edit `project.pbxproj`; synchronized groups discover new files.
 - Run simulator tests with `-parallel-testing-enabled NO`.
-- Keep Codecov project and patch coverage at or above the repository's 95% gate when the implementation PR is marked ready.
-- **Coverage risk:** directly execute the `handleDevJumpGesture` adapter in `GameViewControllerTests`, and keep each `UIAlertAction` handler to one executable forwarding line. If either adapter grows, add focused coverage before readying the PR; do not weaken Codecov.
+- Keep Codecov project and patch coverage at or above 95%; do not weaken the gate.
+
+## Risks already designed out
+
+- **Input latency:** UIKit defaults `delaysTouchesEnded` to true. Because Pyxis scenes handle tap actions in `touchesEnded`, the recognizer must explicitly set and test `delaysTouchesEnded = false`.
+- **iPad popover validity:** `.actionSheet` needs a valid popover source; anchor it to the `SKView` hotspot and perform an iPad smoke.
+- **Patch coverage:** directly exercise the tiny gesture adapter, test real hotspot/picker/save behavior, remove pass-through test wrappers, and keep the one alert closure line trivial.
 
 ## File Structure
 
-- Create `Pyxis/DevJumpState.swift` — DEBUG-only pure factory and tweakable preset constants.
-- Create `PyxisTests/DevJumpStateTests.swift` — all-15-city normalization contract.
-- Modify `Pyxis/GameViewController.swift` — inline DEBUG installer call plus DEBUG-only gesture/picker/jump helpers and semantic testing accessors.
-- Modify `PyxisTests/GameViewControllerTests.swift` — gesture adapter/hotspot/picker/save/router coverage.
-- Modify `CLAUDE.md` — one short ownership/release-gating note for the developer tool.
+- Create `Pyxis/DevJumpState.swift` — DEBUG-only pure factory, domain precondition, and tweakable preset constants.
+- Create `PyxisTests/DevJumpStateTests.swift` — valid City 1...15 normalization contract.
+- Modify `Pyxis/GameViewController.swift` — DEBUG installer call plus internal DEBUG gesture/picker/jump helpers.
+- Modify `PyxisTests/GameViewControllerTests.swift` — recognizer properties, adapter forwarding, hotspot, picker, save/router coverage.
+- Modify `CLAUDE.md` — one short developer-tool ownership/release-gating note.
 
 ---
 
@@ -83,9 +92,9 @@ struct DevJumpStateTests {
 #endif
 ```
 
-This test deliberately uses only valid picker values. Do not add out-of-range factory semantics that the UI cannot produce.
+Do not add an out-of-range clamping test. Invalid direct use is a DEBUG programmer error, not a recoverable public API contract.
 
-- [ ] **Step 2: Run the focused suite and confirm RED**
+- [ ] **Step 2: Run the focused test and confirm RED**
 
 ```bash
 xcodebuild test \
@@ -98,7 +107,7 @@ xcodebuild test \
 
 Expected: FAIL because `DevJumpState` does not exist.
 
-- [ ] **Step 3: Implement the minimal DEBUG-only factory**
+- [ ] **Step 3: Implement the minimal DEBUG-only factory with a loud domain boundary**
 
 Create `Pyxis/DevJumpState.swift`:
 
@@ -109,7 +118,12 @@ enum DevJumpState {
     static let soldierLevel = 15
 
     static func make(city: Int) -> KingdomGameState {
-        KingdomGameState(
+        precondition(
+            (1...KingdomGameState.firstCountryCityCount).contains(city),
+            "DevJumpState supports Country 1 cities only"
+        )
+
+        return KingdomGameState(
             gold: gold,
             normalSoldierUpgradeLevel: soldierLevel,
             countryNumber: 1,
@@ -122,13 +136,13 @@ enum DevJumpState {
 #endif
 ```
 
-Do not pass `cityLevel` or `cityNumberInCountry`; the existing `KingdomGameState` initializer derives those values from the active progression state. Do not add a country parameter or clamp.
+Do not pass `cityLevel`, `cityNumberInCountry`, or `cityRemainingPower`; the existing model derives them. Do not add a country parameter or clamp.
 
-- [ ] **Step 4: Re-run the focused suite and confirm GREEN**
+- [ ] **Step 4: Re-run and confirm GREEN**
 
 Run Step 2 again.
 
-Expected: PASS for all 15 cities.
+Expected: PASS for all valid Country 1 cities. The precondition line is executed on every valid factory call.
 
 - [ ] **Step 5: Commit the pure state slice**
 
@@ -139,7 +153,7 @@ git commit -m "feat: add DEBUG city jump state"
 
 ---
 
-## Task 2: Install the five-tap picker and reuse existing save/Battle routing
+## Task 2: Install the five-tap picker without delaying SpriteKit input
 
 **Files:**
 - Modify: `Pyxis/GameViewController.swift`
@@ -150,58 +164,46 @@ git commit -m "feat: add DEBUG city jump state"
 - Consumes: `KingdomGameState.firstCountryCityCount`
 - Consumes: `KingdomGameStore.save(_:)`
 - Consumes: private `GameViewController.presentBattleScene(in:)`
-- Produces internally: `installDevJumpGesture(on:)`
-- Produces internally: `devJumpTriggerFrame(in:) -> CGRect`
-- Produces internally: `handleDevJumpGesture(_:)`
-- Produces internally: `handleDevJumpTap(at:in:)`
-- Produces internally: `makeDevJumpAlert(in:) -> UIAlertController`
-- Produces internally: `performDevJump(to:in:)`
+- Produces DEBUG-internal: `installDevJumpGesture(on:)`
+- Produces DEBUG-internal: `devJumpTriggerFrame(in:) -> CGRect`
+- Produces DEBUG-internal: `handleDevJumpGesture(_:)`
+- Produces DEBUG-internal: `handleDevJumpTap(at:in:)`
+- Produces DEBUG-internal: `makeDevJumpAlert(in:) -> UIAlertController`
+- Produces DEBUG-internal: `performDevJump(to:in:)`
 
-- [ ] **Step 1: Write RED controller tests for installation, adapter coverage, hotspot, picker, and jump routing**
+- [ ] **Step 1: Write RED controller tests for recognizer behavior, real adapter forwarding, hotspot, picker, and jump routing**
 
-Add these tests inside the existing `@MainActor GameViewControllerTests`:
+Add the following tests inside the existing `@MainActor GameViewControllerTests`:
 
 ```swift
 #if DEBUG
-@Test("DEBUG controller installs a non-cancelling five-tap city-jump gesture")
-func debugControllerInstallsFiveTapCityJumpGesture() throws {
+@Test("DEBUG controller installs a non-delaying five-tap city-jump recognizer")
+func debugControllerInstallsFiveTapCityJumpRecognizer() throws {
     let store = try makeStore(initialState: .init())
     let controller = makeGameViewController(store: store)
     let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
     controller.view = view
     controller.viewDidLoad()
 
-    let gesture = try #require(controller.devJumpGestureForTesting)
+    let gesture = try #require(view.gestureRecognizers?
+        .compactMap { $0 as? UITapGestureRecognizer }
+        .first { $0.numberOfTapsRequired == 5 })
+
     #expect(gesture.numberOfTapsRequired == 5)
     #expect(gesture.cancelsTouchesInView == false)
-    #expect(controller.devJumpTriggerFrameForTesting(in: view)
+    #expect(gesture.delaysTouchesEnded == false)
+    #expect(controller.devJumpTriggerFrame(in: view)
         == CGRect(x: 329, y: 0, width: 64, height: 64))
 }
 
-@Test("DEBUG recognizer adapter forwards safely without a gesture harness")
-func debugRecognizerAdapterIsDirectlyCovered() throws {
+@Test("DEBUG recognizer adapter forwards its view and location into picker presentation")
+func debugRecognizerAdapterActuallyPresentsPicker() throws {
     let store = try makeStore(initialState: .init())
     let controller = makeGameViewController(store: store)
-    let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+    let view = SKView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
     controller.view = view
-    controller.viewDidLoad()
+    controller.installDevJumpGesture(on: view)
 
-    let gesture = try #require(controller.devJumpGestureForTesting)
-    controller.handleDevJumpGestureForTesting(gesture)
-
-    // A recognizer that has not received real touches reports an outside/default
-    // location. This test exists to execute the tiny adapter; hotspot behavior is
-    // covered independently below.
-    #expect(controller.presentedViewController == nil)
-}
-
-@Test("DEBUG city-jump hotspot ignores outside taps and presents one picker inside")
-func debugCityJumpHotspotPresentsOnePicker() throws {
-    let store = try makeStore(initialState: .init())
-    let controller = makeGameViewController(store: store)
-    let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-    controller.view = view
-    controller.viewDidLoad()
     let lifecycle = try makeSceneLifecycleFixture(rootViewController: controller)
     lifecycle.window.isHidden = false
     defer {
@@ -209,20 +211,45 @@ func debugCityJumpHotspotPresentsOnePicker() throws {
         lifecycle.window.rootViewController = nil
     }
 
-    controller.handleDevJumpTapForTesting(
+    let gesture = try #require(view.gestureRecognizers?
+        .compactMap { $0 as? UITapGestureRecognizer }
+        .first { $0.numberOfTapsRequired == 5 })
+
+    controller.handleDevJumpGesture(gesture)
+
+    let alert = try #require(controller.presentedViewController as? UIAlertController)
+    #expect(alert.title == "[DEBUG] Jump to Country 1 City")
+    #expect(controller.devJumpTriggerFrame(in: view) == view.bounds)
+}
+
+@Test("DEBUG city-jump hotspot ignores outside taps and presents only one picker inside")
+func debugCityJumpHotspotPresentsOnePicker() throws {
+    let store = try makeStore(initialState: .init())
+    let controller = makeGameViewController(store: store)
+    let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+    controller.view = view
+
+    let lifecycle = try makeSceneLifecycleFixture(rootViewController: controller)
+    lifecycle.window.isHidden = false
+    defer {
+        controller.dismiss(animated: false)
+        lifecycle.window.rootViewController = nil
+    }
+
+    controller.handleDevJumpTap(
         at: CGPoint(x: 10, y: view.bounds.maxY - 10),
         in: view
     )
     #expect(controller.presentedViewController == nil)
 
-    let trigger = controller.devJumpTriggerFrameForTesting(in: view)
-    controller.handleDevJumpTapForTesting(
+    let trigger = controller.devJumpTriggerFrame(in: view)
+    controller.handleDevJumpTap(
         at: CGPoint(x: trigger.midX, y: trigger.midY),
         in: view
     )
     let firstAlert = try #require(controller.presentedViewController as? UIAlertController)
 
-    controller.handleDevJumpTapForTesting(
+    controller.handleDevJumpTap(
         at: CGPoint(x: trigger.midX, y: trigger.midY),
         in: view
     )
@@ -236,7 +263,7 @@ func debugCityJumpPickerContentIsBoundedToCountry1() throws {
     let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
     controller.view = view
 
-    let alert = controller.makeDevJumpAlertForTesting(in: view)
+    let alert = controller.makeDevJumpAlert(in: view)
     let expectedTitles = (1...KingdomGameState.firstCountryCityCount)
         .map { "City \($0)" } + ["Cancel"]
 
@@ -245,6 +272,9 @@ func debugCityJumpPickerContentIsBoundedToCountry1() throws {
     #expect(alert.message == "Replaces current save.")
     #expect(alert.actions.compactMap(\.title) == expectedTitles)
     #expect(alert.actions.last?.style == .cancel)
+    #expect(alert.popoverPresentationController?.sourceView === view)
+    #expect(alert.popoverPresentationController?.sourceRect
+        == controller.devJumpTriggerFrame(in: view))
 }
 
 @Test("DEBUG city jump overwrites the save and routes through the normal Battle scene")
@@ -260,7 +290,7 @@ func debugCityJumpOverwritesSaveAndPresentsBattle() throws {
     controller.viewDidLoad()
     #expect(view.scene is CountryMapScene)
 
-    controller.performDevJumpForTesting(to: 10, in: view)
+    controller.performDevJump(to: 10, in: view)
 
     let state = store.load()
     #expect(state.countryNumber == 1)
@@ -278,9 +308,9 @@ func debugCityJumpOverwritesSaveAndPresentsBattle() throws {
 #endif
 ```
 
-If headless UIKit refuses to expose `presentedViewController` without a visible window, keep the existing `makeSceneLifecycleFixture` approach shown above; do not introduce a custom presentation protocol just for the test.
+The 64×64 adapter fixture intentionally makes the trigger frame equal the full view bounds, so the recognizer's untouched default location reaches the real picker path. If UIKit behavior on the target SDK makes that fixture unreliable, replace only this focused test seam; do not add a general recognizer harness or production abstraction.
 
-- [ ] **Step 2: Run the controller tests and confirm RED**
+- [ ] **Step 2: Run the controller suite and confirm RED**
 
 ```bash
 xcodebuild test \
@@ -291,11 +321,11 @@ xcodebuild test \
   -only-testing:PyxisTests/GameViewControllerTests
 ```
 
-Expected: FAIL because the DEBUG city-jump installer/helpers/accessors do not exist.
+Expected: FAIL because the DEBUG city-jump installer/helpers do not exist.
 
-- [ ] **Step 3: Add only the compile-gated installer call to `viewDidLoad()`**
+- [ ] **Step 3: Add the compile-gated install hook and all minimal DEBUG helpers as one compiling implementation step**
 
-Immediately after `configure(view)` in `GameViewController.viewDidLoad()`:
+In `GameViewController.viewDidLoad()`, immediately after `configure(view)`:
 
 ```swift
 #if DEBUG
@@ -303,11 +333,7 @@ installDevJumpGesture(on: view)
 #endif
 ```
 
-Do not move normal scene/feedback setup under the DEBUG gate.
-
-- [ ] **Step 4: Add the DEBUG UI constants and minimal controller helpers**
-
-Extend the existing bottom-of-file DEBUG section in `Pyxis/GameViewController.swift`:
+Then extend the existing bottom-of-file DEBUG section:
 
 ```swift
 #if DEBUG
@@ -318,17 +344,18 @@ private enum DevJumpUI {
 }
 
 extension GameViewController {
-    private func installDevJumpGesture(on view: SKView) {
+    func installDevJumpGesture(on view: SKView) {
         let gesture = UITapGestureRecognizer(
             target: self,
             action: #selector(handleDevJumpGesture(_:))
         )
         gesture.numberOfTapsRequired = 5
         gesture.cancelsTouchesInView = false
+        gesture.delaysTouchesEnded = false
         view.addGestureRecognizer(gesture)
     }
 
-    private func devJumpTriggerFrame(in view: SKView) -> CGRect {
+    func devJumpTriggerFrame(in view: SKView) -> CGRect {
         let size = min(
             DevJumpUI.triggerSize,
             min(view.bounds.width, view.bounds.height)
@@ -341,12 +368,12 @@ extension GameViewController {
         )
     }
 
-    @objc private func handleDevJumpGesture(_ gesture: UITapGestureRecognizer) {
+    @objc func handleDevJumpGesture(_ gesture: UITapGestureRecognizer) {
         guard let view = gesture.view as? SKView else { return }
         handleDevJumpTap(at: gesture.location(in: view), in: view)
     }
 
-    private func handleDevJumpTap(at point: CGPoint, in view: SKView) {
+    func handleDevJumpTap(at point: CGPoint, in view: SKView) {
         guard devJumpTriggerFrame(in: view).contains(point),
               presentedViewController == nil else {
             return
@@ -354,7 +381,7 @@ extension GameViewController {
         present(makeDevJumpAlert(in: view), animated: true)
     }
 
-    private func makeDevJumpAlert(in view: SKView) -> UIAlertController {
+    func makeDevJumpAlert(in view: SKView) -> UIAlertController {
         let alert = UIAlertController(
             title: DevJumpUI.title,
             message: DevJumpUI.message,
@@ -362,10 +389,9 @@ extension GameViewController {
         )
 
         for city in 1...KingdomGameState.firstCountryCityCount {
-            let action = UIAlertAction(title: "City \(city)", style: .default) {
+            alert.addAction(UIAlertAction(title: "City \(city)", style: .default) {
                 [weak self] _ in self?.performDevJump(to: city, in: view)
-            }
-            alert.addAction(action)
+            })
         }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
 
@@ -374,61 +400,27 @@ extension GameViewController {
         return alert
     }
 
-    private func performDevJump(to city: Int, in view: SKView) {
+    func performDevJump(to city: Int, in view: SKView) {
         store.save(DevJumpState.make(city: city))
         presentBattleScene(in: view)
     }
 
-    // Keep the existing layout-gate testing accessors below these helpers.
+    // Existing layout-gate DEBUG testing accessors remain unchanged below.
 }
 #endif
 ```
 
-The action captures the short-lived alert's `SKView` strongly and the controller weakly. Do not use a forced unwrap merely to compress the handler. The handler body remains one executable forwarding line, while the tested `performDevJump(to:in:)` owns the real behavior.
+These helpers are internal because they exist only in DEBUG and `@testable import Pyxis` can exercise them directly. Do not add `devJumpTriggerFrameForTesting`, `handleDevJumpGestureForTesting`, `handleDevJumpTapForTesting`, `makeDevJumpAlertForTesting`, or `performDevJumpForTesting` wrappers.
 
-Do not add an invisible UIView, a `UIGestureRecognizerDelegate`, a navigation layer, or a separate alert-builder type.
+Do not use a forced unwrap in the alert action. Do not add an invisible view, recognizer delegate, navigation layer, or separate alert-builder type.
 
-- [ ] **Step 5: Add narrow DEBUG testing accessors in the same extension**
-
-Add:
-
-```swift
-var devJumpGestureForTesting: UITapGestureRecognizer? {
-    (view as? SKView)?.gestureRecognizers?
-        .compactMap { $0 as? UITapGestureRecognizer }
-        .first { $0.numberOfTapsRequired == 5 }
-}
-
-func devJumpTriggerFrameForTesting(in view: SKView) -> CGRect {
-    devJumpTriggerFrame(in: view)
-}
-
-func handleDevJumpGestureForTesting(_ gesture: UITapGestureRecognizer) {
-    handleDevJumpGesture(gesture)
-}
-
-func handleDevJumpTapForTesting(at point: CGPoint, in view: SKView) {
-    handleDevJumpTap(at: point, in: view)
-}
-
-func makeDevJumpAlertForTesting(in view: SKView) -> UIAlertController {
-    makeDevJumpAlert(in: view)
-}
-
-func performDevJumpForTesting(to city: Int, in view: SKView) {
-    performDevJump(to: city, in: view)
-}
-```
-
-These are semantic DEBUG accessors only. Do not expose UIKit debug APIs in Release or add a test-only protocol.
-
-- [ ] **Step 6: Re-run the controller suite and confirm GREEN**
+- [ ] **Step 4: Re-run the controller suite and confirm GREEN**
 
 Run Step 2 again.
 
-Expected: PASS, including direct execution of the recognizer adapter.
+Expected: PASS, including the non-delaying recognizer property and real adapter-to-picker forwarding.
 
-- [ ] **Step 7: Run both HPA-618 focused suites together**
+- [ ] **Step 5: Run both HPA-618 focused suites together**
 
 ```bash
 xcodebuild test \
@@ -442,7 +434,7 @@ xcodebuild test \
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit the controller slice**
+- [ ] **Step 6: Commit the controller slice**
 
 ```bash
 git add Pyxis/GameViewController.swift PyxisTests/GameViewControllerTests.swift
@@ -451,7 +443,7 @@ git commit -m "feat: add DEBUG city jump picker"
 
 ---
 
-## Task 3: Document ownership and prove Release isolation
+## Task 3: Document ownership and prove cross-scene + Release behavior
 
 **Files:**
 - Modify: `CLAUDE.md`
@@ -460,17 +452,17 @@ git commit -m "feat: add DEBUG city jump picker"
 **Interfaces:**
 - Documents: `DevJumpState` owns DEBUG state materialization only.
 - Documents: `GameViewController` owns the DEBUG gesture/picker and reuses normal save/Battle routing.
-- Verifies: DEBUG cross-scene smoke behavior and Release compile-out.
+- Verifies: ordinary tap responsiveness, cross-scene trigger lifetime, Settings interaction, iPad presentation, and Release compile-out.
 
 - [ ] **Step 1: Add one concise developer-tool note to `CLAUDE.md`**
 
-In the existing `GameViewController` architecture section, add a short paragraph equivalent to:
+In the existing `GameViewController` architecture section, add:
 
 ```markdown
-- HPA-618's Country 1 city-jump tool is development-only: `DevJumpState` plus the five-tap picker/wiring in `GameViewController` are entirely `#if DEBUG`. The picker overwrites the current save and reuses `KingdomGameStore.save(_:)` + `presentBattleScene(in:)`; do not turn it into a shipping setting, generic dev-tools framework, checkpoint manager, or alternate router.
+- HPA-618's Country 1 city-jump tool is development-only: `DevJumpState` plus the five-tap picker/wiring in `GameViewController` are entirely `#if DEBUG`. The recognizer must keep `cancelsTouchesInView` and `delaysTouchesEnded` false so it does not distort SpriteKit input timing. The picker overwrites the current save and reuses `KingdomGameStore.save(_:)` + `presentBattleScene(in:)`; do not turn it into a shipping setting, generic dev-tools framework, checkpoint manager, or alternate router.
 ```
 
-Keep the note beside controller ownership; do not create a separate developer-tools architecture section.
+Do not create a separate developer-tools architecture section.
 
 - [ ] **Step 2: Run the complete test suite**
 
@@ -507,7 +499,7 @@ xcodebuild build \
 
 Expected: Release build PASS.
 
-- [ ] **Step 5: Prove the unique DEBUG picker marker is absent from the Release binary**
+- [ ] **Step 5: Prove the unique DEBUG picker marker is absent from Release**
 
 ```bash
 release_binary="/tmp/pyxis-hpa618-release/Build/Products/Release-iphonesimulator/Pyxis.app/Pyxis"
@@ -520,33 +512,48 @@ fi
 
 Expected: command exits 0 with no grep match.
 
-Do not grep for generic strings such as `City 15`; those are legitimate shipping content.
+Do not grep generic shipping strings such as `City 15`.
 
-- [ ] **Step 6: Perform the DEBUG iPhone Battle smoke**
+- [ ] **Step 6: Perform the DEBUG iPhone Battle smoke, including normal tap responsiveness**
 
 On an iPhone simulator DEBUG build:
 
-1. Start in Battle and five-tap the top-right hotspot.
-2. Verify the action sheet title is `[DEBUG] Jump to Country 1 City` and message is `Replaces current save.`.
-3. Jump to City 1 and verify Battle opens with City 1.
-4. Repeat for City 5 and City 10 to exercise existing milestone presentation.
-5. Jump to City 15 and verify it opens as an active Battle rather than a completed country.
-6. Conquer City 15 and verify the existing conquest report / `Country 1 Complete` flow still behaves normally.
+1. Before using the dev gesture, perform ordinary one-tap Battle controls (spawn/Settings/other normal visible actions) and confirm they respond immediately rather than waiting for multi-tap recognition.
+2. Five-tap the top-right hotspot.
+3. Verify title `[DEBUG] Jump to Country 1 City` and message `Replaces current save.`.
+4. Jump to City 1 and verify Battle opens with City 1.
+5. Repeat for City 5 and City 10 to exercise milestone presentation.
+6. Jump to City 15 and verify it opens as active Battle, not completed country.
+7. Conquer City 15 and verify the existing conquest report / `Country 1 Complete` flow.
 
-The automated factory test already covers all City 1...15 state values; do not manually click every city merely to duplicate that proof.
+The all-city factory test covers all state values; do not manually click all 15 actions.
 
 - [ ] **Step 7: Prove the SKView-level trigger survives Country Map and Building View replacement**
 
 On the same DEBUG iPhone build:
 
-1. Navigate to Country Map through the normal game route.
-2. Five-tap the top-right hotspot, choose City 10, and verify Battle opens at City 10.
-3. Navigate to Building View through the normal Battle control.
-4. Five-tap the top-right hotspot, choose City 10, and verify Battle opens at City 10 again.
+1. Navigate to Country Map through the normal route.
+2. Confirm a normal one-tap map action remains responsive.
+3. Five-tap top-right, choose City 10, and verify Battle opens at City 10.
+4. Navigate to Building View through the normal Battle control.
+5. Confirm a normal one-tap Building interaction remains responsive.
+6. Five-tap top-right, choose City 10, and verify Battle opens at City 10 again.
 
-This smoke is specifically about controller-owned `SKView` gesture lifetime. Do not add scene-specific gesture wiring or automated scene-input infrastructure to make this test easier.
+Do not add scene-specific gesture wiring or automated scene-input infrastructure.
 
-- [ ] **Step 8: Perform the iPad action-sheet smoke**
+- [ ] **Step 8: Smoke the in-scene Settings interaction without adding controller coupling**
+
+On DEBUG iPhone:
+
+1. Open the existing SpriteKit feedback Settings modal.
+2. Five-tap the top-right hotspot.
+3. Verify the UIKit action sheet can present over the in-scene modal without a crash or stuck input state.
+4. Cancel the action sheet and verify the same Settings modal remains usable.
+5. Open the picker again, choose City 10, and verify normal Battle scene replacement removes the old scene/modal naturally.
+
+Do not add a `presentedViewController`-style guard for SpriteKit Settings and do not teach `GameViewController` about `FeedbackSettingsController` state solely for HPA-618.
+
+- [ ] **Step 9: Perform the iPad action-sheet smoke**
 
 On an iPad portrait simulator DEBUG build:
 
@@ -554,18 +561,18 @@ On an iPad portrait simulator DEBUG build:
 2. Verify the action sheet presents without a popover-anchor exception.
 3. Select City 15 and verify Battle opens.
 
-If this fails, fix only the action-sheet `sourceView` / `sourceRect` configuration; do not replace the design with a generic presentation abstraction.
+If this fails, fix only `sourceView` / `sourceRect`; do not introduce a generic presentation abstraction.
 
-- [ ] **Step 9: Commit the ownership note after verification**
+- [ ] **Step 10: Commit the ownership note after verification**
 
 ```bash
 git add CLAUDE.md
 git commit -m "docs: document DEBUG city jump ownership"
 ```
 
-- [ ] **Step 10: Open/refresh the implementation PR and verify CI gates when ready**
+- [ ] **Step 11: Open/refresh the implementation PR and verify ready-for-review gates**
 
-The implementation PR should reference HPA-618 and include the planning spec/plan. Once it is marked ready for review, require:
+Once the implementation PR is ready, require:
 
 - Build & Lint: PASS
 - Unit Test & Codecov: PASS
@@ -573,7 +580,7 @@ The implementation PR should reference HPA-618 and include the planning spec/pla
 - Codecov project status: at least 95%
 - Codecov patch status: at least 95%
 
-If patch coverage fails, first inspect the new adapter lines: `handleDevJumpGesture` must remain directly covered and each alert action must remain one executable forwarding line. Add focused coverage for any new behavior rather than weakening the gate or adding an abstraction solely for coverage.
+If patch coverage fails, inspect only the newly executable DEBUG lines first. `handleDevJumpGesture` must remain directly covered; the city alert handler must remain one executable forwarding line. Add focused coverage for genuine new behavior rather than weakening Codecov or adding abstraction solely for coverage.
 
 ## Implementation scope checkpoint
 
@@ -584,4 +591,4 @@ The intended runtime diff remains deliberately small:
 - two focused test files;
 - one short `CLAUDE.md` ownership note.
 
-If implementation starts requiring a new router, picker type, debug menu, checkpoint model, persistence API, launch configuration, or project-file registration, stop and cut that work: it is outside HPA-618.
+If implementation starts requiring a new router, picker type, debug menu, checkpoint model, persistence API, launch configuration, scene-specific gesture wiring, or project-file registration, stop and cut that work: it is outside HPA-618.
