@@ -141,6 +141,9 @@ final class GameViewController: UIViewController {
         }
 
         configure(view)
+#if DEBUG
+        installDevJumpGesture(on: view)
+#endif
         feedbackRuntime.bindAccessibilityAdapter(to: view)
         // `GameplaySoundOutputController` enqueues preparation on its audio boundary;
         // do not wait for decoding before presenting the initial SpriteKit scene.
@@ -391,7 +394,74 @@ extension GameViewController: BuildingViewSceneRouting {
 }
 
 #if DEBUG
+private enum DevJumpUI {
+    static let triggerSize: CGFloat = 64
+    static let title = "[DEBUG] Jump to Country 1 City"
+    static let message = "Replaces current save."
+}
+
 extension GameViewController {
+    func installDevJumpGesture(on view: SKView) {
+        let gesture = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleDevJumpGesture(_:))
+        )
+        gesture.numberOfTapsRequired = 5
+        gesture.cancelsTouchesInView = false
+        gesture.delaysTouchesEnded = false
+        view.addGestureRecognizer(gesture)
+    }
+
+    func devJumpTriggerFrame(in view: SKView) -> CGRect {
+        let size = min(
+            DevJumpUI.triggerSize,
+            min(view.bounds.width, view.bounds.height)
+        )
+        return CGRect(
+            x: view.bounds.maxX - size,
+            y: view.bounds.minY,
+            width: size,
+            height: size
+        )
+    }
+
+    @objc func handleDevJumpGesture(_ gesture: UITapGestureRecognizer) {
+        guard let view = gesture.view as? SKView else { return }
+        handleDevJumpTap(at: gesture.location(in: view), in: view)
+    }
+
+    func handleDevJumpTap(at point: CGPoint, in view: SKView) {
+        guard devJumpTriggerFrame(in: view).contains(point),
+              presentedViewController == nil else {
+            return
+        }
+        present(makeDevJumpAlert(in: view), animated: true)
+    }
+
+    func makeDevJumpAlert(in view: SKView) -> UIAlertController {
+        let alert = UIAlertController(
+            title: DevJumpUI.title,
+            message: DevJumpUI.message,
+            preferredStyle: .actionSheet
+        )
+
+        for city in 1...KingdomGameState.firstCountryCityCount {
+            alert.addAction(UIAlertAction(title: "City \(city)", style: .default) { [weak self] _ in
+                self?.performDevJump(to: city, in: view)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        alert.popoverPresentationController?.sourceView = view
+        alert.popoverPresentationController?.sourceRect = devJumpTriggerFrame(in: view)
+        return alert
+    }
+
+    func performDevJump(to city: Int, in view: SKView) {
+        store.save(DevJumpState.make(city: city))
+        presentBattleScene(in: view)
+    }
+
     func refreshLayoutSupportForTesting(
         environment: CountryMapLayoutEnvironment
     ) {
