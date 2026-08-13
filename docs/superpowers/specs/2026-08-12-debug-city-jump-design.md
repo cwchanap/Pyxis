@@ -4,19 +4,19 @@
 
 Approved planning design for HPA-618: **Dev tool: DEBUG-only jump-to-city overlay (Country 1)**.
 
-The Linear ticket already fixes the product direction: this is a developer convenience tool, not player-facing validation and not a replacement for the canceled HPA-567 casual playtest. This spec tightens that agreed direction against current `main` and deliberately removes unnecessary abstraction.
+HPA-618 is a developer convenience tool. It is not player-facing validation, does not revive the canceled HPA-567 casual run, and must not change shipping gameplay.
 
 ## Why this is the next actionable slice
 
-The player-facing HPA-360 slices are already implemented, including Country 1 city identity, Recommended Camp guidance, and the City 5/10/15 milestone treatment. The remaining work now benefits more from cheap repeatable late-city smoke testing than from another gameplay mechanic.
+Country 1 identity, Recommended Camp guidance, conquest reporting, feedback, and the City 5/10/15 milestone treatment are already implemented. The useful next step is a cheap way to revisit late-city presentation without replaying the campaign.
 
-HPA-618 is unblocked and gives that leverage without changing the shipping game. It makes City 5/10/15 presentation, late-city battlefield layout, conquest reports, soldier feedback, and Country 1 completion cheap to revisit while keeping evidence-gated mechanics deferred.
+The tool should stay smaller than the features it helps inspect. It therefore reuses the existing state normalization, persistence, and Battle router instead of introducing a developer-tools subsystem.
 
 ## Goal
 
-In a DEBUG build, five taps in an invisible top-right hotspot on the `SKView` open a city picker for Country 1. Selecting City 1 through City 15 replaces the current campaign save with a generous fresh battle state for that city and immediately presents `BattleScene`.
+In a DEBUG build, five taps inside a 64×64 pt top-right hotspot on the app's `SKView` open a Country 1 city picker. Selecting City 1 through City 15 replaces the current development save with a generous fresh active-battle state and immediately presents the normal `BattleScene`.
 
-The tool must compile out of Release builds.
+The trigger must not add observable tap latency to normal DEBUG gameplay, and the entire tool must compile out of Release builds.
 
 ## Non-goals
 
@@ -25,54 +25,56 @@ HPA-618 does not add:
 - a player-facing cheat/debug menu;
 - a shipping Settings control;
 - a reset/checkpoint/export/restore API;
-- campaign validation evidence or analytics;
+- HPA-567 evidence or analytics;
 - a generic developer-tools framework;
-- a reusable picker/overlay builder type;
-- launch arguments, deep links, URL routing, or automation harnesses;
-- changes to combat, economy, persistence semantics, routing semantics, feedback policy, milestone behavior, or Country 1 authored content;
+- a reusable picker/overlay builder;
+- launch arguments, deep links, URL routing, or an automation harness;
+- an alternate scene router or persistence path;
+- changes to combat, economy, feedback policy, milestone behavior, authored content, or persistence semantics;
 - support for a future Country 2.
 
-The picker explicitly overwrites the current save. Testers who need a previous checkpoint can manage their own development copy outside this feature.
+The picker intentionally overwrites the current development save.
 
 ## Existing code to reuse
 
-The repository already owns every shipping boundary this tool needs:
+The repository already owns the shipping boundaries this tool needs:
 
-- `KingdomGameState` normalizes active-campaign state from `completedCityCount` and `stageStatus`. In `.battleActive`, it derives the current city and level from `completedCityCount + 1` and initializes current city power from `cityMaxPower(for:)`.
-- `KingdomGameState.firstCountryCityCount` is the authoritative current Country 1 range and is 15 today.
-- `KingdomGameStore.save(_:)` already replaces the persisted `pyxis.kingdomGameState` value.
-- `GameViewController.presentBattleScene(in:)` is the existing Battle router and already reuses the shared feedback runtime/accessibility adapter.
-- `GameViewController.viewDidLoad()` owns `SKView` setup and is the smallest place to install one DEBUG-only UIKit gesture.
-- `GameViewController.swift` already contains a `#if DEBUG` extension for testing-only controller accessors.
-- The project uses `PBXFileSystemSynchronizedRootGroup`; a new Swift file is discovered automatically and must not be registered manually in `project.pbxproj`.
+- `KingdomGameState` normalizes `.battleActive` progression from `completedCityCount`: current city and level become `completedCityCount + 1`, and current city power is initialized from `cityMaxPower(for:)`.
+- `KingdomGameState.firstCountryCityCount` is the authoritative Country 1 range.
+- `KingdomGameStore.save(_:)` replaces the persisted game state.
+- `GameViewController.presentBattleScene(in:)` is the existing Battle router and reuses the shared feedback runtime/accessibility adapter.
+- `GameViewController.viewDidLoad()` owns `SKView` setup and is the smallest place to install a controller-owned DEBUG gesture that survives SpriteKit scene replacement.
+- The Xcode project uses synchronized root groups, so no `project.pbxproj` registration is required for a new Swift file.
+
+Do not reuse `startCityFromMap(_:)`: it is the shipping sequential-entry API, not a teleport API.
 
 ## Approaches considered
 
 ### 1. Pure state factory + controller-local DEBUG wiring — selected
 
-Add one pure `DevJumpState` factory and keep the one-consumer UIKit gesture/picker logic inside `GameViewController.swift` under `#if DEBUG`.
+Add one pure `DevJumpState` factory and keep the one-consumer UIKit gesture/action-sheet logic inside `GameViewController.swift` under `#if DEBUG`.
 
-This is the smallest design that keeps state construction unit-testable while letting the controller reuse its private Battle router directly.
+This keeps state materialization independently testable while reusing the controller's private Battle router directly.
 
-### 2. Separate `DevJumpOverlayBuilder` type — rejected
+### 2. Separate `DevJumpOverlayBuilder` — rejected
 
-A standalone builder would only wrap one `UIAlertController` for one controller. It would add another type/file without a second consumer or independent policy. The alert can be constructed by a private DEBUG helper in `GameViewController` and inspected through narrow DEBUG test accessors.
+It would wrap one `UIAlertController` for one caller and add another type/file with no independent policy or second consumer.
 
 ### 3. SpriteKit dev scene, launch arguments, or deep-link routing — rejected
 
-These approaches add routing/configuration machinery for a tool whose only job is “pick one of 15 values, replace the save, show Battle.” They also create more seams that would need maintenance while providing no current user value.
+These add routing/configuration machinery for a tool whose complete job is: pick one of 15 cities, replace the save, show Battle.
 
 ## Architecture
 
-The complete runtime shape is:
+The complete runtime flow is:
 
-`five-tap hotspot -> GameViewController DEBUG picker -> DevJumpState.make(city:) -> KingdomGameStore.save -> existing presentBattleScene(in:)`
+`five-tap hotspot -> GameViewController DEBUG picker -> DevJumpState.make(city:) -> KingdomGameStore.save -> presentBattleScene(in:)`
 
-There are only two runtime ownership units.
+There are exactly two runtime ownership units.
 
-### 1. `DevJumpState`
+## 1. `DevJumpState`
 
-Create `Pyxis/DevJumpState.swift`, with the entire file wrapped in `#if DEBUG ... #endif`.
+Create `Pyxis/DevJumpState.swift` with the entire body inside `#if DEBUG ... #endif`.
 
 ```swift
 #if DEBUG
@@ -81,7 +83,12 @@ enum DevJumpState {
     static let soldierLevel = 15
 
     static func make(city: Int) -> KingdomGameState {
-        KingdomGameState(
+        precondition(
+            (1...KingdomGameState.firstCountryCityCount).contains(city),
+            "DevJumpState supports Country 1 cities only"
+        )
+
+        return KingdomGameState(
             gold: gold,
             normalSoldierUpgradeLevel: soldierLevel,
             countryNumber: 1,
@@ -94,11 +101,17 @@ enum DevJumpState {
 #endif
 ```
 
-The factory is intentionally Country 1-only. It does **not** accept a `country` argument: HPA-618 has one caller and one supported country, so a generic parameter would be speculative API surface.
+### Country 1 boundary
 
-The picker is the range boundary and passes only `1...KingdomGameState.firstCountryCityCount`. The factory therefore does not add a second clamp or validator.
+The factory intentionally has no `country` parameter and no clamp.
 
-For a valid selected city `N`, the existing `KingdomGameState` initializer must remain authoritative for normalization:
+The picker supplies only `1...KingdomGameState.firstCountryCityCount`. The factory also fails loudly on programmer misuse so a future bad caller cannot silently normalize City 0 into City 1 or City 16 into country completion.
+
+The `precondition` is not a second gameplay validator. It is a DEBUG-only assertion of the factory's documented domain.
+
+### State normalization
+
+For a valid selected city `N`, `KingdomGameState.init` remains authoritative:
 
 - `countryNumber == 1`;
 - `completedCityCount == N - 1`;
@@ -109,15 +122,15 @@ For a valid selected city `N`, the existing `KingdomGameState` initializer must 
 - `gold == 1_000_000`;
 - `normalSoldierUpgradeLevel == 15`;
 - `cityBattleStates` starts empty;
-- no active siege session, pending result, or background timestamp is carried from the overwritten save.
+- no active siege session, pending battle result, or background timestamp is carried over.
 
-The generous constants live on the factory so they are obvious and cheap to tweak during development.
+Do not eagerly create an `ActiveSiegeSession`; the normal model creates one when combat/idle event recording first needs it.
 
-### 2. `GameViewController` DEBUG wiring
+## 2. `GameViewController` DEBUG wiring
 
 Keep all controller changes in `Pyxis/GameViewController.swift`.
 
-Inside `viewDidLoad()`, after the `SKView` is available, install the debug gesture behind an inline compile gate:
+Inside `viewDidLoad()`, after obtaining the `SKView`, install the gesture under an inline compile gate:
 
 ```swift
 #if DEBUG
@@ -125,38 +138,76 @@ installDevJumpGesture(on: view)
 #endif
 ```
 
-The helper methods themselves live in the file's existing `#if DEBUG` extension.
+The DEBUG helper methods are internal rather than private. They already compile out of Release, so adding one-to-one `...ForTesting` wrappers would protect no production boundary and only increase code/coverage surface.
 
-#### Trigger
+### Trigger
 
-- `UITapGestureRecognizer`
-- `numberOfTapsRequired = 5`
-- attached to the `SKView`
-- `cancelsTouchesInView = false`, because this is a developer convenience and should not introduce a new SpriteKit input policy
-- hotspot: fixed 64×64 pt square at the top-right of the current `SKView.bounds`
-- a recognized five-tap whose final location is outside that hotspot is ignored
+Install one `UITapGestureRecognizer` with:
 
-Do not add an invisible `UIView`. A separate view would become another input surface layered over SpriteKit for no benefit.
+- `numberOfTapsRequired = 5`;
+- `cancelsTouchesInView = false`;
+- `delaysTouchesEnded = false`;
+- a 64×64 pt top-right hotspot derived from current `SKView.bounds`;
+- no invisible `UIView`;
+- no `UIGestureRecognizerDelegate` hotspot policy.
 
-The gesture handler stays thin: resolve the `SKView`, read the gesture location, then delegate to the private hotspot method. The handler itself is directly executed by a cheap DEBUG test accessor so the 95% patch gate does not rely on an unexecuted adapter; hotspot behavior remains tested through the delegated method rather than a synthetic gesture harness.
+`delaysTouchesEnded = false` is required. Pyxis scenes process taps in `touchesEnded`; leaving UIKit's default delayed-ended behavior enabled would make the DEBUG build wait on five-tap recognition before delivering ordinary scene taps, distorting the gameplay/feedback timing this tool exists to inspect.
 
-#### Picker
+The top-right hotspot is intentionally away from the existing left-side Settings gear. Because `cancelsTouchesInView` and `delaysTouchesEnded` are both false, ordinary scene input continues normally while the recognizer observes the touch stream.
+
+### Gesture adapter
+
+Keep the Objective-C selector thin:
+
+```swift
+@objc func handleDevJumpGesture(_ gesture: UITapGestureRecognizer) {
+    guard let view = gesture.view as? SKView else { return }
+    handleDevJumpTap(at: gesture.location(in: view), in: view)
+}
+```
+
+Do not add a recognizer abstraction merely for testing. The focused controller test may exercise this adapter using a 64×64 `SKView`, where the full bounds are the trigger frame, and must assert that the picker is actually presented rather than merely executing lines for coverage.
+
+### Hotspot and re-entrancy
+
+`handleDevJumpTap(at:in:)`:
+
+1. ignores points outside the top-right hotspot;
+2. ignores the trigger when `presentedViewController != nil`;
+3. otherwise presents the city action sheet.
+
+The UIKit re-entrancy guard deliberately does not inspect the SpriteKit feedback-settings modal. That modal is not a UIKit presentation, and coupling the app controller to scene-local Settings state is unnecessary for this dev tool. Manual smoke covers this interaction explicitly.
+
+### Picker
 
 Build one `UIAlertController(preferredStyle: .actionSheet)` with:
 
 - title: `[DEBUG] Jump to Country 1 City`;
 - message: `Replaces current save.`;
-- one default action for each `City 1` through `City 15`, using `1...KingdomGameState.firstCountryCityCount`;
+- one default action for each `City 1` through `City 15`, derived from `1...KingdomGameState.firstCountryCityCount`;
 - one Cancel action.
 
-Do not present another picker when `GameViewController.presentedViewController` is already non-nil.
-
-Because `.actionSheet` presentation requires a popover anchor on iPad, set the alert's `popoverPresentationController?.sourceView` to the `SKView` and `sourceRect` to the same top-right hotspot before presentation. This is required runtime correctness for the repository's supported iPad orientation, not extra framework work.
-
-Each city action is only one executable forwarding line into the tested jump method. Capture the controller weakly and the short-lived alert's `SKView` strongly; do not add a multi-line guard or a forced unwrap solely for coverage.
+Each city action contains one executable forwarding line into the tested jump method:
 
 ```swift
-private func performDevJump(to city: Int, in view: SKView) {
+[weak self] _ in self?.performDevJump(to: city, in: view)
+```
+
+The short-lived alert owns the captured `SKView`; the controller is weakly captured. Do not add a multi-line optional-unwrapping guard or a forced unwrap just to manipulate line coverage.
+
+For iPad correctness, configure:
+
+```swift
+alert.popoverPresentationController?.sourceView = view
+alert.popoverPresentationController?.sourceRect = devJumpTriggerFrame(in: view)
+```
+
+### Save and landing
+
+The selected action delegates to one method:
+
+```swift
+func performDevJump(to city: Int, in view: SKView) {
     store.save(DevJumpState.make(city: city))
     presentBattleScene(in: view)
 }
@@ -164,80 +215,86 @@ private func performDevJump(to city: Int, in view: SKView) {
 
 No second router, scene factory, or persistence path is added.
 
-## Save and scene semantics
-
-A jump is intentionally destructive to the current development save:
-
-1. the selected city is materialized as a fresh active battle state;
-2. `KingdomGameStore.save(_:)` replaces the persisted state;
-3. `presentBattleScene(in:)` creates the normal Battle scene using that saved state and existing shared runtime;
-4. later gameplay proceeds normally from that debug-created state.
-
-There is no “return to prior save” stack. Adding one would turn this simple smoke tool into checkpoint management.
-
-City 15 is still an active battle when selected. `countryComplete` remains a normal result of conquering City 15; it is not directly selectable.
+City 15 is still an active battle when selected. `countryComplete` remains the normal result of conquering City 15.
 
 ## Release isolation
 
-Every new runtime symbol/string is inside `#if DEBUG`:
+Every new runtime line, symbol, and string is inside `#if DEBUG`:
 
 - the entire `DevJumpState.swift` body;
 - the `viewDidLoad()` installer call;
-- gesture/picker/jump helpers and DEBUG test accessors in `GameViewController.swift`.
+- gesture/picker/jump helpers in `GameViewController.swift`.
 
-There is no Release branch, no runtime `assert`, no hidden shipping gesture, and no player preference controlling the feature.
+There is no Release branch, runtime feature flag, hidden shipping gesture, or player preference controlling the feature.
 
-A Release build must succeed with these symbols compiled out. Final verification should also scan the built Release app binary for the unique picker title `[DEBUG] Jump to Country 1 City` and find no match.
+Final verification must:
+
+1. build Release successfully;
+2. scan the built app binary for `[DEBUG] Jump to Country 1 City`;
+3. fail if that unique marker exists.
+
+Do not grep generic shipping strings such as `City 15`.
 
 ## Testing strategy
 
 ### Pure factory — automated
 
-`PyxisTests/DevJumpStateTests.swift` iterates every Country 1 city and asserts the normalized fresh battle contract listed above. This locks the important coupling to `KingdomGameState` without reproducing its normalization logic.
+`PyxisTests/DevJumpStateTests.swift` iterates every valid Country 1 city and asserts the normalized fresh-battle contract. Every valid call also executes the DEBUG precondition.
+
+No trap-testing helper is needed for invalid cities; the precondition is programmer-failure behavior, not a second public validation API.
 
 ### Controller DEBUG glue — automated where cheap
 
 Extend `PyxisTests/GameViewControllerTests.swift` to cover:
 
-- a five-tap recognizer is installed on the `SKView` and does not cancel SpriteKit touches;
-- the recognizer adapter itself executes once through a narrow DEBUG test accessor;
-- the top-right hotspot is exactly the expected 64×64 frame for a normal test view;
-- an outside hotspot point does not present the picker;
-- an inside hotspot point presents the action sheet once;
-- the action sheet contains exactly City 1...City 15 plus Cancel and the overwrite warning;
-- direct selection delegation overwrites an existing store and presents a `BattleScene` for the selected city.
+- one five-tap recognizer is installed on the `SKView`;
+- `cancelsTouchesInView == false`;
+- `delaysTouchesEnded == false`;
+- the normal-view hotspot is exactly 64×64 at top-right;
+- the recognizer adapter genuinely reaches picker presentation on a 64×64 view;
+- an outside point does not present the picker;
+- an inside point presents exactly one action sheet;
+- picker copy/actions are exactly Country 1 City 1...15 plus Cancel;
+- direct jump execution overwrites an existing store and presents a `BattleScene` for the selected city.
 
-Do not add a UIGestureRecognizer harness. Keep the recognizer adapter directly covered and each alert action to one executable forwarding line. If either grows, add focused coverage before readying the implementation PR rather than weakening the repository's 95% patch gate.
-
-The iPad popover source configuration remains visible in the picker construction path and gets a manual iPad smoke because CI runs on iPhone Simulator.
+Tests call the internal DEBUG helpers directly through `@testable import Pyxis`; do not add five one-to-one `...ForTesting` wrappers.
 
 ### Manual smoke
 
-In a DEBUG iPhone simulator build:
+On DEBUG iPhone Simulator:
 
-1. From Battle, five-tap the top-right hotspot and verify the picker/overwrite warning.
-2. Jump to representative Cities 1, 5, 10, and 15; each must land directly in Battle with the correct city identity and generous resources.
-3. Navigate to Country Map normally, five-tap the same top-right hotspot, choose City 10, and verify Battle opens at City 10.
-4. Navigate to Building View normally, five-tap the same top-right hotspot, choose City 10, and verify Battle opens at City 10.
-5. Conquer City 15 and verify the existing Country 1 completion flow still occurs normally.
+1. From Battle, five-tap top-right and verify the picker/overwrite warning.
+2. Jump to Cities 1, 5, 10, and 15; each lands directly in Battle with correct identity/resources.
+3. Navigate normally to Country Map, five-tap top-right, choose City 10, and verify Battle opens at City 10.
+4. Navigate normally to Building View, five-tap top-right, choose City 10, and verify Battle opens at City 10.
+5. Open the in-scene feedback Settings modal, five-tap top-right, and verify the picker can present without corrupting Settings interaction; Cancel returns to the still-open modal, while selecting a city replaces the scene normally.
+6. Conquer City 15 and verify the existing Country 1 completion flow.
 
-In a DEBUG iPad portrait simulator build:
+On DEBUG iPad portrait:
 
-6. Five-tap the hotspot, verify the action sheet presents without a popover crash, choose City 15, and verify Battle opens.
+7. Five-tap the hotspot, verify the action sheet presents without a popover exception, choose City 15, and verify Battle opens.
 
-The Map and Building View beats specifically prove that the controller-owned `SKView` gesture survives scene replacement. The pure factory test covers all 15 values; the manual pass does not need to click all 15 actions.
+The Map and Building View beats prove the controller-owned gesture survives SpriteKit scene replacement. The all-city factory test covers the 15 state values; the manual pass does not need to select every action.
+
+## Risks and mitigations
+
+- **DEBUG tap latency:** a five-tap recognizer would delay scene `touchesEnded` by default. Set and test `delaysTouchesEnded = false`.
+- **iPad action-sheet validity:** `.actionSheet` requires a valid popover source. Anchor it to the `SKView` hotspot and smoke it on iPad portrait.
+- **95% patch coverage:** keep adapters minimal, directly test real forwarding behavior, and avoid pass-through test wrappers. If implementation grows new executable adapter behavior, add focused coverage rather than weakening Codecov.
 
 ## Acceptance
 
 HPA-618 is complete when:
 
-- DEBUG five-tap in the top-right hotspot opens a City 1...15 picker from Battle, Country Map, and Building View;
-- the picker states that the current save is replaced;
-- choosing any listed city saves a fresh active Country 1 state and immediately presents Battle;
-- the state uses `gold = 1_000_000`, `normalSoldierUpgradeLevel = 15`, and empty city building state;
-- City 15 remains an active battle, not a pre-completed country;
-- iPad action-sheet presentation is correctly popover-anchored;
-- automated factory/controller tests pass without introducing a dev-tools framework and the controller adapter shape remains compatible with the 95% patch-coverage gate;
-- full unit/UI tests and SwiftLint pass with parallel testing disabled;
-- a Release build succeeds and its app binary contains no `[DEBUG] Jump to Country 1 City` string;
-- no shipping gameplay, persistence semantics, feedback policy, settings, or project-file registration changes are introduced.
+- DEBUG five-tap top-right opens City 1...15 picker from Battle, Country Map, and Building View;
+- ordinary DEBUG scene taps are not delayed by the recognizer;
+- picker clearly states that it replaces the current save;
+- any listed city saves a fresh active Country 1 state and immediately presents Battle;
+- invalid direct factory use fails loudly rather than silently normalizing;
+- preset is `gold = 1_000_000`, soldier upgrade level 15, empty city-building state;
+- City 15 remains active Battle until conquered normally;
+- iPad action sheet is popover-anchored;
+- factory/controller tests, full unit/UI suite, and SwiftLint pass with parallel testing disabled;
+- Codecov project and patch statuses remain at or above 95%; no gate weakening;
+- Release build succeeds and the unique DEBUG picker marker is absent from the built app binary;
+- no shipping gameplay/settings/routing/persistence behavior changes are introduced.
