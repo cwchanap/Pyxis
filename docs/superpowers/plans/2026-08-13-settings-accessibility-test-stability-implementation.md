@@ -4,24 +4,23 @@
 
 **Goal:** Improve Settings accessibility-test diagnostics, capture one real intermittent failure under the CI unit-test regime, and only then implement the smallest fix supported by that evidence.
 
-**Architecture:** Keep `FeedbackSettingsAccessibilityAdapter` unchanged initially. First make the existing test reader strict/diagnostic and fix GameViewController's positional element lookup. Then reproduce the flake with `PyxisTests` only, classify the captured failure, and derive the actual stabilization from a focused RED -> GREEN reproducer.
+**Architecture:** Keep `FeedbackSettingsAccessibilityAdapter` unchanged initially. First make the existing test reader strict/diagnostic and fix GameViewController's positional element lookup. Then reproduce the flake with `PyxisTests` only, classify the captured failure, and derive the stabilization from a focused RED -> GREEN reproducer.
 
 **Tech Stack:** Swift 5, UIKit, SpriteKit, Swift Testing, Xcode/iOS Simulator.
 
 ## Global Constraints
 
 - `FeedbackSettingsAccessibilityAdapter.expose(_:)` remains the sole production writer unless a captured failure proves a runtime defect.
-- Reuse the existing module-level `accessibilityElements(in:)`; no helper file, query DSL, snapshot API, or production `ForTesting` surface.
-- Preserve existing semantic assertions for count, order, labels, values, identity/type, activation, focus, preferences, and scene routing.
-- Do not add `compactMap`, a synthetic mixed-collection test, or a standalone raw-SKView guard as a presumed fix.
-- Do not add retries, sleeps, polling, expected failures, disabled tests, or CI/coverage weakening.
-- Do not add `.serialized` speculatively. Use serialization only after a captured failure identifies a state/interference hypothesis and the chosen trait boundary actually covers the implicated tests.
+- Reuse the existing `accessibilityElements(in:)`; no helper file, query DSL, snapshot API, or production `ForTesting` surface.
+- Preserve semantic count/order/label/value/identity/activation/focus assertions.
+- No speculative `compactMap`, synthetic collection fixture, standalone raw-SKView probe, retries, sleeps, disabled tests, or CI/coverage weakening.
+- No speculative `.serialized`; use serialization only after evidence identifies interference and a trait boundary that actually covers the implicated tests.
 - Unit reproduction/verification must match CI: `-parallel-testing-enabled NO -only-testing:PyxisTests -skip-testing:PyxisUITests`.
 - Do not edit `project.pbxproj`.
 
 ---
 
-## Task 1: Ship better diagnostics without claiming the flake is fixed
+## Task 1: Ship diagnostic correctness without claiming the flake is fixed
 
 **Files:**
 - Modify: `PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift`
@@ -36,7 +35,7 @@
 - Consumes: Swift Testing `SourceLocation`, `#require`, `#_sourceLocation`
 - Produces: `accessibilityElements(in:_:) throws -> [UIAccessibilityElement]`
 
-- [ ] **Step 1: Run one CI-equivalent baseline before editing the reader**
+- [ ] **Step 1: Run one CI-equivalent baseline before editing**
 
 ```bash
 mkdir -p build/HPA620
@@ -56,11 +55,11 @@ xcodebuild \
 
 Expected normally: PASS.
 
-If this run reproduces the intermittent accessibility failure, **stop before editing Task 1**. Preserve `baseline.log` + `baseline.xcresult`, record the exact failing tests/assertions, and jump to Task 2 Step 3 with the stronger pre-change evidence.
+If it reproduces the accessibility flake, preserve `baseline.log` and `baseline.xcresult` and record the exact failing tests/assertions **before editing**. Continue with the diagnostic helper so the same surface reports more detail on the next reproduction; do not discard the pre-change evidence.
 
-- [ ] **Step 2: Replace the existing silent helper with one strict throwing reader**
+- [ ] **Step 2: Make the existing helper strict and caller-attributed**
 
-In `PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift`, replace:
+Replace:
 
 ```swift
 @MainActor
@@ -93,23 +92,17 @@ func accessibilityElements(
 }
 ```
 
-Do not filter foreign objects. A foreign object is evidence to preserve, not something the test helper should hide.
+This preserves the complete ordered collection and fails early on nil or a foreign object. Do not filter either condition away.
 
-- [ ] **Step 3: Route the existing direct collection reads through the strict helper**
+- [ ] **Step 3: Route real integration reads through the strict helper**
 
-In `BuildingViewSceneTests.swift`, replace each direct form:
-
-```swift
-try #require(view.accessibilityElements as? [UIAccessibilityElement])
-```
-
-with a local strict read:
+In `BuildingViewSceneTests.swift`, replace each strict raw collection cast with:
 
 ```swift
 let elements = try accessibilityElements(in: view)
 ```
 
-Keep the existing label/activation assertion that follows the read.
+Keep its existing label/activation lookup unchanged.
 
 In `CountryMapSceneTests.swift`, replace each:
 
@@ -123,31 +116,29 @@ with:
 try accessibilityElements(in: view)
 ```
 
-Keep every existing `onlyElement`, `ActionAccessibilityElement`, label, identity, activation, and frame assertion unchanged.
+Keep all existing `onlyElement`, concrete-type, identity, activation, and frame assertions.
 
-- [ ] **Step 4: Mechanically add `try` to current helper consumers**
-
-Find all helper uses:
+Then find existing shared-helper consumers:
 
 ```bash
 rg -n 'accessibilityElements\(in:' PyxisTests
 ```
 
-For existing helper consumers in adapter, controller, Battle, and GameViewController tests, add only the `try` plumbing required by the new signature. Examples:
+Add only the `try` plumbing required by the new signature. Typical forms are:
 
 ```swift
-let elements = try accessibilityElements(in: context.containerView)
+let elements = try accessibilityElements(in: containerView)
 ```
 
-and:
+or:
 
 ```swift
 #expect(try accessibilityElements(in: containerView).isEmpty)
 ```
 
-Do not change the surrounding semantic expectations. Add `throws` to a test function only if the compiler requires it.
+Add `throws` to a test only if compilation requires it. Do not change its semantic expectations.
 
-- [ ] **Step 5: Fix the independent GameViewController positional lookup**
+- [ ] **Step 4: Fix GameViewController's independent positional assumption**
 
 Replace:
 
@@ -160,15 +151,13 @@ let soundEffectsElement = try #require(
 with:
 
 ```swift
+let elements = try accessibilityElements(in: view)
 let soundEffectsElement = try #require(
-    try accessibilityElements(in: view)
-        .first { $0.accessibilityLabel == "Sound Effects" }
+    elements.first { $0.accessibilityLabel == "Sound Effects" }
 )
 ```
 
-The test now identifies the intended control semantically rather than assuming it is first.
-
-- [ ] **Step 6: Confirm the fragile raw patterns are gone from the affected integration files**
+- [ ] **Step 5: Confirm the affected raw-read patterns are gone**
 
 ```bash
 rg -n \
@@ -180,7 +169,7 @@ rg -n \
 
 Expected: no matches.
 
-- [ ] **Step 7: Run the accessibility-bearing suites once**
+- [ ] **Step 6: Run the affected accessibility-bearing suites once**
 
 ```bash
 xcodebuild test \
@@ -196,13 +185,12 @@ xcodebuild test \
   -only-testing:PyxisTests/GameViewControllerTests
 ```
 
-Expected: PASS. If it fails, preserve the new diagnostic message; do not soften the helper.
+Expected: PASS. If it fails, preserve the strict helper's diagnostic instead of weakening it.
 
-- [ ] **Step 8: Run the CI-equivalent unit suite once**
+- [ ] **Step 7: Run the CI-equivalent unit suite once**
 
 ```bash
 rm -rf build/HPA620/slice-a.xcresult
-
 xcodebuild \
   -project Pyxis.xcodeproj \
   -scheme Pyxis \
@@ -214,9 +202,9 @@ xcodebuild \
   -skip-testing:PyxisUITests
 ```
 
-Expected: PASS. This validates Slice A only; it does not establish that the intermittent flake is fixed.
+Expected: PASS. This validates Slice A only; it is not evidence that the intermittent flake is fixed.
 
-- [ ] **Step 9: Run hygiene checks and commit Slice A**
+- [ ] **Step 8: Run hygiene checks and commit Slice A**
 
 ```bash
 swiftlint lint --no-cache
@@ -232,32 +220,21 @@ git add \
 git commit -m "test: improve settings accessibility diagnostics"
 ```
 
-Slice A may merge independently even if Task 2 cannot reproduce the flake. HPA-620 itself remains open until the cause is demonstrated and fixed.
+Slice A may merge independently. HPA-620 remains open until Task 2 demonstrates and fixes the cause.
 
 ---
 
 ## Task 2: Capture and classify one real intermittent failure
 
 **Files:**
-- Evidence only at first: `build/HPA620/*.log`, `build/HPA620/*.xcresult`
-- Source changes: none until Step 4 identifies a cause
+- Evidence first: `build/HPA620/**/*.log`, `build/HPA620/**/*.xcresult`
+- Source changes: none until a cause is classified
 
-**Interfaces:**
-- Consumes: diagnostic helper messages from Task 1
-- Consumes: CI-equivalent `PyxisTests` command
-- Produces: exact failing test name, assertion/diagnostic, and root-cause hypothesis supported by one captured run
+- [ ] **Step 1: Recover historical evidence if it still exists**
 
-- [ ] **Step 1: Check for retained historical evidence before spending simulator runs**
+Inspect retained local HPA-366/HPA-618 logs or `.xcresult` bundles before spending simulator runs. Record exact failing test names and first failing assertions. Current GitHub/Linear summaries do not retain them, so do not infer missing details.
 
-Inspect any retained local HPA-618/HPA-366 test logs or `.xcresult` bundles. If they contain the original PR #26/#35 failure, record:
-
-- failing test names;
-- first failing assertion/message per test;
-- whether the raw collection was nil, foreign-typed, or semantically wrong if that can be determined.
-
-The current PR and Linear summaries do not preserve those details, so do not invent them if local artifacts are gone.
-
-- [ ] **Step 2: If historical detail is unavailable, run a bounded CI-equivalent reproduction loop**
+- [ ] **Step 2: Otherwise run a bounded CI-equivalent reproduction loop**
 
 ```bash
 mkdir -p build/HPA620/repro
@@ -293,11 +270,9 @@ if [ "$captured" -eq 0 ]; then
 fi
 ```
 
-A green five-run window is inconclusive. Record it and stop implementation without declaring HPA-620 fixed.
+Five green runs mean **not reproduced**, not fixed. Record that result and stop; leave HPA-620 open.
 
-- [ ] **Step 3: Classify the first captured failure before editing source**
-
-Search the captured log:
+- [ ] **Step 3: Classify the first relevant captured failure**
 
 ```bash
 rg -n \
@@ -305,39 +280,26 @@ rg -n \
   build/HPA620/repro/run-*.log
 ```
 
-Classify the first relevant failure:
+Use the first Settings accessibility failure:
 
-- **`adapter exposed no accessibility collection`**: investigate adapter binding, weak `containerView`, scene mount/rebind ordering, and fixture lifetime at that test.
-- **`Unexpected accessibility element type`**: preserve the reported runtime type; determine whether UIKit/test setup or production adapter integration introduced it.
-- **typed collection but later semantic failure**: investigate count/order/label/value/identity and adapter rebind/focus state at that exact surface.
-- **unrelated failure**: preserve it separately and continue HPA-620 only when the Settings accessibility symptom is captured.
+- `adapter exposed no accessibility collection` -> binding/writer/weak-container/fixture-lifetime path.
+- `Unexpected accessibility element type` -> preserve the runtime type and investigate collection-shape/runtime integration.
+- typed collection followed by wrong count/label/value/identity -> adapter state/rebinding/focus/test-interference path.
+- unrelated failure -> preserve separately; it is not HPA-620 root-cause evidence.
 
-Add the exact evidence to HPA-620 before choosing a fix.
+Record the exact evidence in HPA-620 before selecting a fix.
 
-- [ ] **Step 4: Test the cheapest cause-specific discriminator**
+- [ ] **Step 4: Run the cheapest cause-specific discriminator**
 
-Do not default to `.serialized` merely because Swift Testing supports in-process parallelism. The named suites are `@MainActor`, and suite-local `.serialized` traits do not serialize unrelated peer suites against each other.
+Do not default to `.serialized`. The named suites are `@MainActor`, and applying `.serialized` to separate top-level suites does not serialize those suites relative to unrelated peers.
 
-If the captured evidence points to state interference, first identify the competing test(s) or shared state. Then create the smallest temporary discriminator whose serialization boundary actually includes the implicated tests and compare repeated runs with/without it.
+If the captured evidence points to interference, first identify the competing tests/shared state, then use a temporary serialization boundary that actually contains those tests and compare repeated runs with/without it.
 
-If evidence instead points to nil lifetime/binding, collection shape, or adapter lifecycle, test that specific path directly rather than adding serialization.
+If evidence points to lifetime/binding, collection shape, or adapter lifecycle, test that exact mechanism instead.
 
-- [ ] **Step 5: Write one focused RED reproducer for the demonstrated cause**
+- [ ] **Step 5: Add one focused RED reproducer, implement the minimal fix, confirm GREEN**
 
-The reproducer must fail for the same reason as the captured run, not for a synthetic cast shape. Name it after the actual behavior discovered in Step 3.
-
-Run only that test and confirm RED before changing the implementation/fixture.
-
-- [ ] **Step 6: Implement the smallest cause-specific fix and confirm GREEN**
-
-Allowed outcomes include:
-
-- test fixture/lifetime correction;
-- a justified serialization boundary covering the actual conflicting tests;
-- adapter lifecycle/rebinding correction;
-- production accessibility change only when a reproducible player-facing defect requires it.
-
-Do not add generic test infrastructure or retry behavior.
+The reproducer must fail for the same reason as the captured run. Acceptable fixes depend on evidence and may be a fixture/lifetime correction, justified serialization boundary, adapter lifecycle correction, or production accessibility change only for a reproducible player-facing defect.
 
 Commit the cause-specific fix separately from Slice A.
 
@@ -345,12 +307,9 @@ Commit the cause-specific fix separately from Slice A.
 
 ## Task 3: Verify the demonstrated fix and close HPA-620
 
-**Files:**
-- Verify the actual Task 2 diff only
-
 - [ ] **Step 1: Stress the focused reproducer**
 
-Run the exact focused test repeatedly enough to exercise the discovered mechanism. Any failure stops verification; do not retry it away.
+Repeat the exact focused test enough to exercise the discovered mechanism. Any failure stops verification; do not retry it away.
 
 - [ ] **Step 2: Run three consecutive CI-equivalent unit suites after the fix**
 
@@ -369,9 +328,9 @@ for run in 1 2 3; do
 done
 ```
 
-Expected: three consecutive PASS runs **after** the focused RED -> GREEN proof.
+Expected: three consecutive PASS runs only **after** the focused RED -> GREEN proof.
 
-- [ ] **Step 3: Run final hygiene and scope checks**
+- [ ] **Step 3: Run final hygiene/scope checks**
 
 ```bash
 swiftlint lint --no-cache
@@ -379,18 +338,10 @@ git diff --check origin/main...HEAD
 git diff --exit-code origin/main...HEAD -- .github/workflows codecov.yml
 ```
 
-If production Swift changed, document the reproduced player-facing defect that required it. Otherwise confirm the final fix remained test-only.
+If production Swift changed, document the reproduced player-facing defect that required it. Otherwise confirm the fix remained test-only.
 
-- [ ] **Step 4: Record evidence in Linear**
+- [ ] **Step 4: Record completion evidence in Linear**
 
-HPA-620's completion note must include:
+Record the captured failing test/assertion, classified root cause, focused RED -> GREEN proof, minimal fix, three post-fix PyxisTests results, lint/diff results, and any justified production scope.
 
-- captured historical/reproduction failing test and assertion;
-- classified root cause;
-- focused RED -> GREEN test;
-- exact minimal fix;
-- post-fix PyxisTests 1/3, 2/3, 3/3 results;
-- SwiftLint and diff-check results;
-- whether production accessibility code changed and why.
-
-Do not mark HPA-620 complete if the reproduction loop stayed green and no root cause was demonstrated.
+Do not mark HPA-620 complete when no failure/root cause was demonstrated.
