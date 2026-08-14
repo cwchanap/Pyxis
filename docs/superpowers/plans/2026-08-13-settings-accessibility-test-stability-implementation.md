@@ -2,58 +2,65 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the recurring false-negative Feedback Settings accessibility-test seam by reading UIKit's `[Any]?` accessibility collection element-wise in tests, without changing player-facing accessibility behavior or production architecture.
+**Goal:** Remove the recurring false-negative Settings accessibility-test seam by reading UIKit's `[Any]?` collection element-wise in tests, while keeping production accessibility behavior unchanged and proving the result in the full serial-suite regime where the flake occurred.
 
-**Architecture:** Keep `FeedbackSettingsAccessibilityAdapter` unchanged. Harden the existing module-level `accessibilityElements(in:)` test helper in `FeedbackSettingsAccessibilityAdapterTests.swift`, add one deterministic mixed-collection regression plus a strict raw adapter-output assertion, then route the affected Building View, Country Map, and GameViewController integration tests through that helper. Prove stability with five consecutive focused runs and one full suite.
+**Architecture:** Keep `FeedbackSettingsAccessibilityAdapter` unchanged and reuse the existing module-level `accessibilityElements(in:)` test helper. Characterize the whole-array-cast weakness on `SKView`, change the helper to `compactMap`, add raw adapter/SKView collection guards so the tolerant reader cannot hide a runtime shape defect, then route only the historically fragile direct reads through the helper. Run one focused GREEN followed by three consecutive full serial Pyxis suites.
 
 **Tech Stack:** Swift 5, UIKit, SpriteKit, Swift Testing, Xcode/iOS Simulator.
 
 ## Global Constraints
 
-- Production Swift files should remain unchanged.
-- Do not add a production `ForTesting` accessor, snapshot model, protocol, adapter wrapper, observer, or debug API.
-- Do not add sleeps, polling, retries, test disabling, expected-failure annotations, or order dependencies.
-- Preserve the existing semantic assertions: labels, values, ordering, element identity/type, activation, preference mutation, focus behavior, layout/routing guards, and scene replacement.
-- UIKit exposes `UIView.accessibilityElements` as `[Any]?`; tests must not require the entire collection to downcast to `[UIAccessibilityElement]` before locating the intended element.
-- Keep a strict adapter-unit assertion that the plain-UIView fixture itself is populated only with `UIAccessibilityElement` instances.
-- Do not expand accessibility product scope.
-- If the five-run focused loop still fails after direct raw casts are removed, stop HPA-620 implementation and record the exact failure before proposing any production change. Do not paper over it in this ticket.
+- Production Swift files remain unchanged unless a separately reproducible player-facing accessibility defect is found.
+- `FeedbackSettingsAccessibilityAdapter.expose(_:)` remains the only production writer; do not add a production `ForTesting` accessor, snapshot model, protocol, wrapper, observer, or debug API.
+- Reuse the existing module-level `accessibilityElements(in:)`; do not create a new helper file, query DSL, label wrapper, or test framework.
+- UIKit exposes `UIView.accessibilityElements` as `[Any]?`; integration reads must not require the entire collection to downcast before locating the intended element.
+- Swift dynamic casting can downcast a homogeneous `[Any]` to `[UIAccessibilityElement]`; a homogeneous type-erased array is **not** a RED reproduction. The characterization fixture must be heterogeneous.
+- Preserve semantic assertions for labels, values, ordering, element identity/type, activation, preference mutation, focus behavior, layout/routing guards, and scene replacement.
+- Keep a strict raw adapter assertion on a plain `UIView` and a strict raw collection-shape assertion on an existing `SKView` scene fixture.
+- If the raw SKView collection contains a non-`UIAccessibilityElement`, stop and preserve the evidence before proposing a production change.
+- Do not add sleeps, polling, retries, expected-failure annotations, disabled tests, order dependencies, or CI/coverage weakening.
 - Run simulator tests with `-parallel-testing-enabled NO`.
 - Do not edit `project.pbxproj`.
 - Keep existing Codecov project and patch gates unchanged.
 
 ## File Structure
 
-- Modify `PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift` — deterministic mixed-collection regression, strict adapter-output assertion, and safer shared `accessibilityElements(in:)` helper.
-- Modify `PyxisTests/BuildingViewSceneTests.swift` — replace direct whole-array Settings accessibility reads with the shared helper.
-- Modify `PyxisTests/CountryMapSceneTests.swift` — replace direct whole-array Settings accessibility reads with the shared helper.
-- Modify `PyxisTests/GameViewControllerTests.swift` — replace the remaining raw `.first` accessibility read with the shared helper.
-- No production files.
+- Modify `PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift` — import SpriteKit, add the deterministic heterogeneous-SKView RED regression, add the strict plain-UIView adapter-output assertion, and change the shared reader to element-wise extraction.
+- Modify `PyxisTests/BuildingViewSceneTests.swift` — add one raw SKView collection-shape guard and replace direct whole-array Settings accessibility casts with the shared helper.
+- Modify `PyxisTests/CountryMapSceneTests.swift` — replace direct whole-array Settings accessibility casts with the shared helper.
+- Modify `PyxisTests/GameViewControllerTests.swift` — replace the remaining raw `.first` read with an explicit `"Sound Effects"` lookup through the shared helper.
+- No production, project, workflow, coverage, asset, or dependency files.
 
 ---
 
-## Task 1: Characterize and fix the shared accessibility-element reader
+## Task 1: Characterize and harden the shared accessibility reader
 
 **Files:**
 - Modify: `PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift`
 
-**Consumes:**
-- `UIView.accessibilityElements: [Any]?`
-- `UIAccessibilityElement`
-- existing module-level `accessibilityElements(in:)`
+**Interfaces:**
+- Consumes: `UIView.accessibilityElements: [Any]?`
+- Consumes: `SKView`
+- Consumes: `UIAccessibilityElement`
+- Produces: `accessibilityElements(in:) -> [UIAccessibilityElement]` using element-wise extraction
 
-**Produces:**
-- deterministic regression for a heterogeneous UIKit accessibility collection
-- element-wise shared reader
-- strict adapter-output assertion on the plain-UIView fixture
+- [ ] **Step 1: Add SpriteKit to the existing test file**
 
-- [ ] **Step 1: Add the RED mixed-collection regression before changing the helper**
+At the imports, add:
+
+```swift
+import SpriteKit
+```
+
+Do not create a new test target or helper file.
+
+- [ ] **Step 2: Add the RED heterogeneous-SKView regression before changing the helper**
 
 Add this test to `FeedbackSettingsAccessibilityAdapterTests`:
 
 ```swift
-@Test func accessibilityElementsHelperReadsMixedUIKitCollectionElementWise() throws {
-    let view = UIView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+@Test func accessibilityElementsHelperReadsMixedSKViewCollectionElementWise() throws {
+    let view = SKView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
     let expected = UIAccessibilityElement(accessibilityContainer: view)
     expected.accessibilityLabel = "Settings"
 
@@ -66,9 +73,11 @@ Add this test to `FeedbackSettingsAccessibilityAdapterTests`:
 }
 ```
 
-This fixture is intentionally heterogeneous. The current helper's whole-array cast should return `[]`, so the new test must fail before the helper changes.
+The extra `UIView` is deliberate test data that makes the public `[Any]` collection heterogeneous. This characterizes the whole-array-cast weakness on the same view class as the flaky integration tests; it does **not** claim UIKit historically injected that exact object.
 
-- [ ] **Step 2: Run the adapter test suite and confirm RED**
+Do not use a homogeneous `[Any]` fixture. Swift's runtime collection cast succeeds when every element has the requested runtime type, so that fixture would already pass before the helper change.
+
+- [ ] **Step 3: Run the adapter suite and confirm RED**
 
 ```bash
 xcodebuild test \
@@ -79,11 +88,11 @@ xcodebuild test \
   -only-testing:PyxisTests/FeedbackSettingsAccessibilityAdapterTests
 ```
 
-Expected: FAIL only because the new mixed-collection helper test does not recover `expected`.
+Expected: the new mixed-SKView helper test fails because the current whole-array cast returns no elements.
 
-Do not proceed if an unrelated existing test fails; preserve that output because HPA-620 is specifically about distinguishing existing instability from the new regression.
+If an unrelated pre-existing test fails, stop and preserve that result rather than treating it as the intended RED.
 
-- [ ] **Step 3: Change the helper to element-wise extraction**
+- [ ] **Step 4: Change only the shared helper to element-wise extraction**
 
 Replace:
 
@@ -103,11 +112,11 @@ func accessibilityElements(in containerView: UIView) -> [UIAccessibilityElement]
 }
 ```
 
-Do not add a generic predicate/query helper. Existing tests can continue to state their semantic lookup directly with `onlyElement` or `first { $0.accessibilityLabel == ... }`.
+Do not add a label query helper. Callers keep using `onlyElement` or their existing semantic `.first { ... }` expressions.
 
-- [ ] **Step 4: Add a strict raw-output unit assertion for the adapter itself**
+- [ ] **Step 5: Add a strict plain-UIView adapter-output assertion**
 
-Add one test using `makeAccessibilityContext()`:
+Add:
 
 ```swift
 @Test func adapterWritesOnlyAccessibilityElementsToPlainUIView() throws {
@@ -121,15 +130,15 @@ Add one test using `makeAccessibilityContext()`:
 }
 ```
 
-This keeps the production adapter contract strict while the integration reader tolerates UIKit's `[Any]` container shape.
+This protects the adapter's own writer contract independently of the tolerant integration reader.
 
-- [ ] **Step 5: Re-run the adapter suite and confirm GREEN**
+- [ ] **Step 6: Re-run the adapter suite and confirm GREEN**
 
-Run Step 2 again.
+Run Step 3 again.
 
-Expected: all adapter tests pass, including the mixed-collection regression and strict raw-output assertion.
+Expected: all adapter tests pass, including the mixed-SKView regression and strict raw-output assertion.
 
-- [ ] **Step 6: Commit the reader slice**
+- [ ] **Step 7: Commit the reader slice**
 
 ```bash
 git add PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift
@@ -138,25 +147,45 @@ git commit -m "test: harden accessibility element reader"
 
 ---
 
-## Task 2: Route affected scene/controller accessibility tests through the shared reader
+## Task 2: Keep SKView strict and route only fragile integration reads through the helper
 
 **Files:**
 - Modify: `PyxisTests/BuildingViewSceneTests.swift`
 - Modify: `PyxisTests/CountryMapSceneTests.swift`
 - Modify: `PyxisTests/GameViewControllerTests.swift`
 
-**Consumes:**
-- `accessibilityElements(in:)` from the test target
-- existing `ActionAccessibilityElement`
-- existing Settings accessibility labels and activation behavior
+**Interfaces:**
+- Consumes: `accessibilityElements(in:)`
+- Consumes: existing `ActionAccessibilityElement`
+- Produces: no direct whole-array casts on the historically flaky surfaces
+- Produces: one raw SKView collection-shape guard
 
-**Produces:**
-- no direct whole-array `[UIAccessibilityElement]` casts on the three historically flaky surfaces
-- no direct raw `.first as? UIAccessibilityElement` read in the controller test
+- [ ] **Step 1: Add the raw SKView guard beside Building View accessibility coverage**
 
-- [ ] **Step 1: Replace Building View's direct collection casts**
+Use the existing `makeSceneAndPreviewView(...)` fixture and read the raw property directly:
 
-In `BuildingViewSceneTests.swift`, replace every form of:
+```swift
+@Test("Building View SKView exposes only accessibility elements")
+func buildingViewRawAccessibilityCollectionContainsOnlyAccessibilityElements() throws {
+    let (_, view) = makeSceneAndPreviewView(
+        store: try makeStore(initialState: KingdomGameState(gold: 100)),
+        router: RouteSpy()
+    )
+
+    let raw = try #require(view.accessibilityElements)
+
+    #expect(!raw.isEmpty)
+    #expect(raw.allSatisfy { $0 is UIAccessibilityElement })
+}
+```
+
+Do **not** read this assertion through `accessibilityElements(in:)`. Its job is to fail if the tolerant helper would otherwise drop an unexpected SKView object.
+
+If this assertion ever fails in the full-suite stability run, stop HPA-620 and record the raw collection-shape failure before changing production code.
+
+- [ ] **Step 2: Replace Building View's direct collection casts**
+
+Replace each:
 
 ```swift
 try #require(view.accessibilityElements as? [UIAccessibilityElement])
@@ -168,20 +197,11 @@ with:
 accessibilityElements(in: view)
 ```
 
-Keep the existing semantic lookups and behavior checks unchanged, including:
+Keep the existing semantic lookups and assertions unchanged, including Settings gear activation, Sound Effects, Haptics, Close, layout-gate refusal, and routing refusal.
 
-- Settings gear activation opens Settings;
-- Sound Effects activation toggles the preference;
-- Haptics activation toggles the preference;
-- Close activation closes Settings;
-- retained gear activation remains blocked while the layout gate is paused;
-- retained gear activation remains blocked while routing to Battle.
+- [ ] **Step 3: Replace Country Map's direct collection casts**
 
-Do not replace those assertions with only a count/non-empty check.
-
-- [ ] **Step 2: Replace Country Map's direct collection casts**
-
-In `CountryMapSceneTests.swift`, replace every form of:
+Replace each:
 
 ```swift
 (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
@@ -193,16 +213,11 @@ with:
 accessibilityElements(in: view)
 ```
 
-Keep the existing `ActionAccessibilityElement` type/identity assertions and the semantic activation checks for:
+Preserve the existing `ActionAccessibilityElement` type/identity assertions and activation behavior for retained gear/modal elements and frame conversion.
 
-- layout-gate refusal of a retained Settings gear;
-- Settings modal Sound Effects / Haptics / Close actions;
-- retained modal elements after dismissal;
-- gear frame conversion into UIKit screen coordinates.
+- [ ] **Step 4: Make GameViewController identify Sound Effects semantically**
 
-- [ ] **Step 3: Replace GameViewController's remaining raw first-element read**
-
-Change the controller test that currently does:
+Replace the raw first-element read:
 
 ```swift
 let soundEffectsElement = try #require(
@@ -210,7 +225,7 @@ let soundEffectsElement = try #require(
 )
 ```
 
-so it uses the shared reader and locates the semantic element explicitly:
+with:
 
 ```swift
 let soundEffectsElement = try #require(
@@ -219,11 +234,9 @@ let soundEffectsElement = try #require(
 )
 ```
 
-Preserve the existing expectation that the element's value reflects the preference after scene replacement.
+Keep the existing value expectation. Do not rewrite controller assertions that already use the shared helper.
 
-Leave existing controller assertions that already use `accessibilityElements(in:)` unchanged.
-
-- [ ] **Step 4: Assert the fragile raw read patterns are gone from the affected files**
+- [ ] **Step 5: Prove the fragile raw-read patterns are gone from the affected files**
 
 ```bash
 rg -n \
@@ -235,9 +248,9 @@ rg -n \
 
 Expected: no matches.
 
-Do not globally rewrite unrelated accessibility tests just to make this grep repository-wide; HPA-620 is bounded to the observed surfaces.
+Do not turn this into a repository-wide rewrite. Battle and other tests already using the helper stay unchanged.
 
-- [ ] **Step 5: Run the affected suites together**
+- [ ] **Step 6: Run one combined focused GREEN**
 
 ```bash
 xcodebuild test \
@@ -251,9 +264,9 @@ xcodebuild test \
   -only-testing:PyxisTests/GameViewControllerTests
 ```
 
-Expected: PASS with all existing semantic Settings accessibility coverage intact.
+Expected: PASS with the original semantic Settings accessibility assertions intact and the new raw SKView guard passing.
 
-- [ ] **Step 6: Commit the integration cleanup**
+- [ ] **Step 7: Commit the integration cleanup**
 
 ```bash
 git add \
@@ -265,48 +278,44 @@ git commit -m "test: stabilize settings accessibility integration"
 
 ---
 
-## Task 3: Prove the flake is gone without retries and close the scope
+## Task 3: Stress the actual failure regime and close scope
 
 **Files:**
 - Verify only; no planned source changes.
 
-- [ ] **Step 1: Run five consecutive focused iterations**
+- [ ] **Step 1: Run three consecutive complete serial Pyxis suites**
 
-Use one shell loop that exits immediately on the first failed iteration:
+The historical failures occurred in a full serial suite and disappeared when the affected tests were run in isolation / rerun. Do not spend the stability budget repeating the isolated grouping.
+
+Run:
 
 ```bash
-for run in 1 2 3 4 5; do
-  echo "HPA-620 focused run ${run}/5"
+for run in 1 2 3; do
+  echo "HPA-620 full serial run ${run}/3"
   xcodebuild test \
     -project Pyxis.xcodeproj \
     -scheme Pyxis \
     -destination 'platform=iOS Simulator,name=iPhone 17' \
     -parallel-testing-enabled NO \
-    -only-testing:PyxisTests/FeedbackSettingsAccessibilityAdapterTests \
-    -only-testing:PyxisTests/BuildingViewSceneTests \
-    -only-testing:PyxisTests/CountryMapSceneTests \
-    -only-testing:PyxisTests/GameViewControllerTests \
     || exit 1
 done
 ```
 
-Expected: five consecutive PASS results. This is repeated execution, not retry-on-failure: any failed iteration fails the acceptance gate.
+Expected: three consecutive complete PASS results.
 
-If any iteration fails, stop here. Record the exact failing test names and assertions on HPA-620; do not add waits/retries or modify production code under the existing diagnosis.
+This is a stability gate, not retry-on-failure. The loop exits on the first failure.
 
-- [ ] **Step 2: Run the complete suite once in the repository's normal serial mode**
+If any run fails, record:
 
-```bash
-xcodebuild test \
-  -project Pyxis.xcodeproj \
-  -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -parallel-testing-enabled NO
-```
+- run number;
+- exact failing test names;
+- assertion/failure text;
+- whether `buildingViewRawAccessibilityCollectionContainsOnlyAccessibilityElements` failed;
+- whether the failure still concerns Settings accessibility exposure.
 
-Expected: full PASS.
+Then stop HPA-620 implementation. Do not add sleeps/retries or change production accessibility code under the existing diagnosis.
 
-- [ ] **Step 3: Run lint and diff hygiene**
+- [ ] **Step 2: Run lint and diff hygiene**
 
 ```bash
 swiftlint lint --no-cache
@@ -315,7 +324,7 @@ git diff --check origin/main...HEAD
 
 Expected: SwiftLint exits 0 with no new serious violation; diff check is clean.
 
-- [ ] **Step 4: Prove the implementation stayed test-only**
+- [ ] **Step 3: Prove the implementation stayed test-only**
 
 ```bash
 git diff --name-only origin/main...HEAD -- 'Pyxis/*.swift'
@@ -323,10 +332,9 @@ git diff --name-only origin/main...HEAD -- 'Pyxis/*.swift'
 
 Expected: empty output.
 
-Also review the complete diff:
+Review the implementation diff:
 
 ```bash
-git diff --stat origin/main...HEAD
 git diff origin/main...HEAD -- \
   PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift \
   PyxisTests/BuildingViewSceneTests.swift \
@@ -334,9 +342,9 @@ git diff origin/main...HEAD -- \
   PyxisTests/GameViewControllerTests.swift
 ```
 
-Expected: only the shared test reader/regression and the direct-read replacements described above.
+Expected: only the shared-reader regression/change, strict raw guards, and direct-read replacements described above.
 
-- [ ] **Step 5: Verify CI/coverage policy was not changed**
+- [ ] **Step 4: Verify CI and coverage policy did not change**
 
 ```bash
 git diff --exit-code origin/main...HEAD -- \
@@ -344,23 +352,24 @@ git diff --exit-code origin/main...HEAD -- \
   codecov.yml
 ```
 
-Expected: exit 0. HPA-620 fixes tests; it does not weaken verification to make them pass.
+Expected: exit 0.
 
-- [ ] **Step 6: Record HPA-620 evidence and final implementation commit if needed**
-
-If implementation required no changes after Task 2, do not create an empty commit. Otherwise commit only legitimate test cleanup found by verification.
+- [ ] **Step 5: Record HPA-620 verification evidence**
 
 Update HPA-620 with:
 
-- five focused run results;
-- full-suite result;
-- SwiftLint and diff-check result;
-- confirmation that no production Swift file changed;
-- any remaining flake evidence if the stability gate failed.
+- focused GREEN result;
+- full serial run 1/3, 2/3, and 3/3 results;
+- raw SKView collection guard result;
+- SwiftLint and `git diff --check` results;
+- confirmation that no production Swift/CI/coverage file changed;
+- exact evidence instead if the stability gate failed.
+
+Do not create an empty verification commit.
 
 ## Final expected diff
 
-The implementation should change exactly these test files unless compilation proves an already-existing shared test dependency:
+Implementation should change exactly:
 
 - `PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift`
 - `PyxisTests/BuildingViewSceneTests.swift`
