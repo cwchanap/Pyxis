@@ -1267,25 +1267,25 @@ struct BuildingViewSceneTests {
         )
 
         // Activate the gear accessibility element -> openFeedbackSettings()
-        let gearElements = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let gearElements = try accessibilityElements(in: view)
         let gear = try #require(gearElements.first { $0.accessibilityLabel == "Settings" })
         #expect(gear.accessibilityActivate())
         #expect(scene.isFeedbackSettingsVisibleForTesting)
 
         // Activate "Sound Effects" -> activateFeedbackSettings(.toggleSoundEffects)
-        let modalElements1 = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let modalElements1 = try accessibilityElements(in: view)
         let sound = try #require(modalElements1.first { $0.accessibilityLabel == "Sound Effects" })
         #expect(sound.accessibilityActivate())
         #expect(!preferences.current.soundEffectsEnabled)
 
         // Activate "Haptics" -> activateFeedbackSettings(.toggleHaptics)
-        let modalElements2 = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let modalElements2 = try accessibilityElements(in: view)
         let haptics = try #require(modalElements2.first { $0.accessibilityLabel == "Haptics" })
         #expect(haptics.accessibilityActivate())
         #expect(!preferences.current.hapticsEnabled)
 
         // Activate "Close" -> activateFeedbackSettings(.close)
-        let modalElements3 = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let modalElements3 = try accessibilityElements(in: view)
         let close = try #require(modalElements3.first { $0.accessibilityLabel == "Close" })
         #expect(close.accessibilityActivate())
         #expect(!scene.isFeedbackSettingsVisibleForTesting)
@@ -1297,7 +1297,7 @@ struct BuildingViewSceneTests {
     func buildingViewOpenFeedbackSettingsGuardBlocksWhenLayoutGatePaused() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let (scene, view) = makeSceneAndPreviewView(store: store, router: RouteSpy())
-        let elements = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let elements = try accessibilityElements(in: view)
         let gear = try #require(elements.first { $0.accessibilityLabel == "Settings" })
 
         scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 10))
@@ -1310,7 +1310,7 @@ struct BuildingViewSceneTests {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
         let router = RouteSpy()
         let (scene, view) = makeSceneAndPreviewView(store: store, router: router)
-        let elements = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let elements = try accessibilityElements(in: view)
         let gear = try #require(elements.first { $0.accessibilityLabel == "Settings" })
 
         scene.requestBattleForTesting()

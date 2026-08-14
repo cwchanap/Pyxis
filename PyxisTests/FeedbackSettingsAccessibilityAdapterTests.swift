@@ -30,7 +30,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
 
         context.adapter.applyGear(frame: gearFrame)
 
-        let elements = accessibilityElements(in: context.containerView)
+        let elements = try accessibilityElements(in: context.containerView)
         let gear = try #require(elements.onlyElement)
         #expect(elements.count == 1)
         #expect(gear.accessibilityLabel == "Settings")
@@ -62,7 +62,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
             )
         )
 
-        let elements = accessibilityElements(in: context.containerView)
+        let elements = try accessibilityElements(in: context.containerView)
         #expect(elements.count == 3)
         #expect(elements.map(\.accessibilityLabel) == [
             "Sound Effects",
@@ -100,7 +100,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         )
 
         context.adapter.present(layout: layout, preferences: .defaultValue)
-        let elements = accessibilityElements(in: context.containerView)
+        let elements = try accessibilityElements(in: context.containerView)
 
         #expect(elements[0].accessibilityActivate())
         #expect(elements[1].accessibilityActivate())
@@ -120,7 +120,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
             onClose: {}
         )
         context.adapter.applyGear(frame: CGRect(x: 16, y: 24, width: 44, height: 44))
-        let gear = try #require(accessibilityElements(in: context.containerView).onlyElement)
+        let gear = try #require(try accessibilityElements(in: context.containerView).onlyElement)
 
         context.adapter.present(layout: layout, preferences: .defaultValue)
         let outcome = UIAccessibilityElement(accessibilityContainer: context.containerView)
@@ -130,7 +130,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         #expect(context.posts.last?.notification == .screenChanged)
         #expect(targetsSameObject(context.posts.last?.target, outcome))
         #expect(targetsSameObject(
-            accessibilityElements(in: context.containerView).onlyElement,
+            try accessibilityElements(in: context.containerView).onlyElement,
             outcome
         ))
 
@@ -141,7 +141,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         #expect(context.posts.last?.notification == .screenChanged)
         #expect(targetsSameObject(context.posts.last?.target, gear))
         #expect(targetsSameObject(
-            accessibilityElements(in: context.containerView).onlyElement,
+            try accessibilityElements(in: context.containerView).onlyElement,
             gear
         ))
     }
@@ -156,7 +156,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
             onClose: {}
         )
         context.adapter.applyGear(frame: CGRect(x: 16, y: 24, width: 44, height: 44))
-        let gear = try #require(accessibilityElements(in: context.containerView).onlyElement)
+        let gear = try #require(try accessibilityElements(in: context.containerView).onlyElement)
 
         context.adapter.present(layout: layout, preferences: .defaultValue)
         context.adapter.setSceneGearActionable(false)
@@ -164,11 +164,11 @@ struct FeedbackSettingsAccessibilityAdapterTests {
 
         #expect(context.posts.last?.notification == .screenChanged)
         #expect(context.posts.last?.target == nil)
-        #expect(accessibilityElements(in: context.containerView).isEmpty)
+        #expect(try accessibilityElements(in: context.containerView).isEmpty)
         #expect(!targetsSameObject(context.posts.last?.target, gear))
 
         context.adapter.present(layout: layout, preferences: .defaultValue)
-        #expect(accessibilityElements(in: context.containerView).isEmpty)
+        #expect(try accessibilityElements(in: context.containerView).isEmpty)
     }
 
     @Test func convenienceInitUsesDefaultFrameConverterAndRealNotificationPoster() throws {
@@ -183,7 +183,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         let gearFrame = CGRect(x: 16, y: 24, width: 44, height: 44)
         adapter.applyGear(frame: gearFrame)
 
-        let gear = try #require(accessibilityElements(in: containerView).onlyElement)
+        let gear = try #require(try accessibilityElements(in: containerView).onlyElement)
         #expect(gear.accessibilityLabel == "Settings")
         #expect(gear.accessibilityFrame.width > 0)
         #expect(gear.accessibilityFrame.height > 0)
@@ -210,7 +210,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         let gearFrame = CGRect(x: 16, y: 24, width: 44, height: 44)
         adapter.applyGear(frame: gearFrame)
 
-        let gear = try #require(accessibilityElements(in: containerView).onlyElement)
+        let gear = try #require(try accessibilityElements(in: containerView).onlyElement)
         let viewLocalFrame = CGRect(
             x: 16,
             y: containerView.bounds.height - (24 + 44),
@@ -245,7 +245,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
 
         #expect(context.posts.last?.notification == .screenChanged)
         #expect(context.posts.last?.target == nil)
-        #expect(accessibilityElements(in: context.containerView).isEmpty)
+        #expect(try accessibilityElements(in: context.containerView).isEmpty)
     }
 
     @Test func dismissingWithOpeningGearFallsBackToEmptyWhenGearIsNotActionable() throws {
@@ -265,7 +265,7 @@ struct FeedbackSettingsAccessibilityAdapterTests {
 
         #expect(context.posts.last?.notification == .screenChanged)
         #expect(context.posts.last?.target == nil)
-        #expect(accessibilityElements(in: context.containerView).isEmpty)
+        #expect(try accessibilityElements(in: context.containerView).isEmpty)
     }
 
     @Test func setSceneGearActionableIsNoOpWhenValueDoesNotChange() throws {
@@ -305,8 +305,23 @@ private func makeAccessibilityContext() -> AccessibilityAdapterTestContext {
 }
 
 @MainActor
-func accessibilityElements(in containerView: UIView) -> [UIAccessibilityElement] {
-    (containerView.accessibilityElements as? [UIAccessibilityElement]) ?? []
+func accessibilityElements(
+    in containerView: UIView,
+    _ location: SourceLocation = #_sourceLocation
+) throws -> [UIAccessibilityElement] {
+    let raw = try #require(
+        containerView.accessibilityElements,
+        "Feedback Settings adapter exposed no accessibility collection",
+        sourceLocation: location
+    )
+
+    return try raw.map { element in
+        try #require(
+            element as? UIAccessibilityElement,
+            "Unexpected accessibility element type: \(type(of: element))",
+            sourceLocation: location
+        )
+    }
 }
 
 func converted(_ frame: CGRect) -> CGRect {

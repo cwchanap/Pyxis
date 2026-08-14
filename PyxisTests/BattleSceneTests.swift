@@ -140,7 +140,7 @@ struct BattleSceneTests {
             size: size,
             feedbackSettingsAccessibilityAdapter: adapter
         )
-        let retainedGear = try #require(accessibilityElements(in: containerView).onlyElement)
+        let retainedGear = try #require(try accessibilityElements(in: containerView).onlyElement)
 
         #expect(scene.isMilestoneArrivalVisibleForTesting)
         #expect(retainedGear.accessibilityActivate())
@@ -483,7 +483,7 @@ struct BattleSceneTests {
             feedback: feedback,
             feedbackSettingsAccessibilityAdapter: accessibilityAdapter
         )
-        let retainedGear = try #require(accessibilityElements(in: accessibilityContainer).onlyElement)
+        let retainedGear = try #require(try accessibilityElements(in: accessibilityContainer).onlyElement)
         let stateBeforeActivation = scene.gameStateForTesting
 
         #expect(retainedGear.accessibilityLabel == "Settings")
@@ -491,7 +491,7 @@ struct BattleSceneTests {
         #expect(retainedGear.accessibilityActivate())
 
         #expect(!scene.isFeedbackSettingsVisibleForTesting)
-        #expect(accessibilityElements(in: accessibilityContainer).onlyElement === retainedGear)
+        #expect(try accessibilityElements(in: accessibilityContainer).onlyElement === retainedGear)
         #expect(feedback.calls.isEmpty)
         #expect(!router.didRequestCountryMap)
         #expect(!router.didRequestBuildingView)
@@ -710,7 +710,7 @@ struct BattleSceneTests {
         )
 
         #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(accessibilityElements(in: containerView).isEmpty)
+        #expect(try accessibilityElements(in: containerView).isEmpty)
         #expect(posts.count == 1)
         let post = try #require(posts.first)
         #expect(post.notification == .screenChanged)
@@ -735,12 +735,12 @@ struct BattleSceneTests {
             feedbackSettingsAccessibilityAdapter: accessibilityAdapter
         )
 
-        #expect(accessibilityElements(in: containerView).count == 1)
+        #expect(try accessibilityElements(in: containerView).count == 1)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
         #expect(scene.isConquestPopupVisibleForTesting)
-        #expect(accessibilityElements(in: containerView).isEmpty)
+        #expect(try accessibilityElements(in: containerView).isEmpty)
         #expect(posts.count == 1)
         let post = try #require(posts.first)
         #expect(post.notification == .screenChanged)
@@ -4113,7 +4113,7 @@ struct BattleSceneTests {
         #expect(scene.isFeedbackSettingsVisibleForTesting)
 
         // The modal exposes sound, haptics, and close accessibility elements
-        let elements = accessibilityElements(in: containerView)
+        let elements = try accessibilityElements(in: containerView)
         #expect(elements.count == 3)
 
         let soundElement = try #require(
@@ -4154,7 +4154,7 @@ struct BattleSceneTests {
             at: try #require(scene.feedbackSettingsGearFrameForTesting).center
         )
 
-        let elements = accessibilityElements(in: containerView)
+        let elements = try accessibilityElements(in: containerView)
         let hapticsElement = try #require(
             elements.first(where: { $0.accessibilityLabel == "Haptics" })
         )
@@ -4185,7 +4185,7 @@ struct BattleSceneTests {
         )
         #expect(scene.isFeedbackSettingsVisibleForTesting)
 
-        let elements = accessibilityElements(in: containerView)
+        let elements = try accessibilityElements(in: containerView)
         let closeElement = try #require(
             elements.first(where: { $0.accessibilityLabel == "Close" })
         )

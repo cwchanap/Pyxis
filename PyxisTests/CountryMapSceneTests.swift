@@ -188,7 +188,7 @@ struct CountryMapSceneTests {
             feedbackSettingsAccessibilityAdapter: accessibilityAdapter
         )
         scene.didMove(to: view)
-        let elements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let elements = try accessibilityElements(in: view)
         let gear = try #require(elements.onlyElement as? ActionAccessibilityElement)
 
         scene.layoutGateWillPause(at: .init(timeIntervalSinceReferenceDate: 1_000))
@@ -2175,13 +2175,13 @@ struct CountryMapSceneTests {
         scene.didMove(to: view)
 
         // Open settings via the gear accessibility element.
-        let gearElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let gearElements = try accessibilityElements(in: view)
         let gear = try #require(gearElements.onlyElement as? ActionAccessibilityElement)
         #expect(gear.accessibilityActivate())
         #expect(scene.isFeedbackSettingsVisibleForTesting)
 
         // Now the modal elements should be exposed.
-        let modalElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let modalElements = try accessibilityElements(in: view)
         let soundElement = try #require(
             modalElements.first { $0.accessibilityLabel == "Sound Effects" }
                 as? ActionAccessibilityElement
@@ -2236,12 +2236,12 @@ struct CountryMapSceneTests {
         scene.didMove(to: view)
 
         // Open settings, grab the sound element, then close settings.
-        let gearElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let gearElements = try accessibilityElements(in: view)
         let gear = try #require(gearElements.onlyElement as? ActionAccessibilityElement)
         #expect(gear.accessibilityActivate())
         #expect(scene.isFeedbackSettingsVisibleForTesting)
 
-        let modalElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let modalElements = try accessibilityElements(in: view)
         let soundElement = try #require(
             modalElements.first { $0.accessibilityLabel == "Sound Effects" }
                 as? ActionAccessibilityElement
@@ -2534,7 +2534,7 @@ struct CountryMapSceneTests {
         // Access the gear accessibility element exposed by the adapter (not
         // just the scene-local hit frame) and verify its accessibilityFrame
         // matches UIKit's scene-to-screen conversion contract.
-        let gearElements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let gearElements = try accessibilityElements(in: view)
         let gear = try #require(gearElements.onlyElement as? ActionAccessibilityElement)
 
         let viewLocalFrame = CGRect(
