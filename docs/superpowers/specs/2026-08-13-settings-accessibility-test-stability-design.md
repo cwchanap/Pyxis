@@ -6,26 +6,19 @@ Planning design for HPA-620. This change is test-only unless a reproducible play
 
 ## Why this is the next actionable Pyxis slice
 
-The remaining player-feature backlog is intentionally gated:
+The remaining player-feature backlog is intentionally evidence-gated, while the Settings accessibility-test flake is already observed and recurring. PR #26 recorded intermittent `accessibilityElements` failures in Building View, Country Map, and controller tests, and PR #35 later saw another transient full-suite run with nine accessibility-adapter failures. In both cases the named tests passed unchanged in isolation / immediate rerun.
 
-- HPA-362 (direct lane deployment) and HPA-369 (Rally) require casual-play evidence before another battle mechanic is added.
-- HPA-367 (Campaign Chronicle) remains deferred until players demonstrate completed-city history demand.
-- HPA-567, the intended human validation pass, was canceled because its 1–3 hour active run plus an 8-hour idle window was too expensive under current constraints. Its partial evidence does not justify activating the gated features.
-- HPA-49 was stale backlog: merged PR #4 already delivered its countryside backdrop, building art, scenic placement, and locked/unaffordable treatment, so HPA-49 is now closed as Done.
-
-By contrast, the Settings accessibility-test flake is observed and recurring. PR #26 recorded intermittent `accessibilityElements` cast failures in Building View, Country Map, and controller tests, and PR #35 later saw another transient full-suite run with nine accessibility-adapter failures. In both cases the same tests passed unchanged in isolation / immediate rerun. Removing that false-negative verification cost is useful now without violating the roadmap evidence gate.
+HPA-620 removes a brittle test read without expanding gameplay or accessibility product scope.
 
 ## Problem
 
-`UIView.accessibilityElements` is exposed by UIKit as `[Any]?`. Pyxis's Feedback Settings adapter intentionally writes `UIAccessibilityElement` instances into that collection, but several integration tests read the whole UIKit collection with a conditional collection downcast:
+`UIView.accessibilityElements` is exposed by UIKit as `[Any]?`. Pyxis's `FeedbackSettingsAccessibilityAdapter` is the sole production writer and intentionally assigns `UIAccessibilityElement` objects, but several integration tests read the entire UIKit collection with a conditional collection downcast:
 
 ```swift
 view.accessibilityElements as? [UIAccessibilityElement]
 ```
 
-That read is brittle: a whole-array downcast succeeds only when every object in the current UIKit collection is a `UIAccessibilityElement`. It therefore converts an incidental collection-shape difference into “no accessibility elements,” even when the Settings element the test needs is present.
-
-The existing shared test helper in `FeedbackSettingsAccessibilityAdapterTests.swift` has the same weakness:
+The existing shared test helper does the same thing:
 
 ```swift
 func accessibilityElements(in containerView: UIView) -> [UIAccessibilityElement] {
@@ -33,117 +26,147 @@ func accessibilityElements(in containerView: UIView) -> [UIAccessibilityElement]
 }
 ```
 
-Building View and Country Map still bypass the helper in several accessibility tests, while one GameViewController assertion reads `.first` directly from the raw UIKit collection.
+That is unnecessarily strict for a property whose public contract is `[Any]?`: a heterogeneous collection makes the whole-array cast fail even when the semantic accessibility element the test needs is present.
 
-This design does **not** claim that the cast is the only possible source of every historical flake. It identifies a deterministic brittle seam that exactly matches the recorded failure wording and can be removed without touching runtime behavior. Repeated focused runs are the proof that the narrow fix is sufficient.
+Important diagnostic boundary: Swift's runtime **can** downcast a homogeneous `[Any]` to `[UIAccessibilityElement]` when every element matches. Type erasure alone is therefore not a deterministic reproduction of the historical flake. This design does not claim that a heterogeneous collection was definitely the historical cause. It removes one brittle read assumption, adds a raw SKView contract guard, and requires repeated execution in the full-suite regime that actually produced the failures.
 
-## Design goals
+## Goals
 
-1. Make existing Feedback Settings accessibility integration tests deterministic.
-2. Preserve the current semantic assertions: Settings gear exposure, modal ordering, labels/values, activation, retained-element guards, focus behavior, and shared-adapter behavior.
-3. Keep the production accessibility adapter unchanged.
-4. Avoid retries, sleeps, polling, disabled tests, or broad test infrastructure.
-5. Preserve strict unit coverage that the adapter itself writes only accessibility elements in the plain-UIView fixture.
+1. Make the existing Settings accessibility integration reads robust to UIKit's `[Any]?` API shape.
+2. Preserve semantic assertions: Settings gear exposure, modal ordering, labels/values, activation, retained-element guards, focus behavior, and shared-adapter behavior.
+3. Keep production accessibility code unchanged unless a reproducible runtime defect is found.
+4. Add diagnostics that distinguish a test-reader failure from an SKView/adapter collection-shape defect.
+5. Prove stability in the same full serial-suite regime where the flake was observed.
 
 ## Non-goals
 
-- New VoiceOver features or accessibility coverage unrelated to the observed flake.
-- A production `elementsForTesting` API, snapshot model, observer, protocol, or debug surface.
-- Reworking `FeedbackSettingsAccessibilityAdapter` lifecycle, scene rebinding, frame conversion, focus notifications, or element ownership without a reproducible runtime defect.
-- Generic UIKit test utilities.
-- Gameplay, persistence, routing, layout, audio, haptic, or CI policy changes.
-- Weakening semantic assertions to “non-empty” or adding rerun logic.
+- New VoiceOver behavior or accessibility product features.
+- A production `ForTesting` accessor, snapshot model, protocol, observer, or debug API.
+- A new helper file, query DSL, or generic UI-test framework.
+- Retries, sleeps, polling, expected failures, disabled tests, or weakened CI/coverage gates.
+- Gameplay, persistence, routing, layout, audio, or haptic changes.
+- Rewriting tests that already use the shared helper unless compilation or a concrete finding requires it.
 
 ## Approaches considered
 
-### A. Retry failed tests or add waits
+### A. Retry failed tests or add waits — rejected
 
-Rejected. The failures already disappear on rerun, so retries would hide the symptom instead of removing the nondeterministic assertion seam. There is no asynchronous contract here that justifies sleeps or polling.
+The failures already disappear on rerun. Retries would hide the symptom and provide no diagnosis.
 
-### B. Add a production adapter snapshot/test API
+### B. Add a production adapter snapshot/test API — rejected
 
-For example, `FeedbackSettingsAccessibilityAdapter.exposedElementsForTesting` could bypass UIKit and let tests inspect the adapter directly.
+A production testing surface would bypass the UIKit integration boundary these tests are intended to exercise and would add runtime architecture for a test-only problem.
 
-Rejected. That would add runtime/test-facing state to production solely for tests and would stop the scene/controller tests from proving the UIKit integration path they are supposed to cover.
+### C. Harden the existing shared reader and add SKView diagnostics — selected
 
-### C. Harden the existing test reader and reuse it consistently
-
-Selected.
-
-Keep the existing module-level `accessibilityElements(in:)` helper, but treat UIKit's collection according to its actual `[Any]?` contract:
+Keep the existing module-level helper and change it to element-wise extraction:
 
 ```swift
 func accessibilityElements(in containerView: UIView) -> [UIAccessibilityElement] {
-    (containerView.accessibilityElements ?? []).compactMap { $0 as? UIAccessibilityElement }
+    (containerView.accessibilityElements ?? []).compactMap { element in
+        element as? UIAccessibilityElement
+    }
 }
 ```
 
-Then route affected integration tests through that helper and keep their semantic label/type/identity assertions. Add one deterministic helper regression fixture with a mixed UIKit collection so the old whole-array cast would fail while the intended accessibility element remains discoverable.
+Then route only the affected direct reads through that helper, while keeping one raw SKView assertion that the Settings adapter's mounted collection contains only `UIAccessibilityElement` instances.
 
-This is the smallest change that preserves real UIKit integration and removes the fragile collection assumption.
+This gives the integration tests a tolerant reader **without** allowing that tolerance to hide an unexpected SKView collection shape.
 
 ## Detailed design
 
-### 1. Characterize the collection-shape failure in test code
+### 1. Characterize the brittle `[Any]` assumption on SKView
 
-In `PyxisTests/FeedbackSettingsAccessibilityAdapterTests.swift`, add a focused test that creates a plain `UIView`, one `UIAccessibilityElement`, and one unrelated `UIView`, then stores both in `accessibilityElements`.
+Use an `SKView` in the helper regression so the fixture exercises the same view class as the historically flaky scene/controller tests.
 
-The test asserts that the shared helper returns the `UIAccessibilityElement` by identity. This creates a deterministic regression for the exact collection-shape assumption being removed; no timing or stochastic reproduction is required.
+Assign a deliberately heterogeneous but legal `[Any]` collection containing one ordinary `UIView` plus the expected `UIAccessibilityElement`:
 
-### 2. Make the shared helper element-wise, not collection-wise
+```swift
+let view = SKView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+let expected = UIAccessibilityElement(accessibilityContainer: view)
+expected.accessibilityLabel = "Settings"
+view.accessibilityElements = [UIView(), expected]
+```
 
-Change only the helper implementation from a whole-array conditional cast to element-wise `compactMap`.
+Before the helper change, the whole-array cast returns `[]`; after the change, the helper recovers `expected` by identity.
 
-Do not add a label-filtering abstraction. Tests already express their own semantic needs clearly with `.first { $0.accessibilityLabel == ... }` or `onlyElement`; another wrapper would save little and obscure intent.
+This fixture characterizes why a whole-array cast is too strong for UIKit's `[Any]?` contract. It does **not** assert that UIKit historically injected a `UIView` into Pyxis's collection.
 
-### 3. Preserve strict adapter-unit coverage
+Do not replace this with a homogeneous `[Any]` fixture: Swift's dynamic array cast succeeds when every element has the requested runtime type, so such a test would not be RED under the current helper.
 
-A tolerant integration reader must not silently redefine the adapter's own contract. Add a plain-UIView adapter assertion that the raw collection written by the adapter contains only `UIAccessibilityElement` instances. The existing adapter tests continue to assert exact counts, order, metadata, frames, identity, and activation on the filtered element list.
+### 2. Make the shared helper element-wise
 
-This separates two concerns:
+Change only the existing `accessibilityElements(in:)` helper to `compactMap` each item.
 
-- production adapter unit contract: it writes the intended element objects;
-- UIKit-backed scene/controller integration: tests find those semantic elements without requiring every object in UIKit's `[Any]` collection to share the same concrete type.
+Do not add label-query wrappers. Existing tests already state semantic intent clearly with `onlyElement` and `.first { $0.accessibilityLabel == ... }`.
 
-### 4. Remove direct raw collection casts from the affected integration tests
+Battle and `FeedbackSettingsControllerTests` already consume the helper and should pick up the safer read automatically.
 
-Update only the observed surfaces:
+### 3. Keep the production adapter contract strict
+
+`FeedbackSettingsAccessibilityAdapter.expose(_:)` remains the only production writer and is unchanged.
+
+Keep a plain-UIView adapter unit assertion that the adapter writes only `UIAccessibilityElement` instances. In addition, add one raw collection assertion on an existing SKView-backed Building View fixture:
+
+```swift
+let raw = view.accessibilityElements ?? []
+#expect(raw.allSatisfy { $0 is UIAccessibilityElement })
+```
+
+This assertion must read `view.accessibilityElements` directly, not the tolerant helper.
+
+If this raw SKView assertion fails during a full-suite run, stop HPA-620. That would mean the tolerant helper could hide a collection-shape difference that may be player-facing or adapter-related and needs a new diagnosis before production changes are proposed.
+
+### 4. Remove only the known fragile integration reads
+
+Update:
 
 - `PyxisTests/BuildingViewSceneTests.swift`
 - `PyxisTests/CountryMapSceneTests.swift`
 - `PyxisTests/GameViewControllerTests.swift`
 
-Replace direct `view.accessibilityElements as? [UIAccessibilityElement]` and raw `.first as? UIAccessibilityElement` reads with `accessibilityElements(in: view)`.
+Replace direct whole-array casts with `accessibilityElements(in: view)`.
 
-Keep all current assertions about labels, `ActionAccessibilityElement`, activation behavior, preference mutation, layout/routing guards, and scene replacement. This is a read-path cleanup, not a behavior rewrite.
+Change the controller's raw `.first` read to locate `"Sound Effects"` by label through the helper. `.first` is semantically wrong even when the collection is homogeneous because it assumes ordering instead of identifying the intended control.
 
-Battle and `FeedbackSettingsControllerTests` already consume the shared helper; they receive the safer helper behavior automatically and need no broad rewrite unless compilation exposes a direct dependency.
+Keep all existing activation, identity/type, preference, layout/routing, and scene-replacement assertions.
+
+Do not rewrite Battle or controller assertions that already use the helper.
 
 ## Test strategy
 
 ### RED
 
-Add the mixed-collection helper regression before changing the helper. It should fail because the current whole-array cast returns `[]` for a heterogeneous `[Any]` collection.
+Add the heterogeneous SKView helper regression before changing the helper. It must fail under the current whole-array cast.
 
 ### GREEN
 
-Change the helper to element-wise extraction and confirm the regression plus the dedicated adapter suite pass.
-
-### Integration cleanup
-
-Replace the remaining direct raw reads in Building View, Country Map, and GameViewController tests. Run those suites together.
+Change the helper to element-wise extraction, keep the strict plain-UIView adapter assertion, add the raw SKView collection-shape assertion, and run the adapter plus affected scene/controller suites once together.
 
 ### Stability proof
 
-Run the focused accessibility-bearing suites five consecutive times with simulator parallel testing disabled. The loop must stop on the first failure; there are no retries inside a failed iteration.
+The historical failures occurred during a full serial suite and then disappeared in isolation / rerun. Therefore the acceptance proof must stress the full-suite regime rather than repeat isolated suites five times.
 
-Then run the normal full Pyxis test suite once, SwiftLint, and `git diff --check`.
+After the focused GREEN, run the complete Pyxis suite **three consecutive times** with:
 
-Five focused repetitions plus one full run is intentionally bounded: it gives substantially stronger evidence than the historical single rerun without turning this small maintenance task into a soak-testing framework.
+```text
+-parallel-testing-enabled NO
+```
 
-## Scope guard if the flake persists
+Any failed full-suite iteration fails the stability gate immediately. Do not retry the failed iteration.
 
-If the focused five-run loop still fails after all direct raw collection casts are removed, do **not** add sleeps, retries, or a production testing API in HPA-620. Preserve the exact failing test names and failure output, then revise the diagnosis before widening production scope. A reproducible player-facing adapter bug may justify a production fix, but the current evidence does not.
+Three full serial runs are bounded but materially closer to the observed failure regime than five repetitions of the focused files.
+
+Then run SwiftLint and `git diff --check`.
+
+## Diagnostic stop conditions
+
+Stop HPA-620 implementation and preserve exact failure evidence if either condition occurs:
+
+1. the raw SKView collection contains a non-`UIAccessibilityElement`; or
+2. any of the three consecutive full serial suites reproduces the accessibility failure after direct raw reads are removed.
+
+Do not add waits, retries, production testing APIs, or accessibility lifecycle changes under the current diagnosis. Re-open the diagnosis first.
 
 ## Expected file footprint
 
@@ -161,16 +184,18 @@ Documentation:
 - this design
 - `docs/superpowers/plans/2026-08-13-settings-accessibility-test-stability-implementation.md`
 
-No Xcode project edit is needed.
+No Xcode project, CI, or coverage configuration changes.
 
 ## Acceptance
 
 HPA-620 is complete when:
 
-- the mixed `[Any]` regression proves the shared reader can recover the intended accessibility element without a whole-array cast;
-- affected integration tests use the shared reader and retain their existing semantic behavior checks;
-- the adapter's plain-UIView unit fixture still proves it exposes only accessibility elements;
-- five consecutive focused runs pass with parallel testing disabled;
-- the full suite passes once;
+- the SKView heterogeneous `[Any]` regression fails before and passes after the shared-reader change;
+- the shared helper uses element-wise extraction;
+- affected integration tests use the helper and retain their semantic assertions;
+- GameViewController finds `"Sound Effects"` by label rather than raw `.first`;
+- the adapter's plain-UIView fixture and one raw SKView-backed fixture both prove the adapter-exposed collection contains only `UIAccessibilityElement` instances;
+- the focused affected suites pass once;
+- three consecutive full Pyxis suites pass with parallel testing disabled;
 - SwiftLint and `git diff --check` pass;
-- no production Swift file changes unless a separately documented reproducible runtime defect is discovered.
+- no production Swift, workflow, coverage, project, or dependency file changes unless a separately documented reproducible runtime defect is found.
