@@ -18,7 +18,7 @@ struct FeedbackSettingsControllerTests {
             hapticsEnabled: true
         ))
         #expect(context.controller.modal.soundEffectsStateForTesting == "Off")
-        #expect(accessibilityElements(in: context.containerView)[0].accessibilityValue == "Off")
+        #expect(try accessibilityElements(in: context.containerView)[0].accessibilityValue == "Off")
         #expect(context.controller.isVisible)
         #expect(!context.controller.modal.isHidden)
 
@@ -28,7 +28,7 @@ struct FeedbackSettingsControllerTests {
             hapticsEnabled: false
         ))
         #expect(context.controller.modal.hapticsStateForTesting == "Off")
-        #expect(accessibilityElements(in: context.containerView)[1].accessibilityValue == "Off")
+        #expect(try accessibilityElements(in: context.containerView)[1].accessibilityValue == "Off")
         #expect(context.controller.isVisible)
     }
 
@@ -46,7 +46,7 @@ struct FeedbackSettingsControllerTests {
         #expect(context.posts.last?.notification == .screenChanged)
         #expect(targetsSameObject(
             context.posts.last?.target,
-            accessibilityElements(in: context.containerView).onlyElement
+            try accessibilityElements(in: context.containerView).onlyElement
         ))
     }
 
@@ -55,7 +55,7 @@ struct FeedbackSettingsControllerTests {
         #expect(context.controller.open())
         let initialGearNodeCount = context.controller.gear.nodeCountForTesting
         let initialModalNodeCount = context.controller.modal.nodeCountForTesting
-        let initialElements = accessibilityElements(in: context.containerView)
+        let initialElements = try accessibilityElements(in: context.containerView)
         let resizedLayout = try #require(FeedbackSettingsLayout.compute(
             sceneSize: CGSize(width: 834, height: 1194),
             safeAreaInsets: .init(top: 24, left: 50, bottom: 20, right: 50)
@@ -65,7 +65,7 @@ struct FeedbackSettingsControllerTests {
         context.controller.applyGearFrame(resizedGearFrame)
         context.controller.reapply(layout: resizedLayout)
 
-        let elements = accessibilityElements(in: context.containerView)
+        let elements = try accessibilityElements(in: context.containerView)
         #expect(context.controller.gear.nodeCountForTesting == initialGearNodeCount)
         #expect(context.controller.modal.nodeCountForTesting == initialModalNodeCount)
         #expect(context.controller.modal.soundRowHitFrameForTesting == resizedLayout.soundRowFrame)
@@ -86,7 +86,7 @@ struct FeedbackSettingsControllerTests {
 
         context.controller.applyGearFrame(requestedFrame)
 
-        let gear = try #require(accessibilityElements(in: context.containerView).onlyElement)
+        let gear = try #require(try accessibilityElements(in: context.containerView).onlyElement)
         #expect(gear.accessibilityFrame == converted(
             CGRect(x: 18, y: 38, width: 44, height: 44)
         ))
@@ -104,7 +104,7 @@ struct FeedbackSettingsControllerTests {
         context.controller.applyGearFrame(CGRect(x: 300, y: 560, width: 44, height: 44))
         context.controller.reapply(layout: try refreshedLayout())
 
-        let elements = accessibilityElements(in: context.containerView)
+        let elements = try accessibilityElements(in: context.containerView)
         #expect(!context.controller.isVisible)
         #expect(elements.count == 1)
         #expect(targetsSameObject(elements.onlyElement, outcome))
@@ -114,7 +114,7 @@ struct FeedbackSettingsControllerTests {
 
     @Test func systemDefaultFocusKeepsAnActionableGearAvailableWhenItIsReapplied() throws {
         let context = try makeControllerContext()
-        let gear = try #require(accessibilityElements(in: context.containerView).onlyElement)
+        let gear = try #require(try accessibilityElements(in: context.containerView).onlyElement)
 
         #expect(context.controller.open())
         context.controller.close(focusTarget: .systemDefault)
@@ -125,7 +125,7 @@ struct FeedbackSettingsControllerTests {
 
         #expect(!context.controller.isVisible)
         #expect(targetsSameObject(
-            accessibilityElements(in: context.containerView).onlyElement,
+            try accessibilityElements(in: context.containerView).onlyElement,
             gear
         ))
         #expect(context.posts.count == postsAfterClose.count)
@@ -147,7 +147,7 @@ struct FeedbackSettingsControllerTests {
 
         #expect(context.controller.modal.soundEffectsStateForTesting == "Off")
         #expect(context.controller.modal.hapticsStateForTesting == "Off")
-        let elements = accessibilityElements(in: context.containerView)
+        let elements = try accessibilityElements(in: context.containerView)
         #expect(elements[0].accessibilityValue == "Off")
         #expect(elements[1].accessibilityValue == "Off")
         #expect(context.controller.isVisible)
@@ -166,7 +166,7 @@ struct FeedbackSettingsControllerTests {
 
     @Test func initConfiguredAccessibilityActionsFireThroughControllerClosures() throws {
         let context = try makeControllerContext()
-        let elements = accessibilityElements(in: context.containerView)
+        let elements = try accessibilityElements(in: context.containerView)
 
         // The gear element's action should open the modal
         #expect(elements.count == 1)
@@ -174,7 +174,7 @@ struct FeedbackSettingsControllerTests {
         #expect(context.controller.isVisible)
 
         // The sound effects element's action should toggle sound
-        let modalElements = accessibilityElements(in: context.containerView)
+        let modalElements = try accessibilityElements(in: context.containerView)
         #expect(modalElements[0].accessibilityActivate())
         #expect(context.preferences.current.soundEffectsEnabled == false)
 

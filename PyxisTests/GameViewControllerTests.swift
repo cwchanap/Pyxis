@@ -527,7 +527,10 @@ struct GameViewControllerTests {
             x: buildingGear.midX,
             y: buildingGear.midY
         ))
-        let soundEffectsElement = try #require(view.accessibilityElements?.first as? UIAccessibilityElement)
+        let elements = try accessibilityElements(in: view)
+        let soundEffectsElement = try #require(
+            elements.first { $0.accessibilityLabel == "Sound Effects" }
+        )
 
         #expect(soundEffectsElement.accessibilityLabel == "Sound Effects")
         #expect(soundEffectsElement.accessibilityValue == "Off")
@@ -560,7 +563,7 @@ struct GameViewControllerTests {
         battle.tapConquestContinueForTesting()
         let map = try #require(view.scene as? CountryMapScene)
         map.didMove(to: view)
-        let mapGear = try #require(accessibilityElements(in: view).onlyElement as? ActionAccessibilityElement)
+        let mapGear = try #require(try accessibilityElements(in: view).onlyElement as? ActionAccessibilityElement)
 
         #expect(mapGear.accessibilityLabel == "Settings")
         #expect(mapGear.accessibilityActivate())
