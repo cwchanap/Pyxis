@@ -185,11 +185,7 @@ Future player evidence can create a new bounded slice or reactivate one deferred
 
 - [ ] **Step 6: Save the complete description atomically**
 
-Make one call with the full merged description:
-
-```text
-Linear.save_issue(id: "HPA-360", description: <the complete merged Markdown assembled in Steps 1–5>)
-```
+Call `Linear.save_issue` once with `id` set to `HPA-360` and `description` set to the complete roadmap Markdown produced by preserving the stable sections in Step 1 and inserting the exact replacement sections from Steps 2–5. Send the complete description in that single call; do not send partial description updates.
 
 Do not change status yet.
 
@@ -241,11 +237,7 @@ Future player evidence can reopen/re-scope validation or activate one bounded hy
 Planning: https://github.com/cwchanap/Pyxis/pull/38
 ```
 
-Use:
-
-```text
-Linear.save_comment(issueId: "HPA-360", body: <the exact Markdown above>)
-```
+Call `Linear.save_comment` once with `issueId` set to `HPA-360` and `body` set to the exact Markdown block immediately above.
 
 - [ ] **Step 2: Move only HPA-360 to Done**
 
