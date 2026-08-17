@@ -52,6 +52,28 @@ Update HPA-360 so that:
 
 This is a product-scope closeout, not a substitute validation result. No `ship`, `drop`, or `activate` verdict is manufactured for HPA-362, HPA-369, or HPA-367.
 
+## Safe source-of-truth update
+
+HPA-360's authoritative roadmap body exists in Linear, not in the repository. A recipe that says “preserve these sections and replace those sections” is therefore not reviewable or safe enough on its own.
+
+The implementation plan must freeze two complete artifacts before any Linear write:
+
+1. the current live HPA-360 description as a source snapshot; and
+2. the complete target HPA-360 description after closeout.
+
+Execution is fail-closed: the live description must still equal the frozen source snapshot before writing, and the saved result must equal the frozen target description afterward (normalizing only CRLF/LF line endings). The preserved Goal, Product principles, Delivery contract, Delivered baseline, and Product gates must remain byte-identical substrings of the source snapshot.
+
+This makes the Linear update one reviewed document replacement instead of an unreviewed splice against mutable external text.
+
+## Historical hooks are not queue signals
+
+Two historical artifacts can otherwise make deferred work look more implementation-ready than it is:
+
+- `KingdomGameState` still contains the HPA-363 no-op comment `// HPA-367: Chronicle write hooks here`. That is a historical reservation only. It does not satisfy HPA-367's evidence gate or authorize Chronicle work.
+- The older HPA-364 feedback design reserved `fortifiedLaneWarning` for a future HPA-362 producer. HPA-566 deliberately deleted that unreachable semantic case and its warning sound path; current `GameplayFeedbackEvent` contains only the six reachable discrete cases. Any future HPA-362 design starts from current code and must not treat the HPA-364 warning path as infrastructure waiting to be wired.
+
+The closeout records these facts in HPA-360 only. It does not delete the Chronicle comment, restore feedback cases, or modify historical specs.
+
 ## Considered approaches
 
 ### A. Close HPA-360 at the shipped baseline — recommended
@@ -91,11 +113,14 @@ Keep the Goal, Product principles, Delivery contract, Product gates, and deliver
 - Record HPA-366, HPA-365, and HPA-390 as completed compact player-visible slices.
 - Replace the campaign-validation section with **Deferred evidence gate** explaining that HPA-567 was attempted and canceled for methodology cost, not completed and not replaced by HPA-618.
 - Keep HPA-362/HPA-369/HPA-367 explicitly deferred until new evidence exists.
+- Pin the current-code warnings for HPA-362 and HPA-367 so historical hooks cannot be mistaken for start authorization.
 - Update completion criteria so HPA-360 is complete when the committed slices are shipped and unsupported optional work remains unactivated.
 
 ### HPA-567
 
 No status, description, or methodology change. It remains Canceled. Its final comment remains the authoritative explanation of why the run stopped and why its partial evidence cannot justify child activation.
+
+Before the closeout write, read every HPA-567 comment. Stop if any comment affirmatively records subjective friction evidence, an activation/drop outcome for a deferred child, or a completed HPA-567 acceptance path. Negative statements such as “insufficient for any Prototype/Drop call” are expected and are not evidence.
 
 ### HPA-362 and HPA-369
 
@@ -107,7 +132,11 @@ Their existing start gates remain authoritative. A future activation must cite n
 
 No status change. It remains Backlog/deferred.
 
-A future activation still requires explicit completed-city history demand. Existing battle-result infrastructure is not sufficient justification.
+A future activation still requires explicit completed-city history demand. Existing battle-result infrastructure and the HPA-363 no-op Chronicle comment are not sufficient justification.
+
+### HPA-368 and HPA-566
+
+No status change. HPA-368 remains Canceled under Option C and HPA-566 remains Done. Because the closeout text states both facts, execution must re-fetch both issues before writing HPA-360 and stop if either assertion is no longer true.
 
 ## Repository impact
 
@@ -116,6 +145,12 @@ The roadmap closeout implementation changes **no production code, tests, assets,
 This planning PR contains only this design document and its implementation plan. The eventual execution is a Linear metadata/description update only.
 
 Do not add a repo-level roadmap framework, decision registry, feature flag, telemetry, playtest harness, or new development tool for this closeout.
+
+## Execution boundary
+
+Perform the Linear closeout in one inline execution session: verify all preconditions, save the complete frozen target description, verify it, post the closeout comment, move only HPA-360 to Done, then re-fetch the roadmap and deferred children.
+
+Do not split the Linear writes across independent workers. The standard planning header supports either execution workflow, but this metadata change must use one inline `executing-plans` session so a description update cannot be separated from its verification and status transition.
 
 ## Future work contract
 
@@ -146,12 +181,18 @@ Mitigation: preserve the explicit boundary in HPA-360: DEBUG jump testing can fi
 
 Mitigation: HPA-567's cancellation record stays intact. Closing HPA-360 makes no claim that Country 1 passed the canceled validation; it only says no further speculative scope is justified today.
 
+### External Linear text could drift between planning and execution
+
+Mitigation: the plan contains the full source snapshot and full target description. Abort if the live source does not still match the snapshot; re-plan from the new body instead of splicing against changed text.
+
 ## Acceptance criteria
 
+- The implementation plan contains the complete current HPA-360 description snapshot and the complete target HPA-360 description.
 - HPA-360 clearly distinguishes delivered scope, canceled validation, and deferred hypotheses.
 - HPA-360 no longer requires an unaffordable validation run as a prerequisite to closing the already-shipped roadmap.
 - HPA-567 remains Canceled and unchanged.
 - HPA-362, HPA-369, and HPA-367 remain Backlog and are not given unsupported Prototype/Activate/Drop decisions.
-- HPA-360 moves to Done only after the revised description preserves all start gates and future-evidence semantics.
+- HPA-368 is re-verified as Canceled under Option C and HPA-566 as Done before their closeout statements are written.
+- HPA-360 moves to Done only after the saved description exactly matches the reviewed target and the deferred-child start gates remain intact.
 - No production/test/project/runtime file changes are made.
 - The final HPA-360 comment links the planning PR and states that roadmap completion is a scope decision, not a validation result.
