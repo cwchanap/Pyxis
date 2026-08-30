@@ -25,7 +25,7 @@ Every minimum state has the canonical mock, a native simulator capture, a determ
 | Camp empty | `camp.png` | `native/camp-empty-393x852@3x.png` | `overlays/camp-empty-50-overlay.png` | An empty city uses the shipping slot grid and current build affordances; the mock is a scenic reference and does not prescribe persisted prices or unlock copy. |
 | Camp occupied | `camp.png` | `native/camp-occupied-393x852@3x.png` | `overlays/camp-occupied-50-overlay.png` | Existing buildings and their authored levels come from the fixture state, so lot contents intentionally differ from the generic mock. |
 | Map attackable | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-attackable-50-overlay.png` | The native route shows the current attackable City 4 and locked later cities together; shipping unlock colors and authored labels are state-driven. |
-| Map locked | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-locked-50-overlay.png` | Attackable and locked are intentionally one route fixture/capture: the locked nodes are the later cities visible beside City 4, not a second fabricated screen. |
+| Map locked | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-attackable-50-overlay.png` | Attackable and locked are intentionally one route fixture/capture: the locked nodes are the later cities visible beside City 4, not a second fabricated screen. |
 | Map Country 1 complete | `map.png` | `native/map-complete-393x852@3x.png` | `overlays/map-complete-50-overlay.png` | The complete campaign uses the shipping completion treatment and route state; the map mock's taller card is not a geometry contract. |
 | Conquest live | `conquest.png` | `native/conquest-live-393x852@3x.png` | `overlays/conquest-live-50-overlay.png` | The report's title, gold, and rows are resolved from the live battle result and fixture catalog; the mock intentionally omits those values. |
 | Conquest idle | `conquest.png` | `native/conquest-idle-393x852@3x.png` | `overlays/conquest-idle-50-overlay.png` | Idle catch-up reports use the same report shell but authored offline-progress values and copy. |
@@ -37,7 +37,10 @@ Every minimum state has the canonical mock, a native simulator capture, a determ
 - Runtime: iOS 26.5 (`23F77`); UDID `771133AB-2A09-4C6E-85FD-9D7523E8D2C7`
 - Native framebuffer: 1179×2556 pixels, 3×, logical 393×852 points (`simctl io screenshot`, no resampling)
 - XCTest attachment note: XCUITest's `XCUIScreenshot` export is 1178×2556 on this runner; those files remain in the result bundle and are not mislabeled as the board's native captures.
-- Result bundle: `test_sim_2026-08-30T20-41-44-811Z_pid81865_82c9f692.xcresult`
-- Smoke test: `PyxisUITests/testForgedFixtureParitySmoke393x852`, serial, 1 passed / 0 failed
+- Dedicated result bundle: `test_sim_2026-08-30T21-33-55-887Z_pid81865_febf2c4d.xcresult`
+- Smoke test: `PyxisUITests/testForgedFixtureParitySmoke393x852`, serial, 1 passed / 0 failed on this device
+- The same capture-only test throws `XCTSkip` before its fixture loop on a
+  non-393x852 destination; the CI-shaped iPhone 17 run is therefore an
+  intentional 0 passed / 0 failed / 1 skipped result, not a failed capture gate.
 
 The Map implementation deliberately uses a computed 164pt card, not the taller presentation mock card. At 393pt width, the 164pt card leaves the authored 44pt node interactions and the required route spacing/headroom viable; this is a deliberate geometry-contract difference, not a capture defect. The overlays are evidence for human review only; there is no pixel-diff CI assertion.

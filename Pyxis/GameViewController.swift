@@ -431,7 +431,6 @@ extension GameViewController {
 
         store.save(fixture.makeState())
         presentSceneForCurrentStage(in: view, preferredTab: fixture.preferredTab)
-        view.accessibilityValue = fixture.rawValue
         if fixture == .battleBlocked,
            let battleScene = view.scene as? BattleScene {
             battleScene.spawnSoldierForTesting()
@@ -440,7 +439,49 @@ extension GameViewController {
             // renders the transient feedback beside, not over, the NEXT card.
             battleScene.requestGameplayTabForTesting(.camp)
         }
+        view.accessibilityValue = forgedFixtureAccessibilityValue(for: view)
         return true
+    }
+
+    private func forgedFixtureAccessibilityValue(for view: SKView) -> String {
+        let state = store.load()
+
+        switch view.scene {
+        case let scene as BattleScene:
+            if let result = state.pendingBattleResult {
+                let sources = Set(result.deployments.map(\.source.rawValue)).sorted()
+                let source = sources.isEmpty
+                    ? (result.conquestMode == .idle ? "idle" : "none")
+                    : sources.joined(separator: ",")
+                let deploymentCount = result.deployments.reduce(0) { $0 + $1.count }
+                let lossCount = result.losses.reduce(0) { $0 + $1.count }
+                return "Conquest;pending=true;mode=\(result.conquestMode.rawValue);"
+                    + "city=\(result.cityKey.storageKey);source=\(source);"
+                    + "deployments=\(deploymentCount);losses=\(lossCount)"
+            }
+
+            let mode = scene.manualLiveSoldierCountForTesting > 0 ? "blocked" : "normal"
+            return "Battle;stage=\(state.stageStatus.rawValue);mode=\(mode);"
+                + "city=\(state.currentCityKey.storageKey);"
+                + "manualLiving=\(scene.manualLiveSoldierCountForTesting)"
+
+        case is BuildingViewScene:
+            return "Camp;stage=\(state.stageStatus.rawValue);"
+                + "city=\(state.currentCityKey.storageKey);"
+                + "buildings=\(state.cityBattleStateForCurrentCity.occupiedSlotCount)"
+
+        case is CountryMapScene:
+            let attackableCity = state.mapStatus(for: 4) == .unlocked ? "4" : "none"
+            let laterLockedCity = Country1CityCatalog.cityRange.first(where: {
+                $0 > 4 && state.mapStatus(for: $0) == .locked
+            }).map(String.init) ?? "none"
+            return "Map;stage=\(state.stageStatus.rawValue);"
+                + "completed=\(state.completedCityCount);"
+                + "attackableCity=\(attackableCity);laterLockedCity=\(laterLockedCity)"
+
+        default:
+            return "Unknown"
+        }
     }
 
     func installDevJumpGesture(on view: SKView) {
