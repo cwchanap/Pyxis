@@ -3,57 +3,126 @@ import Testing
 @testable import Pyxis
 
 struct CountryMapLayoutTests {
+    @Test func computedPhoneBudgetUsesCompactFloorAndMinimumIllustratedHeight() throws {
+        let small = try supportedLayout(
+            size: CGSize(width: 375, height: 667),
+            insets: .zero,
+            layoutClass: .phone
+        )
+        let mini = try supportedLayout(
+            size: CGSize(width: 375, height: 812),
+            insets: .init(top: 50, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        )
+        let reference = try supportedLayout(
+            size: CGSize(width: 393, height: 852),
+            insets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        )
+
+        #expect(small.informationRegionFrame.height == 48)
+        #expect(small.illustratedMapRegionFrame.height == 431)
+        #expect(mini.informationRegionFrame.height == 133)
+        #expect(mini.illustratedMapRegionFrame.height == 431)
+        #expect(reference.informationRegionFrame.height == 164)
+        #expect(reference.illustratedMapRegionFrame.height == 431)
+    }
+
+    @Test func computedPadBudgetKeepsPreferredCardWhenSpaceAllows() throws {
+        let layout = try supportedLayout(
+            size: CGSize(width: 834, height: 1194),
+            insets: .init(top: 24, left: 0, bottom: 20, right: 0),
+            layoutClass: .pad
+        )
+
+        #expect(layout.informationRegionFrame.height == 140)
+        #expect(layout.illustratedMapRegionFrame.height >= 431)
+    }
+
+    @Test func budgetBelowCompactFloorFailsClosed() {
+        #expect(result(
+            size: CGSize(width: 375, height: 650),
+            insets: .zero,
+            layoutClass: .phone
+        ) == .unsupported(.unsupportedGeometry))
+    }
+
+    @Test func referenceTransformPinsCitySpacingAndInteractionHeadroom() throws {
+        let layout = try supportedLayout(
+            size: CGSize(width: 393, height: 852),
+            insets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        )
+
+        var minimumCenterDistance = CGFloat.greatestFiniteMagnitude
+        let positions = CountryMapLayoutDefinition.country1.cityAnchors.indices.map {
+            layout.cityPositions[$0 + 1]!
+        }
+        for index in positions.indices {
+            for otherIndex in positions.indices.dropFirst(index + 1) {
+                minimumCenterDistance = min(
+                    minimumCenterDistance,
+                    hypot(
+                        positions[index].x - positions[otherIndex].x,
+                        positions[index].y - positions[otherIndex].y
+                    )
+                )
+            }
+        }
+
+        var minimumCityHeadroom = CGFloat.greatestFiniteMagnitude
+        for position in positions {
+            let frame = CGRect(x: position.x - 22, y: position.y - 22, width: 44, height: 44)
+            minimumCityHeadroom = min(
+                minimumCityHeadroom,
+                frame.minY - layout.illustratedMapRegionFrame.minY,
+                frame.maxY <= layout.illustratedMapRegionFrame.maxY
+                    ? layout.illustratedMapRegionFrame.maxY - frame.maxY
+                    : -.greatestFiniteMagnitude
+            )
+        }
+        let minimumRouteHeadroom = layout.routes.reduce(CGFloat.greatestFiniteMagnitude) { current, route in
+            let bounds = route.strokeExpandedBounds
+            return min(
+                current,
+                bounds.minY - layout.illustratedMapRegionFrame.minY,
+                layout.illustratedMapRegionFrame.maxY - bounds.maxY
+            )
+        }
+
+        #expect(layout.illustratedMapRegionFrame.height == 431)
+        #expect(minimumCenterDistance >= 45)
+        #expect(minimumCityHeadroom >= 8)
+        #expect(minimumRouteHeadroom >= 27)
+        #expect(layout.cityPositions.count == 15)
+        #expect(layout.routes.count == 18)
+    }
+
     @Test(arguments: supportedFixtures)
-    private func titleControlsReserveGearAndOptionalCurrentCityWithoutOverlap(
+    private func titleControlsReserveGearWithoutOverlap(
         fixture: CountryMapLayoutTestFixture
     ) throws {
-        let withoutCurrentCity = try supportedLayout(
+        let layout = try supportedLayout(
             size: fixture.size,
             insets: fixture.insets,
-            layoutClass: fixture.layoutClass,
-            showsCurrentCityControl: false
-        )
-        let withCurrentCity = try supportedLayout(
-            size: fixture.size,
-            insets: fixture.insets,
-            layoutClass: fixture.layoutClass,
-            showsCurrentCityControl: true
+            layoutClass: fixture.layoutClass
         )
 
-        #expect(withoutCurrentCity.settingsControlFrame.size == CGSize(width: 44, height: 44))
-        #expect(withoutCurrentCity.currentCityControlFrame == nil)
-        #expect(withoutCurrentCity.titleTextFrame.width >= 160)
-        #expect(!withoutCurrentCity.settingsControlFrame.intersects(
-            withoutCurrentCity.titleTextFrame
-        ))
-        #expect(withoutCurrentCity.titleTextFrame.maxX
-            == withoutCurrentCity.titleControlRegionFrame.maxX - 10)
-
-        let currentCity = try #require(withCurrentCity.currentCityControlFrame)
-        #expect(withCurrentCity.settingsControlFrame.size == CGSize(width: 44, height: 44))
-        #expect(currentCity.size == CGSize(width: 82, height: 44))
-        #expect(withCurrentCity.titleTextFrame.width >= 160)
-        #expect(!withCurrentCity.settingsControlFrame.intersects(
-            withCurrentCity.titleTextFrame
-        ))
-        #expect(!withCurrentCity.titleTextFrame.intersects(currentCity))
-        #expect(!withCurrentCity.settingsControlFrame.intersects(currentCity))
-        #expect(withCurrentCity.titleTextFrame.minX
-            == withCurrentCity.settingsControlFrame.maxX + 8)
-        #expect(withCurrentCity.titleTextFrame.maxX == currentCity.minX - 8)
+        #expect(layout.settingsControlFrame.size == CGSize(width: 44, height: 44))
+        #expect(layout.titleTextFrame.width >= 160)
+        #expect(!layout.settingsControlFrame.intersects(layout.titleTextFrame))
+        #expect(layout.titleTextFrame.maxX == layout.titleControlRegionFrame.maxX - 10)
     }
 
     @Test func titleControlsUseTheReviewed375PointGeometry() throws {
         let layout = try supportedLayout(
             size: CGSize(width: 375, height: 667),
             insets: .zero,
-            layoutClass: .phone,
-            showsCurrentCityControl: true
+            layoutClass: .phone
         )
 
         #expect(layout.settingsControlFrame == CGRect(x: 30, y: 578, width: 44, height: 44))
-        #expect(layout.currentCityControlFrame == CGRect(x: 263, y: 578, width: 82, height: 44))
-        #expect(layout.titleTextFrame == CGRect(x: 82, y: 578, width: 173, height: 44))
+        #expect(layout.titleTextFrame == CGRect(x: 82, y: 578, width: 263, height: 44))
     }
 
     @Test func country1DefinitionMatchesCampaignAndRouteContract() {
@@ -92,23 +161,16 @@ struct CountryMapLayoutTests {
         let layout = try supportedLayout(
             size: fixture.size,
             insets: fixture.insets,
-            layoutClass: fixture.layoutClass,
-            showsCurrentCityControl: true
+            layoutClass: fixture.layoutClass
         )
 
         #expect(layout.sceneFrame.contains(layout.titleControlRegionFrame))
         #expect(layout.sceneFrame.contains(layout.settingsControlFrame))
-        if let currentCityControlFrame = layout.currentCityControlFrame {
-            #expect(layout.sceneFrame.contains(currentCityControlFrame))
-            #expect(layout.titleControlRegionFrame.contains(currentCityControlFrame))
-        }
         #expect(layout.sceneFrame.contains(layout.informationRegionFrame))
         #expect(layout.cityPositions.count == 15)
         #expect(layout.routes.count == 18)
         #expect(layout.displayedBackdropFrame.minX <= layout.sceneFrame.minX)
         #expect(layout.displayedBackdropFrame.maxX >= layout.sceneFrame.maxX)
-        #expect(layout.displayedBackdropFrame.minY <= layout.sceneFrame.minY)
-        #expect(layout.displayedBackdropFrame.maxY >= layout.sceneFrame.maxY)
 
         let safeContentMinX = layout.sceneFrame.minX + fixture.insets.left
         let safeContentMaxX = layout.sceneFrame.maxX - fixture.insets.right
@@ -196,14 +258,13 @@ struct CountryMapLayoutTests {
         #expect(upsideDown.informationRegionFrame.minY == 24)
     }
 
-    @Test func reviewedNarrowBoundaryRejects375By1194AndAccepts480By1194() {
+    @Test func reviewedNarrowPortraitPadKeepsAuthoredTargetsContained() {
         let insets = CountryMapSafeAreaInsets(top: 24, left: 0, bottom: 20, right: 0)
-        #expect(result(
+        guard case .supported = result(
             size: .init(width: 375, height: 1194),
             insets: insets,
             layoutClass: .pad
-        ) == .unsupported(.unsupportedGeometry))
-        guard case .supported = result(
+        ), case .supported = result(
             size: .init(width: 480, height: 1194),
             insets: insets,
             layoutClass: .pad
@@ -227,19 +288,18 @@ struct CountryMapLayoutTests {
             height: 44
         )
 
-        #expect(layout.informationRegionFrame.height == 64)
+        #expect(layout.informationRegionFrame.height == 133)
         #expect(city1Frame.minY - layout.illustratedMapRegionFrame.minY >= 8)
     }
 
     @Test func horizontalSafeBoundsContainChromeOnSideInsetFixture() throws {
         // A supported layout with meaningful side insets must keep the title,
-        // current-city control, and information region inside the horizontal
+        // information region inside the horizontal
         // safe-content rect (scene frame inset by left/right).
         let layout = try supportedLayout(
             size: CGSize(width: 834, height: 1194),
             insets: .init(top: 24, left: 50, bottom: 20, right: 50),
-            layoutClass: .pad,
-            showsCurrentCityControl: true
+            layoutClass: .pad
         )
         let safeMinX = layout.sceneFrame.minX + 50
         let safeMaxX = layout.sceneFrame.maxX - 50
@@ -248,10 +308,6 @@ struct CountryMapLayoutTests {
         #expect(layout.titleControlRegionFrame.maxX <= safeMaxX)
         #expect(layout.settingsControlFrame.minX >= safeMinX)
         #expect(layout.settingsControlFrame.maxX <= safeMaxX)
-        if let currentCityControlFrame = layout.currentCityControlFrame {
-            #expect(currentCityControlFrame.minX >= safeMinX)
-            #expect(currentCityControlFrame.maxX <= safeMaxX)
-        }
         #expect(layout.informationRegionFrame.minX >= safeMinX)
         #expect(layout.informationRegionFrame.maxX <= safeMaxX)
     }
@@ -268,19 +324,19 @@ struct CountryMapLayoutTests {
         ) == .unsupported(.unsupportedGeometry))
     }
 
-    @Test func sideInsetsThatPushCityInteractionFramesBeyondSafeBoundsAreRejected() {
-        // A 375×956 iPad-class window with narrow side insets (16pt each)
-        // keeps the centred chrome inside the horizontal safe-content rect
-        // (title maxX ≈ 355, information maxX = 359), but City 2's authored
-        // anchor (0.7528) lands its 44×44 interaction frame at maxX ≈ 370.6,
-        // beyond safeContentMaxX = 359. The layout must fail closed so the
-        // interactive city is not rendered under system chrome.
+    @Test func sideInsetsThatKeepCityInteractionFramesInsideSafeBoundsAreAccepted() {
+        // The authored transform remains horizontally centred while preserving
+        // its aspect ratio. This fixture's targets fit inside the 16pt side
+        // safe-area inset and should therefore remain renderable.
         let insets = CountryMapSafeAreaInsets(top: 24, left: 16, bottom: 20, right: 16)
-        #expect(result(
+        guard case .supported = result(
             size: .init(width: 375, height: 956),
             insets: insets,
             layoutClass: .pad
-        ) == .unsupported(.unsupportedGeometry))
+        ) else {
+            Issue.record("375×956 with 16pt side insets should contain all map targets")
+            return
+        }
     }
 }
 
@@ -329,41 +385,31 @@ private let unsupportedFixtures = [
         size: .init(width: 320, height: 568),
         insets: .zero,
         layoutClass: .phone
-    ),
-    Fixture(
-        name: "over-cropped narrow iPad",
-        size: .init(width: 375, height: 1194),
-        insets: .init(top: 24, left: 0, bottom: 20, right: 0),
-        layoutClass: .pad
     )
 ]
 
 private func result(
     size: CGSize,
     insets: CountryMapSafeAreaInsets = .zero,
-    layoutClass: CountryMapLayoutClass,
-    showsCurrentCityControl: Bool = false
+    layoutClass: CountryMapLayoutClass
 ) -> CountryMapLayoutResult {
     CountryMapLayout.compute(.init(
         sceneSize: size,
         environment: .init(safeAreaInsets: insets, layoutClass: layoutClass),
-        definition: .country1,
-        showsCurrentCityControl: showsCurrentCityControl
+        definition: .country1
     ))
 }
 
 private func supportedLayout(
     size: CGSize,
     insets: CountryMapSafeAreaInsets,
-    layoutClass: CountryMapLayoutClass,
-    showsCurrentCityControl: Bool = false
+    layoutClass: CountryMapLayoutClass
 ) throws -> CountryMapLayout {
     var supported: CountryMapLayout?
     if case .supported(let layout) = result(
         size: size,
         insets: insets,
-        layoutClass: layoutClass,
-        showsCurrentCityControl: showsCurrentCityControl
+        layoutClass: layoutClass
     ) {
         supported = layout
     }

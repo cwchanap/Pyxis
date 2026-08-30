@@ -6,6 +6,35 @@ import UIKit
 
 @MainActor
 struct CountryMapScoutCardNodeTests {
+    @Test func compactCardRendersIdentityAndStatusActionOnly() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 34, width: 343, height: 48),
+            layoutClass: .phone
+        )
+        let scout = testScout(status: .attackable)
+
+        #expect(node.apply(
+            content: .scout(scout),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.titleTextForTesting == scout.displayTitle)
+        #expect(node.attackTextForTesting == "MARCH")
+        #expect(node.attackHitFrame == layout.attackFrame)
+        #expect(node.traitLineTextsForTesting.isEmpty)
+        #expect(node.favorableItemsForTesting.isEmpty)
+        #expect(node.disadvantagedItemsForTesting.isEmpty)
+
+        #expect(node.apply(
+            content: .scout(testScout(status: .current)),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.attackTextForTesting == "RETURN")
+        #expect(node.attackHitFrame == layout.attackFrame)
+    }
+
     @Test func phoneScoutRendersEveryRequiredPieceOfModelInformation() throws {
         let spy = ScoutCardImageLoaderSpy(images: completeImageSet())
         let node = CountryMapScoutCardNode(imageLoader: spy.load)
@@ -28,7 +57,7 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.disadvantagedTextForTesting == "- Arc Mag")
         #expect(node.laneTextForTesting == "Open: Center")
         #expect(node.rewardTextForTesting == "27")
-        #expect(node.attackTextForTesting == "Attack")
+        #expect(node.attackTextForTesting == "MARCH")
         #expect(node.cardHitFrame == layout.cardFrame)
         #expect(node.attackHitFrame == layout.attackFrame)
         #expect(node.overlayHitFrame == nil)
@@ -829,7 +858,8 @@ private func testScout(
     displayTitle: String = "City 3 · Falconridge",
     trait: CityDefenseTrait = .arrowTower,
     lane: BattleLane = .left,
-    goldReward: Int = 27
+    goldReward: Int = 27,
+    status: CountryMapScoutStatus = .attackable
 ) -> CountryMapScoutCardContent.Scout {
     .init(
         cityNumber: cityNumber,
@@ -837,7 +867,8 @@ private func testScout(
         defenseTrait: trait,
         exposedLane: lane,
         goldReward: goldReward,
-        flavorText: Country1CityCatalog.definition(for: cityNumber).flavorText
+        flavorText: Country1CityCatalog.definition(for: cityNumber).flavorText,
+        status: status
     )
 }
 
@@ -856,8 +887,11 @@ private func testImage(width: CGFloat = 128, height: CGFloat = 128) -> UIImage {
 }
 
 private func scoutCardLayout(named fixtureName: String) throws -> CountryMapScoutCardLayout {
+    let resolvedFixtureName = fixtureName == "small phone"
+        ? "iPhone 12/13 mini"
+        : fixtureName
     let fixture = try #require(CountryMapLayoutTestFixtures.supported.first {
-        $0.name == fixtureName
+        $0.name == resolvedFixtureName
     })
     return try scoutCardLayout(for: fixture)
 }

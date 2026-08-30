@@ -146,8 +146,9 @@ struct CountryMapScoutCardAcceptanceTests {
                 [MockTouch(location: unlockedCityPoint)],
                 with: nil
             )
-            #expect(nodeEntry.store.load().cityNumberInCountry == 2)
-            #expect(nodeEntry.router.battleRequestCount == 1)
+            #expect(nodeEntry.store.load() == entryState)
+            #expect(nodeEntry.scene.selectedCityNumberForTesting == 2)
+            #expect(nodeEntry.router.battleRequestCount == 0)
         }
 
         let feedbackState = KingdomGameState(
@@ -157,9 +158,6 @@ struct CountryMapScoutCardAcceptanceTests {
             stageStatus: .cityConqueredPendingMap
         )
         try withHarness(state: feedbackState, fixture: fixture) { feedback in
-            let feedbackBase = try #require(
-                feedback.scene.scoutCardBaseContentForTesting
-            )
             let lockedPoint = try #require(
                 feedback.scene.cityNodePositionForTesting(4)
             )
@@ -171,10 +169,12 @@ struct CountryMapScoutCardAcceptanceTests {
                 feedback.scene.visibleFeedbackTextForTesting
                     == "Bramblegate is locked"
             )
-            assertSameRequiredStrings(
-                feedback.scene.scoutCardBaseContentForTesting,
-                feedbackBase
+            let lockedBase = try #require(
+                feedback.scene.scoutCardBaseContentForTesting
             )
+            #expect(lockedBase.badge == "4")
+            #expect(lockedBase.title == "City 4 · Bramblegate")
+            #expect(lockedBase.attack == nil)
 
             feedback.scene.advanceFeedbackForTesting(by: 1.5)
             let completedPoint = try #require(
@@ -188,10 +188,12 @@ struct CountryMapScoutCardAcceptanceTests {
                 feedback.scene.visibleFeedbackTextForTesting
                     == "Pinewatch complete"
             )
-            assertSameRequiredStrings(
-                feedback.scene.scoutCardBaseContentForTesting,
-                feedbackBase
+            let completedBase = try #require(
+                feedback.scene.scoutCardBaseContentForTesting
             )
+            #expect(completedBase.badge == "2")
+            #expect(completedBase.title == "City 2 · Pinewatch")
+            #expect(completedBase.attack == nil)
         }
 
         let completeState = KingdomGameState(
@@ -470,6 +472,18 @@ struct CountryMapScoutCardAcceptanceTests {
         layoutClass: CountryMapLayoutClass,
         usesGoldFallback: Bool
     ) {
+        if base.traitLines.isEmpty {
+            #expect(layoutClass == .phone)
+            #expect(base.badge == "\(scout.cityNumber)")
+            #expect(base.title == scout.displayTitle)
+            #expect(base.favorable == nil)
+            #expect(base.disadvantaged == nil)
+            #expect(base.lane == nil)
+            #expect(base.reward == nil)
+            #expect(base.attack == scout.actionTitle)
+            return
+        }
+
         let traitText =
             "\(scout.defenseTrait.displayName) · "
             + scout.defenseTrait.shortDescription
@@ -494,7 +508,7 @@ struct CountryMapScoutCardAcceptanceTests {
         #expect(base.disadvantaged == disadvantaged)
         #expect(base.lane == "Open: \(scout.exposedLane.displayName)")
         #expect(base.reward == reward)
-        #expect(base.attack == "Attack")
+        #expect(base.attack == scout.actionTitle)
 
         let requiredStrings =
             [base.badge, base.title, base.favorable, base.disadvantaged,
@@ -503,20 +517,6 @@ struct CountryMapScoutCardAcceptanceTests {
             + base.traitLines
         #expect(!requiredStrings.isEmpty)
         #expect(requiredStrings.allSatisfy { !$0.isEmpty })
-    }
-
-    private func assertSameRequiredStrings(
-        _ current: CountryMapScoutCardNode.BaseContentReadback?,
-        _ expected: CountryMapScoutCardNode.BaseContentReadback
-    ) {
-        #expect(current?.badge == expected.badge)
-        #expect(current?.title == expected.title)
-        #expect(current?.traitLines == expected.traitLines)
-        #expect(current?.favorable == expected.favorable)
-        #expect(current?.disadvantaged == expected.disadvantaged)
-        #expect(current?.lane == expected.lane)
-        #expect(current?.reward == expected.reward)
-        #expect(current?.attack == expected.attack)
     }
 
     private func expectedFooterText(
