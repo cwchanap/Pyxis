@@ -148,7 +148,16 @@ final class GameViewController: UIViewController {
         // `GameplaySoundOutputController` enqueues preparation on its audio boundary;
         // do not wait for decoding before presenting the initial SpriteKit scene.
         feedbackRuntime.sound.prepareIfNeeded()
+#if DEBUG
+        if !installForgedVisualFixtureIfRequested(
+            in: view,
+            arguments: ProcessInfo.processInfo.arguments
+        ) {
+            presentInitialScene(in: view)
+        }
+#else
         presentInitialScene(in: view)
+#endif
     }
 
     override func viewDidLayoutSubviews() {
@@ -409,6 +418,20 @@ private enum DevJumpUI {
 }
 
 extension GameViewController {
+    @discardableResult
+    func installForgedVisualFixtureIfRequested(
+        in view: SKView,
+        arguments: [String]
+    ) -> Bool {
+        guard let fixture = ForgedVisualFixture(launchArguments: arguments) else {
+            return false
+        }
+
+        store.save(fixture.makeState())
+        presentSceneForCurrentStage(in: view, preferredTab: fixture.preferredTab)
+        return true
+    }
+
     func installDevJumpGesture(on view: SKView) {
         let gesture = UITapGestureRecognizer(
             target: self,
