@@ -137,6 +137,27 @@ struct ForgedVisualFixtureTests {
         #expect(store.load() == initial)
     }
 
+    @Test("DEBUG battle fixture hook reports an active normal battle")
+    func hookReportsNormalBattleSemantics() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 73))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+        #expect(controller.installForgedVisualFixtureIfRequested(
+            in: view,
+            arguments: [
+                "Pyxis",
+                ForgedVisualFixture.launchArgument,
+                ForgedVisualFixture.battle.rawValue
+            ]
+        ))
+        #expect(view.scene is BattleScene)
+        #expect(
+            view.accessibilityValue ==
+                "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0"
+        )
+    }
+
     @Test("DEBUG fixture hook saves through normal routing and pending conquest opens Battle")
     func hookRoutesPendingConquestToBattle() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 73))
@@ -153,6 +174,27 @@ struct ForgedVisualFixtureTests {
         ))
         #expect(store.load().pendingBattleResult?.goldEarned == 640)
         #expect(view.scene is BattleScene)
+        #expect(
+            view.accessibilityValue ==
+                "Conquest;pending=true;mode=live;city=1-3;source=manual;deployments=6;losses=1"
+        )
+
+        let idleStore = try makeStore(initialState: KingdomGameState(gold: 73))
+        let idleController = GameViewController(store: idleStore)
+        let idleView = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        #expect(idleController.installForgedVisualFixtureIfRequested(
+            in: idleView,
+            arguments: [
+                "Pyxis",
+                ForgedVisualFixture.launchArgument,
+                ForgedVisualFixture.conquestIdle.rawValue
+            ]
+        ))
+        #expect(idleView.scene is BattleScene)
+        #expect(
+            idleView.accessibilityValue ==
+                "Conquest;pending=true;mode=idle;city=1-3;source=idle;deployments=0;losses=0"
+        )
     }
 
     @Test("DEBUG blocked battle hook seeds one transient manual soldier")
@@ -175,23 +217,68 @@ struct ForgedVisualFixtureTests {
         #expect(battle.feedbackTextForTesting == "Finish the current squad before building.")
         #expect(store.load().activeSiegeSession == nil)
         #expect(store.load().pendingBattleResult == nil)
+        #expect(
+            view.accessibilityValue ==
+                "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1"
+        )
     }
 
     @Test("DEBUG fixture hook routes non-pending fixtures through the stage authority")
     func hookRoutesNonPendingFixturesThroughStageAuthority() throws {
-        let store = try makeStore(initialState: KingdomGameState(gold: 73))
-        let controller = GameViewController(store: store)
-        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let fixtures: [(ForgedVisualFixture, String)] = [
+            (.campEmpty, "Camp;stage=battleActive;city=1-5;buildings=0"),
+            (.campOccupied, "Camp;stage=battleActive;city=1-5;buildings=6")
+        ]
 
-        #expect(controller.installForgedVisualFixtureIfRequested(
-            in: view,
-            arguments: [
-                "Pyxis",
-                ForgedVisualFixture.launchArgument,
-                ForgedVisualFixture.campEmpty.rawValue
-            ]
-        ))
-        #expect(view.scene is BuildingViewScene)
+        for (fixture, expectedValue) in fixtures {
+            let store = try makeStore(initialState: KingdomGameState(gold: 73))
+            let controller = GameViewController(store: store)
+            let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+            #expect(controller.installForgedVisualFixtureIfRequested(
+                in: view,
+                arguments: [
+                    "Pyxis",
+                    ForgedVisualFixture.launchArgument,
+                    fixture.rawValue
+                ]
+            ))
+            #expect(view.scene is BuildingViewScene)
+            #expect(view.accessibilityValue == expectedValue)
+        }
+    }
+
+    @Test("DEBUG map fixture hook reports attackable, locked, and complete semantics")
+    func hookReportsMapSemantics() throws {
+        let fixtures: [(ForgedVisualFixture, String)] = [
+            (
+                .map,
+                "Map;stage=cityConqueredPendingMap;completed=3;"
+                    + "attackableCity=4;laterLockedCity=5"
+            ),
+            (
+                .mapCountryComplete,
+                "Map;stage=countryComplete;completed=15;"
+                    + "attackableCity=none;laterLockedCity=none"
+            )
+        ]
+
+        for (fixture, expectedValue) in fixtures {
+            let store = try makeStore(initialState: KingdomGameState(gold: 73))
+            let controller = GameViewController(store: store)
+            let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+            #expect(controller.installForgedVisualFixtureIfRequested(
+                in: view,
+                arguments: [
+                    "Pyxis",
+                    ForgedVisualFixture.launchArgument,
+                    fixture.rawValue
+                ]
+            ))
+            #expect(view.scene is CountryMapScene)
+            #expect(view.accessibilityValue == expectedValue)
+        }
     }
 
     private func makeStore(initialState: KingdomGameState) throws -> KingdomGameStore {

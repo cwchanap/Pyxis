@@ -36,6 +36,16 @@ final class PyxisUITests: XCTestCase {
     @MainActor
     func testForgedFixtureParitySmoke393x852() throws {
         let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.waitForExistence(timeout: 5), "Baseline app did not launch.")
+        let frame = app.frame
+        guard frame.size == CGSize(width: 393, height: 852) else {
+            throw XCTSkip(
+                "Capture smoke requires logical 393x852; got "
+                    + "\(Int(frame.width))x\(Int(frame.height))."
+            )
+        }
+        app.terminate()
 
         let fixtures = [
             "battle",
@@ -53,22 +63,13 @@ final class PyxisUITests: XCTestCase {
             app.launch()
             XCTAssertTrue(app.waitForExistence(timeout: 5), "Fixture " + fixture + " did not launch.")
             XCTAssertEqual(app.state, .runningForeground, "Fixture " + fixture + " did not stay foreground.")
-            XCTAssertEqual(
-                app.frame.size,
-                CGSize(width: 393, height: 852),
-                "Run this smoke on the dedicated native iPhone 15 Pro 393x852 destination."
-            )
             XCTAssertTrue(
                 app.otherElements["pyxisGameplaySurface"].waitForExistence(timeout: 2),
                 "Fixture " + fixture + " did not expose the gameplay surface."
             )
             let gameplaySurface = app.otherElements["pyxisGameplaySurface"]
-            XCTAssertEqual(gameplaySurface.value as? String, fixture)
+            assertSemanticValue(gameplaySurface.value as? String, for: fixture)
             add(self.screenshotAttachment(for: app, name: "forged-" + fixture + "-native-393x852"))
-            if fixture == "map" {
-                add(self.screenshotAttachment(for: app, name: "forged-map-attackable-native-393x852"))
-                add(self.screenshotAttachment(for: app, name: "forged-map-locked-native-393x852"))
-            }
             app.terminate()
         }
 
@@ -88,6 +89,42 @@ final class PyxisUITests: XCTestCase {
         let after = gameplaySurface.value as? String
         XCTAssertNotEqual(before, after, "Settings toggle did not update its semantic value.")
         add(self.screenshotAttachment(for: app, name: "forged-settings-toggle-native-393x852"))
+    }
+
+    private func assertSemanticValue(
+        _ value: String?,
+        for fixture: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expected: String
+        switch fixture {
+        case "battle":
+            expected = "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0"
+        case "battle-blocked":
+            expected = "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1"
+        case "camp-empty":
+            expected = "Camp;stage=battleActive;city=1-5;buildings=0"
+        case "camp-occupied":
+            expected = "Camp;stage=battleActive;city=1-5;buildings=6"
+        case "map":
+            expected = "Map;stage=cityConqueredPendingMap;completed=3;"
+                + "attackableCity=4;laterLockedCity=5"
+        case "map-country-complete":
+            expected = "Map;stage=countryComplete;completed=15;"
+                + "attackableCity=none;laterLockedCity=none"
+        case "conquest-live":
+            expected = "Conquest;pending=true;mode=live;city=1-3;"
+                + "source=manual;deployments=6;losses=1"
+        case "conquest-idle":
+            expected = "Conquest;pending=true;mode=idle;city=1-3;"
+                + "source=idle;deployments=0;losses=0"
+        default:
+            XCTFail("Unexpected fixture: " + fixture, file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(value, expected, file: file, line: line)
     }
 
     private func screenshotAttachment(for app: XCUIApplication, name: String) -> XCTAttachment {
