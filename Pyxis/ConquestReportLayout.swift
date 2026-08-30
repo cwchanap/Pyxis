@@ -12,8 +12,8 @@ struct ConquestReportLayout: Equatable {
         let sceneSize: CGSize
         let safeAreaInsets: ConquestReportSafeAreaInsets
         let battleContentWidth: CGFloat
-        let summaryRowCount: Int
-        let achievementCount: Int
+        let tileCount: Int
+        let chipCount: Int
         let compactHeight: Bool
         let includesCountryCompletion: Bool
 
@@ -21,16 +21,16 @@ struct ConquestReportLayout: Equatable {
             sceneSize: CGSize,
             safeAreaInsets: ConquestReportSafeAreaInsets,
             battleContentWidth: CGFloat,
-            summaryRowCount: Int,
-            achievementCount: Int,
+            tileCount: Int,
+            chipCount: Int,
             compactHeight: Bool,
             includesCountryCompletion: Bool = false
         ) {
             self.sceneSize = sceneSize
             self.safeAreaInsets = safeAreaInsets
             self.battleContentWidth = battleContentWidth
-            self.summaryRowCount = summaryRowCount
-            self.achievementCount = achievementCount
+            self.tileCount = tileCount
+            self.chipCount = chipCount
             self.compactHeight = compactHeight
             self.includesCountryCompletion = includesCountryCompletion
         }
@@ -40,20 +40,29 @@ struct ConquestReportLayout: Equatable {
         let horizontalPadding: CGFloat
         let verticalPadding: CGFloat
         let titleLine: CGFloat
-        let titleRowsGap: CGFloat
-        let rowLine: CGFloat
-        let rowGap: CGFloat
-        let badgeSize: CGFloat
-        let badgeGap: CGFloat
-        let rowsBadgeGap: CGFloat
-        let contentContinueGap: CGFloat
+        let titleRewardGap: CGFloat
+        let rewardHeight: CGFloat
+        let rewardTilesGap: CGFloat
+        let tileHeight: CGFloat
+        let tileGap: CGFloat
+        let tileChipGap: CGFloat
+        let chipWidth: CGFloat
+        let chipHeight: CGFloat
+        let chipGap: CGFloat
+        let chipsContinueGap: CGFloat
         let continueInset: CGFloat
         let continueHeight: CGFloat
         let cornerRadius: CGFloat
         let titleStartingFontSize: CGFloat
         let titleMinimumFontSize: CGFloat
-        let summaryStartingFontSize: CGFloat
-        let summaryMinimumFontSize: CGFloat
+        let rewardStartingFontSize: CGFloat
+        let rewardMinimumFontSize: CGFloat
+        let tileValueStartingFontSize: CGFloat
+        let tileValueMinimumFontSize: CGFloat
+        let tileLabelStartingFontSize: CGFloat
+        let tileLabelMinimumFontSize: CGFloat
+        let chipStartingFontSize: CGFloat
+        let chipMinimumFontSize: CGFloat
         let continueStartingFontSize: CGFloat
         let continueMinimumFontSize: CGFloat
         let countryCompletionLine: CGFloat
@@ -61,23 +70,32 @@ struct ConquestReportLayout: Equatable {
 
         init(compactHeight: Bool) {
             let compact = compactHeight
-            horizontalPadding = compact ? 18 : 24
+            horizontalPadding = compact ? 18 : 22
             verticalPadding = compact ? 14 : 18
             titleLine = compact ? 24 : 30
-            titleRowsGap = compact ? 8 : 10
-            rowLine = compact ? 20 : 24
-            rowGap = compact ? 2 : 4
-            badgeSize = compact ? 20 : 24
-            badgeGap = compact ? 6 : 8
-            rowsBadgeGap = compact ? 8 : 10
-            contentContinueGap = compact ? 12 : 16
-            continueInset = 24
-            continueHeight = compact ? 44 : 48
+            titleRewardGap = compact ? 6 : 8
+            rewardHeight = compact ? 54 : 64
+            rewardTilesGap = compact ? 8 : 10
+            tileHeight = compact ? 76 : 98
+            tileGap = 8
+            tileChipGap = compact ? 10 : 14
+            chipWidth = 104
+            chipHeight = compact ? 28 : 30
+            chipGap = 8
+            chipsContinueGap = compact ? 12 : 16
+            continueInset = 22
+            continueHeight = compact ? 44 : 52
             cornerRadius = 14
             titleStartingFontSize = compact ? 19 : 22
             titleMinimumFontSize = 14
-            summaryStartingFontSize = compact ? 14 : 17
-            summaryMinimumFontSize = 12
+            rewardStartingFontSize = compact ? 34 : 40
+            rewardMinimumFontSize = 20
+            tileValueStartingFontSize = compact ? 18 : 20
+            tileValueMinimumFontSize = 11
+            tileLabelStartingFontSize = compact ? 9 : 10
+            tileLabelMinimumFontSize = 8
+            chipStartingFontSize = compact ? 10 : 11
+            chipMinimumFontSize = 8
             continueStartingFontSize = compact ? 15 : 16
             continueMinimumFontSize = 15
             countryCompletionLine = compact ? 22 : 26
@@ -88,26 +106,35 @@ struct ConquestReportLayout: Equatable {
     let safeFrame: CGRect
     let panelFrame: CGRect
     let titleFrame: CGRect
-    let summaryRowFrames: [CGRect]
-    let achievementStripFrame: CGRect?
-    let badgeFrames: [CGRect]
+    let rewardFrame: CGRect
+    let tileFrames: [CGRect]
+    let chipStripFrame: CGRect?
+    let chipFrames: [CGRect]
     let continueFrame: CGRect
     let countryCompleteFrame: CGRect?
     let panelCornerRadius: CGFloat
     let titleStartingFontSize: CGFloat
     let titleMinimumFontSize: CGFloat
-    let summaryStartingFontSize: CGFloat
-    let summaryMinimumFontSize: CGFloat
+    let rewardStartingFontSize: CGFloat
+    let rewardMinimumFontSize: CGFloat
+    let tileValueStartingFontSize: CGFloat
+    let tileValueMinimumFontSize: CGFloat
+    let tileLabelStartingFontSize: CGFloat
+    let tileLabelMinimumFontSize: CGFloat
+    let chipStartingFontSize: CGFloat
+    let chipMinimumFontSize: CGFloat
     let continueStartingFontSize: CGFloat
     let continueMinimumFontSize: CGFloat
 
     static func compute(_ input: Input) -> ConquestReportLayout? {
-        guard (3...4).contains(input.summaryRowCount),
-              (0...2).contains(input.achievementCount) else { return nil }
+        guard (2...3).contains(input.tileCount),
+              (0...2).contains(input.chipCount) else { return nil }
 
         let safeWidth = input.sceneSize.width - input.safeAreaInsets.left - input.safeAreaInsets.right
         let safeHeight = input.sceneSize.height - input.safeAreaInsets.top - input.safeAreaInsets.bottom
-        guard safeWidth > 0, safeHeight > 0 else { return nil }
+        guard safeWidth.isFinite, safeHeight.isFinite, safeWidth > 0, safeHeight > 0 else {
+            return nil
+        }
 
         let safeFrame = CGRect(
             x: input.safeAreaInsets.left,
@@ -115,32 +142,44 @@ struct ConquestReportLayout: Equatable {
             width: safeWidth,
             height: safeHeight
         )
-
         let metrics = Metrics(compactHeight: input.compactHeight)
-
-        let panelWidth = min(input.battleContentWidth, safeWidth - 56)
+        let panelWidth = min(input.battleContentWidth, safeWidth - 32)
+        let innerWidth = panelWidth - metrics.horizontalPadding * 2
         let continueWidth = panelWidth - metrics.continueInset * 2
-        guard panelWidth > metrics.horizontalPadding * 2, continueWidth >= 44 else { return nil }
+        guard panelWidth > metrics.horizontalPadding * 2,
+              innerWidth > 0,
+              continueWidth >= 44 else { return nil }
 
-        let reportPanelHeight = panelHeight(
-            metrics: metrics,
-            summaryRowCount: input.summaryRowCount,
-            achievementCount: input.achievementCount
-        )
+        let tileWidth = (innerWidth - CGFloat(input.tileCount - 1) * metrics.tileGap)
+            / CGFloat(input.tileCount)
+        guard tileWidth >= 44 else { return nil }
+
+        let chipStripWidth = input.chipCount > 0
+            ? CGFloat(input.chipCount) * metrics.chipWidth
+                + CGFloat(input.chipCount - 1) * metrics.chipGap
+            : 0
+        guard chipStripWidth <= innerWidth else { return nil }
+
+        let chipReservation = input.chipCount > 0
+            ? metrics.tileChipGap + metrics.chipHeight + metrics.chipsContinueGap
+            : metrics.chipsContinueGap
+        let panelHeight = metrics.verticalPadding * 2
+            + metrics.titleLine
+            + metrics.titleRewardGap
+            + metrics.rewardHeight
+            + metrics.rewardTilesGap
+            + metrics.tileHeight
+            + chipReservation
+            + metrics.continueHeight
         let completionReservation = input.includesCountryCompletion
             ? metrics.countryCompletionGap + metrics.countryCompletionLine
             : 0
-        let groupHeight = reportPanelHeight + completionReservation
+        let groupHeight = panelHeight + completionReservation
         guard groupHeight <= safeHeight else { return nil }
 
         let panelX = safeFrame.midX - panelWidth / 2
         let groupMinY = safeFrame.midY - groupHeight / 2
-        let panelFrame = CGRect(
-            x: panelX,
-            y: groupMinY,
-            width: panelWidth,
-            height: reportPanelHeight
-        )
+        let panelFrame = CGRect(x: panelX, y: groupMinY, width: panelWidth, height: panelHeight)
         let countryCompleteFrame = input.includesCountryCompletion
             ? CGRect(
                 x: panelX,
@@ -151,77 +190,80 @@ struct ConquestReportLayout: Equatable {
             : nil
 
         var cursorY = panelFrame.maxY - metrics.verticalPadding
-
         let titleFrame = CGRect(
             x: panelX + metrics.horizontalPadding,
             y: cursorY - metrics.titleLine,
-            width: panelWidth - metrics.horizontalPadding * 2,
+            width: innerWidth,
             height: metrics.titleLine
         )
-        cursorY -= metrics.titleLine + metrics.titleRowsGap
+        cursorY -= metrics.titleLine + metrics.titleRewardGap
 
-        var summaryRowFrames: [CGRect] = []
-        summaryRowFrames.reserveCapacity(input.summaryRowCount)
-        for index in 0..<input.summaryRowCount {
-            if index > 0 { cursorY -= metrics.rowGap }
-            let rowFrame = CGRect(
-                x: panelX + metrics.horizontalPadding,
-                y: cursorY - metrics.rowLine,
-                width: panelWidth - metrics.horizontalPadding * 2,
-                height: metrics.rowLine
+        let rewardWidth = min(innerWidth, 230)
+        let rewardFrame = CGRect(
+            x: panelFrame.midX - rewardWidth / 2,
+            y: cursorY - metrics.rewardHeight,
+            width: rewardWidth,
+            height: metrics.rewardHeight
+        )
+        cursorY -= metrics.rewardHeight + metrics.rewardTilesGap
+
+        let tileY = cursorY - metrics.tileHeight
+        let tileFrames = (0..<input.tileCount).map { index in
+            CGRect(
+                x: panelX + metrics.horizontalPadding
+                    + CGFloat(index) * (tileWidth + metrics.tileGap),
+                y: tileY,
+                width: tileWidth,
+                height: metrics.tileHeight
             )
-            summaryRowFrames.append(rowFrame)
-            cursorY -= metrics.rowLine
         }
+        cursorY -= metrics.tileHeight
 
-        let achievementStripFrame: CGRect?
-        let badgeFrames: [CGRect]
-        if input.achievementCount > 0 {
-            cursorY -= metrics.rowsBadgeGap
-            let stripWidth = CGFloat(input.achievementCount) * metrics.badgeSize
-                + CGFloat(input.achievementCount - 1) * metrics.badgeGap
-            let stripX = panelFrame.midX - stripWidth / 2
-            let stripY = cursorY - metrics.badgeSize
-            achievementStripFrame = CGRect(
+        let chipStripFrame: CGRect?
+        let chipFrames: [CGRect]
+        if input.chipCount > 0 {
+            cursorY -= metrics.tileChipGap
+            let stripY = cursorY - metrics.chipHeight
+            let stripX = panelFrame.midX - chipStripWidth / 2
+            chipStripFrame = CGRect(
                 x: stripX,
                 y: stripY,
-                width: stripWidth,
-                height: metrics.badgeSize
+                width: chipStripWidth,
+                height: metrics.chipHeight
             )
-            // Per-badge frames step by badgeSize + badgeGap so the rendered
-            // edge-to-edge gap matches the configured gap (evenly spacing
-            // centers across the whole strip would halve it).
-            badgeFrames = (0..<input.achievementCount).map { index in
+            chipFrames = (0..<input.chipCount).map { index in
                 CGRect(
-                    x: stripX + CGFloat(index) * (metrics.badgeSize + metrics.badgeGap),
+                    x: stripX + CGFloat(index) * (metrics.chipWidth + metrics.chipGap),
                     y: stripY,
-                    width: metrics.badgeSize,
-                    height: metrics.badgeSize
+                    width: metrics.chipWidth,
+                    height: metrics.chipHeight
                 )
             }
-            cursorY -= metrics.badgeSize
+            cursorY -= metrics.chipHeight
         } else {
-            achievementStripFrame = nil
-            badgeFrames = []
+            chipStripFrame = nil
+            chipFrames = []
         }
 
-        cursorY -= metrics.contentContinueGap
+        cursorY -= metrics.chipsContinueGap
         let continueFrame = CGRect(
             x: panelX + metrics.continueInset,
             y: cursorY - metrics.continueHeight,
             width: continueWidth,
             height: metrics.continueHeight
         )
-        cursorY -= metrics.continueHeight
 
-        guard abs(cursorY - (panelFrame.minY + metrics.verticalPadding)) < 0.0001 else { return nil }
+        guard abs(continueFrame.minY - (panelFrame.minY + metrics.verticalPadding)) < 0.0001 else {
+            return nil
+        }
         let frames = ComputedFrames(
             safeFrame: safeFrame,
             panelFrame: panelFrame,
             titleFrame: titleFrame,
-            summaryRowFrames: summaryRowFrames,
-            achievementStripFrame: achievementStripFrame,
-            badgeFrames: badgeFrames,
+            rewardFrame: rewardFrame,
+            tileFrames: tileFrames,
+            chipStripFrame: chipStripFrame,
+            chipFrames: chipFrames,
             continueFrame: continueFrame,
             countryCompleteFrame: countryCompleteFrame
         )
@@ -231,41 +273,36 @@ struct ConquestReportLayout: Equatable {
             safeFrame: safeFrame,
             panelFrame: panelFrame,
             titleFrame: titleFrame,
-            summaryRowFrames: summaryRowFrames,
-            achievementStripFrame: achievementStripFrame,
-            badgeFrames: badgeFrames,
+            rewardFrame: rewardFrame,
+            tileFrames: tileFrames,
+            chipStripFrame: chipStripFrame,
+            chipFrames: chipFrames,
             continueFrame: continueFrame,
             countryCompleteFrame: countryCompleteFrame,
             panelCornerRadius: metrics.cornerRadius,
             titleStartingFontSize: metrics.titleStartingFontSize,
             titleMinimumFontSize: metrics.titleMinimumFontSize,
-            summaryStartingFontSize: metrics.summaryStartingFontSize,
-            summaryMinimumFontSize: metrics.summaryMinimumFontSize,
+            rewardStartingFontSize: metrics.rewardStartingFontSize,
+            rewardMinimumFontSize: metrics.rewardMinimumFontSize,
+            tileValueStartingFontSize: metrics.tileValueStartingFontSize,
+            tileValueMinimumFontSize: metrics.tileValueMinimumFontSize,
+            tileLabelStartingFontSize: metrics.tileLabelStartingFontSize,
+            tileLabelMinimumFontSize: metrics.tileLabelMinimumFontSize,
+            chipStartingFontSize: metrics.chipStartingFontSize,
+            chipMinimumFontSize: metrics.chipMinimumFontSize,
             continueStartingFontSize: metrics.continueStartingFontSize,
             continueMinimumFontSize: metrics.continueMinimumFontSize
         )
-    }
-
-    private static func panelHeight(
-        metrics: Metrics,
-        summaryRowCount: Int,
-        achievementCount: Int
-    ) -> CGFloat {
-        metrics.verticalPadding * 2
-            + metrics.titleLine + metrics.titleRowsGap
-            + CGFloat(summaryRowCount) * metrics.rowLine
-            + CGFloat(summaryRowCount - 1) * metrics.rowGap
-            + (achievementCount > 0 ? metrics.rowsBadgeGap + metrics.badgeSize : 0)
-            + metrics.contentContinueGap + metrics.continueHeight
     }
 
     private struct ComputedFrames {
         let safeFrame: CGRect
         let panelFrame: CGRect
         let titleFrame: CGRect
-        let summaryRowFrames: [CGRect]
-        let achievementStripFrame: CGRect?
-        let badgeFrames: [CGRect]
+        let rewardFrame: CGRect
+        let tileFrames: [CGRect]
+        let chipStripFrame: CGRect?
+        let chipFrames: [CGRect]
         let continueFrame: CGRect
         let countryCompleteFrame: CGRect?
     }
@@ -273,23 +310,20 @@ struct ConquestReportLayout: Equatable {
     private static func framesAreContained(_ frames: ComputedFrames) -> Bool {
         guard frames.safeFrame.contains(frames.panelFrame),
               frames.panelFrame.contains(frames.titleFrame),
-              frames.summaryRowFrames.allSatisfy({ frames.panelFrame.contains($0) }),
-              frames.panelFrame.contains(frames.continueFrame) else { return false }
+              frames.panelFrame.contains(frames.rewardFrame),
+              frames.tileFrames.allSatisfy({ frames.panelFrame.contains($0) }),
+              frames.panelFrame.contains(frames.continueFrame) else {
+            return false
+        }
+        if let strip = frames.chipStripFrame {
+            guard frames.panelFrame.contains(strip),
+                  frames.chipFrames.allSatisfy({ strip.contains($0) }) else { return false }
+        } else if !frames.chipFrames.isEmpty {
+            return false
+        }
         if let countryCompleteFrame = frames.countryCompleteFrame {
             guard frames.safeFrame.contains(countryCompleteFrame),
-                  !countryCompleteFrame.intersects(frames.panelFrame),
-                  !countryCompleteFrame.intersects(frames.continueFrame) else {
-                return false
-            }
-        }
-        if let achievementStripFrame = frames.achievementStripFrame {
-            guard frames.panelFrame.contains(achievementStripFrame) else { return false }
-            // Badge frames step by badgeSize + badgeGap inside the strip, so
-            // every frame is a height-square fully contained by the strip.
-            guard frames.badgeFrames.allSatisfy({
-                $0.size == CGSize(width: achievementStripFrame.height, height: achievementStripFrame.height)
-                    && achievementStripFrame.contains($0)
-            }) else { return false }
+                  !countryCompleteFrame.intersects(frames.panelFrame) else { return false }
         }
         return true
     }

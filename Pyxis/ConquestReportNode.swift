@@ -14,15 +14,31 @@ final class ConquestReportNode: SKNode {
 
     private static let favorableUnitSymbol = "checkmark.shield.fill"
     private static let exposedLaneSymbol = "shield.slash.fill"
-    private static let summaryLabelCount = 4
-    private static let badgeCount = 2
+    private static let tileCount = 3
+    private static let chipCount = 2
+
+    private struct StatTileBundle {
+        let root: SKNode
+        let panel: PanelNode
+        let icon: SKSpriteNode
+        let valueLabel: SKLabelNode
+        let titleLabel: SKLabelNode
+    }
+
+    private struct ChipBundle {
+        let root: SKNode
+        let background: SKShapeNode
+        let icon: SKSpriteNode
+        let label: SKLabelNode
+    }
 
     private let textWidth: (String, String, CGFloat) -> CGFloat
-
     private let panel: SKShapeNode
     private let titleLabel: SKLabelNode
-    private let summaryLabels: [SKLabelNode]
-    private let badgeSprites: [SKSpriteNode]
+    private let rewardIcon: SKShapeNode
+    private let rewardLabel: SKLabelNode
+    private let tileBundles: [StatTileBundle]
+    private let chipBundles: [ChipBundle]
     private let continueContainer: SKNode
     private let continueBackground: SKShapeNode
     private let continueLabel: SKLabelNode
@@ -30,18 +46,54 @@ final class ConquestReportNode: SKNode {
     private var goldAnchor: CGPoint?
     private var continueHitFrame: CGRect?
     private var renderedTitleFontSize: CGFloat = 0
-    private var renderedSummaryFontSizes: [CGFloat] = []
-    private var renderedSummaryLines: [String] = []
-    private var renderedAchievementSymbols: [String] = []
+    private var renderedRewardFontSize: CGFloat = 0
+    private var renderedTileValueFontSizes: [CGFloat] = []
+    private var renderedTiles: [ConquestReportContent.StatTile] = []
+    private var renderedChipSymbols: [String] = []
 
     init(textWidth: @escaping (String, String, CGFloat) -> CGFloat = ConquestReportNode.defaultTextWidth) {
         self.textWidth = textWidth
         self.panel = SKShapeNode()
         self.titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
-        self.summaryLabels = (0..<Self.summaryLabelCount).map { _ in
-            SKLabelNode(fontNamed: GameUITheme.Font.medium)
+        self.rewardIcon = SKShapeNode(circleOfRadius: 18)
+        self.rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        self.tileBundles = (0..<Self.tileCount).map { index in
+            let root = SKNode()
+            let panel = PanelNode(size: .zero)
+            let icon = SKSpriteNode()
+            let valueLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            root.name = "conquestStatTile-\(index)"
+            panel.name = "conquestStatTilePanel-\(index)"
+            icon.name = "conquestStatTileIcon-\(index)"
+            valueLabel.name = "conquestStatTileValue-\(index)"
+            titleLabel.name = "conquestStatTileTitle-\(index)"
+            root.addChild(panel)
+            root.addChild(icon)
+            root.addChild(valueLabel)
+            root.addChild(titleLabel)
+            return StatTileBundle(
+                root: root,
+                panel: panel,
+                icon: icon,
+                valueLabel: valueLabel,
+                titleLabel: titleLabel
+            )
         }
-        self.badgeSprites = (0..<Self.badgeCount).map { _ in SKSpriteNode() }
+        self.chipBundles = (0..<Self.chipCount).map { index in
+            let root = SKNode()
+            let background = SKShapeNode()
+            let icon = SKSpriteNode()
+            let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            root.name = "conquestAchievementChip-\(index)"
+            background.name = "conquestAchievementChipBackground-\(index)"
+            icon.name = "conquestAchievementChipIcon-\(index)"
+            label.name = "conquestAchievementChipLabel-\(index)"
+            root.addChild(background)
+            root.addChild(icon)
+            root.addChild(label)
+            return ChipBundle(root: root, background: background, icon: icon, label: label)
+        }
         self.continueContainer = SKNode()
         self.continueBackground = SKShapeNode()
         self.continueLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
@@ -58,46 +110,81 @@ final class ConquestReportNode: SKNode {
         layout: ConquestReportLayout,
         isContinueEnabled: Bool
     ) -> ApplyResult {
-        guard content.summaryLines.count == layout.summaryRowFrames.count,
-              content.achievements.count == layout.badgeFrames.count,
+        guard (2...3).contains(content.tiles.count),
+              content.tiles.count == layout.tileFrames.count,
+              content.achievements.count == layout.chipFrames.count,
               let titleSize = fitSize(
                 content.title,
                 fontName: GameUITheme.Font.bold,
                 start: layout.titleStartingFontSize,
                 minimum: layout.titleMinimumFontSize,
                 width: layout.titleFrame.width
+              ),
+              let rewardSize = fitSize(
+                content.rewardText,
+                fontName: GameUITheme.Font.bold,
+                start: layout.rewardStartingFontSize,
+                minimum: layout.rewardMinimumFontSize,
+                width: layout.rewardFrame.width
               ) else {
             return failApply()
         }
 
-        var rowSizes: [CGFloat] = []
-        for (line, frame) in zip(content.summaryLines, layout.summaryRowFrames) {
-            guard let size = fitSize(
-                line,
-                fontName: GameUITheme.Font.medium,
-                start: layout.summaryStartingFontSize,
-                minimum: layout.summaryMinimumFontSize,
-                width: frame.width
-            ) else {
+        var tileValueSizes = [CGFloat]()
+        for (tile, frame) in zip(content.tiles, layout.tileFrames) {
+            guard fitSize(
+                tile.valueText,
+                fontName: GameUITheme.Font.bold,
+                start: layout.tileValueStartingFontSize,
+                minimum: layout.tileValueMinimumFontSize,
+                width: frame.width - 10
+            ) != nil,
+            let valueSize = fitSize(
+                tile.valueText,
+                fontName: GameUITheme.Font.bold,
+                start: layout.tileValueStartingFontSize,
+                minimum: layout.tileValueMinimumFontSize,
+                width: frame.width - 10
+            ),
+            fitSize(
+                tile.labelText,
+                fontName: GameUITheme.Font.bold,
+                start: layout.tileLabelStartingFontSize,
+                minimum: layout.tileLabelMinimumFontSize,
+                width: frame.width - 10
+            ) != nil else {
                 return failApply()
             }
-            rowSizes.append(size)
+            tileValueSizes.append(valueSize)
+        }
+
+        for (achievement, frame) in zip(content.achievements, layout.chipFrames) {
+            let label = Self.label(for: achievement)
+            guard fitSize(
+                label,
+                fontName: GameUITheme.Font.bold,
+                start: layout.chipStartingFontSize,
+                minimum: layout.chipMinimumFontSize,
+                width: frame.width - 26
+            ) != nil else {
+                return failApply()
+            }
         }
 
         renderPanel(layout)
         renderTitle(content.title, size: titleSize, frame: layout.titleFrame)
-        renderSummary(content.summaryLines, sizes: rowSizes, frames: layout.summaryRowFrames)
-        renderAchievements(content.achievements, badgeFrames: layout.badgeFrames)
+        renderReward(content.rewardText, size: rewardSize, frame: layout.rewardFrame)
+        renderTiles(content.tiles, sizes: tileValueSizes, frames: layout.tileFrames)
+        renderChips(content.achievements, frames: layout.chipFrames)
         renderContinue(layout, enabled: isContinueEnabled)
 
         isHidden = false
-        let goldRow = layout.summaryRowFrames[ConquestReportContent.goldLineIndex]
-        goldAnchor = CGPoint(x: goldRow.midX, y: goldRow.midY)
+        goldAnchor = CGPoint(x: layout.rewardFrame.midX, y: layout.rewardFrame.midY)
         continueHitFrame = isContinueEnabled ? layout.continueFrame : nil
-
         renderedTitleFontSize = titleSize
-        renderedSummaryFontSizes = rowSizes
-        renderedSummaryLines = content.summaryLines
+        renderedRewardFontSize = rewardSize
+        renderedTileValueFontSizes = tileValueSizes
+        renderedTiles = content.tiles
         return .presented
     }
 
@@ -110,8 +197,6 @@ final class ConquestReportNode: SKNode {
         guard let anchor = goldAnchor else { return nil }
         return convert(anchor, to: coordinateNode)
     }
-
-    // MARK: - Rendering
 
     private func renderPanel(_ layout: ConquestReportLayout) {
         panel.isHidden = false
@@ -131,59 +216,88 @@ final class ConquestReportNode: SKNode {
         titleLabel.position = CGPoint(x: frame.midX, y: frame.midY)
     }
 
-    private func renderSummary(_ lines: [String], sizes: [CGFloat], frames: [CGRect]) {
-        for (index, label) in summaryLabels.enumerated() {
-            if index < lines.count {
-                label.isHidden = false
-                label.text = lines[index]
-                label.fontSize = sizes[index]
-                label.position = CGPoint(x: frames[index].midX, y: frames[index].midY)
-            } else {
-                label.isHidden = true
-                label.text = nil
-            }
-        }
+    private func renderReward(_ text: String, size: CGFloat, frame: CGRect) {
+        rewardIcon.isHidden = false
+        rewardIcon.position = CGPoint(x: frame.midX - min(52, frame.width / 4), y: frame.midY)
+        rewardIcon.setScale(min(1, frame.height / 48))
+        rewardLabel.isHidden = false
+        rewardLabel.text = text
+        rewardLabel.fontSize = size
+        rewardLabel.position = CGPoint(x: frame.midX + min(30, frame.width / 8), y: frame.midY)
     }
 
-    private struct AchievementBadge {
-        let achievement: ConquestReportContent.Achievement
-        let symbol: String
-        let sprite: SKSpriteNode
-    }
-
-    private func renderAchievements(
-        _ achievements: [ConquestReportContent.Achievement],
-        badgeFrames: [CGRect]
+    private func renderTiles(
+        _ tiles: [ConquestReportContent.StatTile],
+        sizes: [CGFloat],
+        frames: [CGRect]
     ) {
-        let ordered = [
-            AchievementBadge(achievement: .favorableUnit, symbol: Self.favorableUnitSymbol, sprite: badgeSprites[0]),
-            AchievementBadge(achievement: .exposedLane, symbol: Self.exposedLaneSymbol, sprite: badgeSprites[1])
-        ]
-
-        var visible: [SKSpriteNode] = []
-        var symbols: [String] = []
-        for badge in ordered {
-            if achievements.contains(badge.achievement) {
-                visible.append(badge.sprite)
-                symbols.append(badge.symbol)
-            } else {
-                badge.sprite.isHidden = true
+        for (index, bundle) in tileBundles.enumerated() {
+            guard index < tiles.count else {
+                bundle.root.isHidden = true
+                continue
             }
+            let tile = tiles[index]
+            let frame = frames[index]
+            bundle.root.isHidden = false
+            bundle.root.position = .zero
+            bundle.panel.apply(size: frame.size, style: .normal, showsRivets: false)
+            bundle.panel.position = CGPoint(x: frame.midX, y: frame.midY)
+            bundle.icon.texture = texture(for: tile)
+            bundle.icon.color = GameUITheme.Color.textPrimary
+            bundle.icon.colorBlendFactor = 1
+            bundle.icon.size = CGSize(width: 28, height: 28)
+            bundle.icon.position = CGPoint(x: frame.midX, y: frame.midY + 18)
+            bundle.valueLabel.text = tile.valueText
+            bundle.valueLabel.fontSize = sizes[index]
+            bundle.valueLabel.position = CGPoint(x: frame.midX, y: frame.midY - 5)
+            bundle.titleLabel.text = tile.labelText
+            bundle.titleLabel.fontSize = 9
+            bundle.titleLabel.position = CGPoint(x: frame.midX, y: frame.minY + 13)
         }
+    }
 
-        guard !visible.isEmpty, badgeFrames.count >= visible.count else {
-            for sprite in visible { sprite.isHidden = true }
-            renderedAchievementSymbols = []
-            return
+    private func renderChips(
+        _ achievements: [ConquestReportContent.Achievement],
+        frames: [CGRect]
+    ) {
+        renderedChipSymbols = []
+        for (index, bundle) in chipBundles.enumerated() {
+            guard index < achievements.count else {
+                bundle.root.isHidden = true
+                continue
+            }
+            let achievement = achievements[index]
+            let frame = frames[index]
+            let color = Self.color(for: achievement)
+            bundle.root.isHidden = false
+            bundle.background.path = CGPath(
+                roundedRect: CGRect(
+                    x: -frame.width / 2,
+                    y: -frame.height / 2,
+                    width: frame.width,
+                    height: frame.height
+                ),
+                cornerWidth: frame.height / 2,
+                cornerHeight: frame.height / 2,
+                transform: nil
+            )
+            bundle.background.position = CGPoint(x: frame.midX, y: frame.midY)
+            bundle.background.fillColor = color.withAlphaComponent(0.16)
+            bundle.background.strokeColor = color
+            bundle.background.lineWidth = 1
+            bundle.icon.texture = UIImage(systemName: Self.symbol(for: achievement)).map {
+                SKTexture(image: $0)
+            }
+            bundle.icon.color = color
+            bundle.icon.colorBlendFactor = 1
+            bundle.icon.size = CGSize(width: 13, height: 13)
+            bundle.icon.position = CGPoint(x: frame.minX + 18, y: frame.midY)
+            bundle.label.text = Self.label(for: achievement)
+            bundle.label.fontSize = 10
+            bundle.label.fontColor = color
+            bundle.label.position = CGPoint(x: frame.midX + 8, y: frame.midY)
+            renderedChipSymbols.append(Self.symbol(for: achievement))
         }
-
-        for (index, sprite) in visible.enumerated() {
-            sprite.isHidden = false
-            let badgeFrame = badgeFrames[index]
-            sprite.size = CGSize(width: badgeFrame.width, height: badgeFrame.height)
-            sprite.position = CGPoint(x: badgeFrame.midX, y: badgeFrame.midY)
-        }
-        renderedAchievementSymbols = symbols
     }
 
     private func renderContinue(_ layout: ConquestReportLayout, enabled: Bool) {
@@ -197,15 +311,12 @@ final class ConquestReportNode: SKNode {
             transform: nil
         )
         continueBackground.position = .zero
-        continueLabel.text = "Continue"
+        continueLabel.text = "MARCH ON"
         continueLabel.fontSize = layout.continueStartingFontSize
         continueLabel.position = CGPoint(x: layout.continueFrame.midX, y: layout.continueFrame.midY)
-        // Disabled Continue is non-interactive (continueHitFrame is nil) and
-        // also visually dimmed so the disabled state is legible during the
-        // brief window before scene replacement.
-        let continueAlpha: CGFloat = enabled ? 1.0 : 0.5
-        continueBackground.alpha = continueAlpha
-        continueLabel.alpha = continueAlpha
+        let alpha: CGFloat = enabled ? 1.0 : 0.5
+        continueBackground.alpha = alpha
+        continueLabel.alpha = alpha
     }
 
     private func failApply() -> ApplyResult {
@@ -213,9 +324,10 @@ final class ConquestReportNode: SKNode {
         continueHitFrame = nil
         goldAnchor = nil
         renderedTitleFontSize = 0
-        renderedSummaryFontSizes = []
-        renderedSummaryLines = []
-        renderedAchievementSymbols = []
+        renderedRewardFontSize = 0
+        renderedTileValueFontSizes = []
+        renderedTiles = []
+        renderedChipSymbols = []
         return .requiredContentDoesNotFit
     }
 
@@ -240,7 +352,7 @@ final class ConquestReportNode: SKNode {
 
     private func configureTree() {
         panel.fillColor = GameUITheme.Color.panelFill
-        panel.strokeColor = GameUITheme.Color.panelStroke
+        panel.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.72)
         panel.lineWidth = 1.5
         panel.zPosition = 0
         panel.isHidden = true
@@ -253,31 +365,46 @@ final class ConquestReportNode: SKNode {
         titleLabel.isHidden = true
         addChild(titleLabel)
 
-        for label in summaryLabels {
-            label.fontColor = GameUITheme.Color.textSecondary
-            label.horizontalAlignmentMode = .center
-            label.verticalAlignmentMode = .center
-            label.zPosition = 1
-            label.isHidden = true
-            addChild(label)
+        rewardIcon.fillColor = GameUITheme.Color.gold
+        rewardIcon.strokeColor = GameUITheme.Color.textPrimary.withAlphaComponent(0.75)
+        rewardIcon.lineWidth = 1.5
+        rewardIcon.zPosition = 1
+        rewardIcon.isHidden = true
+        addChild(rewardIcon)
+
+        rewardLabel.fontColor = GameUITheme.Color.gold
+        rewardLabel.horizontalAlignmentMode = .center
+        rewardLabel.verticalAlignmentMode = .center
+        rewardLabel.zPosition = 1
+        rewardLabel.isHidden = true
+        addChild(rewardLabel)
+
+        for bundle in tileBundles {
+            bundle.icon.zPosition = 2
+            bundle.valueLabel.fontColor = GameUITheme.Color.textPrimary
+            bundle.valueLabel.horizontalAlignmentMode = .center
+            bundle.valueLabel.verticalAlignmentMode = .center
+            bundle.valueLabel.zPosition = 2
+            bundle.titleLabel.fontColor = GameUITheme.Color.textSecondary
+            bundle.titleLabel.horizontalAlignmentMode = .center
+            bundle.titleLabel.verticalAlignmentMode = .center
+            bundle.titleLabel.zPosition = 2
+            bundle.root.isHidden = true
+            addChild(bundle.root)
         }
 
-        let badgeSymbols = [Self.favorableUnitSymbol, Self.exposedLaneSymbol]
-        for (sprite, symbol) in zip(badgeSprites, badgeSymbols) {
-            let image = UIImage(systemName: symbol)
-            assert(image != nil, "Missing SF Symbol: \(symbol)")
-            if let image {
-                sprite.texture = SKTexture(image: image)
-                sprite.color = GameUITheme.Color.gold
-                sprite.colorBlendFactor = 1.0
-            }
-            sprite.zPosition = 1
-            sprite.isHidden = true
-            addChild(sprite)
+        for bundle in chipBundles {
+            bundle.background.zPosition = 1
+            bundle.icon.zPosition = 2
+            bundle.label.horizontalAlignmentMode = .center
+            bundle.label.verticalAlignmentMode = .center
+            bundle.label.zPosition = 2
+            bundle.root.isHidden = true
+            addChild(bundle.root)
         }
 
         continueBackground.fillColor = GameUITheme.Color.spawn
-        continueBackground.strokeColor = GameUITheme.Color.panelStroke
+        continueBackground.strokeColor = GameUITheme.Color.gold
         continueBackground.lineWidth = 1.5
         continueBackground.zPosition = 1
         continueBackground.isHidden = true
@@ -292,6 +419,33 @@ final class ConquestReportNode: SKNode {
         addChild(continueContainer)
 
         isHidden = true
+    }
+
+    private func texture(for tile: ConquestReportContent.StatTile) -> SKTexture? {
+        UIImage(systemName: tile.symbolName).map {
+            SKTexture(image: $0)
+        }
+    }
+
+    private static func symbol(for achievement: ConquestReportContent.Achievement) -> String {
+        switch achievement {
+        case .favorableUnit: return favorableUnitSymbol
+        case .exposedLane: return exposedLaneSymbol
+        }
+    }
+
+    private static func label(for achievement: ConquestReportContent.Achievement) -> String {
+        switch achievement {
+        case .favorableUnit: return "FAVOURED"
+        case .exposedLane: return "OPEN LANE"
+        }
+    }
+
+    private static func color(for achievement: ConquestReportContent.Achievement) -> SKColor {
+        switch achievement {
+        case .favorableUnit: return SKColor(red: 0.24, green: 0.8, blue: 0.38, alpha: 1)
+        case .exposedLane: return GameUITheme.Color.gold
+        }
     }
 
     private static let defaultTextWidth: (String, String, CGFloat) -> CGFloat = { text, fontName, fontSize in
@@ -316,15 +470,19 @@ extension ConquestReportNode {
         children.filter { $0 === continueContainer }.count
     }
 
-    var renderedSummaryLinesForTesting: [String] { renderedSummaryLines }
-    var renderedAchievementSymbolsForTesting: [String] { renderedAchievementSymbols }
-    var renderedBadgeCentersForTesting: [CGPoint] {
-        badgeSprites.filter { !$0.isHidden }.map { $0.position }
+    var renderedTilesForTesting: [ConquestReportContent.StatTile] { renderedTiles }
+    var renderedChipSymbolsForTesting: [String] { renderedChipSymbols }
+    var renderedChipCentersForTesting: [CGPoint] {
+        chipBundles.filter { !$0.root.isHidden }.map { bundle in
+            bundle.background.position
+        }
     }
     var goldEffectAnchorForTesting: CGPoint? { goldAnchor }
     var continueHitFrameForTesting: CGRect? { continueHitFrame }
     var titleFontSizeForTesting: CGFloat { renderedTitleFontSize }
-    var summaryFontSizesForTesting: [CGFloat] { renderedSummaryFontSizes }
+    var rewardFontSizeForTesting: CGFloat { renderedRewardFontSize }
+    var tileValueFontSizesForTesting: [CGFloat] { renderedTileValueFontSizes }
     var continueBackgroundAlphaForTesting: CGFloat { continueBackground.alpha }
+    var renderedContinueTextForTesting: String? { continueLabel.text }
 }
 #endif

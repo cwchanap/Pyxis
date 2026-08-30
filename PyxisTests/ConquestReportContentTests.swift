@@ -7,67 +7,92 @@ import Foundation
 import Testing
 @testable import Pyxis
 
+private struct AchievementCombination {
+    let favorable: Bool
+    let exposed: Bool
+    let expected: [ConquestReportContent.Achievement]
+}
+
 struct ConquestReportContentTests {
-    @Test func liveReportUsesPersistedResultFields() {
+    @Test func liveReportUsesTypedTilesInStableOrder() {
         let content = ConquestReportContent.project(
             from: makeResult(mode: .live, seconds: 65),
             title: "Falconridge Silenced"
         )
         #expect(content.title == "Falconridge Silenced")
-        #expect(content.summaryLines == [
-            "Gold earned: +1.5K",
-            "Battle time: 1m 5s",
-            "MVP: Archer · 63%",
-            "Deployed: 7 · Lost: 2"
+        #expect(content.rewardText == "+1.5K")
+        #expect(content.tiles == [
+            .mvp(soldierType: .archer, sharePercent: 63),
+            .battleTime(seconds: 65),
+            .sentLost(sent: 7, lost: 2)
         ])
         #expect(content.achievements == [.favorableUnit, .exposedLane])
     }
 
-    @Test func idleReportUsesBuildingCopyAndNoDuration() {
+    @Test func idleReportUsesBuildingTileAndNoDuration() {
         let content = ConquestReportContent.project(
-            from: makeResult(mode: .idle, seconds: 90_061),
+            from: makeResult(mode: .idle, seconds: 90_061, mvp: nil, share: nil),
             title: "Falconridge Silenced"
         )
-        #expect(content.summaryLines[1] == "Conquered by your buildings")
-        #expect(!content.summaryLines.contains { $0.contains("Battle time") })
+        #expect(content.tiles == [
+            .buildings(count: 0),
+            .sentLost(sent: 7, lost: 2)
+        ])
+        #expect(!content.tiles.contains { tile in
+            if case .battleTime = tile { return true }
+            return false
+        })
     }
 
-    @Test func missingOrPartialMVPIsOmitted() {
+    @Test func idleReportWithMVPKeepsMVPBeforeBuildingsAndSentLost() {
+        let content = ConquestReportContent.project(
+            from: makeResult(mode: .idle),
+            title: "Falconridge Silenced"
+        )
+        #expect(content.tiles == [
+            .mvp(soldierType: .archer, sharePercent: 63),
+            .buildings(count: 0),
+            .sentLost(sent: 7, lost: 2)
+        ])
+    }
+
+    @Test func missingOrPartialMVPIsOmittedWithoutFiller() {
         for pair in [(SoldierType?.none, Int?.none), (.archer, nil), (nil, 63)] {
             let content = ConquestReportContent.project(
                 from: makeResult(mvp: pair.0, share: pair.1),
                 title: "Falconridge Silenced"
             )
-            #expect(content.summaryLines.count == 3)
-            #expect(!content.summaryLines.contains { $0.hasPrefix("MVP:") })
+            #expect(content.tiles.count == 2)
+            #expect(!content.tiles.contains { tile in
+                if case .mvp = tile { return true }
+                return false
+            })
         }
     }
 
     @Test func zeroCountsAndAchievementCombinationsAreStable() {
-        let combinations: [(Bool, Bool, [ConquestReportContent.Achievement])] = [
-            (false, false, []),
-            (true, false, [.favorableUnit]),
-            (false, true, [.exposedLane]),
-            (true, true, [.favorableUnit, .exposedLane])
+        let combinations = [
+            AchievementCombination(favorable: false, exposed: false, expected: []),
+            AchievementCombination(favorable: true, exposed: false, expected: [.favorableUnit]),
+            AchievementCombination(favorable: false, exposed: true, expected: [.exposedLane]),
+            AchievementCombination(favorable: true, exposed: true, expected: [.favorableUnit, .exposedLane])
         ]
         for combination in combinations {
             let content = ConquestReportContent.project(
                 from: makeResult(
                     deployments: 0,
                     losses: 0,
-                    favorable: combination.0,
-                    exposed: combination.1
+                    favorable: combination.favorable,
+                    exposed: combination.exposed
                 ),
                 title: "Falconridge Silenced"
             )
-            #expect(content.summaryLines.last == "Deployed: 0 · Lost: 0")
-            #expect(content.achievements == combination.2)
+            #expect(content.tiles.last == .sentLost(sent: 0, lost: 0))
+            #expect(content.achievements == combination.expected)
         }
     }
 
     @Test func callerOwnedTitleIsUsedVerbatim() {
-        // The caller now owns the title; `project` no longer synthesizes a
-        // "Country N Conquered" branch, so the passed title is used as-is.
         let content = ConquestReportContent.project(
             from: makeResult(city: 15),
             title: "Crownspire Keep Falls"
@@ -76,18 +101,18 @@ struct ConquestReportContentTests {
     }
 
     @Test(arguments: [
-        (0.0, "0s"), (59.9, "59s"), (60.0, "1m"),
-        (65.0, "1m 5s"), (3_599.0, "59m 59s"),
-        (3_600.0, "1h"), (3_612.0, "1h 00m 12s"),
-        (3_660.0, "1h 01m"), (3_672.0, "1h 01m 12s"),
-        (90_000.0, "25h"), (90_061.0, "25h 01m 01s")
+        (0.0, "0:00"), (59.9, "0:59"), (60.0, "1:00"),
+        (65.0, "1:05"), (3_599.0, "59:59"),
+        (3_600.0, "60:00"), (3_612.0, "60:12"),
+        (90_000.0, "1500:00"), (90_061.0, "1501:01")
     ])
     func durationGoldenStrings(seconds: TimeInterval, expected: String) {
         let content = ConquestReportContent.project(
             from: makeResult(seconds: seconds),
             title: "Falconridge Silenced"
         )
-        #expect(content.summaryLines[1] == "Battle time: \(expected)")
+        #expect(content.tiles[1] == .battleTime(seconds: seconds))
+        #expect(content.tiles[1].valueText == expected)
     }
 
     @Test func invalidDurationsNormalizeToZero() {
@@ -96,13 +121,12 @@ struct ConquestReportContentTests {
                 from: makeResult(seconds: seconds),
                 title: "Falconridge Silenced"
             )
-            #expect(content.summaryLines[1] == "Battle time: 0s")
+            #expect(content.tiles[1] == .battleTime(seconds: 0))
+            #expect(content.tiles[1].valueText == "0:00")
         }
     }
 
     @Test func durationsAboveIntRangeSaturateInsteadOfTrapping() {
-        // A finite Double above Int's representable range must not trap the
-        // Int(_:) conversion; it saturates to Int.max and formats as hours.
         let oversized: [TimeInterval] = [TimeInterval(Int.max), TimeInterval(Int.max) * 2, 1e308]
         var produced: [String] = []
         for seconds in oversized {
@@ -110,11 +134,9 @@ struct ConquestReportContentTests {
                 from: makeResult(seconds: seconds),
                 title: "Falconridge Silenced"
             )
-            #expect(content.summaryLines[1].hasPrefix("Battle time: "))
-            #expect(content.summaryLines[1].contains("h"))
-            produced.append(content.summaryLines[1])
+            #expect(content.tiles[1].valueText.contains(":"))
+            produced.append(content.tiles[1].valueText)
         }
-        // All oversized values saturate to the same Int.max-derived string.
         #expect(produced.allSatisfy { $0 == produced[0] })
     }
 }

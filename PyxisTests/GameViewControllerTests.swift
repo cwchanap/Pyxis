@@ -892,7 +892,7 @@ struct GameViewControllerTests {
         controller.buildingViewSceneDidRequestGameplayTab(building, tab: .battle)
         let battle = try #require(view.scene as? BattleScene)
         battle.didMove(to: view)
-        #expect(battle.conquestReportLinesForTesting[1] == "Conquered by your buildings")
+        #expect(battle.conquestReportTilesForTesting[0] == .buildings(count: 0))
         #expect(!battle.isGoldBurstVisibleForTesting)
     }
 
