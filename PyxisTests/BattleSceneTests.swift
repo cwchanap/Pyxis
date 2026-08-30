@@ -2183,6 +2183,30 @@ struct BattleSceneTests {
         #expect(scene.liveCombatStatusTextForTesting == "0")
     }
 
+    @Test func lossOnlyTickReenablesGameplayTabsAfterFinalManualSoldierDeath() throws {
+        let store = try makeStore(
+            initialState: stateWithBarracks(
+                cityRemainingPower: 20,
+                cityNumberInCountry: 9,
+                completedCityCount: 8
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.spawnSoldierForTesting()
+        #expect(scene.gameplayTabContentForTesting.enabledTabs == [.battle])
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) == nil)
+
+        scene.advanceCombatForTesting(deltaTime: 1.2)
+
+        #expect(scene.liveSoldierCountForTesting == 0)
+        #expect(scene.cityRemainingPowerForTesting == 20)
+        #expect(scene.gameplayTabContentForTesting.enabledTabs == Set(GameplayTab.allCases))
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) != nil)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) != nil)
+    }
+
     @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
         let initialGold = 100
         let store = try makeStore(

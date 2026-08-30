@@ -2277,6 +2277,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guard !result.soldierAttacks.isEmpty else {
             if !result.soldierLosses.isEmpty {
                 store.save(state)
+                applyGameplayTabBar()
             }
             return
         }
