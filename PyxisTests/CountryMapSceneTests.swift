@@ -40,6 +40,52 @@ struct CountryMapSceneTests {
         }
     }
 
+    @Test func tappingCitySelectsCardWithoutStartingOrMutatingEntry() throws {
+        let initialState = KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(4))
+
+        scene.handleTouchForTesting(at: cityPoint)
+
+        #expect(scene.selectedCityNumberForTesting == 4)
+        #expect(store.load() == initialState)
+        #expect(router.battleRequestCount == 0)
+        guard case .scout(let scout) = scene.projectedScoutCardContentForTesting else {
+            Issue.record("Expected selected city Scout content")
+            return
+        }
+        #expect(scout.cityNumber == 4)
+        #expect(scout.status == .locked)
+    }
+
+    @Test func selectedCurrentCityReturnRoutesToBattleWithoutRestarting() throws {
+        let initialState = KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 24,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(3))
+
+        scene.handleTouchForTesting(at: cityPoint)
+        #expect(scene.selectedCityNumberForTesting == 3)
+        #expect(scene.scoutCardAttackHitFrameForTesting != nil)
+        scene.handleTouchForTesting(at: try #require(scene.scoutCardAttackHitFrameForTesting).center)
+
+        #expect(store.load() == initialState)
+        #expect(router.battleRequestCount == 1)
+    }
+
     @Test("Country Map uses injected feedback and Settings dependencies")
     func countryMapUsesInjectedFeedbackAndSettingsDependencies() throws {
         let feedback = CountryMapFeedbackRecorder()
@@ -74,7 +120,7 @@ struct CountryMapSceneTests {
     }
 
     @Test("Country Map Settings consumes every underlying map target")
-    func countryMapSettingsBlocksScoutCurrentCityCityAndGearTouches() throws {
+    func countryMapSettingsBlocksScoutCityAndGearTouches() throws {
         let feedback = CountryMapFeedbackRecorder()
         let initialState = KingdomGameState(
             cityLevel: 3,
@@ -89,7 +135,6 @@ struct CountryMapSceneTests {
         let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
         let scoutAttackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
         let scoutCardFrame = try #require(scene.scoutCardHitFrameForTesting)
-        let currentCityFrame = scene.currentCityButtonFrameForTesting
         let cityPoint = try #require(scene.cityNodePositionForTesting(4))
 
         scene.handleTouchForTesting(at: gearFrame.center)
@@ -99,7 +144,6 @@ struct CountryMapSceneTests {
             gearFrame.center,
             scoutAttackFrame.center,
             CGPoint(x: scoutCardFrame.minX + 2, y: scoutCardFrame.maxY - 2),
-            currentCityFrame.center,
             cityPoint
         ] {
             scene.handleTouchForTesting(at: point)
@@ -444,69 +488,6 @@ struct CountryMapSceneTests {
             == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
     }
 
-    @Test func cityButtonReturnsToActiveBattleWithoutMutatingStore() throws {
-        let initialState = KingdomGameState(
-            cityLevel: 3,
-            cityRemainingPower: 24,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        )
-        let store = try makeStore(initialState: initialState)
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-
-        scene.requestCurrentCityBattleForTesting()
-
-        #expect(store.load() == initialState)
-        #expect(router.battleRequestCount == 1)
-    }
-
-    @Test func requestCurrentCityBattleResolvesIdleProgress() throws {
-        let start = Date.distantPast
-        var initialState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1000,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        )
-        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
-        let store = try makeStore(initialState: initialState)
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-
-        scene.requestCurrentCityBattleForTesting()
-
-        let saved = store.load()
-        #expect(saved.lastBackgroundedAt == nil)
-        #expect(router.battleRequestCount == 1)
-        #expect(saved.cityRemainingPower < 1000)
-    }
-
-    @Test func requestCurrentCityBattleStaysOnMapWhenIdleProgressConquersCity() throws {
-        let start = Date.distantPast
-        var initialState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        )
-        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
-        let store = try makeStore(initialState: initialState)
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-
-        scene.requestCurrentCityBattleForTesting()
-
-        let saved = store.load()
-        #expect(saved.stageStatus == .cityConqueredPendingMap)
-        #expect(router.battleRequestCount == 0)
-    }
-
     @Test func enteringCurrentCityResolvesIdleProgress() throws {
         let start = Date.distantPast
         var initialState = KingdomGameState(
@@ -551,79 +532,6 @@ struct CountryMapSceneTests {
         let saved = store.load()
         #expect(saved.stageStatus == .cityConqueredPendingMap)
         #expect(router.battleRequestCount == 0)
-    }
-
-    @Test func cityButtonHidesAfterIdleConquestViaRequestCurrentCityBattle() throws {
-        let start = Date.distantPast
-        var initialState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        )
-        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
-        let store = try makeStore(initialState: initialState)
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-
-        // Button should be visible while battle is active
-        #expect(!scene.isCurrentCityButtonHiddenForTesting)
-
-        scene.requestCurrentCityBattleForTesting()
-
-        // Idle progress conquers city → status changes, button must hide
-        let saved = store.load()
-        #expect(saved.stageStatus == .cityConqueredPendingMap)
-        #expect(scene.isCurrentCityButtonHiddenForTesting)
-    }
-
-    @Test func cityButtonHidesAfterIdleConquestViaEnterCity() throws {
-        let start = Date.distantPast
-        let initialState = KingdomGameState(
-            cityRemainingPower: 0,
-            cityNumberInCountry: 2,
-            completedCityCount: 2,
-            stageStatus: .cityConqueredPendingMap
-        )
-        let store = try makeStore(initialState: initialState)
-        store.save(initialState)
-
-        var battleState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        )
-        _ = battleState.buildBuilding(.barracks, inSlot: 1, at: start)
-        store.save(battleState)
-
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-
-        // Reload gives scene the battleActive state, so button is visible
-        #expect(!scene.isCurrentCityButtonHiddenForTesting)
-
-        scene.enterCityForTesting(3)
-
-        let saved = store.load()
-        #expect(saved.stageStatus == .cityConqueredPendingMap)
-        #expect(scene.isCurrentCityButtonHiddenForTesting)
-    }
-
-    @Test func cityButtonHidesOnMapLoadWhenNoBattleActive() throws {
-        let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
-            cityNumberInCountry: 3,
-            completedCityCount: 3,
-            stageStatus: .cityConqueredPendingMap
-        ))
-        let scene = makeScene(store: store, router: RouteSpy())
-
-        #expect(scene.isCurrentCityButtonHiddenForTesting)
     }
 
     @Test func mapShowsTraitForUnlockedCityInScoutCard() throws {
@@ -1043,45 +951,6 @@ struct CountryMapSceneTests {
         #expect(router.battleRequestCount == 0)
     }
 
-    @Test func staleCurrentControlRefreshesCountryCompleteWithoutSavingOrRouting() throws {
-        let countingStore = try makeCountingStore(initialState: KingdomGameState(
-            cityLevel: 15,
-            cityRemainingPower: 50,
-            cityNumberInCountry: 15,
-            completedCityCount: 14,
-            stageStatus: .battleActive
-        ))
-        let store = countingStore.store
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-        #expect(!scene.isCurrentCityButtonHiddenForTesting)
-        #expect(scene.scoutCardAttackHitFrameForTesting != nil)
-
-        let latestState = KingdomGameState(
-            cityLevel: 15,
-            cityRemainingPower: 0,
-            cityNumberInCountry: 15,
-            completedCityCount: 15,
-            stageStatus: .countryComplete
-        )
-        store.save(latestState)
-        countingStore.defaults.resetStateSaveCount()
-
-        scene.requestCurrentCityBattleForTesting()
-
-        #expect(store.load() == latestState)
-        #expect(countingStore.defaults.stateSaveCount == 0)
-        #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == nil)
-        #expect(scene.projectedScoutCardContentForTesting
-            == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
-        #expect(scene.scoutCardBaseContentForTesting?.title
-            == "Country 1 conquered · Crownspire Keep")
-        #expect(scene.scoutCardAttackHitFrameForTesting == nil)
-        #expect(scene.isCurrentCityButtonHiddenForTesting)
-        #expect(scene.cityVisualStateForTesting(15) == .completed)
-    }
-
     @Test func enteringUnlockedCityWithoutRouterDoesNotMutateStore() throws {
         let initialState = KingdomGameState(
             cityRemainingPower: 0,
@@ -1136,7 +1005,6 @@ struct CountryMapSceneTests {
         #expect(scene.routeLayoutCountForTesting == 18)
         #expect(!backdrop.isHidden)
         #expect(!city.isHidden)
-        #expect(!scene.isCurrentCityButtonHiddenForTesting)
         #expect(!marker.isHidden)
         #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == 2)
 
@@ -1155,14 +1023,12 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardOverlayHitFrameForTesting == nil)
         #expect(backdrop.isHidden)
         #expect(city.isHidden)
-        #expect(scene.isCurrentCityButtonHiddenForTesting)
         #expect(marker.isHidden)
         #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == nil)
 
         scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 10))
 
         #expect(scene.routeLayoutCountForTesting == 0)
-        #expect(scene.isCurrentCityButtonHiddenForTesting)
         #expect(marker.isHidden)
         #expect(scene.cityNumberAtPointForTesting(originalCityPoint) == nil)
 
@@ -1175,7 +1041,6 @@ struct CountryMapSceneTests {
         #expect(scene.routeLayoutCountForTesting == 18)
         #expect(!backdrop.isHidden)
         #expect(!city.isHidden)
-        #expect(!scene.isCurrentCityButtonHiddenForTesting)
         #expect(!marker.isHidden)
         #expect(scene.cityNumberAtPointForTesting(restoredCityPoint) == 2)
     }
@@ -1207,7 +1072,7 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardOverlayHitFrameForTesting == nil)
     }
 
-    @Test func fullBackdropMapLayoutKeepsTitleScoutCardAndAllCitiesVisible() throws {
+    @Test func mapLayoutKeepsTitleScoutCardAndAllCitiesVisible() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -1236,7 +1101,7 @@ struct CountryMapSceneTests {
         }
     }
 
-    @Test func countryMapBackdropCoversFullSceneBehindHUD() throws {
+    @Test func countryMapBackdropContainsIllustratedRegion() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
@@ -1253,8 +1118,7 @@ struct CountryMapSceneTests {
         #expect(abs(backdropFrame.minY - layout.displayedBackdropFrame.minY) <= 0.001)
         #expect(abs(backdropFrame.width - layout.displayedBackdropFrame.width) <= 0.001)
         #expect(abs(backdropFrame.height - layout.displayedBackdropFrame.height) <= 0.001)
-        #expect(backdropFrame.contains(layout.titleControlRegionFrame))
-        #expect(backdropFrame.contains(layout.informationRegionFrame))
+        #expect(backdropFrame.contains(layout.illustratedMapRegionFrame))
     }
 
     @Test func cityNodesAlignToAuthoredBackdropPads() throws {
@@ -1356,17 +1220,6 @@ struct CountryMapSceneTests {
             )
             #expect(clearanceFrame.contains(markerFrame))
         }
-    }
-
-    @Test func currentCityControlFrameIsInsideTitlePanel() throws {
-        let scene = makeScene(
-            store: try makeStore(initialState: .init(stageStatus: .battleActive)),
-            router: RouteSpy()
-        )
-        let layout = try #require(scene.countryMapLayoutForTesting)
-        let currentCityControlFrame = try #require(layout.currentCityControlFrame)
-        #expect(layout.titleControlRegionFrame.contains(currentCityControlFrame))
-        #expect(scene.currentCityButtonFrameForTesting == currentCityControlFrame)
     }
 
     @Test func UIKitAdapterUsesIdiomAndPreservesSemanticInsets() throws {
@@ -1506,7 +1359,7 @@ struct CountryMapSceneTests {
         #expect(scene.titleLabelFontSizeForTesting >= 8)
     }
 
-    @Test func titleLabelFitsWithCurrentCityButtonVisible() throws {
+    @Test func titleLabelFitsWithCompactMapCard() throws {
         let size = CGSize(width: 375, height: 667)
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 3,
@@ -1523,8 +1376,7 @@ struct CountryMapSceneTests {
         )
         let frames = scene.mapLayoutFramesForTesting
 
-        // With the button visible, available title width is smaller — verify fitting works
-        #expect(scene.titleLabelFrameWidthForTesting <= frames.titlePanelFrame.width - 82)
+        #expect(scene.titleLabelFrameWidthForTesting <= frames.titlePanelFrame.width)
         #expect(scene.titleLabelFontSizeForTesting >= 8)
     }
 
@@ -1543,7 +1395,7 @@ struct CountryMapSceneTests {
         #expect(router.battleRequestCount == 0)
     }
 
-    @Test func touchesEndedOnCityNodeEntersUnlockedCity() throws {
+    @Test func touchesEndedOnCityNodeSelectsUnlockedCityWithoutEntering() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
             cityNumberInCountry: 1,
@@ -1557,9 +1409,14 @@ struct CountryMapSceneTests {
         scene.touchesEnded([MockTouch(location: cityPoint)], with: nil)
 
         let saved = store.load()
-        #expect(saved.stageStatus == .battleActive)
-        #expect(saved.cityNumberInCountry == 2)
-        #expect(router.battleRequestCount == 1)
+        #expect(saved == KingdomGameState(
+            cityRemainingPower: 0,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        #expect(scene.selectedCityNumberForTesting == 2)
+        #expect(router.battleRequestCount == 0)
     }
 
     @Test func touchesEndedOnAttackEntersProjectedScoutCity() throws {
@@ -1599,25 +1456,6 @@ struct CountryMapSceneTests {
         scene.touchesEnded([MockTouch(location: CGPoint(x: 1, y: 1))], with: nil)
 
         #expect(router.battleRequestCount == 0)
-    }
-
-    @Test func touchesEndedCurrentCityButtonRequestsBattle() throws {
-        let initialState = KingdomGameState(
-            cityLevel: 3,
-            cityRemainingPower: 50,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        )
-        let store = try makeStore(initialState: initialState)
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-        let point = try #require(scene.currentCityButtonPositionForTesting)
-
-        scene.touchesEnded([MockTouch(location: point)], with: nil)
-
-        #expect(store.load() == initialState)
-        #expect(router.battleRequestCount == 1)
     }
 
     @Test func acceptedTapsAcrossDifferentEntryTargetsRequestBattleOnce() throws {
@@ -1665,9 +1503,7 @@ struct CountryMapSceneTests {
                 - GameUITheme.Alpha.lockedIcon
         ) < 0.001)
 
-        let currentPoint = try #require(scene.currentCityButtonPositionForTesting)
         scene.touchesEnded([MockTouch(location: attackPoint)], with: nil)
-        scene.touchesEnded([MockTouch(location: currentPoint)], with: nil)
         scene.touchesEnded([MockTouch(location: cityPoint)], with: nil)
 
         #expect(router.battleRequestCount == 1)
@@ -1712,9 +1548,7 @@ struct CountryMapSceneTests {
         let store = countingStore.store
         let router = RouteSpy()
         router.acceptsBattleRequest = false
-        router.onBattleRequest = { requestCount in
-            #expect(countingStore.defaults.stateSaveCount == requestCount)
-        }
+        router.onBattleRequest = { _ in }
         let scene = makeScene(store: store, router: router)
         let attackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
         let attackPoint = CGPoint(x: attackFrame.midX, y: attackFrame.midY)
@@ -1739,7 +1573,7 @@ struct CountryMapSceneTests {
         )
 
         #expect(router.battleRequestCount == 2)
-        #expect(countingStore.defaults.stateSaveCount == 2)
+        #expect(countingStore.defaults.stateSaveCount == 1)
         #expect(store.load() == saved)
         #expect(!scene.isRoutingToBattleForTesting)
     }
@@ -1840,7 +1674,7 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackElapsedForTesting == 0)
     }
 
-    @Test func attackConsumesBeforeOverlappingCurrentCityControl() throws {
+    @Test func attackConsumesBeforeOverlappingCityNode() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
             cityNumberInCountry: 1,
@@ -1851,11 +1685,9 @@ struct CountryMapSceneTests {
         let scene = makeScene(store: store, router: router)
         let attackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
         let attackPoint = CGPoint(x: attackFrame.midX, y: attackFrame.midY)
-        let currentControl = try #require(
-            scene.childNode(withName: "countryMapCurrentCityButton")
-        )
-        currentControl.isHidden = false
-        currentControl.position = attackPoint
+        scene.enumerateChildNodes(withName: "//countryMapCity-2") { node, _ in
+            node.position = attackPoint
+        }
 
         scene.touchesEnded([MockTouch(location: attackPoint)], with: nil)
 
@@ -1885,64 +1717,6 @@ struct CountryMapSceneTests {
 
         #expect(store.load() == initialState)
         #expect(router.battleRequestCount == 0)
-    }
-
-    @Test func currentControlConsumesBeforeOverlappingCompletedCityNode() throws {
-        let store = try makeStore(initialState: KingdomGameState(
-            cityLevel: 3,
-            cityRemainingPower: 50,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        ))
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-        let currentPoint = try #require(scene.currentCityButtonPositionForTesting)
-        scene.enumerateChildNodes(withName: "//countryMapCity-2") { node, _ in
-            node.position = currentPoint
-        }
-
-        scene.touchesEnded([MockTouch(location: currentPoint)], with: nil)
-
-        #expect(router.battleRequestCount == 1)
-        #expect(scene.visibleFeedbackTextForTesting == nil)
-    }
-
-    @Test func testOnlyCurrentCityRequestUsesUnifiedCompletedResult() throws {
-        let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
-            cityNumberInCountry: 3,
-            completedCityCount: 3,
-            stageStatus: .cityConqueredPendingMap
-        ))
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-
-        scene.requestCurrentCityBattleForTesting()
-
-        #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "Falconridge complete")
-        guard case .scout(let scout) = scene.projectedScoutCardContentForTesting else {
-            Issue.record("Expected Scout Card content")
-            return
-        }
-        #expect(scout.cityNumber == 4)
-        #expect(scout.defenseTrait == .spikedGate)
-    }
-
-    @Test func requestCurrentCityBattleWithoutRouterShowsFeedback() throws {
-        let store = try makeStore(initialState: KingdomGameState(
-            cityLevel: 3,
-            cityRemainingPower: 50,
-            cityNumberInCountry: 3,
-            completedCityCount: 2,
-            stageStatus: .battleActive
-        ))
-        let scene = makeScene(store: store, router: nil)
-
-        scene.requestCurrentCityBattleForTesting()
-
-        #expect(scene.visibleFeedbackTextForTesting == "Cannot enter city yet.")
     }
 
     @Test func fitLabelWithZeroMaxWidthDoesNotCrash() throws {

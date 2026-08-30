@@ -311,6 +311,29 @@ final class CountryMapScoutCardNode: SKNode {
         layout: CountryMapScoutCardLayout,
         metrics: Metrics
     ) -> PreparedScout? {
+        if layout.isCompact {
+            guard let titleFontSize = fittedFontSize(
+                scout.displayTitle,
+                startingAt: metrics.titleSize,
+                frameWidth: layout.titleFrame.width
+            ) else {
+                return nil
+            }
+            return PreparedScout(
+                scout: scout,
+                metrics: metrics,
+                titleFontSize: titleFontSize,
+                traitLines: [],
+                favorableItems: [],
+                disadvantagedItems: [],
+                laneText: "",
+                goldImage: nil,
+                rewardText: "",
+                rewardFontSize: metrics.rewardSize,
+                rewardFrame: layout.rewardFrame
+            )
+        }
+
         guard let traitWidth = layout.traitLineFrames.map(\.width).min(),
               let traitMeasure = measure(fontName: GameUITheme.Font.medium, size: metrics.traitSize),
               let footerMeasure = measure(fontName: GameUITheme.Font.medium, size: metrics.footerSize),
@@ -488,6 +511,7 @@ final class CountryMapScoutCardNode: SKNode {
         case .scout(let prepared):
             currentPresentationIsScout = true
             currentMetrics = prepared.metrics
+            currentEntryIsEnabled = isEntryEnabled && prepared.scout.actionTitle != nil
             renderScout(prepared, layout: layout, isEntryEnabled: isEntryEnabled)
         }
     }
@@ -508,6 +532,22 @@ final class CountryMapScoutCardNode: SKNode {
         titleLabel.text = prepared.scout.displayTitle
         titleLabel.fontSize = prepared.titleFontSize
         titleLabel.position = CGPoint(x: layout.titleFrame.minX, y: layout.titleFrame.midY)
+
+        if layout.isCompact {
+            goldIcon.isHidden = true
+            rewardLabel.text = nil
+            traitLabels.forEach { $0.text = nil }
+            favorableContainer.removeAllChildren()
+            disadvantagedContainer.removeAllChildren()
+            laneLabel.text = nil
+            renderAction(
+                title: prepared.scout.actionTitle,
+                frame: layout.attackFrame,
+                fontSize: prepared.metrics.attackSize,
+                isEnabled: isEntryEnabled
+            )
+            return
+        }
 
         renderReward(prepared, layout: layout)
         renderTraitLines(
@@ -544,15 +584,36 @@ final class CountryMapScoutCardNode: SKNode {
         laneLabel.fontSize = prepared.metrics.footerSize
         laneLabel.position = CGPoint(x: layout.exposedLaneFrame.maxX, y: layout.exposedLaneFrame.midY)
 
-        attackPanel.update(size: layout.attackFrame.size)
+        renderAction(
+            title: prepared.scout.actionTitle,
+            frame: layout.attackFrame,
+            fontSize: prepared.metrics.attackSize,
+            isEnabled: isEntryEnabled
+        )
+    }
+
+    private func renderAction(
+        title: String?,
+        frame: CGRect,
+        fontSize: CGFloat,
+        isEnabled: Bool
+    ) {
+        guard let title else {
+            attackContainer.isHidden = true
+            attackLabel.text = nil
+            attackHitFrame = nil
+            return
+        }
+
+        attackPanel.update(size: frame.size)
         attackPanel.position = .zero
-        attackLabel.text = "Attack"
-        attackLabel.fontSize = prepared.metrics.attackSize
+        attackLabel.text = title
+        attackLabel.fontSize = fontSize
         attackLabel.position = .zero
-        attackContainer.position = CGPoint(x: layout.attackFrame.midX, y: layout.attackFrame.midY)
+        attackContainer.position = CGPoint(x: frame.midX, y: frame.midY)
         attackContainer.isHidden = false
-        attackContainer.alpha = isEntryEnabled ? 1 : GameUITheme.Alpha.lockedIcon
-        attackHitFrame = isEntryEnabled ? layout.attackFrame : nil
+        attackContainer.alpha = isEnabled ? 1 : GameUITheme.Alpha.lockedIcon
+        attackHitFrame = isEnabled ? frame : nil
     }
 
     private func renderReward(

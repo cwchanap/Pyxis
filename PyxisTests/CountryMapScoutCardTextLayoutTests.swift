@@ -166,6 +166,9 @@ struct CountryMapScoutCardTextLayoutTests {
         fixture: CountryMapLayoutTestFixture
     ) throws {
         let cardLayout = try scoutCardLayout(for: fixture)
+        guard !cardLayout.isCompact else {
+            return
+        }
         let traitWidth = cardLayout.traitLineFrames[0].width
         let fontSize: CGFloat = isPhoneLayout(fixture) ? 9 : 12
         let measure = try productionMeasure(fontName: GameUITheme.Font.medium, size: fontSize)
@@ -195,6 +198,9 @@ struct CountryMapScoutCardTextLayoutTests {
         fixture: CountryMapLayoutTestFixture
     ) throws {
         let cardLayout = try scoutCardLayout(for: fixture)
+        guard !cardLayout.isCompact else {
+            return
+        }
         let isPhone = isPhoneLayout(fixture)
         let footerSize: CGFloat = isPhone ? 9 : 11
         let measure = try productionMeasure(fontName: GameUITheme.Font.medium, size: footerSize)
@@ -213,8 +219,14 @@ struct CountryMapScoutCardTextLayoutTests {
                 measure: measure
             )
 
-            #expect(favorableWidth <= cardLayout.favorableFrame.width, "\(fixture.name): \(trait.displayName) favorable overflow")
-            #expect(disadvantagedWidth <= cardLayout.disadvantagedFrame.width, "\(fixture.name): \(trait.displayName) disadvantaged overflow")
+            #expect(
+                favorableWidth <= cardLayout.favorableFrame.width,
+                "\(fixture.name): \(trait.displayName) favorable overflow"
+            )
+            #expect(
+                disadvantagedWidth <= cardLayout.disadvantagedFrame.width,
+                "\(fixture.name): \(trait.displayName) disadvantaged overflow"
+            )
         }
 
         for lane in BattleLane.allCases {
@@ -227,6 +239,9 @@ struct CountryMapScoutCardTextLayoutTests {
         fixture: CountryMapLayoutTestFixture
     ) throws {
         let cardLayout = try scoutCardLayout(for: fixture)
+        guard !cardLayout.isCompact else {
+            return
+        }
         let isPhone = isPhoneLayout(fixture)
         let titleSize: CGFloat = isPhone ? 11 : 16
         let rewardSize: CGFloat = isPhone ? 10 : 14
@@ -257,7 +272,7 @@ struct CountryMapScoutCardTextLayoutTests {
     }
 
     @Test func syntheticFooterTitleAndRewardOverflowFailValidation() throws {
-        let fixture = try #require(CountryMapLayoutTestFixtures.supported.first { $0.name == "small phone" })
+        let fixture = try #require(CountryMapLayoutTestFixtures.supported.first { $0.name == "iPhone 12/13 mini" })
         let cardLayout = try scoutCardLayout(for: fixture)
         let footerMeasure = try productionMeasure(fontName: GameUITheme.Font.medium, size: 9)
         let rewardMeasure = try productionMeasure(fontName: GameUITheme.Font.bold, size: 10)

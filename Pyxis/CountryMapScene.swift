@@ -37,7 +37,6 @@ struct CountryMapLayoutFrames {
 final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
     private enum NodeName {
         static let cityPrefix = "countryMapCity-"
-        static let currentCityButton = "countryMapCurrentCityButton"
     }
 
     private enum MapAssetName {
@@ -76,9 +75,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private let titlePanel = PanelNode(size: CGSize(width: 320, height: 68))
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let scoutCardNode: CountryMapScoutCardNode
-    private let currentCityButton = SKNode()
-    private let currentCityButtonBackground = SKShapeNode()
-    private let currentCityButtonLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private var backdropNode: SKSpriteNode?
     private var cityNodes: [Int: SKShapeNode] = [:]
     private var cityHitTargets: [Int: SKShapeNode] = [:]
@@ -86,6 +82,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private var conqueredMarkers: [Int: SKSpriteNode] = [:]
     private var cityVisualStates: [Int: CountryMapCityVisualState] = [:]
     private var cityBaseScales: [Int: CGFloat] = [:]
+    private var selectedCityNumber: Int?
     private var scoutCardLayout: CountryMapScoutCardLayout?
     private var transientFeedback: CountryMapTransientFeedback?
     private var previousUpdateTime: TimeInterval?
@@ -216,10 +213,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         if handleScoutCardTouch(at: point) {
             return
         }
-        if currentCityControlFrame?.contains(point) == true {
-            requestEntry(for: state.cityNumberInCountry)
-            return
-        }
         if let cityNumber = cityNumber(at: point) {
             handleCityNodeTouch(cityNumber)
         }
@@ -230,7 +223,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return true
         }
         if scoutCardNode.attackHitFrame?.contains(point) == true {
-            requestProjectedScoutEntry()
+            requestSelectedCityAction()
             return true
         }
         if scoutCardNode.cardHitFrame?.contains(point) == true {
@@ -241,7 +234,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             // otherwise be allowed. Input priority stays overlay -> Attack ->
             // Scout body: when flavor is up its overlay excludes Attack, so an
             // Attack tap falls through to `attackHitFrame` above.
-            if case .scout(let scout) = CountryMapScoutCardContent.project(from: state),
+            if case .scout(let scout) = projectedScoutContent,
                state.stageStatus != .countryComplete,
                !isRoutingToBattle,
                transientFeedback?.kind.blocksScoutEntry != true {
@@ -294,16 +287,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         backdropNode = backdrop
 
         configureLabel(titleLabel, fontSize: 30, color: GameUITheme.Color.textPrimary)
-        configureButton(
-            currentCityButton,
-            background: currentCityButtonBackground,
-            label: currentCityButtonLabel,
-            name: NodeName.currentCityButton,
-            color: SKColor(red: 0.22, green: 0.42, blue: 0.54, alpha: 1.0)
-        )
         titlePanel.addChild(titleLabel)
-        currentCityButton.zPosition = GameUITheme.Z.hud + 1
-        addChild(currentCityButton)
 
         let hasConqueredMarkerAsset = UIImage(named: MapAssetName.conqueredMarker) != nil
 
@@ -345,30 +329,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         label.fontColor = color
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
-    }
-
-    private func configureButton(
-        _ button: SKNode,
-        background: SKShapeNode,
-        label: SKLabelNode,
-        name: String,
-        color: SKColor
-    ) {
-        button.name = name
-        background.name = name
-        background.fillColor = color
-        background.strokeColor = SKColor(white: 1.0, alpha: 0.20)
-        background.lineWidth = 2
-
-        label.name = name
-        label.text = "City"
-        label.fontSize = 15
-        label.fontColor = GameUITheme.Color.textPrimary
-        label.horizontalAlignmentMode = .center
-        label.verticalAlignmentMode = .center
-
-        button.addChild(background)
-        button.addChild(label)
     }
 
     private var isFeedbackSettingsVisible: Bool {
@@ -534,8 +494,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         let result = CountryMapLayout.compute(.init(
             sceneSize: size,
             environment: environment,
-            definition: .country1,
-            showsCurrentCityControl: state.stageStatus == .battleActive
+            definition: .country1
         ))
         lastLayoutResult = result
 
@@ -610,9 +569,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         titlePanel.update(size: .zero)
         titlePanel.position = .zero
         scoutCardNode.clearLayout()
-        currentCityButton.isHidden = true
-        currentCityButton.position = .zero
-        currentCityButtonBackground.path = nil
         feedbackSettingsController?.applyGearFrame(.zero)
         gameplayTabBarFrame = .zero
         gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
@@ -664,7 +620,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         )
         layoutGameplayTabBar(informationRegionFrame: layout.informationRegionFrame)
 
-        let showsCurrentCityButton = layout.currentCityControlFrame != nil
         titleLabel.text = "Country \(state.countryNumber)"
         titleLabel.fontSize = 28
         guard fitTitleLabel(titleLabel, maxWidth: layout.titleTextFrame.width) else {
@@ -674,23 +629,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             CGPoint(x: layout.titleTextFrame.midX, y: layout.titleTextFrame.midY),
             from: self
         )
-        currentCityButtonLabel.fontSize = 15
-        currentCityButton.isHidden = !showsCurrentCityButton
-        if let currentCityControlFrame = layout.currentCityControlFrame {
-            layoutButton(
-                currentCityButton,
-                background: currentCityButtonBackground,
-                size: currentCityControlFrame.size,
-                position: CGPoint(
-                    x: currentCityControlFrame.midX,
-                    y: currentCityControlFrame.midY
-                )
-            )
-            fitLabel(currentCityButtonLabel, maxWidth: currentCityControlFrame.width - 18)
-        } else {
-            currentCityButton.position = .zero
-            currentCityButtonBackground.path = nil
-        }
         layoutFeedbackSettings(layout, environment: environment)
 
         drawRoutes(layout.routes)
@@ -726,16 +664,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             height: 72
         )
         gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
-    }
-
-    private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
-        background.path = CGPath(
-            roundedRect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height),
-            cornerWidth: 9,
-            cornerHeight: 9,
-            transform: nil
-        )
-        button.position = position
     }
 
     private func fitLabel(_ label: SKLabelNode, maxWidth: CGFloat) {
@@ -810,26 +738,29 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         titleLabel.text = "Country \(state.countryNumber)"
         applyGameplayTabBar()
 
-        guard let countryMapLayout,
+        guard countryMapLayout != nil,
               let scoutCardLayout else {
             scoutCardNode.clearLayout()
-            currentCityButton.isHidden = true
             for marker in conqueredMarkers.values {
                 marker.isHidden = true
             }
             return
         }
-        guard countryMapLayout.showsCurrentCityControl
-            == (state.stageStatus == .battleActive) else {
-            layoutInterface()
-            return
-        }
 
-        let content = CountryMapScoutCardContent.project(from: state)
+        if selectedCityNumber == nil {
+            selectedCityNumber = state.unlockedMapCityNumber ?? state.cityNumberInCountry
+        }
+        let content = projectedScoutContent
+        let entryCanBeRequested: Bool
+        if case .scout(let scout) = content {
+            entryCanBeRequested = scout.actionTitle != nil
+        } else {
+            entryCanBeRequested = false
+        }
         let result = scoutCardNode.apply(
             content: content,
             layout: scoutCardLayout,
-            isEntryEnabled: state.stageStatus != .countryComplete
+            isEntryEnabled: entryCanBeRequested
                 && !isRoutingToBattle
                 && transientFeedback?.kind.blocksScoutEntry != true
         )
@@ -841,7 +772,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
         applyFeedbackPresentation()
 
-        currentCityButton.isHidden = countryMapLayout.currentCityControlFrame == nil
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             applyVisualState(visualState(for: cityNumber), to: cityNumber)
         }
@@ -968,26 +898,30 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         return nil
     }
 
-    private var currentCityControlFrame: CGRect? {
-        guard !currentCityButton.isHidden,
-              let bounds = currentCityButtonBackground.path?.boundingBox else {
-            return nil
-        }
-
-        return CGRect(
-            x: currentCityButton.position.x + bounds.minX,
-            y: currentCityButton.position.y + bounds.minY,
-            width: bounds.width,
-            height: bounds.height
+    private var projectedScoutContent: CountryMapScoutCardContent {
+        CountryMapScoutCardContent.project(
+            from: state,
+            selectedCityNumber: selectedCityNumber
         )
     }
 
-    private func requestProjectedScoutEntry() {
-        guard case .scout(let scout) = CountryMapScoutCardContent.project(from: state) else {
+    private func requestSelectedCityAction() {
+        guard case .scout(let scout) = projectedScoutContent else {
             return
         }
 
-        requestEntry(for: scout.cityNumber)
+        switch scout.status {
+        case .current:
+            requestGameplayTab(.battle)
+        case .attackable:
+            requestEntry(for: scout.cityNumber)
+        case .completed:
+            feedback.emit(.invalidAction)
+            showFeedback(.completed(cityNumber: scout.cityNumber))
+        case .locked:
+            feedback.emit(.invalidAction)
+            showFeedback(.locked(cityNumber: scout.cityNumber))
+        }
     }
 
     private func observeLifecycleNotificationsIfNeeded() {
@@ -1085,19 +1019,21 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func handleCityNodeTouch(_ cityNumber: Int) {
         let latestState = store.load()
         state = latestState
-
+        guard Country1CityCatalog.cityRange.contains(cityNumber) else {
+            return
+        }
+        selectedCityNumber = cityNumber
         switch latestState.mapStatus(for: cityNumber) {
-        case .unlocked:
-            requestEntry(for: cityNumber)
-        case .locked:
-            feedback.emit(.invalidAction)
-            showFeedback(.locked(cityNumber: cityNumber))
-            redraw()
         case .completed:
             feedback.emit(.invalidAction)
             showFeedback(.completed(cityNumber: cityNumber))
-            redraw()
+        case .locked:
+            feedback.emit(.invalidAction)
+            showFeedback(.locked(cityNumber: cityNumber))
+        case .unlocked:
+            break
         }
+        redraw()
     }
 
     private func requestGameplayTab(_ tab: GameplayTab) {
@@ -1142,11 +1078,13 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             store.save(state)
 
             guard state.stageStatus == .battleActive else {
+                selectedCityNumber = state.unlockedMapCityNumber ?? state.cityNumberInCountry
                 applyIdleProgressFeedback(idleResult)
                 redraw()
                 return
             }
 
+            selectedCityNumber = cityNumber
             isRoutingToBattle = true
             redraw()
 
@@ -1164,6 +1102,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             redraw()
         case .alreadyCompleted:
             state = latestState
+            if let unlockedCityNumber = latestState.unlockedMapCityNumber,
+               cityNumber < unlockedCityNumber {
+                selectedCityNumber = unlockedCityNumber
+            }
             feedback.emit(.invalidAction)
             showFeedback(.completed(cityNumber: cityNumber))
             redraw()
@@ -1245,7 +1187,7 @@ extension CountryMapScene {
         guard countryMapLayout != nil, scoutCardLayout != nil else {
             return nil
         }
-        return CountryMapScoutCardContent.project(from: state)
+        return projectedScoutContent
     }
 
     var scoutCardBaseContentForTesting: CountryMapScoutCardNode.BaseContentReadback? {
@@ -1310,12 +1252,16 @@ extension CountryMapScene {
         requestEntry(for: cityNumber)
     }
 
-    func requestCurrentCityBattleForTesting() {
-        requestEntry(for: state.cityNumberInCountry)
+    func requestSelectedCityActionForTesting() {
+        requestSelectedCityAction()
     }
 
     func requestGameplayTabForTesting(_ tab: GameplayTab) {
         requestGameplayTab(tab)
+    }
+
+    var selectedCityNumberForTesting: Int? {
+        selectedCityNumber
     }
 
     var gameplayTabBarForTesting: GameplayTabBarNode {
@@ -1366,20 +1312,8 @@ extension CountryMapScene {
         titleLabel.frame.width
     }
 
-    var isCurrentCityButtonHiddenForTesting: Bool {
-        currentCityButton.isHidden
-    }
-
     var isRoutingToBattleForTesting: Bool {
         isRoutingToBattle
-    }
-
-    var currentCityButtonPositionForTesting: CGPoint? {
-        currentCityButton.position
-    }
-
-    var currentCityButtonFrameForTesting: CGRect {
-        currentCityControlFrame ?? .zero
     }
 
     func fitLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) {

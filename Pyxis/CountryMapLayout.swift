@@ -12,10 +12,6 @@ struct CountryMapSafeAreaInsets: Equatable {
 enum CountryMapLayoutClass: Equatable {
     case phone
     case pad
-
-    var informationRegionHeight: CGFloat {
-        self == .phone ? 64 : 112
-    }
 }
 
 struct CountryMapLayoutEnvironment: Equatable {
@@ -27,19 +23,6 @@ struct CountryMapLayoutConstraints: Equatable {
     let sceneSize: CGSize
     let environment: CountryMapLayoutEnvironment
     let definition: CountryMapLayoutDefinition
-    let showsCurrentCityControl: Bool
-
-    init(
-        sceneSize: CGSize,
-        environment: CountryMapLayoutEnvironment,
-        definition: CountryMapLayoutDefinition,
-        showsCurrentCityControl: Bool = false
-    ) {
-        self.sceneSize = sceneSize
-        self.environment = environment
-        self.definition = definition
-        self.showsCurrentCityControl = showsCurrentCityControl
-    }
 }
 
 struct CountryMapRouteLayout: Equatable {
@@ -72,11 +55,16 @@ struct CountryMapLayout: Equatable {
         static let sideInset: CGFloat = 10
         static let gearHitSize: CGFloat = 44
         static let gearToTitleGap: CGFloat = 8
-        static let titleToCurrentCityGap: CGFloat = 8
-        static let currentCityWidth: CGFloat = 82
         static let minimumTitleTextWidth: CGFloat = 160
         static let minimumTitleFontSize: CGFloat = 16
     }
+
+    static let tabBarHeight: CGFloat = 72
+    static let preferredPhoneInformationHeight: CGFloat = 164
+    static let preferredPadInformationHeight: CGFloat = 140
+    static let minimumCompactInformationHeight: CGFloat = 48
+    static let minimumIllustratedMapHeight: CGFloat = 431
+    static let minimumCityCenterDistance: CGFloat = 45
 
     static let minimumTitleTextWidth = TitleControlMetrics.minimumTitleTextWidth
     static let minimumTitleFontSize = TitleControlMetrics.minimumTitleFontSize
@@ -84,15 +72,17 @@ struct CountryMapLayout: Equatable {
     let sceneFrame: CGRect
     let displayedBackdropFrame: CGRect
     let titleControlRegionFrame: CGRect
-    let showsCurrentCityControl: Bool
     let settingsControlFrame: CGRect
-    let currentCityControlFrame: CGRect?
     let titleTextFrame: CGRect
     let informationRegionFrame: CGRect
     let illustratedMapRegionFrame: CGRect
     let cityPositions: [Int: CGPoint]
     let routes: [CountryMapRouteLayout]
 
+    // The map contract is deliberately fail-closed: all authored-data,
+    // chrome-budget, transform, and interaction-envelope guards live in this
+    // pure computation so callers cannot render a partial route.
+    // swiftlint:disable:next cyclomatic_complexity
     static func compute(_ constraints: CountryMapLayoutConstraints) -> CountryMapLayoutResult {
         let sceneFrame = CGRect(origin: .zero, size: constraints.sceneSize)
         guard constraints.sceneSize.width >= 375,
@@ -136,21 +126,11 @@ struct CountryMapLayout: Equatable {
         }
 
         let insets = constraints.environment.safeAreaInsets
-        guard [insets.top, insets.left, insets.bottom, insets.right].allSatisfy({ $0.isFinite && $0 >= 0 }) else {
+        guard [insets.top, insets.left, insets.bottom, insets.right].allSatisfy({
+            $0.isFinite && $0 >= 0
+        }) else {
             return .unsupported(.unsupportedGeometry)
         }
-
-        let scale = max(
-            constraints.sceneSize.width / source.width,
-            constraints.sceneSize.height / source.height
-        )
-        let backdropSize = CGSize(width: source.width * scale, height: source.height * scale)
-        let displayedBackdropFrame = CGRect(
-            x: (constraints.sceneSize.width - backdropSize.width) / 2,
-            y: (constraints.sceneSize.height - backdropSize.height) / 2,
-            width: backdropSize.width,
-            height: backdropSize.height
-        )
 
         let topMargin = max(34, insets.top + 10)
         let titleWidth = max(220, min(constraints.sceneSize.width - 40, 520))
@@ -166,43 +146,51 @@ struct CountryMapLayout: Equatable {
             width: TitleControlMetrics.gearHitSize,
             height: TitleControlMetrics.gearHitSize
         )
-        let currentCityControlFrame = constraints.showsCurrentCityControl
-            ? CGRect(
-                x: titleControlRegionFrame.maxX
-                    - TitleControlMetrics.sideInset
-                    - TitleControlMetrics.currentCityWidth,
-                y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
-                width: TitleControlMetrics.currentCityWidth,
-                height: TitleControlMetrics.gearHitSize
-            )
-            : nil
-        let titleTextMaxX: CGFloat
-        if let currentCityControlFrame {
-            titleTextMaxX = currentCityControlFrame.minX - TitleControlMetrics.titleToCurrentCityGap
-        } else {
-            titleTextMaxX = titleControlRegionFrame.maxX - TitleControlMetrics.sideInset
-        }
         let titleTextFrame = CGRect(
             x: settingsControlFrame.maxX + TitleControlMetrics.gearToTitleGap,
             y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
-            width: titleTextMaxX
+            width: titleControlRegionFrame.maxX
+                - TitleControlMetrics.sideInset
                 - settingsControlFrame.maxX
                 - TitleControlMetrics.gearToTitleGap,
             height: TitleControlMetrics.gearHitSize
         )
 
+        let preferredInformationHeight: CGFloat = constraints.environment.layoutClass == .phone
+            ? preferredPhoneInformationHeight
+            : preferredPadInformationHeight
+        let mapToTitleGap: CGFloat = 8
+        let cardToMapGap: CGFloat = 8
+        // The shared tab bar always occupies the band between the card and the
+        // illustrated map. Keep that reservation independent of card layout so
+        // map hit targets cannot render beneath the tabs on iPad.
+        let reservedTabHeight = tabBarHeight
+        let informationHeightBudget = titleControlRegionFrame.minY
+            - mapToTitleGap
+            - minimumIllustratedMapHeight
+            - reservedTabHeight
+            - cardToMapGap
+            - insets.bottom
+        guard informationHeightBudget >= minimumCompactInformationHeight else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
         let informationWidth = min(constraints.sceneSize.width - 32, 600)
-        let informationRegionFrame = CGRect(
+        var informationRegionFrame = CGRect(
             x: (constraints.sceneSize.width - informationWidth) / 2,
             y: insets.bottom,
             width: informationWidth,
-            height: constraints.environment.layoutClass.informationRegionHeight
+            height: min(preferredInformationHeight, informationHeightBudget)
         )
-        let illustratedMapRegionFrame = CGRect(
+        var illustratedMapRegionFrame = CGRect(
             x: sceneFrame.minX,
-            y: informationRegionFrame.maxY + 8,
+            y: informationRegionFrame.maxY + cardToMapGap + reservedTabHeight,
             width: sceneFrame.width,
-            height: titleControlRegionFrame.minY - informationRegionFrame.maxY - 16
+            height: constraints.environment.layoutClass == .phone
+                ? minimumIllustratedMapHeight
+                : titleControlRegionFrame.minY
+                    - mapToTitleGap
+                    - (informationRegionFrame.maxY + cardToMapGap + reservedTabHeight)
         )
 
         guard sceneFrame.contains(titleControlRegionFrame),
@@ -210,27 +198,16 @@ struct CountryMapLayout: Equatable {
               titleControlRegionFrame.contains(settingsControlFrame),
               titleControlRegionFrame.contains(titleTextFrame),
               titleTextFrame.width >= TitleControlMetrics.minimumTitleTextWidth,
-              (currentCityControlFrame.map {
-                  sceneFrame.contains($0)
-                      && titleControlRegionFrame.contains($0)
-              } ?? true),
               sceneFrame.contains(informationRegionFrame),
-              isFinite(displayedBackdropFrame),
-              isFinite(illustratedMapRegionFrame),
-              !illustratedMapRegionFrame.isNull,
-              !illustratedMapRegionFrame.isEmpty
+              illustratedMapRegionFrame.height >= minimumIllustratedMapHeight,
+              isFinite(illustratedMapRegionFrame)
         else {
             return .unsupported(.unsupportedGeometry)
         }
 
-        // The title, current-city control, and information region are centred
-        // against the full scene width with fixed side margins. Horizontal
-        // safe-area insets (e.g. Stage Manager or split-view side insets) can
-        // therefore push that centred chrome into horizontally unsafe content
-        // even when it still fits inside the scene frame. Require all three
-        // chrome regions to stay within the horizontal safe-content rect so a
-        // window with meaningful side insets fails closed instead of rendering
-        // controls under system chrome.
+        // The title and information card are centred against the full scene
+        // width. Keep the existing side-safe-content validation for chrome and
+        // interaction targets.
         let safeContentMinX = sceneFrame.minX + insets.left
         let safeContentMaxX = sceneFrame.maxX - insets.right
         guard titleControlRegionFrame.minX >= safeContentMinX,
@@ -239,42 +216,148 @@ struct CountryMapLayout: Equatable {
               settingsControlFrame.maxX <= safeContentMaxX,
               titleTextFrame.minX >= safeContentMinX,
               titleTextFrame.maxX <= safeContentMaxX,
-              (currentCityControlFrame.map {
-                  $0.minX >= safeContentMinX && $0.maxX <= safeContentMaxX
-              } ?? true),
               informationRegionFrame.minX >= safeContentMinX,
               informationRegionFrame.maxX <= safeContentMaxX
         else {
             return .unsupported(.unsupportedGeometry)
         }
 
-        var cityPositions: [Int: CGPoint] = [:]
-        for (index, anchor) in definition.cityAnchors.enumerated() {
-            cityPositions[index + 1] = CGPoint(
-                x: displayedBackdropFrame.minX + anchor.x * displayedBackdropFrame.width,
-                y: displayedBackdropFrame.minY + anchor.y * displayedBackdropFrame.height
-            )
+        let sourceCityPoints = definition.cityAnchors.map {
+            CGPoint(x: $0.x * source.width, y: $0.y * source.height)
+        }
+        var minimumAuthoredDistance = CGFloat.greatestFiniteMagnitude
+        for index in sourceCityPoints.indices {
+            for otherIndex in sourceCityPoints.indices.dropFirst(index + 1) {
+                minimumAuthoredDistance = min(
+                    minimumAuthoredDistance,
+                    hypot(
+                        sourceCityPoints[index].x - sourceCityPoints[otherIndex].x,
+                        sourceCityPoints[index].y - sourceCityPoints[otherIndex].y
+                    )
+                )
+            }
+        }
+        guard minimumAuthoredDistance.isFinite, minimumAuthoredDistance > 0 else {
+            return .unsupported(.invalidAuthoredData)
         }
 
-        guard cityPositions.values.allSatisfy({ position in
-            let cityFrame = CGRect(
-                x: position.x - 22,
-                y: position.y - 22,
-                width: 44,
-                height: 44
+        let scale = max(
+            sceneFrame.width / source.width,
+            illustratedMapRegionFrame.height / source.height,
+            minimumCityCenterDistance / minimumAuthoredDistance
+        )
+        guard scale.isFinite, scale > 0 else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        let backdropSize = CGSize(width: source.width * scale, height: source.height * scale)
+        let horizontalOrigin = (sceneFrame.width - backdropSize.width) / 2
+        let unshiftedCityPositions = sourceCityPoints.map {
+            CGPoint(
+                x: horizontalOrigin + $0.x * scale,
+                y: $0.y * scale
             )
-            // City interaction frames must stay within the illustrated region
-            // AND clear horizontal system chrome (side safe-area insets) so
-            // interactive targets are not rendered under Stage Manager / split
-            // view chrome. Vertical safe content is already enforced by the
-            // illustrated region's title/information bounds.
+        }
+        let unshiftedRoutes = makeRoutes(
+            cityPositions: Dictionary(uniqueKeysWithValues: unshiftedCityPositions.enumerated().map {
+                ($0.offset + 1, $0.element)
+            }),
+            definition: definition
+        )
+
+        var interactionEnvelope = CGRect.null
+        for position in unshiftedCityPositions {
+            interactionEnvelope = interactionEnvelope.union(
+                CGRect(x: position.x - 22, y: position.y - 22, width: 44, height: 44)
+            )
+        }
+        for route in unshiftedRoutes {
+            interactionEnvelope = interactionEnvelope.union(route.strokeExpandedBounds)
+        }
+        guard !interactionEnvelope.isNull, isFinite(interactionEnvelope) else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        if constraints.environment.layoutClass == .phone {
+            // Keep the authored interaction envelope inside the illustrated
+            // region with an 8 pt target/route margin on each edge. The
+            // reference 431 pt map already provides that margin; taller
+            // width-filled maps need the same guard rather than letting the
+            // envelope touch the crop boundary.
+            let requiredMapHeight = max(minimumIllustratedMapHeight, interactionEnvelope.height + 16)
+            let maximumMapHeight = titleControlRegionFrame.minY
+                - mapToTitleGap
+                - illustratedMapRegionFrame.minY
+            if requiredMapHeight > maximumMapHeight {
+                let cardReduction = requiredMapHeight - maximumMapHeight
+                informationRegionFrame.size.height -= cardReduction
+                guard informationRegionFrame.height >= minimumCompactInformationHeight else {
+                    return .unsupported(.unsupportedGeometry)
+                }
+                illustratedMapRegionFrame.origin.y = informationRegionFrame.maxY
+                    + cardToMapGap
+                    + reservedTabHeight
+            }
+            let finalMaximumMapHeight = titleControlRegionFrame.minY
+                - mapToTitleGap
+                - illustratedMapRegionFrame.minY
+            guard finalMaximumMapHeight >= requiredMapHeight else {
+                return .unsupported(.unsupportedGeometry)
+            }
+            illustratedMapRegionFrame.size.height = requiredMapHeight
+        }
+        guard illustratedMapRegionFrame.height >= minimumIllustratedMapHeight,
+              isFinite(illustratedMapRegionFrame) else {
+            return .unsupported(.unsupportedGeometry)
+        }
+
+        let verticalOrigin = illustratedMapRegionFrame.midY - interactionEnvelope.midY
+        let displayedBackdropFrame = CGRect(
+            x: horizontalOrigin,
+            y: verticalOrigin,
+            width: backdropSize.width,
+            height: backdropSize.height
+        )
+        let cityPositions = Dictionary(uniqueKeysWithValues: unshiftedCityPositions.enumerated().map {
+            (
+                $0.offset + 1,
+                CGPoint(x: $0.element.x, y: $0.element.y + verticalOrigin)
+            )
+        })
+        let routes = makeRoutes(cityPositions: cityPositions, definition: definition)
+
+        guard cityPositions.values.allSatisfy({ position in
+            let cityFrame = CGRect(x: position.x - 22, y: position.y - 22, width: 44, height: 44)
             return illustratedMapRegionFrame.contains(cityFrame)
                 && cityFrame.minX >= safeContentMinX
                 && cityFrame.maxX <= safeContentMaxX
+        }),
+        routes.allSatisfy({ route in
+            let bounds = route.strokeExpandedBounds
+            return illustratedMapRegionFrame.contains(bounds)
+                && bounds.minX >= safeContentMinX
+                && bounds.maxX <= safeContentMaxX
         }) else {
             return .unsupported(.unsupportedGeometry)
         }
 
+        return .supported(CountryMapLayout(
+            sceneFrame: sceneFrame,
+            displayedBackdropFrame: displayedBackdropFrame,
+            titleControlRegionFrame: titleControlRegionFrame,
+            settingsControlFrame: settingsControlFrame,
+            titleTextFrame: titleTextFrame,
+            informationRegionFrame: informationRegionFrame,
+            illustratedMapRegionFrame: illustratedMapRegionFrame,
+            cityPositions: cityPositions,
+            routes: routes
+        ))
+    }
+
+    private static func makeRoutes(
+        cityPositions: [Int: CGPoint],
+        definition: CountryMapLayoutDefinition
+    ) -> [CountryMapRouteLayout] {
         let primaryRoutes = definition.primaryRoutes.map { route in
             CountryMapRouteLayout(
                 start: cityPositions[route.startCityNumber]!,
@@ -290,33 +373,7 @@ struct CountryMapLayout: Equatable {
                 lineWidth: branch.lineWidth
             )
         }
-        let routes = primaryRoutes + branchRoutes
-
-        guard routes.allSatisfy({ route in
-            let bounds = route.strokeExpandedBounds
-            // Route strokes follow the same horizontal safe-content rule as
-            // city interaction frames so decorative routes do not render under
-            // side system chrome.
-            return illustratedMapRegionFrame.contains(bounds)
-                && bounds.minX >= safeContentMinX
-                && bounds.maxX <= safeContentMaxX
-        }) else {
-            return .unsupported(.unsupportedGeometry)
-        }
-
-        return .supported(CountryMapLayout(
-            sceneFrame: sceneFrame,
-            displayedBackdropFrame: displayedBackdropFrame,
-            titleControlRegionFrame: titleControlRegionFrame,
-            showsCurrentCityControl: constraints.showsCurrentCityControl,
-            settingsControlFrame: settingsControlFrame,
-            currentCityControlFrame: currentCityControlFrame,
-            titleTextFrame: titleTextFrame,
-            informationRegionFrame: informationRegionFrame,
-            illustratedMapRegionFrame: illustratedMapRegionFrame,
-            cityPositions: cityPositions,
-            routes: routes
-        ))
+        return primaryRoutes + branchRoutes
     }
 
     private static func isFinite(_ frame: CGRect) -> Bool {

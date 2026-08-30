@@ -7,6 +7,65 @@ import Testing
 @testable import Pyxis
 
 struct CountryMapScoutCardContentTests {
+    @Test func selectedCityProjectionUsesStatusWithoutMutatingState() {
+        let state = KingdomGameState(
+            cityLevel: 3,
+            cityRemainingPower: 500,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        let current = CountryMapScoutCardContent.project(
+            from: state,
+            selectedCityNumber: 3
+        )
+        let completed = CountryMapScoutCardContent.project(
+            from: state,
+            selectedCityNumber: 2
+        )
+        let locked = CountryMapScoutCardContent.project(
+            from: state,
+            selectedCityNumber: 4
+        )
+
+        guard case .scout(let currentScout) = current,
+              case .scout(let completedScout) = completed,
+              case .scout(let lockedScout) = locked else {
+            Issue.record("Expected selected city Scout projections")
+            return
+        }
+
+        #expect(currentScout.status == .current)
+        #expect(completedScout.status == .completed)
+        #expect(lockedScout.status == .locked)
+        #expect(currentScout.actionTitle == "RETURN")
+        #expect(completedScout.actionTitle == nil)
+        #expect(lockedScout.actionTitle == nil)
+        #expect(state.cityNumberInCountry == 3)
+        #expect(state.completedCityCount == 2)
+    }
+
+    @Test func selectedUnlockedCityProjectsMarchWithoutChangingPersistedState() {
+        let state = KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        guard case .scout(let scout) = CountryMapScoutCardContent.project(
+            from: state,
+            selectedCityNumber: 2
+        ) else {
+            Issue.record("Expected selected unlocked Scout projection")
+            return
+        }
+
+        #expect(scout.status == .attackable)
+        #expect(scout.actionTitle == "MARCH")
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.cityNumberInCountry == 1)
+    }
+
     @Test
     func freshBattleProjectsCityOne() {
         let state = KingdomGameState()
@@ -20,7 +79,8 @@ struct CountryMapScoutCardContentTests {
                         defenseTrait: .standardWatch,
                         exposedLane: .right,
                         goldReward: KingdomGameState.goldReward(for: 1),
-                        flavorText: "A quiet crossing where the campaign begins."
+                        flavorText: "A quiet crossing where the campaign begins.",
+                        status: .current
                     )
                 )
         )
@@ -133,7 +193,8 @@ struct CountryMapScoutCardContentTests {
                             defenseTrait: item.trait,
                             exposedLane: item.exposedLane,
                             goldReward: KingdomGameState.goldReward(for: item.cityNumber),
-                            flavorText: definition.flavorText
+                            flavorText: definition.flavorText,
+                            status: .current
                         )
                     )
             )

@@ -3,6 +3,22 @@ import Testing
 @testable import Pyxis
 
 struct CountryMapScoutCardLayoutTests {
+    @Test func compactPhoneCardKeepsIdentityAndPrimaryActionHorizontal() {
+        let region = CGRect(x: 16, y: 34, width: 343, height: 48)
+        let layout = CountryMapScoutCardLayout.compute(in: region, layoutClass: .phone)
+
+        #expect(layout.isCompact)
+        #expect(layout.cardFrame == region)
+        #expect(layout.attackFrame.width >= 44)
+        #expect(layout.attackFrame.height >= 44)
+        #expect(region.contains(layout.attackFrame))
+        #expect(region.contains(layout.badgeFrame))
+        #expect(region.contains(layout.titleFrame))
+        #expect(layout.titleFrame.maxX <= layout.attackFrame.minX)
+        #expect(layout.nonBlockingOverlayFrame.maxX == layout.attackFrame.minX)
+        #expect(!layout.nonBlockingOverlayFrame.intersects(layout.attackFrame))
+    }
+
     @Test(arguments: CountryMapLayoutTestFixtures.supported)
     func supportedLayoutsKeepScoutCardFramesInsideInformationRegion(
         fixture: CountryMapLayoutTestFixture
@@ -56,13 +72,21 @@ struct CountryMapScoutCardLayoutTests {
             #expect(!frame.intersects(cardLayout.attackFrame))
         }
         for (index, frame) in informationalFrames.enumerated() {
+            guard !frame.isEmpty else {
+                continue
+            }
             for otherFrame in informationalFrames.dropFirst(index + 1) {
+                guard !otherFrame.isEmpty else {
+                    continue
+                }
                 #expect(!frame.intersects(otherFrame))
             }
         }
     }
 
-    @Test(arguments: CountryMapLayoutTestFixtures.supported.filter(isPhoneFixture))
+    @Test(arguments: CountryMapLayoutTestFixtures.supported.filter {
+        isPhoneFixture($0) && $0.name != "small phone"
+    })
     func phoneLayoutsUseLockedRowsFooterGroupsAndTitleGaps(
         fixture: CountryMapLayoutTestFixture
     ) throws {
@@ -82,7 +106,9 @@ struct CountryMapScoutCardLayoutTests {
         #expect(cardLayout.badgeFrame.maxY == contentFrame.maxY)
         #expect(topTraitLine.maxY == cardLayout.badgeFrame.minY - 1)
         #expect(bottomTraitLine.maxY == topTraitLine.minY)
-        #expect(cardLayout.favorableFrame.maxY == bottomTraitLine.minY - 1)
+        // The variable-height phone card preserves its footer at the lower
+        // edge while the authored trait rows stay locked below the header.
+        #expect(cardLayout.favorableFrame.maxY <= bottomTraitLine.minY - 1)
         #expect(cardLayout.favorableFrame.minY == contentFrame.minY)
         #expect(cardLayout.favorableFrame.width == 106)
         #expect(cardLayout.disadvantagedFrame.width == 70)
@@ -130,14 +156,14 @@ struct CountryMapScoutCardLayoutTests {
         #expect(cardLayout.attackFrame.size == CGSize(width: 96, height: 52))
         #expect(cardLayout.attackFrame.maxX == contentFrame.maxX)
         #expect(cardLayout.attackFrame.midY == outerLayout.informationRegionFrame.midY)
-        #expect(cardLayout.disadvantagedFrame.minY == outerLayout.informationRegionFrame.minY + 8)
+        #expect(cardLayout.disadvantagedFrame.minY >= outerLayout.informationRegionFrame.minY + 8)
         #expect(cardLayout.titleFrame.minX == cardLayout.badgeFrame.maxX + 8)
         #expect(cardLayout.titleFrame.maxX == cardLayout.goldIconFrame.minX - 8)
     }
 
     @Test func minimumLayoutsLockExpectedFooterAndAttackArithmetic() throws {
         let phoneFixture = try #require(CountryMapLayoutTestFixtures.supported.first {
-            $0.name == "small phone"
+            $0.name == "iPhone 12/13 mini"
         })
         let narrowPadFixture = try #require(CountryMapLayoutTestFixtures.supported.first {
             $0.name == "narrow iPad"
