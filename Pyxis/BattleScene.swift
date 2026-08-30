@@ -366,14 +366,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        if let layout = battleChromeLayout,
-           layout.statusFrame.contains(point) {
-            if point.x < layout.statusFrame.midX {
+        if let layout = battleChromeLayout {
+            if layout.incomeFrame.contains(point) {
                 showGoldInfoTooltip()
-            } else {
-                showCityInfoTooltip()
+                return
             }
-            return
+
+            if layout.cityProgressFrame.contains(point) {
+                showCityInfoTooltip()
+                return
+            }
         }
 
     }
@@ -3599,7 +3601,8 @@ extension BattleScene {
             CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY),
             CGPoint(x: layout.tabHitFrames[2].midX, y: layout.tabHitFrames[2].midY),
             CGPoint(x: layout.tabHitFrames[1].midX, y: layout.tabHitFrames[1].midY),
-            CGPoint(x: layout.statusFrame.midX, y: layout.statusFrame.midY)
+            CGPoint(x: layout.incomeFrame.midX, y: layout.incomeFrame.midY),
+            CGPoint(x: layout.cityProgressFrame.midX, y: layout.cityProgressFrame.midY)
         ]
     }
 

@@ -37,10 +37,12 @@ struct BattleChromeLayoutTests {
             safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
         )))
 
-        #expect(layout.statusFrame.height >= 40)
-        #expect(layout.topBandFrame.contains(layout.statusFrame))
-        #expect(layout.topBandFrame.contains(layout.objectiveFrame))
-        #expect(!layout.statusFrame.intersects(layout.objectiveFrame))
+        #expect(layout.incomeFrame.height >= 40)
+        #expect(layout.cityProgressFrame.height >= 40)
+        #expect(layout.topBandFrame.contains(layout.incomeFrame))
+        #expect(layout.topBandFrame.contains(layout.cityProgressFrame))
+        #expect(layout.topBandFrame.contains(layout.recommendationFrame))
+        #expect(!layout.cityProgressFrame.intersects(layout.recommendationFrame))
     }
 
     @Test func compactPhoneKeepsVisibleBattlefieldAboveCompactFloor() throws {
