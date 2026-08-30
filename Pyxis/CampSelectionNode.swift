@@ -33,8 +33,6 @@ struct CampSelectionContent: Equatable {
         let buildingType: BuildingType
         let state: OptionState
         let isRecommended: Bool
-
-        var type: BuildingType { buildingType }
     }
 
     enum InspectorAction: Equatable {
@@ -53,9 +51,6 @@ struct CampSelectionContent: Equatable {
         let upgradeCost: Int
         let action: InspectorAction
         let isRecommended: Bool
-
-        var lot: Int { lotNumber }
-        var soldierType: SoldierType { producedSoldier }
         var canUpgrade: Bool {
             if case .upgrade = action { return true }
             return false
@@ -63,12 +58,8 @@ struct CampSelectionContent: Equatable {
     }
 
     let selectedSlot: Int?
-    let gold: Int
-    let cityTitle: String
-    let occupiedSlotCount: Int
     let options: [Option]
     let inspector: Inspector?
-    let recommendation: RecommendedCampRecommendation
     let enabledTabs: Set<GameplayTab>
 
     var tabContent: GameplayTabBarNode.Content {
@@ -150,12 +141,8 @@ struct CampSelectionContent: Equatable {
 
         return CampSelectionContent(
             selectedSlot: selectedSlot,
-            gold: state.gold,
-            cityTitle: state.displayCityTitle,
-            occupiedSlotCount: cityState.occupiedSlotCount,
             options: options,
             inspector: inspector,
-            recommendation: recommendation,
             enabledTabs: state.pendingBattleResult == nil
                 && state.stageStatus == .battleActive
                 ? Set(GameplayTab.allCases)
