@@ -1,15 +1,31 @@
 # Forged UI visual references
 
-These five PNGs are the canonical 393×852 visual references for the Forged gameplay UI redesign planning and implementation work.
+The supplied redesign package contains the authoritative 393×852 visual references for the Forged gameplay UI redesign:
 
-| Surface | Canonical file | Original redesign export |
-| --- | --- | --- |
-| Battle | `battle.png` | `3b.png` |
-| Camp | `camp.png` | `2b.png` |
-| Map | `map.png` | `2c.png` |
-| Conquest | `conquest.png` | `2d.png` |
-| Settings | `settings.png` | `2e.png` |
+| Surface | Supplied export |
+| --- | --- |
+| Battle | `3b.png` |
+| Camp | `2b.png` |
+| Map | `2c.png` |
+| Conquest | `2d.png` |
+| Settings | `2e.png` |
 
-The PNGs are cropped to the phone canvas from the supplied redesign boards. They are presentation references only: shipping Swift models remain authoritative for gameplay values, unlocks, routing, and state.
+These mockups are presentation references only. Shipping Swift models remain authoritative for gameplay values, unlocks, routing, persistence, and state.
 
-Implementation parity evidence must compare a real 393×852 simulator capture against these files and include a 50% alpha overlay. Do not replace these source files with a later ad-hoc export during implementation; revise the planning reference explicitly if the visual target changes.
+## Planning asset gate
+
+The five source PNGs must be committed here as `battle.png`, `camp.png`, `map.png`, `conquest.png`, and `settings.png` before implementation begins. The GitHub connector used for this planning session truncates binary blob writes at the source image sizes, so broken/truncated placeholders were removed instead of being accepted as canonical assets.
+
+Until the exact PNGs are present in this directory, PR #39 must remain Draft and the runtime implementation must not start from ad-hoc screenshots or re-exports.
+
+The intended mapping is:
+
+| Repository path | Supplied export |
+| --- | --- |
+| `battle.png` | `3b.png` |
+| `camp.png` | `2b.png` |
+| `map.png` | `2c.png` |
+| `conquest.png` | `2d.png` |
+| `settings.png` | `2e.png` |
+
+Once committed, implementation parity evidence must compare a real 393×852 simulator capture against those exact files and include a 50% alpha overlay. If the visual target changes later, revise these source files explicitly rather than silently substituting a new export.
