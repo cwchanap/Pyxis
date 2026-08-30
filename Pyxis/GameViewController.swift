@@ -210,12 +210,13 @@ final class GameViewController: UIViewController {
 
     private func presentSceneForCurrentStage(
         in view: SKView,
-        preferredTab: GameplayTab = .battle
+        preferredTab: GameplayTab = .battle,
+        conquestBuildingCount: Int? = nil
     ) {
         let state = store.load()
 
         if state.pendingBattleResult != nil {
-            presentBattleScene(in: view)
+            presentBattleScene(in: view, conquestBuildingCount: conquestBuildingCount)
             return
         }
 
@@ -223,7 +224,7 @@ final class GameViewController: UIViewController {
         case .battleActive:
             switch preferredTab {
             case .battle:
-                presentBattleScene(in: view)
+                presentBattleScene(in: view, conquestBuildingCount: conquestBuildingCount)
             case .camp:
                 presentBuildingViewScene(in: view)
             case .map:
@@ -234,7 +235,7 @@ final class GameViewController: UIViewController {
         }
     }
 
-    private func presentBattleScene(in view: SKView) {
+    private func presentBattleScene(in view: SKView, conquestBuildingCount: Int? = nil) {
         requestedMapGateReason = nil
         let scene = BattleScene(
             size: view.bounds.size,
@@ -242,7 +243,8 @@ final class GameViewController: UIViewController {
             router: self,
             feedback: feedbackRuntime.feedback,
             feedbackPreferences: feedbackRuntime.preferences,
-            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
+            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter,
+            conquestBuildingCount: conquestBuildingCount
         )
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
@@ -384,7 +386,11 @@ extension GameViewController: CountryMapSceneRouting {
             return false
         }
 
-        presentSceneForCurrentStage(in: view, preferredTab: tab)
+        presentSceneForCurrentStage(
+            in: view,
+            preferredTab: tab,
+            conquestBuildingCount: scene.pendingIdleConquestBuildingCountForRouting
+        )
         return true
     }
 
@@ -430,7 +436,11 @@ extension GameViewController {
         }
 
         store.save(fixture.makeState())
-        presentSceneForCurrentStage(in: view, preferredTab: fixture.preferredTab)
+        presentSceneForCurrentStage(
+            in: view,
+            preferredTab: fixture.preferredTab,
+            conquestBuildingCount: fixture.conquestBuildingCount
+        )
         if fixture == .battleBlocked,
            let battleScene = view.scene as? BattleScene {
             battleScene.spawnSoldierForTesting()
@@ -438,6 +448,10 @@ extension GameViewController {
             // captures: the same guarded tab request used by production input
             // renders the transient feedback beside, not over, the NEXT card.
             battleScene.requestGameplayTabForTesting(.camp)
+        }
+        if fixture == .campEmpty || fixture == .campOccupied,
+           let buildingScene = view.scene as? BuildingViewScene {
+            buildingScene.selectSlotForTesting(1)
         }
         view.accessibilityValue = forgedFixtureAccessibilityValue(for: view)
         return true
@@ -455,9 +469,14 @@ extension GameViewController {
                     : sources.joined(separator: ",")
                 let deploymentCount = result.deployments.reduce(0) { $0 + $1.count }
                 let lossCount = result.losses.reduce(0) { $0 + $1.count }
-                return "Conquest;pending=true;mode=\(result.conquestMode.rawValue);"
+                var value = "Conquest;pending=true;mode=\(result.conquestMode.rawValue);"
                     + "city=\(result.cityKey.storageKey);source=\(source);"
                     + "deployments=\(deploymentCount);losses=\(lossCount)"
+                if result.conquestMode == .idle {
+                    value += ";buildings=\(scene.conquestReportBuildingCountForTesting ?? 0)"
+                        + ";idleDamage=\(result.idleDamageByType.count)"
+                }
+                return value
             }
 
             let mode = scene.manualLiveSoldierCountForTesting > 0 ? "blocked" : "normal"
@@ -465,10 +484,16 @@ extension GameViewController {
                 + "city=\(state.currentCityKey.storageKey);"
                 + "manualLiving=\(scene.manualLiveSoldierCountForTesting)"
 
-        case is BuildingViewScene:
+        case let scene as BuildingViewScene:
+            let selectedSlot = scene.campSelectionContentForTesting?.selectedSlot
+                .map(String.init) ?? "none"
+            let mode = scene.campSelectionContentForTesting?.inspector == nil
+                ? "builder"
+                : "inspector"
             return "Camp;stage=\(state.stageStatus.rawValue);"
                 + "city=\(state.currentCityKey.storageKey);"
-                + "buildings=\(state.cityBattleStateForCurrentCity.occupiedSlotCount)"
+                + "buildings=\(state.cityBattleStateForCurrentCity.occupiedSlotCount);"
+                + "selectedSlot=\(selectedSlot);mode=\(mode)"
 
         case is CountryMapScene:
             let attackableCity = state.mapStatus(for: 4) == .unlocked ? "4" : "none"

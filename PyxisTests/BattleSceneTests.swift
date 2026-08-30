@@ -2617,12 +2617,37 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: pendingConqueredState(city: 3, mode: .live))
         let scene = makeScene(store: store)
         #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(scene.feedbackSettingsGearHiddenForTesting)
         #expect(scene.conquestReportTitleForTesting == "Falconridge Silenced")
         #expect(scene.conquestReportTilesForTesting[0] == .battleTime(seconds: 65))
         #expect(!scene.isGoldBurstVisibleForTesting)
         #expect(!scene.isCityConquestFeedbackRunningForTesting)
         #expect(scene.lastConquestReportOriginForTesting == "restored")
         #expect(scene.conquestEffectPresentationCountForTesting == 0)
+    }
+
+    @Test("Conquest report hides Settings gear until its modal block clears")
+    func conquestReportHidesSettingsGearUntilDismissed() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState(city: 3, mode: .live))
+        )
+
+        #expect(scene.feedbackSettingsGearHiddenForTesting)
+
+        scene.forceDismissConquestOverlayForTesting()
+        #expect(!scene.feedbackSettingsGearHiddenForTesting)
+
+        scene.presentConquestPopupForTesting()
+        #expect(scene.feedbackSettingsGearHiddenForTesting)
+
+        scene.forceDismissConquestOverlayForTesting()
+        scene.setConquestReportFitFailedForTesting(true)
+        scene.redrawForTesting(shouldLayout: false)
+        #expect(scene.feedbackSettingsGearHiddenForTesting)
+
+        scene.setConquestReportFitFailedForTesting(false)
+        scene.redrawForTesting(shouldLayout: false)
+        #expect(!scene.feedbackSettingsGearHiddenForTesting)
     }
 
     @Test("Restored City 10 gets static milestone treatment without flourish replay")

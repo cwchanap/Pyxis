@@ -104,9 +104,11 @@ final class PyxisUITests: XCTestCase {
         case "battle-blocked":
             expected = "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1"
         case "camp-empty":
-            expected = "Camp;stage=battleActive;city=1-5;buildings=0"
+            expected = "Camp;stage=battleActive;city=1-5;buildings=0;"
+                + "selectedSlot=1;mode=builder"
         case "camp-occupied":
-            expected = "Camp;stage=battleActive;city=1-5;buildings=6"
+            expected = "Camp;stage=battleActive;city=1-5;buildings=6;"
+                + "selectedSlot=1;mode=inspector"
         case "map":
             expected = "Map;stage=cityConqueredPendingMap;completed=3;"
                 + "attackableCity=4;laterLockedCity=5"
@@ -118,7 +120,7 @@ final class PyxisUITests: XCTestCase {
                 + "source=manual;deployments=6;losses=1"
         case "conquest-idle":
             expected = "Conquest;pending=true;mode=idle;city=1-3;"
-                + "source=idle;deployments=0;losses=0"
+                + "source=idle;deployments=0;losses=0;buildings=2;idleDamage=1"
         default:
             XCTFail("Unexpected fixture: " + fixture, file: file, line: line)
             return

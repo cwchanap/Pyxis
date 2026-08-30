@@ -83,7 +83,8 @@ struct ConquestReportContent: Equatable {
 
     static func project(
         from result: BattleResult,
-        title: String
+        title: String,
+        buildingCount: Int = 0
     ) -> Self {
         var tiles = [StatTile]()
         if let type = result.mvpSoldierType,
@@ -96,7 +97,7 @@ struct ConquestReportContent: Equatable {
             let seconds = ActiveSiegeSession.normalizedActiveBattleSeconds(result.activeBattleSeconds)
             tiles.append(.battleTime(seconds: seconds))
         case .idle:
-            tiles.append(.buildings(count: result.idleDamageByType.count))
+            tiles.append(.buildings(count: max(0, buildingCount)))
         }
 
         tiles.append(.sentLost(

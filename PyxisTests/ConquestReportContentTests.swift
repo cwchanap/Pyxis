@@ -44,6 +44,24 @@ struct ConquestReportContentTests {
         })
     }
 
+    @Test("Idle BUILDINGS tile uses occupied slots rather than damage type rows")
+    func idleReportUsesCallerOwnedBuildingCount() {
+        let cityState = CityBattleState(slots: [
+            1: CityBuilding(type: .barracks),
+            2: CityBuilding(type: .barracks)
+        ])
+        let content = ConquestReportContent.project(
+            from: makeResult(mode: .idle, mvp: nil, share: nil),
+            title: "Falconridge Silenced",
+            buildingCount: cityState.occupiedSlotCount
+        )
+
+        #expect(content.tiles == [
+            .buildings(count: 2),
+            .sentLost(sent: 7, lost: 2)
+        ])
+    }
+
     @Test func idleReportWithMVPKeepsMVPBeforeBuildingsAndSentLost() {
         let content = ConquestReportContent.project(
             from: makeResult(mode: .idle),

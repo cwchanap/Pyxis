@@ -881,6 +881,38 @@ struct GameViewControllerTests {
         #expect(view.scene is BattleScene)
     }
 
+    @Test func countryMapBattleTabExitRestoresASettledIdleConquestReport() throws {
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2
+        )
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
+            cost: 15,
+            remainingGold: 85
+        ))
+
+        let store = try makeStore(initialState: initialState)
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .map)
+        let map = try #require(view.scene as? CountryMapScene)
+        map.didMove(to: view)
+
+        map.requestGameplayTabForTesting(.battle)
+
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        #expect(store.load().pendingBattleResult?.conquestMode == .idle)
+        #expect(battle.lastConquestReportOriginForTesting == "restored")
+        #expect(battle.conquestReportTilesForTesting.contains(.buildings(count: 1)))
+        #expect(battle.isConquestPopupVisibleForTesting)
+    }
+
     @Test func buildingViewBattleRequestRestoresPendingIdleReport() throws {
         let store = try makeStore(initialState: pendingConqueredState(
             city: 1, stage: .cityConqueredPendingMap, mode: .idle
