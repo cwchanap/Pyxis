@@ -71,4 +71,13 @@ struct GameUIComponentsTests {
 
         #expect(panel.styleForTesting == .primaryAction)
     }
+
+    @Test func panelShadowDoesNotExpandLayoutAboveContentBounds() {
+        let panel = PanelNode(size: CGSize(width: 180, height: 58))
+
+        let frame = panel.calculateAccumulatedFrame()
+
+        let semanticBoundsPadding: CGFloat = 2
+        #expect(frame.minY >= -panel.contentSizeForTesting.height / 2 - semanticBoundsPadding)
+    }
 }
