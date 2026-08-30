@@ -4,17 +4,17 @@
 
 Approved planning design for replacing Pyxis's current gameplay chrome with the supplied **Forged** mobile UI direction while preserving shipping game rules, persistence, scene ownership, routing, lifecycle, feedback, accessibility behavior, and layout gates.
 
-The 393×852 mockups define presentation. Shipping Swift remains authoritative for gameplay. When a mock sample conflicts with a real model contract, the real contract wins and the implementation parity board documents the deliberate visual difference.
+The 393×852 mockups define presentation. Shipping Swift remains authoritative for gameplay. When the mock conflicts with a real gameplay or geometry contract, the real contract wins and the implementation parity board records the deliberate difference.
 
 ## Goal
 
 Make Battle, Camp, Map, Conquest, and Settings read like one coherent Forged mobile game UI without turning the redesign into a combat-runtime or navigation rewrite.
 
-The result should use dark iron surfaces, restrained gold edging and rivets, amber primary actions, image-forward unit/building affordances, a shared Battle/Camp/Map tab presentation, a radial Camp builder, a large selected-city Map card, adaptive Conquest stat tiles, and a Settings bottom sheet.
+The result uses dark iron surfaces, restrained gold edging and rivets, amber primary actions, image-forward unit/building affordances, shared Battle/Camp/Map tabs, a radial Camp builder, a selected-city Map card, adaptive Conquest stat tiles, and a Settings bottom sheet.
 
 ## Canonical visual source of truth
 
-The planning branch carries the exact reference set used by implementation:
+The intended canonical 393×852 reference set is:
 
 - Battle: `docs/visual-parity/forged-ui/battle.png` — source export `3b.png`
 - Camp: `docs/visual-parity/forged-ui/camp.png` — source export `2b.png`
@@ -22,7 +22,7 @@ The planning branch carries the exact reference set used by implementation:
 - Conquest: `docs/visual-parity/forged-ui/conquest.png` — source export `2d.png`
 - Settings: `docs/visual-parity/forged-ui/settings.png` — source export `2e.png`
 
-All five are canonical 393×852 phone canvases. The interactive HTML remains supporting context only and is not required in the repository. Other supported portrait phone and iPad sizes must remain contained and usable; exact visual parity is required only at 393×852 because there is no authored iPad mock.
+The implementation must not begin from a different export without explicitly changing those references. Other supported portrait phone/iPad geometries must remain usable and contained; exact mock parity is judged only at 393×852.
 
 ## Gameplay source of truth
 
@@ -32,17 +32,17 @@ Existing production ownership does not move:
 - `BattleCombatState` owns the transient living roster, lane assignment, movement, attacks, tower damage, and losses.
 - `Country1CityCatalog` owns city identity, traits, lane profiles, and flavor copy.
 - `RecommendedCampRecommendation` remains the only Camp recommendation policy.
-- `BattleResult` remains the persisted/finalized conquest evidence.
-- `FeedbackPreferencesManaging`, `FeedbackSettingsController`, and `FeedbackSettingsAccessibilityAdapter` remain the Settings behavior/accessibility owners.
-- `GameViewController` remains the only production scene router and feedback-runtime composition root.
+- `BattleResult` remains persisted/finalized conquest evidence.
+- `FeedbackPreferencesManaging`, `FeedbackSettingsController`, and `FeedbackSettingsAccessibilityAdapter` remain Settings behavior/accessibility owners.
+- `GameViewController.presentSceneForCurrentStage` remains the stage/pending-result routing authority.
 
 No mock reward, cost, unit count, timer, unlock, multiplier, income rate, or result statistic becomes shipping data.
 
 ## Non-goals
 
-This redesign does not add a shared combat runtime across tabs, a replacement all-in-one gameplay scene, new save fields or migration, balance changes, new building/unit/city content, Country 2, landscape support, SwiftUI, third-party UI/state packages, custom fonts, a generated-asset pipeline, a router/component/fixture registry, broad gameplay accessibility expansion, or pixel-difference CI.
+This redesign does not add a shared combat runtime across tabs, one all-purpose gameplay scene, new save fields/migration, balance changes, new building/unit/city content, Country 2, landscape support, SwiftUI, third-party UI/state packages, custom fonts, a generated-asset pipeline, a router/component/fixture registry, broad gameplay accessibility expansion, or pixel-difference CI.
 
-A future requirement for Battle combat to continue while Camp or Map is visible needs a separate design for transient roster ownership, tick/lifecycle ownership, conquest while another surface is mounted, effects, and recovery. The Forged tab bar does not imply that feature.
+A future requirement for Battle combat to continue while Camp or Map is visible needs a separate design for transient roster ownership, tick/lifecycle ownership, conquest while another surface is mounted, effects, and recovery. The tab bar does not imply that feature.
 
 ## Existing scene architecture remains
 
@@ -52,24 +52,21 @@ Pyxis keeps three code-owned SpriteKit scenes:
 - `BuildingViewScene` owns the current city's 25-lot building interaction.
 - `CountryMapScene` owns the authored 15-city route and entry flow.
 
-Leaving Battle with living manual soldiers remains blocked. Those soldiers live only in `BattleCombatState`; scene replacement would silently discard them. Tabs are shared presentation over the existing router, not a new common simulation owner.
+Leaving Battle with living manual soldiers remains blocked. Those soldiers live only in `BattleCombatState`; replacing the scene would discard them. Tabs are shared presentation over the existing router, not a common simulation owner.
 
-## Shared material: extend `PanelNode`, do not add another panel type
+## Shared material: extend `PanelNode`
 
-The existing `PanelNode` in `GameUIComponents.swift` becomes the single shared panel/material primitive. Do not add `ForgedSurfaceNode` beside it.
+The existing `PanelNode` in `GameUIComponents.swift` becomes the shared Forged surface primitive. Do not add `ForgedSurfaceNode` beside it.
 
-Extend `PanelNode` with a closed style:
+The style enum represents **state only**, not migration history:
 
 ```swift
 final class PanelNode: SKNode {
     enum Style: Equatable {
-        case standard
-        case forged
+        case normal
         case selected
         case primaryAction
         case disabled
-        case success
-        case danger
     }
 
     func apply(size: CGSize, style: Style, showsRivets: Bool)
@@ -77,54 +74,41 @@ final class PanelNode: SKNode {
 }
 ```
 
-The node owns one fixed shadow/plate/highlight/four-rivet tree built once. `apply` changes paths, colors, visibility, and sizes only. Existing `update(size:)` preserves the current style so intermediate implementation commits stay compiling while old consumers migrate. This is an incremental implementation seam, not a backward-compatibility promise.
+There is no `.standard`/`.forged` compatibility seam and no unused `.danger` style. Existing panel consumers receive the Forged normal treatment as their owning screen task migrates them. Success/danger may remain color tokens where actual badges/switches use them; they are not panel styles until a panel consumer needs them.
 
-`GameUITheme` receives only shared color/metric constants that have multiple consumers. There is no theme dictionary, component registry, or generic button class.
+The node builds one fixed shadow/plate/highlight/four-rivet tree and only reapplies paths/colors/visibility. `GameUITheme` gains only constants with multiple consumers.
 
-## Shared tabs and closed availability policy
+## Shared tabs and truthful availability
 
-Add:
-
-```swift
-enum GameplayTab: CaseIterable, Hashable {
-    case battle
-    case camp
-    case map
-}
-
-final class GameplayTabBarNode: SKNode {
-    struct Content: Equatable {
-        let selected: GameplayTab
-        let enabledTabs: Set<GameplayTab>
-        let showsCampAttention: Bool
-    }
-
-    func apply(content: Content, frame: CGRect)
-    func tab(at point: CGPoint) -> GameplayTab?
-}
-```
-
-The tab bar always uses the same three-cell geometry when it is visible. Disabled tabs remain visually present but have no hit target; `tab(at:)` returns nil. Conquest omits the tab bar entirely rather than inventing disabled-overlay behavior.
+Add one `GameplayTabBarNode` with a closed `GameplayTab` enum and `Content(selected:enabledTabs:showsCampAttention:)`. Disabled cells remain visually present but have no hit frame; `tab(at:)` returns nil. Conquest omits the tab bar entirely.
 
 The policy is fixed:
 
 | Mounted state | Selected | Enabled |
 | --- | --- | --- |
-| Battle, active and no Conquest report | Battle | Battle, Camp, Map; Camp/Map still pass the living-squad guard |
+| Battle, no manual living soldiers | Battle | Battle, Camp, Map |
+| Battle, one or more manual living soldiers | Battle | Battle only |
 | Camp, active and no pending result | Camp | Battle, Camp, Map |
 | Map while an active city exists | Map | Battle, Camp, Map |
-| Map after a conquered city is waiting for the next entry | Map | Map only |
+| Map after city conquest pending next entry | Map | Map only |
 | Map at country completion | Map | Map only |
-| Conquest report visible or required report fit failed | no bar | none; Continue/March On is the only navigation action |
+| Conquest visible/fit-failed | no bar | none; March On only |
 
-The Camp attention dot comes only from `RecommendedCampRecommendation`: visible from Battle or Map for `.ready` / `.saveFor`, hidden in Camp and for `.noAction`.
+Battle derives the enabled set from the same authoritative predicate already used by routing: `combat.livingSoldierCount(source: .manual) == 0`. The route guard remains as defense in depth for state changes between redraw and touch handling, but the persistent navigation affordance no longer looks enabled when it cannot succeed.
 
-## Routing is pending-first
+The Camp attention dot comes only from `RecommendedCampRecommendation`: visible from Battle/Map for `.ready`/`.saveFor`, hidden in Camp and `.noAction`.
 
-All accepted tab requests end in a controller helper that preserves the existing pending-result priority:
+## Routing: extend the existing pending-first authority
+
+Do not create a second pending/stage switch in `presentGameplayTab`.
+
+Extend the existing method instead:
 
 ```swift
-private func presentGameplayTab(_ tab: GameplayTab, in view: SKView) {
+private func presentSceneForCurrentStage(
+    in view: SKView,
+    preferredTab: GameplayTab = .battle
+) {
     let state = store.load()
 
     if state.pendingBattleResult != nil {
@@ -132,217 +116,263 @@ private func presentGameplayTab(_ tab: GameplayTab, in view: SKView) {
         return
     }
 
-    switch tab {
-    case .battle:
-        state.stageStatus == .battleActive
-            ? presentBattleScene(in: view)
-            : presentCountryMapScene(in: view)
-    case .camp:
-        state.stageStatus == .battleActive
-            ? presentBuildingViewScene(in: view)
-            : presentCountryMapScene(in: view)
-    case .map:
+    switch state.stageStatus {
+    case .battleActive:
+        switch preferredTab {
+        case .battle: presentBattleScene(in: view)
+        case .camp: presentBuildingViewScene(in: view)
+        case .map: presentCountryMapScene(in: view)
+        }
+    case .cityConqueredPendingMap, .countryComplete:
         presentCountryMapScene(in: view)
     }
 }
 ```
 
-Scene-specific behavior remains explicit:
+`presentGameplayTab(_:,in:)` is only a forwarding convenience into `presentSceneForCurrentStage(in:preferredTab:)` or can be omitted entirely.
 
-- Battle→Camp/Map runs the current living-manual-squad guard before routing. A blocked request shows the existing feedback and keeps the roster.
-- Battle→Battle is a no-op.
-- Any Camp request leaving Camp first performs the same `state.returnFromBackground(at:)`, save, idle-result feedback, and redraw handoff that current `requestBattle()` owns. If that settlement creates `pendingBattleResult`, the controller presents Battle regardless of whether the requested tab was Battle or Map.
-- Map tab selection never calls `startCityFromMap(_:)`. Map→Battle returns to the already active city; Map→Camp opens that active city's Camp. The selected-city card's March action remains the only path that starts an unlocked city.
-- Country-complete Battle/Camp tabs are disabled and cannot reach `startCityFromMap(_:)`.
+Scene behavior remains explicit:
 
-Old World/Build/Battle navigation buttons are removed after the tab paths cover them; there is no compatibility chrome.
+- Battle→Camp/Map checks the manual-living-squad guard before forwarding.
+- Any Camp exit first runs the same `state.returnFromBackground(at:)`, save, idle feedback, and redraw sequence current `requestBattle()` owns. If settlement creates a pending result, the controller lands on Battle regardless of the requested tab.
+- Map tab selection never calls `startCityFromMap(_:)`; only the selected-city card March action starts an unlocked city.
+- Country-complete Battle/Camp tabs are non-hit.
+
+Old World/Build/Battle buttons are removed when tabs cover them; no compatibility chrome remains.
 
 ## Battle redesign
 
-### Pure chrome layout
+### Pure chrome layout and explicit battlefield budget
 
-Add `BattleChromeLayout` for resource, city title/progress/HP, objective, lane chips, five medallions, Deploy/manual-count, tab, Settings frame, and battlefield reservation. `BattlefieldLayout` remains the sole battlefield geometry authority and consumes the safe bounds produced by the chrome layout.
+Extract the current private/impure Battle HUD geometry into `BattleChromeLayout`, a pure CoreGraphics value. `BattlefieldLayout` remains the sole authority for castle/enemy/lane geometry and consumes the field bounds returned by the chrome layout.
 
-At 393×852, the layout follows the reference with 16-point side margins, five 56-point medallions, one full-width Deploy action, and the shared tab bar. Every primary/control hit frame remains at least 44×44.
+`BattleChromeLayout` must expose a numeric field budget instead of accepting any non-overlapping rectangle.
 
-### Real unit availability, including the Infantry starter exception
+`BattlefieldLayout` currently uses:
 
-`BattleHUDContent` projects exactly five medallions. Availability is determined in this order:
+- structure cap: 144 pt;
+- enemy-city height: `structureHeight * 1.04 + 14`;
+- hard minimum lane: 60 pt.
+
+For the reference/regular layout, reserve 48 pt of visual lane headroom beyond that hard minimum:
+
+```text
+144 + (144 × 1.04 + 14) + (60 + 48) = 415.76
+```
+
+Therefore:
+
+```swift
+static let minimumBattlefieldHeight: CGFloat = 416
+```
+
+At 393×852 the authored layout must produce a `battlefieldFrame.height` in the **424...440 pt** range; otherwise Task 4 stays RED. That keeps the real lane materially above `BattlefieldLayout`'s collapse threshold instead of ~5 pt from it.
+
+For the existing 375×667 compact fixture, use a compact field floor of 340 pt, derived from ~130 pt structures plus the existing 60 pt lane minimum:
+
+```text
+130 + (130 × 1.04 + 14) + 60 = 339.2
+```
+
+The compact layout is allowed to reduce gaps/type and use 44 pt medallion hits. It must still make `BattlefieldLayout.isVisible == true`.
+
+To pay for the 416 pt reference field without deleting required information:
+
+- manual `N / 10` lives inside the Deploy surface rather than taking its own vertical row;
+- lane OPEN/HELD chips are HUD overlays inside the upper battlefield and do not consume separate field height;
+- tab background may extend visually through the bottom safe area, while tab hit frames remain safe;
+- five medallions remain outside the lane path and do not cover soldier interaction space.
+
+If the required field floor cannot be met, `BattleChromeLayout.compute` returns nil and Battle fails closed through `isBattleChromeFitFailed`.
+
+### Real unit availability
+
+`BattleHUDContent` projects exactly five medallions in this order:
 
 1. `state.manualSoldierLevel(for: type)` returns a level → `.available(level:)`.
-2. Otherwise the matching building type is already unlocked → `.unbuilt`.
+2. Otherwise matching building is unlocked → `.unbuilt`.
 3. Otherwise → `.locked(unlocksAtCity:)`.
 
-This deliberately preserves the shipping starter fallback: Infantry with no Barracks is still `.available(level: 1)`. It is never turned into `.unbuilt` by presentation code. `.unbuilt` applies only to non-Infantry types whose building is unlocked but absent.
+This preserves the shipping Infantry starter fallback: Infantry with no Barracks is `.available(level: 1)`, never `.unbuilt`.
 
-The reference projection gates are:
+Reference gates:
 
-- City 1 empty grid: Infantry available L1; Archer/Cavalry/Mage/Siege locked at Cities 2/5/8/11.
-- City 5 empty grid: Infantry available L1; Archer and Cavalry unbuilt; Mage and Siege locked at Cities 8/11.
+- City 1 empty: Infantry L1 available; Archer/Cavalry/Mage/Siege locked at 2/5/8/11.
+- City 5 empty: Infantry L1 available; Archer/Cavalry unbuilt; Mage/Siege locked at 8/11.
 
-The multiplier badge is presentation from the existing trait multiplier: 1.25× favorable, 0.80× disadvantaged, otherwise 1.00×. Combat still calls the existing damage APIs.
+Trait multiplier badges display existing 1.25×/0.80×/1.00× values only. Combat formulas stay unchanged.
 
-Tapping available selects; tapping unbuilt shows build-first feedback without auto-routing; tapping locked shows the real unlock city. Deploy delegates to the current spawn path and preserves stage/manual-cap/report gates.
+### Settings gear stays outside `BattleHUDNode`
 
-### Settings gear is not part of `BattleHUDNode`
+`BattleChromeLayout.settingsFrame` positions the existing `FeedbackSettingsController.gear`. `BattleHUDNode` neither draws nor hit-tests Settings. Camp and Map follow the same ownership rule.
 
-`BattleChromeLayout.settingsFrame` positions the existing `FeedbackSettingsController.gear` through `applyGearFrame`. `BattleHUDNode` neither draws nor hit-tests Settings and has no `openSettings` action. This preserves the existing `SettingsGearNode` semantic identity, 44-point hit behavior, accessibility adapter, focus restoration, and Battle pause behavior.
+### Battle layout gate is scene state
 
-Camp and Map follow the same ownership rule: their layouts provide a gear frame, but the gear remains controller-owned.
-
-### Battle required-layout failure is scene state
-
-Add `private(set) var isBattleChromeFitFailed = false` to `BattleScene`.
-
-- Successful required chrome layout resets it to false.
-- Nil/failed required chrome layout sets it true, hides/disables required Forged controls, and notifies the router with `.unsupportedGeometry` only to trigger a refresh.
-- `GameViewController.refreshLayoutSupport` treats `battle.isConquestReportFitFailed || battle.isBattleChromeFitFailed` as the Battle fail-closed source of truth.
-
-This matches the existing Conquest pattern; the router callback is not itself the persisted gate state.
+Add `private(set) var isBattleChromeFitFailed = false` to `BattleScene`. Success clears it; required chrome failure sets it, hides/disables required Forged controls, and notifies the router only to trigger controller refresh. `GameViewController.refreshLayoutSupport` checks `isBattleChromeFitFailed || isConquestReportFitFailed` as the Battle source of truth.
 
 ## Camp redesign
 
-Keep the countryside backdrop, all 25 authored scenic lot positions, real slot state, existing build/upgrade mutations, settlement-before-mutation, persistence, feedback, and conquest-during-settlement behavior.
+Keep the countryside backdrop, all 25 scenic lot positions, real slot state, existing build/upgrade mutations, settlement-before-mutation, persistence, feedback, and conquest-during-settlement behavior.
 
-Selecting an empty lot opens one five-option radial/arc builder in `BuildingType.allCases` order. Each option is exactly one of available, unaffordable, locked(unlock city), or capped(maximum). All five types appear even though the mock visually samples four. Edge lots may use two arcs/rows as long as every hit frame remains at least 44×44 and no type disappears.
+Selecting an empty lot opens one five-option radial/arc builder in `BuildingType.allCases` order. Each option is available, unaffordable, locked(unlock city), or capped(maximum). Edge lots may use two arcs/rows; every option remains ≥44×44 and no type disappears.
 
 Selecting an occupied lot shows an inspector with building art/name, level pips, lot number, produced soldier, and one real-cost Upgrade action.
 
-`RecommendedCampRecommendation` remains the only recommendation policy and drives the Battle objective strip, Camp attention dot, recommended lot highlight, and matching radial/upgrade emphasis. The current prose recommendation row is removed only after those consumers exist.
-
-Any tab action leaving Camp runs the current `returnFromBackground` settlement/save path first; pending conquest restores Battle rather than opening Map.
+`RecommendedCampRecommendation` remains the only recommendation policy and drives the Battle objective, Camp attention dot, recommended lot, and matching build/upgrade emphasis. The prose recommendation row is removed only after those consumers exist.
 
 ## Map redesign
 
-Keep the authored backdrop, 15 city anchors/routes, map status computation, feedback kinds, flavor behavior, safe-area validation, and one layout gate.
+Keep the authored backdrop, 15 city anchors/routes, status computation, feedback kinds, flavor behavior, safe-area validation, and one layout gate.
 
 ### Selected-city content
 
 Add scene-local `selectedCityNumber`. Selection redraws only; it does not mutate `KingdomGameState`.
 
-Extend the existing scout-card projection to represent attackable, current active, completed, locked, and country-complete content. The card shows authored city identity, meaningful future reward, trait/short description, favorable/disadvantaged unit portraits with real multipliers, exposed lane, and state-specific action. The current active-city action returns to Battle without restarting it. Locked/completed actions remain non-mutating. Flavor stays non-blocking and excludes an enabled March action frame.
+Extend the existing scout-card content for attackable/current/completed/locked/country-complete states. It shows authored city identity, meaningful future reward, trait/short description, favorable/disadvantaged unit portraits with real multipliers, exposed lane, and state action. The current-city action returns to Battle without restarting. Flavor remains non-blocking.
 
-### The large card changes the broad map budget explicitly
+### Computed Map budget — no 236/300 guess
 
-The current 64/112-point information reservation is replaced, not stretched implicitly:
+The previous 236/300 pt exclusive reservation is rejected. With current Country 1 anchors, 44×44 city targets, a 72 pt tab bar, and the 393×852 safe area, that budget cannot satisfy the existing containment contract.
 
-```swift
-enum CountryMapLayoutClass: Equatable {
-    case phone
-    case pad
-
-    var informationRegionHeight: CGFloat {
-        self == .phone ? 236 : 300
-    }
-}
-```
-
-`CountryMapLayout` reserves, in order, safe bottom/tab bar, large information card, illustrated map region, and top resource/title chrome. It recomputes `displayedBackdropFrame` for the illustrated region and remaps all authored anchors through that frame; it does not keep the old full-scene backdrop transform and hope the enlarged card fits. The existing fail-closed checks still require every 44-point city target and every route stroke to remain inside the illustrated region and horizontal safe content.
-
-`CountryMapScoutCardLayout` remains the only card-interior authority. No second large-card layout type is added.
-
-### Remove the duplicate current-city button
-
-Delete `showsCurrentCityControl` from `CountryMapLayoutConstraints`, `showsCurrentCityControl` / `currentCityControlFrame` from layout output, and the separate `currentCityButton` node/touch/layout from `CountryMapScene`. The selected-city card owns `RETURN` / `MARCH`; the tab bar owns global Battle/Camp/Map navigation.
-
-Phone 393×852 and existing phone/iPad fixtures must prove the enlarged card plus tabs still leave all 15 city targets/routes valid. If a supported geometry cannot satisfy those existing invariants, Map continues to fail closed rather than dropping cities or shrinking hit targets.
-
-## Conquest redesign is one atomic display-contract cutover
-
-Keep `BattleResult` coding/finalization and pending-result persistence unchanged. Replace the old row-oriented display APIs together:
+The new broad-layout invariants are:
 
 ```swift
-struct ConquestReportContent: Equatable {
-    enum StatKind: Equatable { case mvp, battleTime, buildings, sentLost }
-
-    struct StatTile: Equatable {
-        let kind: StatKind
-        let title: String
-        let value: String
-        let soldierType: SoldierType?
-    }
-
-    enum AchievementChip: Equatable { case favorableUnit, exposedLane }
-
-    let title: String
-    let rewardText: String
-    let statTiles: [StatTile]
-    let achievementChips: [AchievementChip]
-}
+static let tabBarHeight: CGFloat = 72
+static let preferredPhoneInformationHeight: CGFloat = 164
+static let preferredPadInformationHeight: CGFloat = 140
+static let minimumCompactInformationHeight: CGFloat = 48
+static let minimumIllustratedMapHeight: CGFloat = 431
+static let minimumCityCenterDistance: CGFloat = 45
 ```
 
-In the same implementation commit remove `summaryLines`, `goldLineIndex`, and the layout's `(3...4)` summary-row contract. `ConquestReportLayout.Input` becomes `statTileCount` 2...3 plus `achievementChipCount` 0...2 and existing country-completion flag. Layout output has a dedicated `rewardFrame`, centered two/three `statTileFrames`, zero/two chip frames as needed, `continueFrame`, and optional country-complete frame.
+`CountryMapLayout.compute` resolves information height from **remaining vertical budget**, not only layout class:
 
-`ConquestReportNode.goldEffectAnchor` comes from `rewardFrame.midX/midY`, not a positional summary-row index.
+1. Reserve top title/resource chrome and its 8 pt gap.
+2. Reserve bottom safe inset + 72 pt tabs.
+3. Require at least 431 pt for the illustrated phone map.
+4. The card gets `min(preferredInformationHeight, remainingCardBudget)`.
+5. If the remaining card budget is below 48 pt, fail closed.
 
-Tile rules are fixed:
+For current phone fixtures this resolves to:
 
-- live + MVP: MVP, battle time, sent/lost;
-- live without MVP: battle time, sent/lost;
-- idle + MVP: MVP, Buildings, sent/lost;
-- idle without MVP: Buildings, sent/lost.
+- 375×667: **48 pt** compact card + 431 pt illustrated map;
+- 375×812: **133 pt** card + 431 pt illustrated map;
+- 393×852: **164 pt** card + 431 pt illustrated map.
 
-No filler MVP/stat/achievement is invented. Zero achievements reserve no chip strip. Continue is visually `MARCH ON` but keeps the existing acknowledge-save-route behavior, disabled transition window, fresh/restored semantics, and finale reservation.
+Pad uses a preferred 140 pt horizontal/multi-column card; existing pad fixtures have enough map height for that reservation.
 
-Conquest omits the tab bar entirely.
+### Explicit backdrop transform
 
-## Settings redesign
+Do not use centered full-scene aspect-fill and do not aspect-fit the map into a narrow letterbox.
 
-Keep `FeedbackSettingsController`, `FeedbackPreferencesManaging`, `FeedbackSettingsAccessibilityAdapter`, `FeedbackSettingsAction`, focus restoration, independent persistence, modal touch precedence, and Battle action pausing.
+The illustrated-map transform is **aspect-fill with authored interaction-envelope alignment**:
 
-Only `FeedbackSettingsLayout` and `FeedbackSettingsNode` change presentation: safe-area-aware bottom sheet, dim scrim, decorative non-draggable handle, two icon/title/switch rows, and one full-width Done action. SpriteKit switch graphics still activate the existing row actions; do not introduce `UISwitch` or new accessible controls.
+1. Preserve backdrop aspect ratio.
+2. Scale by the maximum of:
+   - illustrated-region width / canonical width;
+   - illustrated-region height / canonical height;
+   - scale required for the closest authored city centers to remain at least 45 pt apart.
+3. Keep the backdrop horizontally centered.
+4. Compute the complete vertical interaction envelope after scaling: all city centers ±22 pt plus route-stroke extents.
+5. Vertically translate the backdrop so that interaction envelope, not the bitmap's geometric center, is centered inside `illustratedMapRegionFrame`.
+6. Re-run the existing city/route containment guards.
 
-## Deterministic visual fixtures arrive before screen cutovers
+Using current Country 1 anchors this gives, at 393×852 with 59/34 insets and a 164 pt card:
 
-Add a closed DEBUG-only `ForgedVisualFixture` immediately after tab routing is implemented, before Battle/Camp/Map/Conquest/Settings visual tasks.
+- illustrated map height: **431 pt**;
+- closest city-center distance: **45.0 pt**;
+- minimum city-target headroom: **~8.3 pt**;
+- minimum route-stroke headroom: **~27.3 pt**.
 
-Fixture cases are:
+Those numbers become pure layout tests. The full mock-height card is deliberately not used because preserving all 15 authored 44 pt interactions is a shipping constraint. That vertical difference must be visible in the parity board rather than hidden as a late implementation surprise.
 
-```text
-battle
-battle-blocked
-camp-empty
-camp-occupied
-map
-map-country-complete
-conquest-live
-conquest-idle
-```
+The 48 pt short-phone card uses a horizontal compact projection (city identity/status plus primary action). Detailed trait/counter information remains reachable through the existing informational/flavor overlay; no scrolling/panning framework is added only for the short fixture.
 
-The explicit `-pyxis-forged-fixture <value>` launch argument overwrites the development/test save through normal model initializers only when present in DEBUG. Unknown/no argument does nothing. This fixture is intentionally separate from `DevJumpState`; the existing jump tool has a different trigger/ownership contract and deliberately does not become a launch-argument harness.
+### Remove duplicate current-city control
 
-The initial fixture slice includes parsing, deterministic `makeState()`, and normal scene routing only. A separate final DEBUG freeze-combat argument is added with UI smoke/parity capture, after there is a Battle screen worth freezing.
+Delete `showsCurrentCityControl`, `currentCityControlFrame`, and `currentCityButton`. The selected-city card owns Return/March; tabs own global Battle/Camp/Map navigation.
 
-Every later visual task must launch its relevant fixture at 393×852 while it is being implemented rather than waiting for the final acceptance task.
+## Conquest redesign — atomic display cutover
+
+Keep `BattleResult` coding/finalization and pending-result persistence unchanged. Replace `summaryLines`, `goldLineIndex`, and the layout's 3...4 row contract in the same slice with:
+
+- dedicated `rewardText` / `rewardFrame`;
+- two or three typed `StatTile`s;
+- zero to two achievement chips;
+- existing country-complete reservation;
+- existing Continue action, visually `MARCH ON`.
+
+Tile shapes remain:
+
+- live + MVP → MVP, battle time, sent/lost;
+- live without MVP → battle time, sent/lost;
+- idle + MVP → MVP, Buildings, sent/lost;
+- idle without MVP → Buildings, sent/lost.
+
+No filler tile/achievement is invented. Gold feedback anchors to `rewardFrame` rather than a positional summary-row index. Conquest has no tab bar.
+
+## Settings redesign — no rename churn
+
+Keep `FeedbackSettingsController`, preferences, adapter, action enum, focus restoration, modal precedence, and Battle pause behavior.
+
+`FeedbackSettingsLayout` keeps its existing public value names:
+
+- `scrimFrame`;
+- `panelFrame`;
+- `soundRowFrame`;
+- `hapticsRowFrame`;
+- `closeFrame`.
+
+Add only `handleFrame`. The node renders the existing `panelFrame` as a bottom sheet and `closeFrame` with visible copy `Done`. Do not rename them to `sheetFrame` / `doneFrame`; that would be test churn with no behavior change.
+
+## Deterministic visual fixtures before screen cutovers
+
+Add `ForgedVisualFixture` immediately after routing. Keep its launch trigger separate from the five-tap dev tool, but reuse `DevJumpState.make(city:)` as the DEBUG state baseline for battle/camp/map cases, then mutate only fixture-specific gold/buildings/stage/result fields. This avoids a second Country 1 state-construction recipe.
+
+Fixture cases remain battle, battle-blocked, camp-empty, camp-occupied, map, map-country-complete, conquest-live, conquest-idle. `-pyxis-forged-fixture <value>` is DEBUG-only; unknown/no argument leaves the store untouched. Final capture may also use a DEBUG-only freeze-combat marker. Both markers must be absent from Release strings.
 
 ## Real gameplay versus mock parity contract
 
-Parity has two simultaneous columns:
+Every reviewed surface passes both visual and semantic parity:
 
-| Surface | Visual parity | Real gameplay parity |
+| Surface | Visual target | Real-gameplay gates |
 | --- | --- | --- |
-| Battle | Forged top bands, lane chips, five medallions, Deploy, tabs | Real gold/city/HP/recommendation/lane profile; Infantry L1 starter; unbuilt vs locked; multipliers; manual cap; blocked routing; Settings and Conquest precedence |
-| Camp | Scenic lots, radial builder, inspector, tabs | 25 lots; all five building types; affordability/unlocks/caps; recommendation; settlement; pending Conquest routing |
-| Map | Progress pips, large selected-city card, March/Return, tabs | Current/unlocked/locked/completed/country-complete; authored route; flavor/feedback; all 15 44-point targets; no duplicate current-city control |
-| Conquest | Crest/reward, two/three stat tiles, chips, March On | Live/idle; optional MVP; real counts/time; zero achievements; restored/finale; no tabs |
-| Settings | Bottom sheet, icon rows, switch visuals, Done | Existing independent toggles; same gear/accessibility adapter; focus restoration; Battle pause; modal touch priority |
+| Battle | top bands, lane chips, five medallions, Deploy, tabs | real gold/HP/recommendation/lane/unit states; Infantry L1; tabs disabled with manual squad; ≥416 pt reference field |
+| Camp | scenic lots, builder, inspector, tabs | 25 lots; 5 building types; unlock/afford/cap; settlement; pending conquest |
+| Map | pips, selected card, March/Return, tabs | computed card/map budget; 15 authored 44 pt targets/routes; current/completed/locked/complete |
+| Conquest | reward, stat tiles, chips, March On | live/idle; optional MVP; zero achievements; restored/finale behavior |
+| Settings | bottom sheet, icons, switches, Done | two persisted toggles; one gear; accessibility/focus/pause semantics |
 
-The implementation PR must attach, for every required state, the canonical mock, a real 393×852 simulator screenshot, a 50% alpha overlay, and a short note for each deliberate gameplay-grounded discrepancy.
+The implementation PR includes canonical mock / real 393×852 / 50%-alpha overlay comparisons. Deliberate geometry differences such as the 164 pt Map card are documented with their real constraint.
 
-Minimum evidence: Battle normal; Battle locked/unbuilt; Battle blocked navigation; Camp radial; Camp inspector; Camp unavailable option; Map attackable; Map locked/completed; Map country complete; Conquest live with MVP; Conquest idle without MVP; Settings with one toggle off.
+## Risks and fallbacks
 
-Review order is geometry/safe areas → hierarchy → typography/material → semantic values → mock-omitted states → interactions/hit targets. Automated tests do not replace this board.
+### 1. Map geometry
 
-## Testing and release gates
+**Risk:** Enlarged card/tabs can make the authored 15-city route impossible at 44 pt target size.
 
-Pure layout/projection tests cover 393×852, the smallest supported phone fixture, and current iPad fixtures; exact five-medallion/three-tab counts; 44-point targets; Infantry fallback; Camp option states; all Map city/route containment after card growth; two/three Conquest tiles; and bottom-sheet geometry.
+**Control:** pure arithmetic is pinned before Map rendering: minimum illustrated height 431, center distance 45, reference headroom ~8.3. If a supported fixture fails, reduce information height through the existing budget calculation; never shrink hit targets, drop cities, or silently re-author anchors.
 
-Scene/controller tests cover one-shot mutation/routing, living-squad preservation, Camp settlement before either exit, pending-first result restoration, Battle chrome gate flags, modal precedence, lifecycle behavior, and no duplicate nodes after redraw/resize.
+### 2. Battle battlefield collapse
 
-The final XCUITest smoke uses the DEBUG fixtures for route viability and screenshot attachments only; it does not compare pixels.
+**Risk:** New chrome can leave `BattlefieldLayout` at its 60 pt lane minimum.
 
-Full verification runs all tests with parallel testing disabled, SwiftLint, `git diff --check`, a Release simulator build, and a binary-string scan proving the unique Forged fixture marker is absent. Codecov project and patch statuses remain at the repository's current 90% target with zero threshold.
+**Control:** regular minimum field 416 and 393 reference target 424...440; compact floor 340. Failure sets `isBattleChromeFitFailed` and gates the scene rather than rendering a collapsed field.
+
+### 3. Render-node patch coverage
+
+**Risk:** SpriteKit path/color/sprite assembly can miss the repository's blocking 90% patch status.
+
+**Control:** value-producing decisions stay in pure projections/layouts; render nodes have fixed trees and thin `apply`/hit-test bodies. Node tests exercise every style/state/action branch. If Codecov reports <90% patch, add focused tests for the reported uncovered lines; do not exclude files or weaken `codecov.yml`.
+
+### 4. Large single runtime PR
+
+**Risk:** five connected surfaces create a large review diff.
+
+**Control:** this task remains one PR per project delivery policy. Use task commits and explicit review checkpoints after foundation/fixtures, Battle, Camp+Map, and Conquest+Settings. Do not split into multiple PRs unless the product owner explicitly approves that exception.
 
 ## Delivery shape
 
-The runtime redesign is one implementation PR. Tasks/commits are logical TDD slices, not separate PRs. The planning PR itself remains non-runtime: design/plan documentation plus the five canonical visual reference PNGs.
+The complete runtime redesign is one PR. Tasks are logical TDD commits with intermediate review checkpoints, not independently merged PRs. This avoids temporary compatibility chrome and honors the project's one-PR-per-task planning rule.
+
+No runtime PR leaves Draft until full tests/lint/diff, Codecov ≥90% project/patch, Release marker scans, and the parity board are complete.
