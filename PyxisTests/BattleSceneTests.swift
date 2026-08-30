@@ -458,10 +458,12 @@ struct BattleSceneTests {
         #expect(!scene.isBattlefieldLayerPausedForTesting)
         #expect(scene.battlefieldActionLayerPositionForTesting == .zero)
 
-        for point in [
-            layout.deployFrame.center,
-            layout.tabHitFrames[2].center,
-            layout.tabHitFrames[1].center,
+        let tabPoints = [layout.tabHitFrames[2], layout.tabHitFrames[1]].map { frame in
+            // The bottom sheet covers the tab centers; use the exposed edge of
+            // each hit frame to verify the modal still consumes the tabs.
+            CGPoint(x: frame.midX, y: frame.minY + 4)
+        }
+        for point in [layout.deployFrame.center] + tabPoints + [
             layout.incomeFrame.center,
             layout.cityProgressFrame.center
         ] {

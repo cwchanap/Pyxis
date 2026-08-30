@@ -49,7 +49,7 @@ private func feedbackSettingsSafeFrame(for fixture: FeedbackSettingsFixture) -> 
 
 struct FeedbackSettingsLayoutTests {
     @Test(arguments: feedbackSettingsFixtures)
-    private func supportedFixturesContainTheFixedSettingsStack(
+    private func supportedFixturesContainTheBottomSheetStack(
         fixture: FeedbackSettingsFixture
     ) throws {
         let layout = try #require(feedbackSettingsLayout(fixture))
@@ -57,39 +57,57 @@ struct FeedbackSettingsLayoutTests {
         let controls = [layout.soundRowFrame, layout.hapticsRowFrame, layout.closeFrame]
 
         #expect(layout.scrimFrame == CGRect(origin: .zero, size: fixture.sceneSize))
-        #expect(layout.panelFrame.width == 320)
-        #expect(layout.panelFrame.height == 222)
-        #expect(layout.panelFrame.midX == safeFrame.midX)
-        #expect(layout.panelFrame.midY == safeFrame.midY)
-        #expect(safeFrame.contains(layout.panelFrame))
+        #expect(layout.panelFrame.minX == 0)
+        #expect(layout.panelFrame.maxX == fixture.sceneSize.width)
+        #expect(layout.panelFrame.minY == 0)
+        #expect(layout.panelFrame.maxY <= fixture.sceneSize.height)
+        #expect(layout.panelFrame.maxY <= safeFrame.maxY)
+        #expect(layout.panelFrame.contains(layout.handleFrame))
         #expect(controls.allSatisfy { layout.panelFrame.contains($0) })
-        #expect(controls.allSatisfy { $0.width >= 44 && $0.height >= 44 })
+        #expect(layout.handleFrame.width == 44)
+        #expect(layout.handleFrame.height == 4)
+        #expect(controls.allSatisfy { $0.width >= 44 && $0.height >= 52 })
 
-        #expect(layout.soundRowFrame.maxY + 20 == layout.panelFrame.maxY)
-        #expect(layout.hapticsRowFrame.maxY + 12 == layout.soundRowFrame.minY)
-        #expect(layout.closeFrame.maxY + 18 == layout.hapticsRowFrame.minY)
-        #expect(layout.closeFrame.minY == layout.panelFrame.minY + 20)
+        #expect(layout.soundRowFrame.minY == layout.hapticsRowFrame.maxY + 1)
+        #expect(layout.hapticsRowFrame.minY == layout.closeFrame.maxY + 14)
+        #expect(layout.handleFrame.minY == layout.soundRowFrame.maxY + 16)
+        #expect(layout.handleFrame.maxY + 12 == layout.panelFrame.maxY)
+        #expect(layout.closeFrame.minY >= max(20, fixture.safeAreaInsets.bottom))
     }
 
-    @Test func compactPhoneUsesTheExactSpecifiedFrames() throws {
+    @Test func compactPhoneUsesTheExactBottomSheetFrames() throws {
         let fixture = feedbackSettingsFixtures[0]
         let layout = try #require(feedbackSettingsLayout(fixture))
 
-        #expect(layout.panelFrame == CGRect(x: 27.5, y: 138.5, width: 320, height: 222))
-        #expect(layout.soundRowFrame == CGRect(x: 47.5, y: 288.5, width: 280, height: 52))
-        #expect(layout.hapticsRowFrame == CGRect(x: 47.5, y: 224.5, width: 280, height: 52))
-        #expect(layout.closeFrame == CGRect(x: 47.5, y: 158.5, width: 280, height: 48))
+        #expect(layout.panelFrame == CGRect(x: 0, y: 0, width: 375, height: 239))
+        #expect(layout.handleFrame == CGRect(x: 165.5, y: 223, width: 44, height: 4))
+        #expect(layout.soundRowFrame == CGRect(x: 20, y: 147, width: 335, height: 60))
+        #expect(layout.hapticsRowFrame == CGRect(x: 20, y: 86, width: 335, height: 60))
+        #expect(layout.closeFrame == CGRect(x: 20, y: 20, width: 335, height: 52))
     }
 
-    @Test func sixteenPointSafeMarginsAndMaximumPanelWidthMeetAtTheBoundary() throws {
+    @Test func tallPhoneUsesTheSafeAreaBottomAsSheetPadding() throws {
         let layout = try #require(FeedbackSettingsLayout.compute(
-            sceneSize: .init(width: 352, height: 222),
+            sceneSize: .init(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        ))
+
+        #expect(layout.panelFrame == CGRect(x: 0, y: 0, width: 393, height: 253))
+        #expect(layout.handleFrame == CGRect(x: 174.5, y: 237, width: 44, height: 4))
+        #expect(layout.soundRowFrame == CGRect(x: 20, y: 161, width: 353, height: 60))
+        #expect(layout.hapticsRowFrame == CGRect(x: 20, y: 100, width: 353, height: 60))
+        #expect(layout.closeFrame == CGRect(x: 20, y: 34, width: 353, height: 52))
+    }
+
+    @Test func narrowSafeMarginsRemainContainedAtTheBoundary() throws {
+        let layout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: .init(width: 84, height: 239),
             safeAreaInsets: .zero
         ))
 
-        #expect(layout.panelFrame == CGRect(x: 16, y: 0, width: 320, height: 222))
-        #expect(layout.panelFrame.minX == 16)
-        #expect(layout.scrimFrame.maxX - layout.panelFrame.maxX == 16)
+        #expect(layout.panelFrame == CGRect(x: 0, y: 0, width: 84, height: 239))
+        #expect(layout.soundRowFrame == CGRect(x: 20, y: 147, width: 44, height: 60))
+        #expect(layout.panelFrame.contains(layout.soundRowFrame))
     }
 
     @Test func nonfiniteAndInsufficientSafeGeometryReturnsNil() {
@@ -106,11 +124,11 @@ struct FeedbackSettingsLayoutTests {
             safeAreaInsets: .init(top: 0, left: -1, bottom: 0, right: 0)
         ) == nil)
         #expect(FeedbackSettingsLayout.compute(
-            sceneSize: .init(width: 115, height: 222),
+            sceneSize: .init(width: 83, height: 239),
             safeAreaInsets: .zero
         ) == nil)
         #expect(FeedbackSettingsLayout.compute(
-            sceneSize: .init(width: 375, height: 221),
+            sceneSize: .init(width: 375, height: 238),
             safeAreaInsets: .zero
         ) == nil)
     }
