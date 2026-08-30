@@ -372,11 +372,16 @@ struct CountryMapScoutCardAcceptanceTests {
 
     private final class RouteSpy: CountryMapSceneRouting {
         private(set) var battleRequestCount = 0
+        private(set) var requestedTabs: [GameplayTab] = []
 
-        func countryMapSceneDidRequestBattle(
-            _ scene: CountryMapScene
+        func countryMapSceneDidRequestGameplayTab(
+            _ scene: CountryMapScene,
+            tab: GameplayTab
         ) -> Bool {
-            battleRequestCount += 1
+            requestedTabs.append(tab)
+            if tab == .battle {
+                battleRequestCount += 1
+            }
             return true
         }
 

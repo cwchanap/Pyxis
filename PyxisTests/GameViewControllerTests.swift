@@ -219,7 +219,7 @@ struct GameViewControllerTests {
         controller.view = view
         controller.viewDidLoad()
         let battle = try #require(view.scene as? BattleScene)
-        controller.battleSceneDidRequestBuildingView(battle)
+        controller.battleSceneDidRequestGameplayTab(battle, tab: .camp)
         #expect(view.scene is BuildingViewScene)
 
         view.frame.size = CGSize(width: 678, height: 834)
@@ -268,7 +268,7 @@ struct GameViewControllerTests {
         battle.advanceCombatForTesting(deltaTime: 0.1)
         #expect(context.feedback.automaticCombatCallCount == 1)
 
-        controller.battleSceneDidRequestBuildingView(battle)
+        controller.battleSceneDidRequestGameplayTab(battle, tab: .camp)
         let building = try #require(view.scene as? BuildingViewScene)
         building.didMove(to: view)
         let buildingFrameConversions = context.accessibilityFrameConversionCount
@@ -276,9 +276,9 @@ struct GameViewControllerTests {
         building.buildSelectedSlotForTesting(.barracks)
         #expect(context.feedback.events.count == 1)
 
-        controller.buildingViewSceneDidRequestBattle(building)
+        controller.buildingViewSceneDidRequestGameplayTab(building, tab: .battle)
         let returnedBattle = try #require(view.scene as? BattleScene)
-        controller.battleSceneDidRequestCountryMap(returnedBattle)
+        controller.battleSceneDidRequestGameplayTab(returnedBattle, tab: .map)
         let map = try #require(view.scene as? CountryMapScene)
         map.didMove(to: view)
         #expect(context.accessibilityFrameConversionCount > buildingFrameConversions)
@@ -519,7 +519,7 @@ struct GameViewControllerTests {
             y: settingsLayout.closeFrame.midY
         ))
 
-        controller.battleSceneDidRequestBuildingView(battle)
+        controller.battleSceneDidRequestGameplayTab(battle, tab: .camp)
         let building = try #require(view.scene as? BuildingViewScene)
         building.didMove(to: view)
         let buildingGear = try #require(building.feedbackSettingsGearFrameForTesting)
@@ -591,13 +591,15 @@ struct GameViewControllerTests {
 
     @Test func mapUnavailableReasonDoesNotPersistIntoBattleScene() throws {
         let store = try makeStore(initialState: .init(
-            cityRemainingPower: 0,
-            stageStatus: .cityConqueredPendingMap
+            cityRemainingPower: 100,
+            stageStatus: .battleActive
         ))
         let controller = makeGameViewController(store: store)
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        controller.battleSceneDidRequestGameplayTab(battle, tab: .map)
         let map = try #require(view.scene as? CountryMapScene)
 
         controller.countryMapScene(map, didRequestLayoutGate: .mapUnavailable)
@@ -605,7 +607,7 @@ struct GameViewControllerTests {
 
         // Transitioning to battle must clear the map-scoped reason so the
         // battle scene is not gated as map-unavailable.
-        let accepted = controller.countryMapSceneDidRequestBattle(map)
+        let accepted = controller.countryMapSceneDidRequestGameplayTab(map, tab: .battle)
 
         #expect(accepted)
         #expect(view.scene is BattleScene)
@@ -678,7 +680,7 @@ struct GameViewControllerTests {
             router: controller
         )
 
-        let accepted = controller.countryMapSceneDidRequestBattle(map)
+        let accepted = controller.countryMapSceneDidRequestGameplayTab(map, tab: .battle)
 
         #expect(!accepted)
         #expect(!(controller.view is SKView))
@@ -703,7 +705,7 @@ struct GameViewControllerTests {
             router: controller
         )
 
-        let accepted = controller.countryMapSceneDidRequestBattle(map)
+        let accepted = controller.countryMapSceneDidRequestGameplayTab(map, tab: .battle)
 
         #expect(accepted)
         let battle = try #require(view.scene as? BattleScene)
@@ -737,7 +739,7 @@ struct GameViewControllerTests {
         controller.viewDidLoad()
         let battle = try #require(view.scene as? BattleScene)
         battle.didMove(to: view)
-        controller.battleSceneDidRequestBuildingView(battle)
+        controller.battleSceneDidRequestGameplayTab(battle, tab: .camp)
         let building = try #require(view.scene as? BuildingViewScene)
         building.didMove(to: view)
 
@@ -772,6 +774,72 @@ struct GameViewControllerTests {
         #expect(view.scene is CountryMapScene)
     }
 
+    @Test func preferredGameplayTabRoutesOnlyWithinAnActiveStage() throws {
+        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+
+        controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .camp)
+        #expect(view.scene is BuildingViewScene)
+
+        controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .map)
+        #expect(view.scene is CountryMapScene)
+    }
+
+    @Test func pendingResultWinsOverPreferredGameplayTab() throws {
+        let store = try makeStore(initialState: pendingConqueredState())
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+
+        for tab in GameplayTab.allCases {
+            controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: tab)
+            #expect(view.scene is BattleScene)
+        }
+    }
+
+    @Test func countryCompleteStageWinsOverPreferredGameplayTab() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            completedCityCount: KingdomGameState.firstCountryCityCount,
+            stageStatus: .countryComplete
+        ))
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+
+        for tab in GameplayTab.allCases {
+            controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: tab)
+            #expect(view.scene is CountryMapScene)
+        }
+    }
+
+    @Test func campMapExitSettlesBeforePendingFirstRouting() throws {
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
+            cost: 15,
+            remainingGold: 85
+        ))
+
+        let store = try makeStore(initialState: initialState)
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        let camp = BuildingViewScene(size: view.bounds.size, store: store, router: controller)
+        view.presentScene(camp)
+        camp.didMove(to: view)
+
+        camp.requestGameplayTabForTesting(.map)
+
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(view.scene is BattleScene)
+    }
+
     @Test func buildingViewBattleRequestRestoresPendingIdleReport() throws {
         let store = try makeStore(initialState: pendingConqueredState(
             city: 1, stage: .cityConqueredPendingMap, mode: .idle
@@ -780,7 +848,7 @@ struct GameViewControllerTests {
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
         let building = BuildingViewScene(size: view.bounds.size, store: store, router: controller)
-        controller.buildingViewSceneDidRequestBattle(building)
+        controller.buildingViewSceneDidRequestGameplayTab(building, tab: .battle)
         let battle = try #require(view.scene as? BattleScene)
         battle.didMove(to: view)
         #expect(battle.conquestReportLinesForTesting[1] == "Conquered by your buildings")

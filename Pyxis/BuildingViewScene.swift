@@ -8,7 +8,10 @@ import SpriteKit
 import UIKit
 
 protocol BuildingViewSceneRouting: AnyObject {
-    func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) -> Bool
+    func buildingViewSceneDidRequestGameplayTab(
+        _ scene: BuildingViewScene,
+        tab: GameplayTab
+    ) -> Bool
 }
 
 final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
@@ -126,6 +129,13 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private let battleButton = SKNode()
     private let battleBackground = SKShapeNode()
     private let battleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let gameplayTabBar = GameplayTabBarNode()
+    private var gameplayTabBarFrame = CGRect.zero
+    private var gameplayTabContent = GameplayTabBarNode.Content(
+        selected: .camp,
+        enabledTabs: [],
+        showsCampAttention: false
+    )
 
     private var buildButtonBundles: [BuildingType: BuildButtonBundle] = [:]
     private var slotNodes: [Int: SlotNodeBundle] = [:]
@@ -213,6 +223,11 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             return
         }
 
+        if let tab = gameplayTabBar.tab(at: point) {
+            requestGameplayTab(tab)
+            return
+        }
+
         if buttonContains(recommendationRow, point: point) {
             activateRecommendedCamp()
             return
@@ -229,7 +244,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         }
 
         if buttonContains(battleButton, point: point) {
-            requestBattle()
+            requestGameplayTab(.battle)
             return
         }
 
@@ -462,6 +477,8 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         BuildingType.allCases.compactMap { buildButtonBundles[$0]?.button }.forEach(addChild)
         addChild(upgradeButton)
         addChild(battleButton)
+        gameplayTabBar.zPosition = GameUITheme.Z.hud
+        addChild(gameplayTabBar)
 
         for slot in CityBattleState.slotRange {
             let container = SKNode()
@@ -877,6 +894,19 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             upgradeButton: upgradeButtonFrame,
             battleButton: battleButtonFrame
         )
+
+        layoutGameplayTabBar(actionPanelFrame: actionPanelFrame)
+    }
+
+    private func layoutGameplayTabBar(actionPanelFrame: CGRect) {
+        let horizontalMargin = max(16, min(22, size.width * 0.05))
+        gameplayTabBarFrame = CGRect(
+            x: horizontalMargin,
+            y: actionPanelFrame.maxY + 8,
+            width: max(0, size.width - horizontalMargin * 2),
+            height: 72
+        )
+        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
     }
 
     private func resetFontSizes() {
@@ -905,6 +935,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private func redraw() {
         let recommendation = RecommendedCampRecommendation.make(for: state)
         renderedRecommendation = recommendation
+        applyGameplayTabBar()
 
         titleLabel.text = "City Lots"
         goldLabel.text = "Gold: \(state.gold)"
@@ -976,6 +1007,23 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         }
 
         layoutInterface()
+    }
+
+    private func applyGameplayTabBar() {
+        let enabledTabs: Set<GameplayTab>
+        if state.stageStatus == .battleActive {
+            enabledTabs = state.pendingBattleResult == nil
+                ? Set(GameplayTab.allCases)
+                : [.battle, .camp]
+        } else {
+            enabledTabs = [.map]
+        }
+        gameplayTabContent = GameplayTabBarNode.Content(
+            selected: .camp,
+            enabledTabs: enabledTabs,
+            showsCampAttention: false
+        )
+        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
     }
 
     private func redrawSlot(_ slot: Int) {
@@ -1166,8 +1214,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         redraw()
     }
 
-    private func requestBattle() {
-        guard !isLayoutGatePaused, !isRoutingToBattle else {
+    private func requestGameplayTab(_ tab: GameplayTab) {
+        guard !isLayoutGatePaused,
+              !isRoutingToBattle,
+              tab != .camp else {
             return
         }
 
@@ -1182,7 +1232,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         // Unlike the Country Map's locked-city case, a failed Battle transition
         // is an internal routing failure rather than an invalid user action, so
         // it resets the latch without emitting invalid-action feedback.
-        guard router?.buildingViewSceneDidRequestBattle(self) ?? false else {
+        guard router?.buildingViewSceneDidRequestGameplayTab(self, tab: tab) ?? false else {
             isRoutingToBattle = false
             return
         }
@@ -1608,8 +1658,20 @@ extension BuildingViewScene {
         upgradeSelectedSlot()
     }
 
-    func requestBattleForTesting() {
-        requestBattle()
+    func requestGameplayTabForTesting(_ tab: GameplayTab) {
+        requestGameplayTab(tab)
+    }
+
+    var gameplayTabBarForTesting: GameplayTabBarNode {
+        gameplayTabBar
+    }
+
+    var gameplayTabContentForTesting: GameplayTabBarNode.Content {
+        gameplayTabContent
+    }
+
+    var gameplayTabBarFrameForTesting: CGRect {
+        gameplayTabBarFrame
     }
 
     var isRoutingToBattleForTesting: Bool {

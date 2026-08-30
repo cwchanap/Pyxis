@@ -274,7 +274,7 @@ struct BuildingViewSceneTests {
         #expect(!scene.isFeedbackSettingsVisibleForTesting)
         scene.layoutGateWillResume(at: Date(timeIntervalSinceReferenceDate: 11))
 
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
         scene.handleTouchForTesting(at: center(of: gearFrame))
 
         #expect(router.battleRequestCount == 1)
@@ -506,7 +506,7 @@ struct BuildingViewSceneTests {
             feedbackPreferences: requestPreferences
         )
 
-        requestScene.requestBattleForTesting()
+        requestScene.requestGameplayTabForTesting(.battle)
         requestScene.redrawForTesting()
         requestScene.repeatDidMoveForTesting()
 
@@ -870,9 +870,29 @@ struct BuildingViewSceneTests {
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
 
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
 
         #expect(router.didRequestBattle)
+    }
+
+    @Test func nonCampGameplayTabExitSettlesAndRoutesThroughRouter() throws {
+        let start = Date(timeIntervalSinceNow: -120)
+        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 20)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
+            cost: 15,
+            remainingGold: 85
+        ))
+        initialState.markCurrentCityBuildingProgressInactive(at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestGameplayTabForTesting(.map)
+
+        let savedState = store.load()
+        #expect(router.requestedTabs == [.map])
+        #expect(savedState.cityRemainingPower < 20)
+        #expect(savedState.lastBackgroundedAt == nil)
     }
 
     @Test func battleRequestResolvesTimeSpentInBuildingViewBeforeRouting() throws {
@@ -884,7 +904,7 @@ struct BuildingViewSceneTests {
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
 
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
 
         let savedState = store.load()
         #expect(router.didRequestBattle)
@@ -926,7 +946,7 @@ struct BuildingViewSceneTests {
 
         NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
 
         #expect(store.load().stageStatus == .cityConqueredPendingMap)
         #expect(store.load().pendingBattleResult != nil)
@@ -946,7 +966,7 @@ struct BuildingViewSceneTests {
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
         #expect(scene.feedbackTextForTesting.contains("conquered"))
 
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
 
         #expect(router.battleRequestCount == 1)
         #expect(store.load().pendingBattleResult != nil)
@@ -1234,12 +1254,12 @@ struct BuildingViewSceneTests {
         // failed/absent transition must not permanently lock the scene.
         let scene = makeScene(store: store, router: nil)
 
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
 
         #expect(!scene.isRoutingToBattleForTesting)
 
         // The scene must remain interactive: a second request is still accepted.
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
         #expect(!scene.isRoutingToBattleForTesting)
     }
 
@@ -1249,7 +1269,7 @@ struct BuildingViewSceneTests {
         let router = RefusingRouteSpy()
         let scene = makeScene(store: store, router: router)
 
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
 
         #expect(router.battleRequestCount == 1)
         #expect(!scene.isRoutingToBattleForTesting)
@@ -1313,7 +1333,7 @@ struct BuildingViewSceneTests {
         let elements = try accessibilityElements(in: view)
         let gear = try #require(elements.first { $0.accessibilityLabel == "Settings" })
 
-        scene.requestBattleForTesting()
+        scene.requestGameplayTabForTesting(.battle)
         #expect(gear.accessibilityActivate())
         #expect(!scene.isFeedbackSettingsVisibleForTesting)
     }
@@ -1623,11 +1643,18 @@ struct BuildingViewSceneTests {
     private final class RouteSpy: BuildingViewSceneRouting {
         private(set) var didRequestBattle = false
         private(set) var battleRequestCount = 0
+        private(set) var requestedTabs: [GameplayTab] = []
         var transitionResult = true
 
-        func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) -> Bool {
-            didRequestBattle = true
-            battleRequestCount += 1
+        func buildingViewSceneDidRequestGameplayTab(
+            _ scene: BuildingViewScene,
+            tab: GameplayTab
+        ) -> Bool {
+            requestedTabs.append(tab)
+            if tab == .battle {
+                didRequestBattle = true
+                battleRequestCount += 1
+            }
             return transitionResult
         }
     }
@@ -1635,8 +1662,13 @@ struct BuildingViewSceneTests {
     private final class RefusingRouteSpy: BuildingViewSceneRouting {
         private(set) var battleRequestCount = 0
 
-        func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) -> Bool {
-            battleRequestCount += 1
+        func buildingViewSceneDidRequestGameplayTab(
+            _ scene: BuildingViewScene,
+            tab: GameplayTab
+        ) -> Bool {
+            if tab == .battle {
+                battleRequestCount += 1
+            }
             return false
         }
     }

@@ -2360,7 +2360,7 @@ struct BattleSceneTests {
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
 
-        scene.requestBuildingViewForTesting()
+        scene.requestGameplayTabForTesting(.camp)
 
         #expect(router.didRequestBuildingView)
     }
@@ -2370,7 +2370,7 @@ struct BattleSceneTests {
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
 
-        scene.requestCountryMapForTesting()
+        scene.requestGameplayTabForTesting(.map)
 
         #expect(router.didRequestCountryMap)
     }
@@ -2384,7 +2384,7 @@ struct BattleSceneTests {
         let scene = makeScene(store: store, router: router)
 
         scene.spawnSoldierForTesting()
-        scene.requestBuildingViewForTesting()
+        scene.requestGameplayTabForTesting(.camp)
 
         #expect(!router.didRequestBuildingView)
         #expect(scene.feedbackTextForTesting == "Finish the current squad before building.")
@@ -2413,7 +2413,7 @@ struct BattleSceneTests {
         #expect(scene.buildingLiveSoldierCountForTesting == 1)
         #expect(scene.manualLiveSoldierCountForTesting == 0)
 
-        scene.requestBuildingViewForTesting()
+        scene.requestGameplayTabForTesting(.camp)
 
         #expect(router.didRequestBuildingView)
     }
@@ -3478,19 +3478,24 @@ struct BattleSceneTests {
     private final class BattleRouterSpy: BattleSceneRouting {
         private(set) var didRequestCountryMap = false
         private(set) var didRequestBuildingView = false
+        private(set) var requestedTabs: [GameplayTab] = []
         private(set) var countryMapRequestCount = 0
         private(set) var buildingRequestCount = 0
         var onCountryMapRequest: ((BattleScene) -> Void)?
 
-        func battleSceneDidRequestCountryMap(_ scene: BattleScene) {
-            didRequestCountryMap = true
-            countryMapRequestCount += 1
-            onCountryMapRequest?(scene)
-        }
-
-        func battleSceneDidRequestBuildingView(_ scene: BattleScene) {
-            didRequestBuildingView = true
-            buildingRequestCount += 1
+        func battleSceneDidRequestGameplayTab(_ scene: BattleScene, tab: GameplayTab) {
+            requestedTabs.append(tab)
+            switch tab {
+            case .map:
+                didRequestCountryMap = true
+                countryMapRequestCount += 1
+                onCountryMapRequest?(scene)
+            case .camp:
+                didRequestBuildingView = true
+                buildingRequestCount += 1
+            case .battle:
+                break
+            }
         }
 
         private(set) var layoutGateRequestCount = 0
@@ -3928,7 +3933,7 @@ struct BattleSceneTests {
         let scene = makeScene(store: store, router: router)
         scene.spawnSoldierForTesting()
 
-        scene.requestCountryMapForTesting()
+        scene.requestGameplayTabForTesting(.map)
 
         #expect(!router.didRequestCountryMap)
         #expect(scene.feedbackTextForTesting == "Finish the current squad before viewing world.")
@@ -3942,9 +3947,38 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 3.0)
         #expect(scene.isConquestPopupVisibleForTesting)
 
-        scene.requestCountryMapForTesting()
+        scene.requestGameplayTabForTesting(.map)
 
         #expect(!router.didRequestCountryMap)
+    }
+
+    @Test func gameplayTabsDisableCampAndMapWhenManualSoldierLives() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+
+        #expect(scene.gameplayTabContentForTesting.enabledTabs == Set(GameplayTab.allCases))
+        #expect(scene.gameplayTabBarForTesting.visualCellCountForTesting == 3)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) != nil)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) != nil)
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.gameplayTabContentForTesting.enabledTabs == [.battle])
+        #expect(scene.gameplayTabBarForTesting.visualCellCountForTesting == 3)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) == nil)
+    }
+
+    @Test func directGameplayTabRouteKeepsManualSquadGuardFeedback() throws {
+        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
+        let router = BattleRouterSpy()
+        let scene = makeScene(store: store, router: router)
+        scene.spawnSoldierForTesting()
+
+        scene.requestGameplayTabForTesting(.camp)
+
+        #expect(!router.requestedTabs.contains(.camp))
+        #expect(scene.feedbackTextForTesting == "Finish the current squad before building.")
     }
 
     // MARK: - Feedback Settings (HPA-389)

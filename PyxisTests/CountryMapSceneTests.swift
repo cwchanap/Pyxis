@@ -111,6 +111,33 @@ struct CountryMapSceneTests {
         #expect(scene.isFeedbackSettingsVisibleForTesting)
     }
 
+    @Test func mapGameplayTabDoesNotStartOrChangeCityEntry() throws {
+        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let mapFrame = try #require(
+            scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map)
+        )
+
+        scene.handleTouchForTesting(at: mapFrame.center)
+
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().cityNumberInCountry == 1)
+        #expect(store.load().stageStatus == .battleActive)
+    }
+
+    @Test func battleGameplayTabRoutesWithoutCallingCityEntry() throws {
+        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestGameplayTabForTesting(.battle)
+
+        #expect(router.requestedTabs == [.battle])
+        #expect(store.load().cityNumberInCountry == 1)
+        #expect(store.load().stageStatus == .battleActive)
+    }
+
     @Test("Country Map Settings gear wins over an overlapping scout attack")
     func countryMapGearPrecedesScoutAttack() throws {
         let store = try makeStore(initialState: KingdomGameState(
@@ -2436,11 +2463,18 @@ struct CountryMapSceneTests {
         var acceptsBattleRequest = true
         var onBattleRequest: ((Int) -> Void)?
         private(set) var battleRequestCount = 0
+        private(set) var requestedTabs: [GameplayTab] = []
         private(set) var requestedGateReason: AppLayoutGateReason?
 
-        func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) -> Bool {
-            battleRequestCount += 1
-            onBattleRequest?(battleRequestCount)
+        func countryMapSceneDidRequestGameplayTab(
+            _ scene: CountryMapScene,
+            tab: GameplayTab
+        ) -> Bool {
+            requestedTabs.append(tab)
+            if tab == .battle {
+                battleRequestCount += 1
+                onBattleRequest?(battleRequestCount)
+            }
             return acceptsBattleRequest
         }
 
