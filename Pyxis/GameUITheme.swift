@@ -15,6 +15,8 @@ enum GameUITheme {
     enum Color {
         static let panelFill = SKColor(red: 0.07, green: 0.10, blue: 0.13, alpha: 0.88)
         static let panelStroke = SKColor(red: 1.0, green: 0.91, blue: 0.55, alpha: 0.26)
+        static let panelShadow = SKColor(white: 0, alpha: 0.42)
+        static let panelPrimaryActionFill = SKColor(red: 0.42, green: 0.25, blue: 0.08, alpha: 0.98)
         static let textPrimary = SKColor(red: 0.98, green: 0.94, blue: 0.84, alpha: 1.0)
         static let textSecondary = SKColor(red: 0.72, green: 0.82, blue: 0.86, alpha: 1.0)
         static let gold = SKColor(red: 1.0, green: 0.80, blue: 0.22, alpha: 1.0)

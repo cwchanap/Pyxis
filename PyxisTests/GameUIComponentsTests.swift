@@ -54,4 +54,21 @@ struct GameUIComponentsTests {
 
         #expect(panel.contentSizeForTesting == CGSize(width: 200, height: 80))
     }
+
+    @Test func primaryActionKeepsPanelTreeAndStyleWhenReappliedAndResized() {
+        let panel = PanelNode(size: CGSize(width: 180, height: 58))
+
+        panel.apply(size: CGSize(width: 180, height: 58), style: .primaryAction, showsRivets: true)
+        let childCount = panel.children.count
+
+        panel.apply(size: CGSize(width: 180, height: 58), style: .primaryAction, showsRivets: true)
+
+        #expect(panel.children.count == childCount)
+        #expect(panel.visibleRivetCountForTesting == 4)
+        #expect(panel.styleForTesting == .primaryAction)
+
+        panel.update(size: CGSize(width: 220, height: 64))
+
+        #expect(panel.styleForTesting == .primaryAction)
+    }
 }
