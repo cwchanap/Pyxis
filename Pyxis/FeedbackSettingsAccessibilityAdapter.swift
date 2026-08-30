@@ -111,6 +111,7 @@ final class FeedbackSettingsAccessibilityAdapter {
         isModalVisible = false
         isGearAccessible = false
         isSceneGearActionable = isSettingsActionable
+        containerView?.accessibilityValue = "Gameplay"
         gearElement.accessibilityFrame = .zero
         soundEffectsElement.accessibilityFrame = .zero
         hapticsElement.accessibilityFrame = .zero
@@ -163,6 +164,7 @@ final class FeedbackSettingsAccessibilityAdapter {
         }
         isModalVisible = true
         applyModal(layout: layout, preferences: preferences)
+        containerView?.accessibilityValue = Self.settingsAccessibilityValue(for: preferences)
         expose([soundEffectsElement, hapticsElement, closeElement])
         postScreenChange(target: soundEffectsElement)
     }
@@ -170,11 +172,13 @@ final class FeedbackSettingsAccessibilityAdapter {
     func reapplyModal(layout: FeedbackSettingsLayout, preferences: FeedbackPreferences) {
         guard isModalVisible else { return }
         applyModal(layout: layout, preferences: preferences)
+        containerView?.accessibilityValue = Self.settingsAccessibilityValue(for: preferences)
         expose([soundEffectsElement, hapticsElement, closeElement])
     }
 
     func dismiss(focusTarget: FeedbackSettingsFocusTarget) {
         isModalVisible = false
+        containerView?.accessibilityValue = "Gameplay"
 
         switch focusTarget {
         case .outcome(let outcome):
@@ -226,6 +230,11 @@ final class FeedbackSettingsAccessibilityAdapter {
         soundEffectsElement.accessibilityFrame = convertedFrame(from: layout.soundRowFrame) ?? .zero
         hapticsElement.accessibilityFrame = convertedFrame(from: layout.hapticsRowFrame) ?? .zero
         closeElement.accessibilityFrame = convertedFrame(from: layout.closeFrame) ?? .zero
+    }
+
+    private static func settingsAccessibilityValue(for preferences: FeedbackPreferences) -> String {
+        "Settings; Sound Effects \(preferences.soundEffectsEnabled ? "On" : "Off"); "
+            + "Haptics \(preferences.hapticsEnabled ? "On" : "Off")"
     }
 
     private func exposeGearIfAvailable() {

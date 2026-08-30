@@ -90,6 +90,21 @@ struct BattleSceneTests {
         #expect(scene.milestoneCityAccentFrameForTesting == nil)
     }
 
+    @Test("DEBUG freeze marker stops combat advancement without changing routing")
+    func freezeCombatLaunchArgumentStopsCombatAdvancement() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: stateWithBarracks()),
+            launchArguments: [BattleScene.freezeCombatLaunchArgument]
+        )
+
+        scene.update(10)
+        scene.update(11)
+
+        #expect(scene.lastUpdateTimeForTesting == 11)
+        #expect(scene.lastAdvanceCombatDeltaForTesting == nil)
+        #expect(scene.liveSoldierCountForTesting == 0)
+    }
+
     @Test("Arrival consumes one Settings-gear tap and the next tap opens Settings")
     func milestoneArrivalConsumesUnderlyingTap() throws {
         let scene = makeScene(
@@ -3342,6 +3357,7 @@ struct BattleSceneTests {
         store: KingdomGameStore,
         router: BattleSceneRouting? = nil,
         combatSeed: UInt64? = nil,
+        launchArguments: [String]? = nil,
         size: CGSize = CGSize(width: 390, height: 844),
         feedback: GameplayFeedbackProviding? = nil,
         feedbackPreferences: FeedbackPreferencesManaging? = nil,
@@ -3356,6 +3372,7 @@ struct BattleSceneTests {
             feedback: resolvedFeedback,
             feedbackPreferences: resolvedFeedbackPreferences,
             feedbackSettingsAccessibilityAdapter: feedbackSettingsAccessibilityAdapter,
+            launchArguments: launchArguments,
             combatSeed: combatSeed
         )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
