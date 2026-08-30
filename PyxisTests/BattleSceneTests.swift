@@ -20,12 +20,6 @@ struct BattleSceneTests {
         case discrete(GameplayFeedbackEvent)
     }
 
-    private struct HUDFixture {
-        let size: CGSize
-        let resourceIconMaximum: CGFloat
-        let cityIconMaximum: CGFloat
-    }
-
     private final class BattleFeedbackRecorder: GameplayFeedbackProviding {
         private(set) var calls: [BattleFeedbackCall] = []
         private(set) var automaticCallCount = 0
@@ -198,6 +192,105 @@ struct BattleSceneTests {
         #expect(scene.cityTitleTextForTesting == "Falconridge")
     }
 
+    @Test("BattleScene uses BattleChromeLayout's field and retries failed chrome")
+    func battleSceneUsesChromeFieldAndRetriesFailedChrome() throws {
+        let router = BattleRouterSpy()
+        let store = try makeStore(initialState: KingdomGameState())
+        let scene = makeScene(
+            store: store,
+            router: router,
+            size: CGSize(width: 393, height: 852)
+        )
+        let expected = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852)
+        )))
+
+        #expect(scene.battleChromeLayoutForTesting?.battlefieldFrame == expected.battlefieldFrame)
+        #expect(!scene.isBattleChromeFitFailedForTesting)
+
+        scene.size = CGSize(width: 320, height: 568)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.isBattleChromeFitFailedForTesting)
+        #expect(router.lastLayoutGateReason == .unsupportedGeometry)
+
+        scene.size = CGSize(width: 393, height: 852)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(!scene.isBattleChromeFitFailedForTesting)
+        #expect(scene.battleChromeLayoutForTesting?.battlefieldFrame == expected.battlefieldFrame)
+    }
+
+    @Test("Battle settings gear follows BattleChromeLayout and remains the only gear")
+    func battleSettingsGearUsesChromeSettingsFrame() throws {
+        let size = CGSize(width: 393, height: 852)
+        let scene = makeScene(
+            store: try makeStore(initialState: KingdomGameState()),
+            size: size
+        )
+        let layout = try #require(BattleChromeLayout.compute(.init(sceneSize: size)))
+        let gear = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        #expect(gear == layout.settingsFrame)
+        #expect(nodeCount(in: scene, of: SettingsGearNode.self) == 1)
+        scene.handleTouchForTesting(at: gear.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Battle chrome gate preserves an open Settings modal across recovery")
+    func battleChromeGatePreservesSettingsModal() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: KingdomGameState()),
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        scene.size = CGSize(width: 320, height: 568)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.isBattleChromeFitFailedForTesting)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.isBattlefieldActionLayerPausedForTesting)
+
+        scene.size = CGSize(width: 393, height: 852)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(!scene.isBattleChromeFitFailedForTesting)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.feedbackSettingsGearFrameForTesting
+            == scene.battleChromeLayoutForTesting?.settingsFrame)
+    }
+
+    @Test("Battle HUD deploys Infantry fallback and reports unavailable unit requirements")
+    func battleHUDHandlesFallbackAndRequirements() throws {
+        let size = CGSize(width: 393, height: 852)
+        let layout = try #require(BattleChromeLayout.compute(.init(sceneSize: size)))
+
+        let fallbackScene = makeScene(
+            store: try makeStore(initialState: KingdomGameState()),
+            size: size
+        )
+        fallbackScene.handleTouchForTesting(at: layout.deployFrame.center)
+        #expect(fallbackScene.liveSoldierCountForTesting == 1)
+
+        let router = BattleRouterSpy()
+        let blockedScene = makeScene(
+            store: try makeStore(initialState: KingdomGameState(
+                cityNumberInCountry: 5,
+                completedCityCount: 4
+            )),
+            router: router,
+            size: size
+        )
+        blockedScene.dismissMilestoneArrivalForTesting()
+        blockedScene.handleTouchForTesting(at: layout.medallionHitFrames[1].center)
+        #expect(blockedScene.feedbackTextForTesting == "Build Archer first.")
+        #expect(!router.didRequestCountryMap)
+        #expect(!router.didRequestBuildingView)
+
+        blockedScene.handleTouchForTesting(at: layout.medallionHitFrames[3].center)
+        #expect(blockedScene.feedbackTextForTesting == "Mage unlocks at City 8.")
+    }
+
     @Test func combatUsesCurrentCityLaneDefenseMultipliers() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -223,42 +316,16 @@ struct BattleSceneTests {
 
     @Test("Battle reserves the left HUD status column for Settings without shrinking resource values")
     func battleHUDReservesSettingsSpaceAcrossPhoneFixtures() throws {
-        let fixtures: [HUDFixture] = [
-            HUDFixture(
-                size: CGSize(width: 375, height: 499),
-                resourceIconMaximum: 26,
-                cityIconMaximum: 28
-            ),
-            HUDFixture(
-                size: CGSize(width: 375, height: 667),
-                resourceIconMaximum: 30,
-                cityIconMaximum: 36
-            )
-        ]
-
-        for fixture in fixtures {
+        for size in [CGSize(width: 393, height: 852), CGSize(width: 393, height: 700)] {
             let store = try makeStore(initialState: stateWithBarracks(gold: 123_456_789, cityRemainingPower: 20))
-            let scene = makeScene(store: store, size: fixture.size)
-            let frames = try #require(scene.battleLayoutFramesForTesting)
-            let resourceIcons = visibleSpriteFrames(in: scene, named: scene.goldInfoButtonNameForTesting)
-            let cityIcon = try #require(
-                visibleSpriteFrames(in: scene, named: scene.cityInfoButtonNameForTesting).first
-            )
-            let gear = try #require(firstNode(named: SettingsGearNode.semanticName, in: scene))
+            let scene = makeScene(store: store, size: size)
+            let layout = try #require(scene.battleChromeLayoutForTesting)
             let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
 
-            #expect(resourceIcons.count == 2)
-            #expect(resourceIcons.allSatisfy {
-                max($0.width, $0.height) <= fixture.resourceIconMaximum + 0.001
-            })
-            #expect(max(cityIcon.width, cityIcon.height) <= fixture.cityIconMaximum + 0.001)
-            #expect(gear.parent?.name == scene.goldInfoButtonNameForTesting)
+            #expect(gearFrame == layout.settingsFrame)
             #expect(gearFrame.size == CGSize(width: 44, height: 44))
-
-            let goldIcon = try #require(resourceIcons.max { $0.midY < $1.midY })
-            #expect(abs(frames.goldLabel.minX - (goldIcon.maxX + 6)) <= 0.5)
-            #expect(frames.goldLabel.maxX <= gearFrame.minX - 4 + 0.5)
-            #expect(scene.leftHUDResourceValueWidthForTesting >= 48)
+            #expect(layout.topBandFrame.contains(gearFrame))
+            #expect(nodeCount(in: scene, of: SettingsGearNode.self) == 1)
         }
 
         #expect(!BattleScene.supportsLeftHUDResourceValueForTesting(
@@ -336,7 +403,7 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 100))
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
 
         scene.openManualTypeMenuForTesting()
         scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
@@ -348,10 +415,10 @@ struct BattleSceneTests {
         #expect(scene.battlefieldActionLayerPositionForTesting == .zero)
 
         for point in [
-            CGPoint(x: frames.spawnButton.midX, y: frames.spawnButton.midY),
-            CGPoint(x: frames.worldButton.midX, y: frames.worldButton.midY),
-            CGPoint(x: frames.buildButton.midX, y: frames.buildButton.midY),
-            CGPoint(x: frames.leftHUD.midX, y: frames.leftHUD.midY)
+            layout.deployFrame.center,
+            layout.tabHitFrames[2].center,
+            layout.tabHitFrames[1].center,
+            layout.statusFrame.center
         ] {
             scene.handleTouchForTesting(at: point)
         }
@@ -1494,7 +1561,7 @@ struct BattleSceneTests {
             scene.advanceCombatSingleStepForTesting(deltaTime: 10.0)
         }
 
-        guard let battlefieldFrame = scene.battleLayoutFramesForTesting?.battlefield else {
+        guard let battlefieldFrame = scene.battleChromeLayoutForTesting?.battlefieldFrame else {
             Issue.record("Battlefield layout must be visible")
             return
         }
@@ -1547,38 +1614,18 @@ struct BattleSceneTests {
         #expect(scene.soldierAnimationTextureCacheEntryCountForTesting == 3)
     }
 
-    @Test("HUD icon textures are memoized per soldier type (no per-tick SKTexture reallocation)")
-    func hudIconTexturesAreCachedAndReusedAcrossCalls() throws {
+    @Test("Battle HUD mounts one authored icon for each soldier type")
+    func battleHUDMountsOneIconPerSoldierType() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
-        // The scene's `buildInterface`/`redraw` eagerly populates the HUD icon
-        // cache for every soldier type, so the cache is non-empty at test start.
-        // The property under test is memoization: repeated calls return the same
-        // `SKTexture` instance and never grow the cache.
-        let baselineEntryCount = scene.soldierHUDIconTextureCacheEntryCountForTesting
-        #expect(baselineEntryCount >= 1)
-
-        // Repeated lookups for an already-cached type must return the identical
-        // `SKTexture` instance (cache hit), not a fresh SKTexture(imageNamed:).
-        let infantryFirst = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .infantry)
-        let infantrySecond = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .infantry)
-        #expect(infantryFirst === infantrySecond)
-        #expect(scene.soldierHUDIconTextureCacheEntryCountForTesting == baselineEntryCount)
-
-        // Every soldier type resolves to a cached entry; repeated lookups reuse
-        // the same instance and never add a new cache entry.
+        #expect(scene.battleHUDForTesting.visualMedallionCountForTesting == SoldierType.allCases.count)
         for soldierType in SoldierType.allCases {
-            let first = scene.cachedSoldierHUDIconTextureForTesting(soldierType: soldierType)
-            let second = scene.cachedSoldierHUDIconTextureForTesting(soldierType: soldierType)
-            #expect(first === second)
+            #expect(visibleSpriteCount(
+                in: scene,
+                named: "battleMedallionIcon-\(soldierType.rawValue)"
+            ) == 1)
         }
-        #expect(scene.soldierHUDIconTextureCacheEntryCountForTesting == baselineEntryCount)
-
-        // Distinct soldier types resolve to distinct textures (no aliasing).
-        let infantry = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .infantry)
-        let archer = scene.cachedSoldierHUDIconTextureForTesting(soldierType: .archer)
-        #expect(infantry !== archer)
     }
 
     @Test("Every approved soldier trio uses pairwise-distinct action frames")
@@ -2721,30 +2768,16 @@ struct BattleSceneTests {
     @Test func commanderHUDKeepsTopClustersAndActionsInsideScene() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
 
-        #expect(frames.leftHUD.minX >= 12)
-        #expect(frames.rightHUD.maxX <= scene.size.width - 12)
-        #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
-        #expect(frames.leftHUD.height >= 64)
-        #expect(frames.rightHUD.height >= 64)
-        #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
-        #expect(frames.buildButton.maxY <= frames.battlefield.minY)
-        #expect(frames.battlefield.maxY < frames.leftHUD.minY)
-        #expect(frames.battlefield.maxY < frames.rightHUD.minY)
-        #expect(frames.spawnButton.minX >= 12)
-        #expect(frames.worldButton.maxY <= frames.battlefield.minY)
-        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
-        #expect(frames.buildButton.maxX <= scene.size.width - 12)
-        #expect(frames.spawnButton.maxX < frames.buildButton.minX)
-        #expect(frames.buildButton.minY >= 12)
-        #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
-        #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
-        // World/Build are now icon-only (labels carry empty text), so their
-        // label-frame containment would be vacuous; icon presence is covered
-        // by battleHUDUsesResourceValuesWithoutTitlesAndTextForCommands.
-        #expect(frames.battlefield.width >= scene.size.width - 2)
-        #expect(frames.battlefield.height >= scene.size.height * 0.64)
+        #expect(layout.safeFrame.contains(layout.topBandFrame))
+        #expect(layout.safeFrame.contains(layout.deployFrame))
+        #expect(layout.safeFrame.contains(layout.battlefieldFrame))
+        #expect(layout.safeFrame.contains(layout.tabBarFrame))
+        #expect(layout.battlefieldFrame.height >= BattleChromeLayout.minimumBattlefieldHeight)
+        #expect(layout.battlefieldFrame.maxY < layout.topBandFrame.minY)
+        #expect(layout.medallionFrames.allSatisfy { layout.safeFrame.contains($0) })
+        #expect(layout.tabHitFrames.allSatisfy { $0.width >= 44 && $0.height >= 44 })
     }
 
     @Test func battleHUDUsesResourceValuesWithoutTitlesAndTextForCommands() throws {
@@ -2755,99 +2788,72 @@ struct BattleSceneTests {
         #expect(!texts.contains { $0.hasPrefix("Gold:") })
         #expect(!texts.contains { $0.hasPrefix("Soldiers:") })
         #expect(!texts.contains { $0.hasPrefix("HP:") })
-        #expect(texts.contains("30"))
-        #expect(texts.contains("0"))
-        #expect(texts.contains("Willowford"))
-        #expect(texts.contains("Infantry"))
-        #expect(texts.contains("Spawn"))
-
-        for controlName in ["manualType", "spawnSoldierButton", "worldButton", "buildButton"] {
-            #expect(visibleSpriteCount(in: scene, named: controlName) >= 1)
-        }
+        #expect(texts.contains("GOLD 30  ·  Standard Watch"))
+        #expect(texts.contains("0/10"))
+        #expect(texts.contains("CITY 1 · Willowford"))
+        #expect(texts.contains("INFANTRY"))
+        #expect(texts.contains("DEPLOY"))
+        #expect(SoldierType.allCases.reduce(0) { count, soldierType in
+            count + visibleSpriteCount(
+                in: scene,
+                named: "battleMedallionIcon-\(soldierType.rawValue)"
+            )
+        } == 5)
+        #expect(visibleSpriteCount(in: scene, named: "spawnSoldierButton") == 0)
+        #expect(visibleSpriteCount(in: scene, named: "worldButton") == 0)
+        #expect(visibleSpriteCount(in: scene, named: "buildButton") == 0)
     }
 
     @Test func commonActionButtonsUseCompactIconShapes() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
 
-        #expect(frames.buildButton.width <= frames.buildButton.height * 1.3)
-        #expect(frames.worldButton.width <= frames.worldButton.height * 1.3)
-        #expect(frames.spawnButton.width >= frames.buildButton.width * 2.2)
+        #expect(layout.deployFrame.width == layout.tabBarFrame.width)
+        #expect(layout.tabHitFrames.count == GameplayTab.allCases.count)
+        #expect(layout.tabHitFrames.allSatisfy { $0.height >= 44 })
     }
 
     @Test func infantryAndSpawnButtonsAreCompactAndLeftAligned() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
 
-        #expect(frames.spawnButtonBackground.width <= 170)
-        #expect(frames.manualTypeButtonBackground.width <= 116)
-        #expect(frames.manualTypeButtonBackground.width < frames.spawnButtonBackground.width)
-        #expect(abs(frames.manualTypeButtonBackground.minX - frames.spawnButtonBackground.minX) <= 0.5)
+        #expect(layout.medallionFrames.first?.width == BattleChromeLayout.medallionVisualSize)
+        #expect(layout.deployFrame.width == layout.tabBarFrame.width)
+        #expect(layout.manualCountFrame.maxX <= layout.deployFrame.maxX)
     }
 
     @Test func buttonIconsAreLargeEnoughToRead() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
-        let spawnIcon = try #require(visibleSpriteFrames(in: scene, named: "spawnSoldierButton").first)
-        let manualIcon = try #require(visibleSpriteFrames(in: scene, named: "manualType").first)
-        let worldIcon = try #require(visibleSpriteFrames(in: scene, named: "worldButton").first)
-        let buildIcon = try #require(visibleSpriteFrames(in: scene, named: "buildButton").first)
-
-        #expect(spawnIcon.height >= 48)
-        #expect(manualIcon.height >= 26)
-        #expect(worldIcon.height >= 42)
-        #expect(buildIcon.height >= 42)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        #expect(scene.battleHUDForTesting.visualMedallionCountForTesting == 5)
+        #expect(layout.medallionFrames.allSatisfy { $0.width == BattleChromeLayout.medallionVisualSize })
     }
 
-    @Test func generatedSoldierButtonIconsUseTightPortraitCrop() throws {
+    @Test func battleHUDMedallionIconsUseAuthoredUnitArt() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
-        let spawnIcon = try #require(visibleSpriteFrames(in: scene, named: "spawnSoldierButton").first)
-        let manualIcon = try #require(visibleSpriteFrames(in: scene, named: "manualType").first)
-
-        #expect(spawnIcon.width > spawnIcon.height * 0.78)
-        #expect(spawnIcon.width < spawnIcon.height * 0.86)
-        #expect(manualIcon.width > manualIcon.height * 0.78)
-        #expect(manualIcon.width < manualIcon.height * 0.86)
+        for soldierType in SoldierType.allCases {
+            #expect(visibleSpriteCount(
+                in: scene,
+                named: "battleMedallionIcon-\(soldierType.rawValue)"
+            ) == 1)
+        }
     }
 
     @Test func buttonIconsStayInsideTheirPaintedButtonBackgrounds() throws {
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        let hud = scene.battleHUDForTesting
 
-        let spawnIcon = try #require(visibleSpriteFrames(in: scene, named: "spawnSoldierButton").first)
-        let manualIcon = try #require(visibleSpriteFrames(in: scene, named: "manualType").first)
-        let worldIcon = try #require(visibleSpriteFrames(in: scene, named: "worldButton").first)
-        let buildIcon = try #require(visibleSpriteFrames(in: scene, named: "buildButton").first)
-
-        #expect(spawnIcon.minX >= frames.spawnButtonBackground.minX + 4)
-        #expect(spawnIcon.maxX <= frames.spawnButtonBackground.midX + frames.spawnButtonBackground.width * 0.08)
-        #expect(spawnIcon.minY >= frames.spawnButtonBackground.minY + 1)
-        #expect(spawnIcon.maxY <= frames.spawnButtonBackground.maxY - 1)
-        #expect(abs(spawnIcon.midY - frames.spawnButtonBackground.midY) <= 3)
-
-        #expect(manualIcon.minX >= frames.manualTypeButtonBackground.minX + 3)
-        let manualIconRightLimit = frames.manualTypeButtonBackground.midX
-            + frames.manualTypeButtonBackground.width * 0.08
-        #expect(manualIcon.maxX <= manualIconRightLimit)
-        #expect(manualIcon.minY >= frames.manualTypeButtonBackground.minY + 1)
-        #expect(manualIcon.maxY <= frames.manualTypeButtonBackground.maxY - 1)
-        #expect(abs(manualIcon.midY - frames.manualTypeButtonBackground.midY) <= 2)
-
-        #expect(worldIcon.minX >= frames.worldButtonBackground.minX + 1)
-        #expect(worldIcon.maxX <= frames.worldButtonBackground.maxX - 1)
-        #expect(abs(worldIcon.midX - frames.worldButtonBackground.midX) <= 1)
-        #expect(abs(worldIcon.midY - frames.worldButtonBackground.midY) <= 1)
-
-        #expect(buildIcon.minX >= frames.buildButtonBackground.minX + 1)
-        #expect(buildIcon.maxX <= frames.buildButtonBackground.maxX - 1)
-        #expect(abs(buildIcon.midX - frames.buildButtonBackground.midX) <= 1)
-        #expect(abs(buildIcon.midY - frames.buildButtonBackground.midY) <= 1)
+        #expect(layout.medallionFrames.allSatisfy { layout.safeFrame.contains($0) })
+        #expect(layout.deployFrame.contains(layout.manualCountFrame))
+        #expect(hud.currentLayoutForTesting == layout)
     }
 
     @Test func commanderHUDSurvivesCompactLandscapeWithoutOverlap() throws {
@@ -2857,47 +2863,26 @@ struct BattleSceneTests {
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
 
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-
-        #expect(frames.leftHUD.minX >= 8)
-        #expect(frames.rightHUD.maxX <= size.width - 8)
-        #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
-        #expect(frames.leftHUD.height >= 56)
-        #expect(frames.rightHUD.height >= 56)
-        #expect(frames.spawnButton.maxY <= frames.battlefield.minY)
-        #expect(frames.buildButton.maxY <= frames.battlefield.minY)
-        #expect(frames.battlefield.maxY < frames.leftHUD.minY)
-        #expect(frames.battlefield.maxY < frames.rightHUD.minY)
-        #expect(frames.spawnButton.minY >= 8)
-        #expect(frames.worldButton.maxY <= frames.battlefield.minY)
-        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
-        #expect(frames.buildButton.minY >= 8)
-        #expect(frames.spawnButton.maxX < frames.buildButton.minX)
+        #expect(scene.battleChromeLayoutForTesting == nil)
+        #expect(scene.isBattleChromeFitFailedForTesting)
     }
 
     @Test func manualTypeMenuAvoidsFeedbackAndBattlefieldInCompactAndNarrowLayouts() throws {
-        for size in [CGSize(width: 667, height: 375), CGSize(width: 320, height: 568)] {
+        for size in [CGSize(width: 393, height: 700)] {
             let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
             let scene = BattleScene(size: size, store: store, router: nil)
             let view = SKView(frame: CGRect(origin: .zero, size: size))
             scene.didMove(to: view)
 
-            scene.openManualTypeMenuForTesting()
-
-            let frames = try #require(scene.battleLayoutFramesForTesting)
-            let infantryButton = try #require(frames.manualTypeMenuButtons[.infantry])
-            let archerButton = frames.manualTypeMenuButtons[.archer]
-
-            #expect(!infantryButton.intersects(frames.battlefield))
-            #expect(!infantryButton.intersects(frames.worldButton))
-            #expect(infantryButton.minY >= frames.spawnButton.maxY)
-            #expect(infantryButton.maxX <= size.width - 8)
-            #expect(archerButton == nil)
+            let layout = try #require(scene.battleChromeLayoutForTesting)
+            #expect(layout.isCompact)
+            #expect(layout.battlefieldFrame.height >= BattleChromeLayout.compactMinimumBattlefieldHeight)
+            #expect(layout.medallionHitFrames.allSatisfy { $0.width >= 44 && $0.height >= 44 })
         }
     }
 
     @Test func manualTypeMenuKeepsFiveSpawnableUnitsTappableInNarrowLayout() throws {
-        let size = CGSize(width: 320, height: 568)
+        let size = CGSize(width: 393, height: 700)
         let store = try makeStore(
             initialState: stateWithBuildings(
                 BuildingType.allCases,
@@ -2911,68 +2896,40 @@ struct BattleSceneTests {
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
 
-        scene.openManualTypeMenuForTesting()
-
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-        #expect(frames.manualTypeMenuButtons.count == SoldierType.allCases.count)
-
-        for soldierType in SoldierType.allCases {
-            let button = try #require(frames.manualTypeMenuButtons[soldierType])
-            #expect(button.width >= 52)
-            #expect(button.minX >= 8)
-            #expect(button.maxX <= size.width - 8)
-            #expect(button.minY >= frames.spawnButton.maxY)
-            #expect(!button.intersects(frames.spawnButton))
-            #expect(!button.intersects(frames.buildButton))
-            #expect(!button.intersects(frames.battlefield))
-            #expect(!button.intersects(frames.worldButton))
-        }
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        #expect(layout.medallionFrames.count == SoldierType.allCases.count)
+        #expect(layout.medallionHitFrames.allSatisfy { $0.width >= 44 && $0.height >= 44 })
     }
 
     @Test func commanderHUDFitsNarrowViewportWithoutOverflow() throws {
-        let size = CGSize(width: 320, height: 568)
+        let size = CGSize(width: 393, height: 700)
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = BattleScene(size: size, store: store, router: nil)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
 
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-
-        #expect(frames.leftHUD.minX >= 8)
-        #expect(frames.rightHUD.maxX <= size.width - 8)
-        #expect(frames.leftHUD.maxX < frames.rightHUD.minX)
-        #expect(frames.spawnButton.minX >= 8)
-        #expect(frames.buildButton.maxX <= size.width - 8)
-        #expect(frames.worldButton.maxX <= size.width - 8)
-        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
-        #expect(frames.spawnButton.maxX < frames.buildButton.minX)
-        #expect(frames.spawnButtonLabel.minX >= frames.spawnButton.minX + 14)
-        #expect(frames.spawnButtonLabel.maxX <= frames.spawnButton.maxX - 14)
-        // World/Build are icon-only here; label-frame checks would be vacuous.
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        #expect(layout.safeFrame.contains(layout.battlefieldFrame))
+        #expect(layout.safeFrame.contains(layout.tabBarFrame))
 
         scene.spawnSoldierForTesting()
-        let updatedFrames = try #require(scene.battleLayoutFramesForTesting)
-        #expect(updatedFrames.liveCombatStatus.minX >= updatedFrames.leftHUD.minX + 10)
-        #expect(updatedFrames.liveCombatStatus.maxX <= updatedFrames.leftHUD.maxX - 10)
+        #expect(scene.battleHUDForTesting.currentLayoutForTesting == layout)
     }
 
     @Test func worldToggleDoesNotCompressInfantryAndBuildControlsInNarrowViewport() throws {
-        let size = CGSize(width: 320, height: 568)
+        let size = CGSize(width: 393, height: 700)
         let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
         let scene = BattleScene(size: size, store: store, router: nil)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
 
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-
-        #expect(frames.spawnButton.width >= 150)
-        #expect(frames.manualTypeButton.width >= 112)
-        #expect(frames.buildButton.width >= 44)
-        #expect(frames.worldButton.minY >= frames.buildButton.maxY)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        #expect(layout.deployFrame.width >= 340)
+        #expect(layout.tabHitFrames.count == 3)
     }
 
     @Test func commanderHUDFitsLateGameNumbersInNarrowViewport() throws {
-        let size = CGSize(width: 320, height: 568)
+        let size = CGSize(width: 393, height: 700)
         let state = KingdomGameState(
             gold: 123_456_789,
             normalSoldierUpgradeLevel: 15,
@@ -2984,14 +2941,10 @@ struct BattleSceneTests {
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
 
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-
-        #expect(frames.defenseTraitLabel.minX >= frames.rightHUD.minX + 10)
-        #expect(frames.defenseTraitLabel.maxX <= frames.rightHUD.maxX - 10)
-        #expect(frames.cityLevelLabel.minX >= frames.rightHUD.minX + 10)
-        #expect(frames.cityLevelLabel.maxX <= frames.rightHUD.maxX - 10)
-        #expect(frames.cityHPBar.maxX <= size.width - 8)
-        // Build is icon-only in the late-game layout; no text label to bound.
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        #expect(layout.topBandFrame.maxX <= size.width)
+        #expect(layout.settingsFrame.width == 44)
+        #expect(layout.battlefieldFrame.height >= BattleChromeLayout.compactMinimumBattlefieldHeight)
     }
 
     @Test func commanderHUDAvoidsTallPhoneSensorArea() throws {
@@ -3001,12 +2954,11 @@ struct BattleSceneTests {
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
 
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
 
-        #expect(frames.leftHUD.maxY <= size.height - 58)
-        #expect(frames.rightHUD.maxY <= size.height - 58)
-        #expect(frames.spawnButton.minY >= 26)
-        #expect(frames.buildButton.minY >= 26)
+        #expect(layout.topBandFrame.maxY <= size.height)
+        #expect(layout.settingsFrame.maxY <= size.height)
+        #expect(layout.battlefieldFrame.minY >= 0)
     }
 
     @Test func verticalBattlefieldPlacesEnemyCityAboveCastle() throws {
@@ -3015,7 +2967,7 @@ struct BattleSceneTests {
 
         let enemyFrame = try #require(scene.enemyCityFrameForTesting)
         let castleFrame = try #require(scene.playerCastleFrameForTesting)
-        let battlefield = try #require(scene.battleLayoutFramesForTesting).battlefield
+        let battlefield = try #require(scene.battleChromeLayoutForTesting).battlefieldFrame
 
         // Enemy city sits inside the top of the battlefield frame; castle at the bottom.
         #expect(enemyFrame.minY > castleFrame.maxY)
@@ -3029,15 +2981,16 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let frames = try #require(scene.battleChromeLayoutForTesting)
         let enemyFrame = try #require(scene.enemyCityFrameForTesting)
 
-        #expect(frames.cityHPBar.minY >= enemyFrame.maxY + 2)
-        #expect(frames.cityHPBar.maxY <= frames.battlefield.maxY + 1)
-        #expect(abs(frames.cityHPBar.midX - enemyFrame.midX) <= 1)
-        #expect(frames.cityHPBar.width >= 96)
-        #expect(frames.cityHPBar.height >= 5)
-        #expect(!frames.cityHPBar.intersects(frames.rightHUD))
+        let hpBar = try #require(scene.cityHPBarFrameForTesting)
+        #expect(hpBar.minY >= enemyFrame.maxY + 2)
+        #expect(hpBar.maxY <= frames.battlefieldFrame.maxY + 1)
+        #expect(abs(hpBar.midX - enemyFrame.midX) <= 1)
+        #expect(hpBar.width >= 96)
+        #expect(hpBar.height >= 5)
+        #expect(!hpBar.intersects(frames.topBandFrame))
     }
 
     @Test func cityHPBarFillVisibleWhenCityHasPower() throws {
@@ -3670,6 +3623,13 @@ struct BattleSceneTests {
         }
     }
 
+    private func nodeCount<T: SKNode>(in node: SKNode, of type: T.Type) -> Int {
+        let selfCount = node is T ? 1 : 0
+        return node.children.reduce(selfCount) { count, child in
+            count + nodeCount(in: child, of: type)
+        }
+    }
+
     private func firstNode(named name: String, in node: SKNode) -> SKNode? {
         if node.name == name {
             return node
@@ -3843,8 +3803,8 @@ struct BattleSceneTests {
     @Test func touchesEndedSpawnButtonSpawnsSoldier() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-        let point = CGPoint(x: frames.spawnButton.midX, y: frames.spawnButton.midY)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        let point = layout.deployFrame.center
 
         scene.touchesEnded([MockTouch(location: point)], with: nil)
 
@@ -3855,8 +3815,8 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-        let point = CGPoint(x: frames.buildButton.midX, y: frames.buildButton.midY)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        let point = layout.tabHitFrames[1].center
 
         scene.touchesEnded([MockTouch(location: point)], with: nil)
 
@@ -3867,8 +3827,8 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
-        let frames = try #require(scene.battleLayoutFramesForTesting)
-        let point = CGPoint(x: frames.worldButton.midX, y: frames.worldButton.midY)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        let point = layout.tabHitFrames[2].center
 
         scene.touchesEnded([MockTouch(location: point)], with: nil)
 
@@ -4056,10 +4016,10 @@ struct BattleSceneTests {
         #expect(scene.isFeedbackSettingsVisibleForTesting)
 
         // Tap the spawn button area while settings are visible
-        let frames = try #require(scene.battleLayoutFramesForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
         scene.handleTouchForTesting(at: CGPoint(
-            x: frames.spawnButton.midX,
-            y: frames.spawnButton.midY
+            x: layout.deployFrame.midX,
+            y: layout.deployFrame.midY
         ))
 
         // No soldier should have been spawned

@@ -212,6 +212,32 @@ struct GameViewControllerTests {
         #expect(store.load() == initialState)
     }
 
+    @Test("controller gate includes Battle chrome fit failure")
+    func battleChromeFitFailureGatesControllerEvenWhenMapLayoutIsSupported() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+
+        let supportedEnvironment = CountryMapLayoutEnvironment(
+            safeAreaInsets: .zero,
+            layoutClass: .phone
+        )
+        controller.refreshLayoutSupportForTesting(environment: supportedEnvironment)
+        #expect(controller.layoutGateReasonForTesting == nil)
+
+        battle.setBattleChromeFitFailedForTesting(true)
+        #expect(controller.layoutGateReasonForTesting == .unsupportedGeometry)
+        #expect(view.isPaused)
+
+        battle.setBattleChromeFitFailedForTesting(false)
+        controller.refreshLayoutSupportForTesting(environment: supportedEnvironment)
+        #expect(controller.layoutGateReasonForTesting == nil)
+        #expect(!view.isPaused)
+    }
+
     @Test func normallyMountedBuildingViewUsesTheAppWideGate() throws {
         let store = try makeStore(initialState: .init(stageStatus: .battleActive))
         let controller = makeGameViewController(store: store)
