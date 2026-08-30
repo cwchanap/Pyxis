@@ -74,8 +74,6 @@ struct CampChromeLayout: Equatable {
         }
     }
 
-    typealias Constraints = Input
-
     static let tabBarHeight: CGFloat = 72
     static let minimumInteractiveSize: CGFloat = 44
     static let lotTargetSize: CGFloat = 44
