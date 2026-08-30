@@ -34,13 +34,19 @@ final class ConquestReportNode: SKNode {
 
     private let textWidth: (String, String, CGFloat) -> CGFloat
     private let panel: SKShapeNode
+    private let takenMedallion: SKNode
+    private let takenMedallionOuter: SKShapeNode
+    private let takenMedallionInner: SKShapeNode
+    private let takenMedallionIcon: SKShapeNode
+    private let takenMedallionLabel: SKLabelNode
+    private let cityNumberLabel: SKLabelNode
     private let titleLabel: SKLabelNode
     private let rewardIcon: SKShapeNode
     private let rewardLabel: SKLabelNode
     private let tileBundles: [StatTileBundle]
     private let chipBundles: [ChipBundle]
     private let continueContainer: SKNode
-    private let continueBackground: SKShapeNode
+    private let continuePanel: PanelNode
     private let continueLabel: SKLabelNode
 
     private var goldAnchor: CGPoint?
@@ -54,6 +60,12 @@ final class ConquestReportNode: SKNode {
     init(textWidth: @escaping (String, String, CGFloat) -> CGFloat = ConquestReportNode.defaultTextWidth) {
         self.textWidth = textWidth
         self.panel = SKShapeNode()
+        self.takenMedallion = SKNode()
+        self.takenMedallionOuter = SKShapeNode()
+        self.takenMedallionInner = SKShapeNode()
+        self.takenMedallionIcon = SKShapeNode()
+        self.takenMedallionLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        self.cityNumberLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         self.titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         self.rewardIcon = SKShapeNode(circleOfRadius: 18)
         self.rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
@@ -95,7 +107,7 @@ final class ConquestReportNode: SKNode {
             return ChipBundle(root: root, background: background, icon: icon, label: label)
         }
         self.continueContainer = SKNode()
-        self.continueBackground = SKShapeNode()
+        self.continuePanel = PanelNode(size: .zero)
         self.continueLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         super.init()
         configureTree()
@@ -108,13 +120,16 @@ final class ConquestReportNode: SKNode {
     func apply(
         content: ConquestReportContent,
         layout: ConquestReportLayout,
-        isContinueEnabled: Bool
+        isContinueEnabled: Bool,
+        cityNumber: Int? = nil,
+        cityName: String? = nil
     ) -> ApplyResult {
+        let displayTitle = cityName ?? content.title
         guard (2...3).contains(content.tiles.count),
               content.tiles.count == layout.tileFrames.count,
               content.achievements.count == layout.chipFrames.count,
               let titleSize = fitSize(
-                content.title,
+                displayTitle,
                 fontName: GameUITheme.Font.bold,
                 start: layout.titleStartingFontSize,
                 minimum: layout.titleMinimumFontSize,
@@ -132,14 +147,7 @@ final class ConquestReportNode: SKNode {
 
         var tileValueSizes = [CGFloat]()
         for (tile, frame) in zip(content.tiles, layout.tileFrames) {
-            guard fitSize(
-                tile.valueText,
-                fontName: GameUITheme.Font.bold,
-                start: layout.tileValueStartingFontSize,
-                minimum: layout.tileValueMinimumFontSize,
-                width: frame.width - 10
-            ) != nil,
-            let valueSize = fitSize(
+            guard let valueSize = fitSize(
                 tile.valueText,
                 fontName: GameUITheme.Font.bold,
                 start: layout.tileValueStartingFontSize,
@@ -172,7 +180,14 @@ final class ConquestReportNode: SKNode {
         }
 
         renderPanel(layout)
-        renderTitle(content.title, size: titleSize, frame: layout.titleFrame)
+        renderTakenMedallion(frame: layout.takenMedallionFrame)
+        renderTitle(
+            displayTitle,
+            size: titleSize,
+            frame: layout.titleFrame,
+            hasCityHeader: cityNumber != nil
+        )
+        renderCityNumber(cityNumber, frame: layout.titleFrame)
         renderReward(content.rewardText, size: rewardSize, frame: layout.rewardFrame)
         renderTiles(content.tiles, sizes: tileValueSizes, frames: layout.tileFrames)
         renderChips(content.achievements, frames: layout.chipFrames)
@@ -209,11 +224,73 @@ final class ConquestReportNode: SKNode {
         panel.position = .zero
     }
 
-    private func renderTitle(_ text: String, size: CGFloat, frame: CGRect) {
+    private func renderTakenMedallion(frame: CGRect) {
+        let radius = frame.width / 2
+        let outerRect = CGRect(
+            x: -radius,
+            y: -radius,
+            width: frame.width,
+            height: frame.height
+        )
+        let innerRadius = max(0, radius - 6)
+        let innerRect = CGRect(
+            x: -innerRadius,
+            y: -innerRadius,
+            width: innerRadius * 2,
+            height: innerRadius * 2
+        )
+        takenMedallionOuter.path = CGPath(ellipseIn: outerRect, transform: nil)
+        takenMedallionOuter.fillColor = GameUITheme.Color.panelFill.withAlphaComponent(1)
+        takenMedallionOuter.strokeColor = GameUITheme.Color.gold
+        takenMedallionOuter.lineWidth = 2.5
+        takenMedallionInner.path = CGPath(ellipseIn: innerRect, transform: nil)
+        takenMedallionInner.fillColor = .clear
+        takenMedallionInner.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.52)
+        takenMedallionInner.lineWidth = 1
+        let flagPath = CGMutablePath()
+        flagPath.move(to: CGPoint(x: -3, y: -10))
+        flagPath.addLine(to: CGPoint(x: -3, y: 10))
+        flagPath.move(to: CGPoint(x: -2, y: 8))
+        flagPath.addLine(to: CGPoint(x: 9, y: 4))
+        flagPath.addLine(to: CGPoint(x: -2, y: 0))
+        flagPath.closeSubpath()
+        takenMedallionIcon.path = flagPath
+        takenMedallionIcon.fillColor = GameUITheme.Color.gold
+        takenMedallionIcon.strokeColor = GameUITheme.Color.gold
+        takenMedallionIcon.lineWidth = 1
+        takenMedallionIcon.position = CGPoint(x: 0, y: frame.height * 0.10)
+        takenMedallionLabel.text = "TAKEN"
+        takenMedallionLabel.fontSize = min(10, max(8, frame.width / 12))
+        takenMedallionLabel.position = CGPoint(x: 0, y: -frame.height * 0.23)
+        takenMedallion.position = CGPoint(x: frame.midX, y: frame.midY)
+        takenMedallion.isHidden = false
+    }
+
+    private func renderTitle(
+        _ text: String,
+        size: CGFloat,
+        frame: CGRect,
+        hasCityHeader: Bool
+    ) {
         titleLabel.isHidden = false
         titleLabel.text = text
         titleLabel.fontSize = size
-        titleLabel.position = CGPoint(x: frame.midX, y: frame.midY)
+        titleLabel.position = CGPoint(
+            x: frame.midX,
+            y: frame.midY + (hasCityHeader ? -frame.height * 0.50 : 0)
+        )
+    }
+
+    private func renderCityNumber(_ cityNumber: Int?, frame: CGRect) {
+        guard let cityNumber else {
+            cityNumberLabel.text = nil
+            cityNumberLabel.isHidden = true
+            return
+        }
+        cityNumberLabel.text = "CITY \(cityNumber)"
+        cityNumberLabel.fontSize = min(10, max(8, frame.height * 0.30))
+        cityNumberLabel.position = CGPoint(x: frame.midX, y: frame.midY + frame.height * 0.25)
+        cityNumberLabel.isHidden = false
     }
 
     private func renderReward(_ text: String, size: CGFloat, frame: CGRect) {
@@ -302,20 +379,15 @@ final class ConquestReportNode: SKNode {
 
     private func renderContinue(_ layout: ConquestReportLayout, enabled: Bool) {
         continueContainer.isHidden = false
-        continueBackground.isHidden = false
+        continuePanel.isHidden = false
         continueLabel.isHidden = false
-        continueBackground.path = CGPath(
-            roundedRect: layout.continueFrame,
-            cornerWidth: layout.panelCornerRadius,
-            cornerHeight: layout.panelCornerRadius,
-            transform: nil
-        )
-        continueBackground.position = .zero
+        continuePanel.apply(size: layout.continueFrame.size, style: .primaryAction, showsRivets: false)
+        continuePanel.position = CGPoint(x: layout.continueFrame.midX, y: layout.continueFrame.midY)
         continueLabel.text = "MARCH ON"
         continueLabel.fontSize = layout.continueStartingFontSize
         continueLabel.position = CGPoint(x: layout.continueFrame.midX, y: layout.continueFrame.midY)
         let alpha: CGFloat = enabled ? 1.0 : 0.5
-        continueBackground.alpha = alpha
+        continuePanel.alpha = alpha
         continueLabel.alpha = alpha
     }
 
@@ -357,6 +429,33 @@ final class ConquestReportNode: SKNode {
         panel.zPosition = 0
         panel.isHidden = true
         addChild(panel)
+
+        takenMedallion.name = "conquestTakenMedallion"
+        takenMedallionOuter.name = "conquestTakenMedallionOuter"
+        takenMedallionInner.name = "conquestTakenMedallionInner"
+        takenMedallionIcon.name = "conquestTakenMedallionIcon"
+        takenMedallionLabel.name = "conquestTakenMedallionLabel"
+        takenMedallionOuter.zPosition = 0
+        takenMedallionInner.zPosition = 1
+        takenMedallionIcon.zPosition = 2
+        takenMedallionLabel.fontColor = GameUITheme.Color.gold
+        takenMedallionLabel.horizontalAlignmentMode = .center
+        takenMedallionLabel.verticalAlignmentMode = .center
+        takenMedallionLabel.zPosition = 2
+        takenMedallion.addChild(takenMedallionOuter)
+        takenMedallion.addChild(takenMedallionInner)
+        takenMedallion.addChild(takenMedallionIcon)
+        takenMedallion.addChild(takenMedallionLabel)
+        takenMedallion.zPosition = 4
+        takenMedallion.isHidden = true
+        addChild(takenMedallion)
+
+        cityNumberLabel.fontColor = GameUITheme.Color.gold
+        cityNumberLabel.horizontalAlignmentMode = .center
+        cityNumberLabel.verticalAlignmentMode = .center
+        cityNumberLabel.zPosition = 5
+        cityNumberLabel.isHidden = true
+        addChild(cityNumberLabel)
 
         titleLabel.fontColor = GameUITheme.Color.textPrimary
         titleLabel.horizontalAlignmentMode = .center
@@ -403,17 +502,14 @@ final class ConquestReportNode: SKNode {
             addChild(bundle.root)
         }
 
-        continueBackground.fillColor = GameUITheme.Color.spawn
-        continueBackground.strokeColor = GameUITheme.Color.gold
-        continueBackground.lineWidth = 1.5
-        continueBackground.zPosition = 1
-        continueBackground.isHidden = true
+        continuePanel.zPosition = 1
+        continuePanel.isHidden = true
         continueLabel.fontColor = GameUITheme.Color.textPrimary
         continueLabel.horizontalAlignmentMode = .center
         continueLabel.verticalAlignmentMode = .center
         continueLabel.zPosition = 2
         continueLabel.isHidden = true
-        continueContainer.addChild(continueBackground)
+        continueContainer.addChild(continuePanel)
         continueContainer.addChild(continueLabel)
         continueContainer.isHidden = true
         addChild(continueContainer)
@@ -482,7 +578,11 @@ extension ConquestReportNode {
     var titleFontSizeForTesting: CGFloat { renderedTitleFontSize }
     var rewardFontSizeForTesting: CGFloat { renderedRewardFontSize }
     var tileValueFontSizesForTesting: [CGFloat] { renderedTileValueFontSizes }
-    var continueBackgroundAlphaForTesting: CGFloat { continueBackground.alpha }
+    var continueBackgroundAlphaForTesting: CGFloat { continuePanel.alpha }
+    var continuePanelStyleForTesting: PanelNode.Style { continuePanel.style }
+    var renderedTakenStatusTextForTesting: String? { takenMedallionLabel.text }
+    var renderedCityNumberTextForTesting: String? { cityNumberLabel.text }
+    var renderedCityTitleForTesting: String? { titleLabel.text }
     var renderedContinueTextForTesting: String? { continueLabel.text }
 }
 #endif

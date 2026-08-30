@@ -120,4 +120,21 @@ struct ConquestReportNodeTests {
         #expect(node.renderedTilesForTesting == content.tiles)
         #expect(node.renderedContinueTextForTesting == "MARCH ON")
     }
+
+    @Test func victoryReportUsesTakenCityHeaderAndForgedContinueTreatment() throws {
+        let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
+        let layout = try reportLayout(tiles: 3, chips: 2)
+
+        #expect(node.apply(
+            content: fullContent(),
+            layout: layout,
+            isContinueEnabled: true,
+            cityNumber: 3,
+            cityName: "Falconridge"
+        ) == .presented)
+        #expect(node.renderedTakenStatusTextForTesting == "TAKEN")
+        #expect(node.renderedCityNumberTextForTesting == "CITY 3")
+        #expect(node.renderedCityTitleForTesting == "Falconridge")
+        #expect(node.continuePanelStyleForTesting == .primaryAction)
+    }
 }

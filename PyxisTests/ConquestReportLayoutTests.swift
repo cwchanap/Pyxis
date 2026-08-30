@@ -60,6 +60,7 @@ struct ConquestReportLayoutTests {
         #expect(layout.tileFrames.allSatisfy { layout.panelFrame.contains($0) })
         #expect(layout.chipFrames.allSatisfy { layout.panelFrame.contains($0) })
         #expect(layout.panelFrame.contains(layout.continueFrame))
+        #expect(layout.safeFrame.contains(layout.takenMedallionFrame))
         for index in 1..<layout.tileFrames.count {
             #expect(layout.tileFrames[index - 1].maxX <= layout.tileFrames[index].minX)
         }
