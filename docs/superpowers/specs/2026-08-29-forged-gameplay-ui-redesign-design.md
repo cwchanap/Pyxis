@@ -14,15 +14,15 @@ The result uses dark iron surfaces, restrained gold edging and rivets, amber pri
 
 ## Canonical visual source of truth
 
-The intended canonical 393×852 reference set is:
+The canonical 393×852 reference set is stored under `docs/visual-parity/forged-ui/`:
 
-- Battle: `docs/visual-parity/forged-ui/battle.png` — source export `3b.png`
-- Camp: `docs/visual-parity/forged-ui/camp.png` — source export `2b.png`
-- Map: `docs/visual-parity/forged-ui/map.png` — source export `2c.png`
-- Conquest: `docs/visual-parity/forged-ui/conquest.png` — source export `2d.png`
-- Settings: `docs/visual-parity/forged-ui/settings.png` — source export `2e.png`
+- Battle: `battle.png` — source export `3b.png`
+- Camp: `camp.png` — source export `2b.png`
+- Map: `map.png` — source export `2c.png`
+- Conquest: `conquest.png` — source export `2d.png`
+- Settings: `settings.png` — source export `2e.png`
 
-The implementation must not begin from a different export without explicitly changing those references. Other supported portrait phone/iPad geometries must remain usable and contained; exact mock parity is judged only at 393×852.
+All five exact source PNGs must be present before runtime implementation begins. Do not substitute screenshots, recompressed exports, or a later design without explicitly updating the source mapping and planning documents. Other supported portrait phone/iPad geometries must remain usable and contained; exact mock parity is judged only at 393×852.
 
 ## Gameplay source of truth
 
