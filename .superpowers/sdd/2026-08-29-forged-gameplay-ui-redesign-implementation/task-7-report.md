@@ -62,3 +62,21 @@ Review-round verification:
 - `swiftc -parse` over all fix-round Swift files: passed.
 - SwiftLint over all fix-round Swift files: 0 violations.
 - `git diff --check`: passed; report ends with one newline.
+
+## Review fix round 2
+
+- Re-laid out the existing title allocation into a 44pt upper row for the resource tile and framed Settings gear, plus a 22pt lower row for the Country title/progress treatment. At the 393x852 reference fixture the resource/treatment/gear rows are contained and visually separated; map/card budgets are unchanged.
+- Added exact reference frame and pairwise separation assertions, then verified the mounted map and country-complete fixtures after the fix:
+  - [map fixture PNG](/private/tmp/pyxis-task7-map-round2.png)
+  - [country-complete fixture PNG](/private/tmp/pyxis-task7-map-country-complete-round2.png)
+
+The available iPhone 17 simulator does not expose the requested 393x852 logical surface. XcodeBuildMCP's screenshot endpoint returns an optimized 368x800 image, and direct `simctl io screenshot` cannot connect to CoreSimulatorService in this environment. These captures are therefore honest optimized runtime evidence, not native-size proof; exact 393x852 capture remains an open Task 10 runtime-evidence gate. No substantive header overlap remains in the mounted screens.
+
+Review-round-2 verification:
+
+- CountryMapLayoutTests: 18 passed, 0 failed, 0 skipped.
+- Focused Map/Card/GameplayTab/GameViewController suites: 197 passed, 0 failed, 0 skipped.
+- Full serial `PyxisTests` via XcodeBuildMCP (`-parallel-testing-enabled NO`): 846 passed, 0 failed, 0 skipped.
+- `swiftc -parse` over all fix-round Swift files: passed.
+- SwiftLint over all fix-round Swift files: 0 violations.
+- `git diff --check`: passed; report ends with one newline.

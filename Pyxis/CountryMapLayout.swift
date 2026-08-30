@@ -59,7 +59,7 @@ struct CountryMapLayout: Equatable {
         static let minimumTitleFontSize: CGFloat = 16
         static let resourceWidth: CGFloat = 106
         static let resourceHeight: CGFloat = 44
-        static let progressHeight: CGFloat = 24
+        static let progressHeight: CGFloat = 22
     }
 
     static let tabBarHeight: CGFloat = 72
@@ -149,32 +149,33 @@ struct CountryMapLayout: Equatable {
             x: titleControlRegionFrame.maxX
                 - TitleControlMetrics.sideInset
                 - TitleControlMetrics.gearHitSize,
-            y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
+            y: titleControlRegionFrame.maxY - TitleControlMetrics.gearHitSize,
             width: TitleControlMetrics.gearHitSize,
             height: TitleControlMetrics.gearHitSize
         )
         let titleTextFrame = CGRect(
             x: titleControlRegionFrame.minX + TitleControlMetrics.sideInset,
-            y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
+            y: titleControlRegionFrame.minY,
             width: titleControlRegionFrame.maxX
                 - titleControlRegionFrame.minX
                 - TitleControlMetrics.sideInset * 2
                 - TitleControlMetrics.gearHitSize
                 - TitleControlMetrics.gearToTitleGap,
-            height: TitleControlMetrics.gearHitSize
+            height: TitleControlMetrics.progressHeight
         )
-        // Keep map-only chrome within the existing title treatment. The
-        // resource tile rises slightly above the title plate, matching the
-        // authored presentation without consuming map/card budget.
+        // Reserve the lower row for the Country title/progress treatment and
+        // the upper row for the resource tile and Settings gear. This keeps
+        // every header target inside the existing title allocation without
+        // changing the card/map budget below it.
         let resourceFrame = CGRect(
             x: titleControlRegionFrame.minX + TitleControlMetrics.sideInset - 2,
-            y: titleControlRegionFrame.maxY - TitleControlMetrics.resourceHeight + 10,
+            y: titleControlRegionFrame.maxY - TitleControlMetrics.resourceHeight,
             width: min(TitleControlMetrics.resourceWidth, titleControlRegionFrame.width * 0.32),
             height: TitleControlMetrics.resourceHeight
         )
         let progressFrame = CGRect(
             x: titleControlRegionFrame.minX + 140,
-            y: titleControlRegionFrame.minY + 5,
+            y: titleControlRegionFrame.minY,
             width: settingsControlFrame.minX - 10 - (titleControlRegionFrame.minX + 140),
             height: TitleControlMetrics.progressHeight
         )
