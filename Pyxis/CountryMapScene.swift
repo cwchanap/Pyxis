@@ -254,7 +254,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     }
 
     private func handleGameplayTabTouch(at point: CGPoint) -> Bool {
-        guard let tab = gameplayTabBar.tab(at: point) else {
+        guard cityNumber(at: point) == nil,
+              let tab = gameplayTabBar.tab(at: point) else {
             return false
         }
 
