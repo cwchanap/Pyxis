@@ -23,14 +23,14 @@ final class GameplayTabBarNode: SKNode {
     private struct TabBundle {
         let root: SKNode
         let panel: PanelNode
-        let icon: SKSpriteNode
+        let icon: SKNode
         let title: SKLabelNode
         let attention: SKShapeNode
 
         init(for tab: GameplayTab) {
             root = SKNode()
             panel = PanelNode(size: .zero)
-            icon = SKSpriteNode()
+            icon = GameplayTabBarNode.makeIcon(for: tab)
             title = SKLabelNode(fontNamed: GameUITheme.Font.bold)
             attention = SKShapeNode(circleOfRadius: 4)
 
@@ -45,12 +45,11 @@ final class GameplayTabBarNode: SKNode {
             title.zPosition = 1
             attention.zPosition = 2
 
-            if let image = UIImage(systemName: tab.symbolName) {
-                icon.texture = SKTexture(image: image)
+            if let icon = icon as? SKSpriteNode {
+                icon.color = GameUITheme.Color.textPrimary
+                icon.colorBlendFactor = 1
+                icon.size = CGSize(width: 20, height: 20)
             }
-            icon.color = GameUITheme.Color.textPrimary
-            icon.colorBlendFactor = 1
-            icon.size = CGSize(width: 20, height: 20)
 
             title.text = tab.title
             title.fontSize = 11
@@ -71,6 +70,34 @@ final class GameplayTabBarNode: SKNode {
 
     private let tabBundles: [GameplayTab: TabBundle]
     private var hitFrames = [GameplayTab: CGRect]()
+
+    private static func makeIcon(for tab: GameplayTab) -> SKNode {
+        if tab == .battle {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: -7, y: -7))
+            path.addLine(to: CGPoint(x: 7, y: 7))
+            path.move(to: CGPoint(x: -4, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: -4))
+            path.move(to: CGPoint(x: 7, y: -7))
+            path.addLine(to: CGPoint(x: -7, y: 7))
+            path.move(to: CGPoint(x: 4, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: -4))
+
+            let glyph = SKShapeNode(path: path)
+            glyph.name = "gameplayTabGlyph-battle"
+            glyph.strokeColor = GameUITheme.Color.textPrimary
+            glyph.fillColor = .clear
+            glyph.lineWidth = 2
+            glyph.lineCap = .round
+            glyph.lineJoin = .round
+            return glyph
+        }
+
+        guard let image = UIImage(systemName: tab.symbolName) else {
+            return SKNode()
+        }
+        return SKSpriteNode(texture: SKTexture(image: image))
+    }
 
     override init() {
         tabBundles = Dictionary(uniqueKeysWithValues: GameplayTab.allCases.map { tab in
@@ -183,6 +210,13 @@ private extension GameplayTab {
 extension GameplayTabBarNode {
     var visualCellCountForTesting: Int {
         tabBundles.values.filter { !$0.root.isHidden }.count
+    }
+
+    func iconIsVectorGlyphForTesting(for tab: GameplayTab) -> Bool {
+        guard let icon = tabBundles[tab]?.icon as? SKShapeNode else {
+            return false
+        }
+        return icon.path != nil
     }
 
     func hitFrameForTesting(for tab: GameplayTab) -> CGRect? {

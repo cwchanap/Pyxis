@@ -10,6 +10,14 @@ import Testing
 
 @MainActor
 struct GameplayTabBarNodeTests {
+    @Test func battleTabUsesRenderableGlyph() {
+        let node = GameplayTabBarNode()
+
+        #expect(node.iconIsVectorGlyphForTesting(for: .battle))
+        #expect(!node.iconIsVectorGlyphForTesting(for: .camp))
+        #expect(!node.iconIsVectorGlyphForTesting(for: .map))
+    }
+
     @Test func disabledTabsRemainVisibleButHaveNoHitFrames() {
         let node = GameplayTabBarNode()
         let frame = CGRect(x: 0, y: 0, width: 300, height: 72)
