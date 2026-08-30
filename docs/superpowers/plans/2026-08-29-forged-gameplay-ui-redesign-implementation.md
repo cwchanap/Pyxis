@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Implement this task in **one runtime PR**. Tasks below are logical commits/review checkpoints, not separate PRs.
-- Use only `docs/visual-parity/forged-ui/{battle,camp,map,conquest,settings}.png` as the 393×852 visual targets once those canonical files are present.
+- Use only the exact canonical files `docs/visual-parity/forged-ui/{battle,camp,map,conquest,settings}.png` as the 393×852 visual targets. These files must be present before runtime implementation begins.
 - Existing models remain authoritative. Never hardcode mock rewards, costs, counts, unlocks, timers, multipliers, or `+6` income.
 - Keep three gameplay scenes; no shared combat shell or all-purpose scene.
 - Keep `presentSceneForCurrentStage` as the pending/stage routing authority; do not fork that policy into another switch.
@@ -423,4 +423,5 @@ Before runtime implementation starts, confirm this plan still states all of the 
 - Conquest rows/gold index are removed atomically;
 - Settings keeps `panelFrame`/`closeFrame` names;
 - Risks section and actionable Codecov fallback are present;
+- all five exact canonical PNGs are present before runtime implementation starts;
 - canonical mock/real/overlay evidence is required before leaving Draft.
