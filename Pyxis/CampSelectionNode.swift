@@ -150,13 +150,6 @@ struct CampSelectionContent: Equatable {
         )
     }
 
-    static func project(
-        from state: KingdomGameState,
-        selectedLot: Int?
-    ) -> CampSelectionContent {
-        project(from: state, selectedSlot: selectedLot)
-    }
-
     func option(for type: BuildingType) -> Option? {
         options.first { $0.buildingType == type }
     }

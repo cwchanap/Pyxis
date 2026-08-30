@@ -216,3 +216,27 @@ whereas the live DEBUG scene uses the existing compact gold presentation,
 authored `building-pad-empty` art, and the existing level-2 Barracks cost of
 `20`. These are documented gameplay/art or fixture deltas, not a second
 economy or generic radial UI.
+
+## Fix round 2
+
+Removed the two remaining verified no-caller compatibility aliases without
+changing Camp behavior or geometry:
+
+- `CampChromeLayout.Constraints` (the `Input` alias)
+- `CampSelectionContent.project(from:selectedLot:)` (the `selectedSlot`
+  projection wrapper)
+
+CodeGraph plus a repository reference check confirmed that production and test
+callers use `CampChromeLayout.Input` and `selectedSlot` directly. No tests
+needed updating.
+
+The focused serial Camp run passed all 26 tests with no failures or skips:
+
+```text
+/private/tmp/PyxisTask6Fix2Focused/Logs/Test/Test-Pyxis-2026.08.30_06-28-20--0700.xcresult
+```
+
+`swiftlint lint` completed successfully with the unchanged repository total of
+74 non-serious violations, including the existing Camp layout complexity
+warning. `git diff --check` passed. The final cleanup commit is
+`8f7943c`'s successor on the Task 6 branch.
