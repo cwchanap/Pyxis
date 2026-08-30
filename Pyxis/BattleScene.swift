@@ -87,6 +87,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var lastUpdateTime: TimeInterval?
     private var isLayoutGatePaused = false
     #if DEBUG
+    static let freezeCombatLaunchArgument = "-pyxis-freeze-combat"
+    private let isCombatFrozen: Bool
     private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
     #endif
     private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
@@ -215,6 +217,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             FeedbackPreferencesStore.shared
         },
         feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil,
+        launchArguments: [String]? = nil,
         combatSeed: UInt64? = nil
     ) {
         let loadedState = store.load()
@@ -226,6 +229,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.feedback = feedback
         self.feedbackPreferences = feedbackPreferences
         self.feedbackSettingsAccessibilityAdapter = feedbackSettingsAccessibilityAdapter
+        #if DEBUG
+        self.isCombatFrozen = (launchArguments ?? ProcessInfo.processInfo.arguments)
+            .contains(Self.freezeCombatLaunchArgument)
+        #endif
         super.init(size: size)
     }
 
@@ -239,6 +246,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.feedback = NoOpGameplayFeedbackProvider()
         self.feedbackPreferences = FeedbackPreferencesStore.shared
         self.feedbackSettingsAccessibilityAdapter = nil
+        #if DEBUG
+        self.isCombatFrozen = ProcessInfo.processInfo.arguments.contains(Self.freezeCombatLaunchArgument)
+        #endif
         super.init(coder: aDecoder)
     }
 
@@ -299,6 +309,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
               !isFeedbackSettingsVisible else {
             return
         }
+
+        #if DEBUG
+        guard !isCombatFrozen else {
+            return
+        }
+        #endif
 
         advanceCombat(deltaTime: currentTime - lastUpdateTime)
     }

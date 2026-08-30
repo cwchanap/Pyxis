@@ -80,6 +80,13 @@ Game logic is split into pure value-type models (no SpriteKit/UIKit) and SpriteK
 6. **`GameViewController`** (`Pyxis/GameViewController.swift`) — presents the initial scene using pending-first routing: a non-nil `pendingBattleResult` launches `BattleScene` (regardless of `stageStatus`), otherwise `stageStatus` selects the scene (`battleActive` → `BattleScene`, otherwise `CountryMapScene`). It acts as the router for all three scenes' protocols (`BattleSceneRouting`, `CountryMapSceneRouting`, `BuildingViewSceneRouting`) and gates layout support: a `BattleScene` whose conquest report cannot fit (`isConquestReportFitFailed`) surfaces as `unsupportedGeometry` and recovers once the fit succeeds on a supported resize.
 - HPA-618's Country 1 city-jump tool is development-only: `DevJumpState` owns DEBUG state materialization only; the five-tap gesture/picker and its wiring belong to `GameViewController`; all are entirely `#if DEBUG`. The recognizer must keep `cancelsTouchesInView` and `delaysTouchesEnded` false so it does not distort SpriteKit input timing. The picker overwrites the current save and reuses `KingdomGameStore.save(_:)` + `presentBattleScene(in:)`; do not turn it into a shipping setting, generic dev-tools framework, checkpoint manager, or alternate router.
 
+### Forged gameplay UI ownership
+
+- `BattleScene`, `BuildingViewScene`, and `CountryMapScene` remain the three code-owned gameplay scenes. `GameViewController.presentSceneForCurrentStage(in:preferredTab:)` remains the sole pending/stage router.
+- `GameplayTabBarNode`, `PanelNode`, and `GameUITheme` provide the shared tabs/material treatment. `BattleChromeLayout` and `CampChromeLayout` own pure Battle/Camp geometry; `CountryMapLayout` owns computed Map geometry and containment.
+- The existing Settings controller/accessibility adapter owns exactly one Settings gear and the sheet; scenes do not add parallel Settings controls.
+- `ForgedVisualFixture` and capture launch markers are DEBUG-only fixture tooling. `BattleCombatState` remains the transient combat owner; a shared combat runtime across tabs is deferred to a separate design.
+
 ### App lifecycle → idle catch-up
 
 `SceneDelegate` translates UIScene lifecycle into two custom notifications declared in `GameLifecycleNotifications.swift`:

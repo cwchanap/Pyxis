@@ -199,6 +199,9 @@ final class GameViewController: UIViewController {
 
     private func configure(_ view: SKView) {
         view.ignoresSiblingOrder = true
+        view.isAccessibilityElement = false
+        view.accessibilityElementsHidden = false
+        view.accessibilityIdentifier = "pyxisGameplaySurface"
     }
 
     private func presentInitialScene(in view: SKView) {
@@ -428,6 +431,7 @@ extension GameViewController {
 
         store.save(fixture.makeState())
         presentSceneForCurrentStage(in: view, preferredTab: fixture.preferredTab)
+        view.accessibilityValue = fixture.rawValue
         if fixture == .battleBlocked,
            let battleScene = view.scene as? BattleScene {
             battleScene.spawnSoldierForTesting()
