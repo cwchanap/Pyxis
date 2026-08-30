@@ -42,6 +42,17 @@ struct GameViewControllerTests {
         ])
     }
 
+    @Test func controllerKeepsSpriteKitDiagnosticsHidden() throws {
+        let store = try makeStore(initialState: .init())
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        #expect(!view.showsFPS)
+        #expect(!view.showsNodeCount)
+    }
+
 #if DEBUG
     @Test("DEBUG controller installs a non-delaying five-tap city-jump recognizer")
     func debugControllerInstallsFiveTapCityJumpRecognizer() throws {

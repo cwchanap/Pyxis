@@ -20,13 +20,11 @@ struct BattleHUDContent: Equatable {
     }
 
     let cityTitle: String
-    let cityLevel: Int
     let cityNumber: Int
     let gold: Int
     let goldReward: Int
     let cityRemainingPower: Int
     let cityMaxPower: Int
-    let defenseTrait: CityDefenseTrait
     let laneDefenseProfile: LaneDefenseProfile
     let recommendation: RecommendedCampRecommendation
     let manualCount: Int
@@ -85,13 +83,11 @@ struct BattleHUDContent: Equatable {
 
         return BattleHUDContent(
             cityTitle: state.displayCityTitle,
-            cityLevel: state.cityLevel,
             cityNumber: state.cityNumberInCountry,
             gold: state.gold,
             goldReward: state.currentGoldReward,
             cityRemainingPower: state.cityRemainingPower,
             cityMaxPower: state.cityMaxPower,
-            defenseTrait: state.currentCityDefenseTrait,
             laneDefenseProfile: state.currentCityLaneDefenseProfile,
             recommendation: recommendation,
             manualCount: normalizedManualCount,
@@ -150,7 +146,6 @@ final class BattleHUDNode: SKNode {
     private let recommendationPanel = PanelNode(size: .zero)
     private let goldIcon = SKSpriteNode()
     private let recommendationIcon = SKSpriteNode()
-    private let cityLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let statusLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let objectiveLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
@@ -236,7 +231,6 @@ final class BattleHUDNode: SKNode {
         recommendationPanel.name = "battleRecommendationPanel"
         goldIcon.name = "battleGoldIcon"
         recommendationIcon.name = "battleRecommendationIcon"
-        cityLabel.name = "battleCityTitleLabel"
         statusLabel.name = "battleGoldLabel"
         objectiveLabel.name = "battleRecommendationLabel"
         rewardLabel.name = "battleIncomeLabel"
@@ -249,7 +243,6 @@ final class BattleHUDNode: SKNode {
         manualCountLabel.name = "battleManualCountLabel"
 
         for label in [
-            cityLabel,
             statusLabel,
             objectiveLabel,
             rewardLabel,
@@ -263,7 +256,6 @@ final class BattleHUDNode: SKNode {
             label.verticalAlignmentMode = .center
             label.fontColor = GameUITheme.Color.textPrimary
         }
-        cityLabel.fontSize = 8
         statusLabel.fontSize = 12
         statusLabel.fontColor = GameUITheme.Color.textSecondary
         objectiveLabel.fontSize = 11
@@ -282,7 +274,6 @@ final class BattleHUDNode: SKNode {
         addChild(recommendationPanel)
         addChild(goldIcon)
         addChild(recommendationIcon)
-        addChild(cityLabel)
         addChild(statusLabel)
         addChild(objectiveLabel)
         addChild(rewardLabel)
@@ -389,7 +380,6 @@ final class BattleHUDNode: SKNode {
             x: layout.cityProgressFrame.midX,
             y: layout.cityProgressFrame.midY + 11
         )
-        cityLabel.isHidden = true
         cityHPLabel.text = "\(CompactNumberFormatter.string(from: content.cityRemainingPower)) / "
             + CompactNumberFormatter.string(from: content.cityMaxPower)
         cityHPLabel.fontSize = 9

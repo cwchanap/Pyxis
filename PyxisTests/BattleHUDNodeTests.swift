@@ -66,6 +66,21 @@ struct BattleHUDNodeTests {
         #expect(recommendationLabel.text?.hasPrefix("NEXT") == true)
     }
 
+    @Test func applyDoesNotMountTheUnusedCityTitleNode() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+
+        _ = node.apply(
+            content: .project(from: KingdomGameState(), manualCount: 0),
+            layout: layout
+        )
+
+        #expect(node.childNode(withName: "battleCityTitleLabel") == nil)
+    }
+
     @Test func medallionsUseAuthoredUnitFramesAsTheirPrimaryVisual() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),

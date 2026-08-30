@@ -199,8 +199,6 @@ final class GameViewController: UIViewController {
 
     private func configure(_ view: SKView) {
         view.ignoresSiblingOrder = true
-        view.showsFPS = true
-        view.showsNodeCount = true
     }
 
     private func presentInitialScene(in view: SKView) {
