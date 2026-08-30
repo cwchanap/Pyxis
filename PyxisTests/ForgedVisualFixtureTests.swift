@@ -73,9 +73,16 @@ struct ForgedVisualFixtureTests {
 
         let occupied = ForgedVisualFixture.campOccupied.makeState()
         #expect(occupied.cityNumberInCountry == 5)
+        #expect(occupied.gold == DevJumpState.gold)
         #expect(occupied.cityBattleStateForCurrentCity.occupiedSlotCount == 6)
-        #expect(occupied.cityBattleStateForCurrentCity.slots.values.map(\.type)
-            .allSatisfy { BuildingType.allCases.contains($0) })
+        #expect(occupied.cityBattleStateForCurrentCity.slots == [
+            1: CityBuilding(type: .barracks, level: 2),
+            3: CityBuilding(type: .barracks, level: 1),
+            6: CityBuilding(type: .archeryRange, level: 2),
+            8: CityBuilding(type: .barracks, level: 1),
+            11: CityBuilding(type: .archeryRange, level: 1),
+            12: CityBuilding(type: .barracks, level: 3)
+        ])
     }
 
     @Test("DEBUG map fixtures pin pending-next-map and completed-country states")
@@ -146,6 +153,26 @@ struct ForgedVisualFixtureTests {
         ))
         #expect(store.load().pendingBattleResult?.goldEarned == 640)
         #expect(view.scene is BattleScene)
+    }
+
+    @Test("DEBUG blocked battle hook seeds one transient manual soldier")
+    func hookRoutesBlockedBattleWithTransientManualSoldier() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 73))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+        #expect(controller.installForgedVisualFixtureIfRequested(
+            in: view,
+            arguments: [
+                "Pyxis",
+                ForgedVisualFixture.launchArgument,
+                ForgedVisualFixture.battleBlocked.rawValue
+            ]
+        ))
+        let battle = try #require(view.scene as? BattleScene)
+        #expect(battle.manualLiveSoldierCountForTesting == 1)
+        #expect(store.load().activeSiegeSession == nil)
+        #expect(store.load().pendingBattleResult == nil)
     }
 
     @Test("DEBUG fixture hook routes non-pending fixtures through the stage authority")
