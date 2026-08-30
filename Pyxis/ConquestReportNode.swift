@@ -224,7 +224,11 @@ final class ConquestReportNode: SKNode {
         panel.position = .zero
     }
 
-    private func renderTakenMedallion(frame: CGRect) {
+    private func renderTakenMedallion(frame: CGRect?) {
+        guard let frame else {
+            takenMedallion.isHidden = true
+            return
+        }
         let radius = frame.width / 2
         let outerRect = CGRect(
             x: -radius,

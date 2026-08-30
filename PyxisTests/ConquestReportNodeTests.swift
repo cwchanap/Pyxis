@@ -7,15 +7,16 @@ private enum ConquestReportNodeTestError: Error { case layoutUnavailable }
 private func reportLayout(
     tiles: Int,
     chips: Int,
-    panelWidth: CGFloat = 319
+    panelWidth: CGFloat = 319,
+    sceneSize: CGSize = CGSize(width: 393, height: 499)
 ) throws -> ConquestReportLayout {
     guard let layout = ConquestReportLayout.compute(.init(
-        sceneSize: CGSize(width: 393, height: 499),
+        sceneSize: sceneSize,
         safeAreaInsets: ConquestReportSafeAreaInsets(top: 20, left: 0, bottom: 20, right: 0),
         battleContentWidth: panelWidth,
         tileCount: tiles,
         chipCount: chips,
-        compactHeight: true
+        compactHeight: sceneSize.height < 500
     )) else {
         throw ConquestReportNodeTestError.layoutUnavailable
     }
@@ -123,7 +124,7 @@ struct ConquestReportNodeTests {
 
     @Test func victoryReportUsesTakenCityHeaderAndForgedContinueTreatment() throws {
         let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
-        let layout = try reportLayout(tiles: 3, chips: 2)
+        let layout = try reportLayout(tiles: 3, chips: 2, sceneSize: CGSize(width: 393, height: 852))
 
         #expect(node.apply(
             content: fullContent(),
