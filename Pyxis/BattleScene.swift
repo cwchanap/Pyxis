@@ -2582,8 +2582,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             safeAreaInsets: .init(top: insets.top, left: insets.left,
                                   bottom: insets.bottom, right: insets.right),
             battleContentWidth: contentWidth,
-            summaryRowCount: content.summaryLines.count,
-            achievementCount: content.achievements.count,
+            tileCount: content.tiles.count,
+            chipCount: content.achievements.count,
             compactHeight: compactHeight,
             includesCountryCompletion: tier?.isCountryFinale == true
         )
@@ -3272,8 +3272,12 @@ extension BattleScene {
         lastAppliedConquestReportContent?.title ?? ""
     }
 
-    var conquestReportLinesForTesting: [String] {
-        lastAppliedConquestReportContent?.summaryLines ?? []
+    var conquestReportTilesForTesting: [ConquestReportContent.StatTile] {
+        lastAppliedConquestReportContent?.tiles ?? []
+    }
+
+    var conquestReportRewardTextForTesting: String {
+        lastAppliedConquestReportContent?.rewardText ?? ""
     }
 
     var lastConquestReportOriginForTesting: String? {
@@ -3317,8 +3321,8 @@ extension BattleScene {
         conquestReportNode.nodeCountsForTesting
     }
 
-    var conquestReportBadgeCountForTesting: Int {
-        conquestReportNode.renderedAchievementSymbolsForTesting.count
+    var conquestReportChipCountForTesting: Int {
+        conquestReportNode.renderedChipSymbolsForTesting.count
     }
 
     func repeatDidMoveForTesting() {

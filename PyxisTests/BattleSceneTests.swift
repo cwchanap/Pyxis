@@ -2427,9 +2427,8 @@ struct BattleSceneTests {
         #expect(scene.isGoldBurstVisibleForTesting)
         // The gold burst renders above the report panel so sparkles are visible.
         #expect(scene.goldBurstZPositionForTesting > scene.conquestReportNodeZPositionForTesting)
-        // The report (not the burst) carries the gold-earned summary line.
-        let goldLine = try #require(scene.conquestReportLinesForTesting.first)
-        #expect(goldLine.contains("Gold earned"))
+        // The report carries the dedicated reward copy.
+        #expect(scene.conquestReportRewardTextForTesting == "+8")
     }
 
     @Test func conquestPopupRemovesGoldBurstAfterTransientActions() async throws {
@@ -2602,7 +2601,7 @@ struct BattleSceneTests {
         let scene = makeScene(store: store)
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(scene.conquestReportTitleForTesting == "Falconridge Silenced")
-        #expect(scene.conquestReportLinesForTesting[1] == "Battle time: 1m 5s")
+        #expect(scene.conquestReportTilesForTesting[0] == .battleTime(seconds: 65))
         #expect(!scene.isGoldBurstVisibleForTesting)
         #expect(!scene.isCityConquestFeedbackRunningForTesting)
         #expect(scene.lastConquestReportOriginForTesting == "restored")
@@ -2642,7 +2641,11 @@ struct BattleSceneTests {
         scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
         scene.enterForegroundForTesting(at: Date(timeIntervalSince1970: 10_000))
         #expect(scene.lastConquestReportOriginForTesting == "freshIdle")
-        #expect(scene.conquestReportLinesForTesting[1] == "Conquered by your buildings")
+        #expect(scene.conquestReportTilesForTesting == [
+            .mvp(soldierType: .infantry, sharePercent: 100),
+            .buildings(count: 1),
+            .sentLost(sent: 0, lost: 0)
+        ])
         #expect(scene.isGoldBurstVisibleForTesting)
         #expect(!scene.isCityConquestFeedbackRunningForTesting)
         #expect(scene.floatingFeedbackCountForTesting == 0)
@@ -2683,12 +2686,12 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: pendingConqueredState(city: 3))
         let scene = makeScene(store: store)
         #expect(scene.conquestReportTitleForTesting == "Falconridge Silenced")
-        #expect(scene.conquestReportLinesForTesting == [
-            "Gold earned: +8",
-            "Battle time: 1m 5s",
-            "Deployed: 0 · Lost: 0"
+        #expect(scene.conquestReportRewardTextForTesting == "+8")
+        #expect(scene.conquestReportTilesForTesting == [
+            .battleTime(seconds: 65),
+            .sentLost(sent: 0, lost: 0)
         ])
-        #expect(scene.conquestReportBadgeCountForTesting == 0)
+        #expect(scene.conquestReportChipCountForTesting == 0)
         #expect(scene.popupContinueButtonFrameForTesting != nil)
         #expect(!scene.isConquestReportFitFailedForTesting)
         #expect(scene.isConquestPopupVisibleForTesting)
@@ -2699,8 +2702,8 @@ struct BattleSceneTests {
             city: 3, usedFavorableUnit: true
         ))
         let scene = makeScene(store: store)
-        #expect(scene.conquestReportBadgeCountForTesting == 1)
-        #expect(scene.conquestReportLinesForTesting.count == 3)
+        #expect(scene.conquestReportChipCountForTesting == 1)
+        #expect(scene.conquestReportTilesForTesting.count == 2)
         #expect(scene.popupContinueButtonFrameForTesting != nil)
         #expect(!scene.isConquestReportFitFailedForTesting)
     }
@@ -2708,7 +2711,7 @@ struct BattleSceneTests {
     @Test func threeRowCompactLayoutKeepsContinueVisible() throws {
         let store = try makeStore(initialState: pendingConqueredState(city: 3))
         let scene = makeScene(store: store)
-        #expect(scene.conquestReportLinesForTesting.count == 3)
+        #expect(scene.conquestReportTilesForTesting.count == 2)
         let continueFrame = try #require(scene.popupContinueButtonFrameForTesting)
         #expect(continueFrame.minX >= 0)
         #expect(continueFrame.maxX <= scene.size.width)

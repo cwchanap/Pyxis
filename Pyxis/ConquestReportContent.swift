@@ -6,70 +6,113 @@
 import Foundation
 
 struct ConquestReportContent: Equatable {
-    enum Achievement: Equatable { case favorableUnit, exposedLane }
-    let title: String
-    let summaryLines: [String]
-    let achievements: [Achievement]
+    enum Achievement: Equatable {
+        case favorableUnit
+        case exposedLane
+    }
 
-    /// Index of the "Gold earned" line within `summaryLines`. `project`
-    /// always emits gold first, so this is 0; exposing it keeps the gold-burst
-    /// anchor coupled to the gold line's semantic identity rather than to a
-    /// positional assumption that would silently drift if the line order
-    /// ever changed.
-    static let goldLineIndex = 0
+    enum StatTile: Equatable {
+        case mvp(soldierType: SoldierType, sharePercent: Int)
+        case battleTime(seconds: TimeInterval)
+        case buildings(count: Int)
+        case sentLost(sent: Int, lost: Int)
+
+        var valueText: String {
+            switch self {
+            case let .mvp(_, sharePercent):
+                return "\(max(0, min(100, sharePercent)))%"
+            case let .battleTime(seconds):
+                return Self.durationText(seconds)
+            case let .buildings(count):
+                return CompactNumberFormatter.string(from: max(0, count))
+            case let .sentLost(sent, lost):
+                let sentText = CompactNumberFormatter.string(from: max(0, sent))
+                let lostText = CompactNumberFormatter.string(from: max(0, lost))
+                return "\(sentText)/\(lostText)"
+            }
+        }
+
+        var labelText: String {
+            switch self {
+            case .mvp:
+                return "MVP"
+            case .battleTime:
+                return "SIEGE"
+            case .buildings:
+                return "BUILDINGS"
+            case .sentLost:
+                return "SENT/LOST"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case let .mvp(soldierType, _):
+                switch soldierType {
+                case .infantry: return "shield.fill"
+                case .archer: return "figure.archery"
+                case .cavalry: return "hare.fill"
+                case .mage: return "wand.and.stars"
+                case .siege: return "hammer.fill"
+                }
+            case .battleTime:
+                return "timer"
+            case .buildings:
+                return "building.2.fill"
+            case .sentLost:
+                return "person.3.fill"
+            }
+        }
+
+        private static func durationText(_ raw: TimeInterval) -> String {
+            let normalized = ActiveSiegeSession.normalizedActiveBattleSeconds(raw)
+            // TimeInterval(Int.max) rounds to 2^63, the first Double outside
+            // Int's range. Saturate before converting so corrupted saves do
+            // not trap while formatting their report.
+            let total = normalized >= TimeInterval(Int.max) ? Int.max : Int(normalized)
+            let minutes = total / 60
+            let seconds = total % 60
+            return "\(minutes):\(String(format: "%02d", seconds))"
+        }
+    }
+
+    let title: String
+    let rewardText: String
+    let tiles: [StatTile]
+    let achievements: [Achievement]
 
     static func project(
         from result: BattleResult,
         title: String
     ) -> Self {
-        var lines = [
-            "Gold earned: +\(CompactNumberFormatter.string(from: result.goldEarned))"
-        ]
-        switch result.conquestMode {
-        case .live:
-            lines.append("Battle time: \(durationText(result.activeBattleSeconds))")
-        case .idle:
-            lines.append("Conquered by your buildings")
-        }
+        var tiles = [StatTile]()
         if let type = result.mvpSoldierType,
            let percent = result.mvpDamageSharePercent {
-            lines.append("MVP: \(type.displayName) · \(percent)%")
+            tiles.append(.mvp(soldierType: type, sharePercent: percent))
         }
-        lines.append(
-            "Deployed: \(CompactNumberFormatter.string(from: result.totalDeploymentCount))"
-                + " · Lost: \(CompactNumberFormatter.string(from: result.totalLossCount))"
-        )
+
+        switch result.conquestMode {
+        case .live:
+            let seconds = ActiveSiegeSession.normalizedActiveBattleSeconds(result.activeBattleSeconds)
+            tiles.append(.battleTime(seconds: seconds))
+        case .idle:
+            tiles.append(.buildings(count: result.idleDamageByType.count))
+        }
+
+        tiles.append(.sentLost(
+            sent: result.totalDeploymentCount,
+            lost: result.totalLossCount
+        ))
+
         var achievements = [Achievement]()
         if result.usedFavorableUnit { achievements.append(.favorableUnit) }
         if result.usedExposedLane { achievements.append(.exposedLane) }
-        return Self(title: title, summaryLines: lines, achievements: achievements)
-    }
 
-    private static func durationText(_ raw: TimeInterval) -> String {
-        let normalized = ActiveSiegeSession.normalizedActiveBattleSeconds(raw)
-        // Int(normalized) traps when normalized exceeds Int's representable
-        // range. `normalized` is already finite and non-negative, so the only
-        // remaining overflow is a finite value above Int.max. Saturate it:
-        // TimeInterval(Int.max) rounds up to 2^63 (the first Double outside
-        // Int's range), so any value >= that threshold clamps to Int.max,
-        // and every smaller Double converts safely. Formatting a saturated
-        // value yields an enormous hour count, which is the intended display
-        // for a corrupted/oversized persisted duration.
-        let total = normalized >= TimeInterval(Int.max) ? Int.max : Int(normalized)
-        let hours = total / 3_600
-        let minutes = (total % 3_600) / 60
-        let seconds = total % 60
-        if hours == 0, minutes == 0 { return "\(seconds)s" }
-        if hours == 0 {
-            return seconds == 0 ? "\(minutes)m" : "\(minutes)m \(seconds)s"
-        }
-        var parts = ["\(hours)h"]
-        if minutes > 0 || seconds > 0 {
-            parts.append(String(format: "%02dm", minutes))
-        }
-        if seconds > 0 {
-            parts.append(String(format: "%02ds", seconds))
-        }
-        return parts.joined(separator: " ")
+        return Self(
+            title: title,
+            rewardText: "+\(CompactNumberFormatter.string(from: result.goldEarned))",
+            tiles: tiles,
+            achievements: achievements
+        )
     }
 }
