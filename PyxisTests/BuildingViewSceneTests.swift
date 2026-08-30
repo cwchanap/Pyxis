@@ -335,7 +335,10 @@ struct BuildingViewSceneTests {
 
         scene.handleTouchForTesting(at: center(of: builderFrame))
         scene.handleTouchForTesting(at: lotPoint)
-        scene.handleTouchForTesting(at: center(of: selection.tabs))
+        // The bottom sheet covers the tab centers; use the exposed edge of the
+        // hit frame to verify the modal still consumes tab touches.
+        let tabPoint = CGPoint(x: selection.tabs.midX, y: selection.tabs.minY + 4)
+        scene.handleTouchForTesting(at: tabPoint)
 
         #expect(scene.isFeedbackSettingsVisibleForTesting)
         #expect(scene.selectedSlotForTesting == 1)

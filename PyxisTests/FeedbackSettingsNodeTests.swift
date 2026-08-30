@@ -39,10 +39,13 @@ private func allNodes(in root: SKNode) -> [SKNode] {
 private func renderedControlFrames(in node: FeedbackSettingsNode, panelFrame: CGRect) -> [CGRect] {
     allNodes(in: node).compactMap { child in
         guard let shape = child as? SKShapeNode else { return nil }
+        guard [
+            "feedbackSettingsSoundRow",
+            "feedbackSettingsHapticsRow",
+            "feedbackSettingsClose"
+        ].contains(child.name) else { return nil }
         return shape.path?.boundingBox
-    }.filter { frame in
-        frame != panelFrame && panelFrame.contains(frame)
-    }
+    }.filter { frame in frame != panelFrame && panelFrame.contains(frame) }
 }
 
 @MainActor
@@ -78,9 +81,15 @@ struct FeedbackSettingsNodeTests {
         #expect(renderedLabelTexts(in: node) == [
             "Sound Effects",
             "Haptics",
-            "On",
-            "Off",
-            "Close"
+            "Done"
+        ])
+        #expect(node.iconSymbolNamesForTesting == [
+            "speaker.wave.2.fill",
+            "iphone.radiowaves.left.and.right"
+        ])
+        #expect(node.visibleToggleRowNamesForTesting == [
+            "feedbackSettingsSoundRow",
+            "feedbackSettingsHapticsRow"
         ])
         #expect(node.zPosition == GameUITheme.Z.modal - 10)
     }
@@ -129,15 +138,15 @@ struct FeedbackSettingsNodeTests {
             y: resizedLayout.closeFrame.midY
         )) == .close)
         #expect(node.action(at: CGPoint(
-            x: initialLayout.soundRowFrame.midX,
+            x: initialLayout.soundRowFrame.minX + 1,
             y: initialLayout.soundRowFrame.midY
         )) == .consumed)
         #expect(node.action(at: CGPoint(
-            x: initialLayout.hapticsRowFrame.midX,
+            x: initialLayout.hapticsRowFrame.minX + 1,
             y: initialLayout.hapticsRowFrame.midY
         )) == .consumed)
         #expect(node.action(at: CGPoint(
-            x: initialLayout.closeFrame.midX,
+            x: initialLayout.closeFrame.minX + 1,
             y: initialLayout.closeFrame.midY
         )) == .consumed)
     }
@@ -222,7 +231,7 @@ struct FeedbackSettingsNodeTests {
 
         #expect(node.soundEffectsLabelForTesting == "Sound Effects")
         #expect(node.hapticsLabelForTesting == "Haptics")
-        #expect(node.closeLabelForTesting == "Close")
+        #expect(node.closeLabelForTesting == "Done")
         #expect(node.toggleControlCountForTesting == 2)
         #expect(node.controlCountForTesting == 3)
     }

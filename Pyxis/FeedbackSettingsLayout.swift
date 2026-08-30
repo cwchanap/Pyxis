@@ -11,23 +11,33 @@ struct FeedbackSettingsSafeAreaInsets: Equatable {
 
 struct FeedbackSettingsLayout: Equatable {
     private enum Metrics {
-        static let safeHorizontalMargin: CGFloat = 16
-        static let maximumPanelWidth: CGFloat = 320
         static let horizontalPadding: CGFloat = 20
-        static let verticalPadding: CGFloat = 20
-        static let rowHeight: CGFloat = 52
-        static let rowGap: CGFloat = 12
-        static let closeGap: CGFloat = 18
-        static let closeHeight: CGFloat = 48
+        static let topPadding: CGFloat = 12
+        static let handleWidth: CGFloat = 44
+        static let handleHeight: CGFloat = 4
+        static let handleGap: CGFloat = 16
+        static let rowHeight: CGFloat = 60
+        static let dividerHeight: CGFloat = 1
+        static let closeGap: CGFloat = 14
+        static let closeHeight: CGFloat = 52
+        static let minimumBottomPadding: CGFloat = 20
         static let minimumInteractiveSize: CGFloat = 44
 
-        static var panelHeight: CGFloat {
-            verticalPadding * 2 + rowHeight * 2 + rowGap + closeGap + closeHeight
+        static func panelHeight(bottomPadding: CGFloat) -> CGFloat {
+            topPadding
+                + handleHeight
+                + handleGap
+                + rowHeight * 2
+                + dividerHeight
+                + closeGap
+                + closeHeight
+                + bottomPadding
         }
     }
 
     let scrimFrame: CGRect
     let panelFrame: CGRect
+    let handleFrame: CGRect
     let soundRowFrame: CGRect
     let hapticsRowFrame: CGRect
     let closeFrame: CGRect
@@ -55,81 +65,67 @@ struct FeedbackSettingsLayout: Equatable {
         }
 
         let safeWidth = sceneSize.width - safeAreaInsets.left - safeAreaInsets.right
-        let safeHeight = sceneSize.height - safeAreaInsets.top - safeAreaInsets.bottom
+        let bottomPadding = max(Metrics.minimumBottomPadding, safeAreaInsets.bottom)
+        let panelHeight = Metrics.panelHeight(bottomPadding: bottomPadding)
         guard safeWidth.isFinite,
-              safeHeight.isFinite,
-              safeWidth >= minimumSafeWidth,
-              safeHeight >= Metrics.panelHeight else {
-            return nil
-        }
-
-        let safeFrame = CGRect(
-            x: safeAreaInsets.left,
-            y: safeAreaInsets.bottom,
-            width: safeWidth,
-            height: safeHeight
-        )
-        let panelWidth = min(
-            Metrics.maximumPanelWidth,
-            safeFrame.width - Metrics.safeHorizontalMargin * 2
-        )
-        let controlWidth = panelWidth - Metrics.horizontalPadding * 2
-        guard panelWidth >= minimumPanelWidth,
-              controlWidth >= Metrics.minimumInteractiveSize else {
+              safeWidth >= Metrics.horizontalPadding * 2 + Metrics.minimumInteractiveSize,
+              sceneSize.height >= panelHeight else {
             return nil
         }
 
         let panelFrame = CGRect(
-            x: safeFrame.midX - panelWidth / 2,
-            y: safeFrame.midY - Metrics.panelHeight / 2,
-            width: panelWidth,
-            height: Metrics.panelHeight
+            x: 0,
+            y: 0,
+            width: sceneSize.width,
+            height: panelHeight
         )
-        let controlX = panelFrame.minX + Metrics.horizontalPadding
-        let soundRowFrame = CGRect(
-            x: controlX,
-            y: panelFrame.maxY - Metrics.verticalPadding - Metrics.rowHeight,
-            width: controlWidth,
-            height: Metrics.rowHeight
-        )
-        let hapticsRowFrame = CGRect(
-            x: controlX,
-            y: soundRowFrame.minY - Metrics.rowGap - Metrics.rowHeight,
-            width: controlWidth,
-            height: Metrics.rowHeight
-        )
+        let controlX = safeAreaInsets.left + Metrics.horizontalPadding
+        let controlWidth = safeWidth - Metrics.horizontalPadding * 2
         let closeFrame = CGRect(
             x: controlX,
-            y: hapticsRowFrame.minY - Metrics.closeGap - Metrics.closeHeight,
+            y: panelFrame.minY + bottomPadding,
             width: controlWidth,
             height: Metrics.closeHeight
         )
+        let hapticsRowFrame = CGRect(
+            x: controlX,
+            y: closeFrame.maxY + Metrics.closeGap,
+            width: controlWidth,
+            height: Metrics.rowHeight
+        )
+        let soundRowFrame = CGRect(
+            x: controlX,
+            y: hapticsRowFrame.maxY + Metrics.dividerHeight,
+            width: controlWidth,
+            height: Metrics.rowHeight
+        )
+        let handleFrame = CGRect(
+            x: panelFrame.midX - Metrics.handleWidth / 2,
+            y: soundRowFrame.maxY + Metrics.handleGap,
+            width: Metrics.handleWidth,
+            height: Metrics.handleHeight
+        )
 
-        guard safeFrame.contains(panelFrame),
+        guard panelFrame.minY >= 0,
+              panelFrame.maxY <= sceneSize.height,
+              panelFrame.contains(handleFrame),
               panelFrame.contains(soundRowFrame),
               panelFrame.contains(hapticsRowFrame),
               panelFrame.contains(closeFrame),
               soundRowFrame.height >= Metrics.minimumInteractiveSize,
               hapticsRowFrame.height >= Metrics.minimumInteractiveSize,
               closeFrame.height >= Metrics.minimumInteractiveSize,
-              abs(closeFrame.minY - (panelFrame.minY + Metrics.verticalPadding)) < 0.0001 else {
+              handleFrame.maxY + Metrics.topPadding == panelFrame.maxY else {
             return nil
         }
 
         return FeedbackSettingsLayout(
             scrimFrame: CGRect(origin: .zero, size: sceneSize),
             panelFrame: panelFrame,
+            handleFrame: handleFrame,
             soundRowFrame: soundRowFrame,
             hapticsRowFrame: hapticsRowFrame,
             closeFrame: closeFrame
         )
-    }
-
-    private static var minimumPanelWidth: CGFloat {
-        Metrics.horizontalPadding * 2 + Metrics.minimumInteractiveSize
-    }
-
-    private static var minimumSafeWidth: CGFloat {
-        Metrics.safeHorizontalMargin * 2 + minimumPanelWidth
     }
 }
