@@ -837,6 +837,9 @@ struct GameViewControllerTests {
         camp.requestGameplayTabForTesting(.map)
 
         #expect(store.load().pendingBattleResult != nil)
+        #expect(camp.gameplayTabContentForTesting.enabledTabs == [.battle])
+        #expect(camp.gameplayTabBarForTesting.hitFrameForTesting(for: .battle) != nil)
+        #expect(camp.gameplayTabBarForTesting.hitFrameForTesting(for: .map) == nil)
         #expect(view.scene is BattleScene)
     }
 
