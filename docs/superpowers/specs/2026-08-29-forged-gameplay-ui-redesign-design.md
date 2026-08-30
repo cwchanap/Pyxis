@@ -369,10 +369,10 @@ The implementation PR includes canonical mock / real 393×852 / 50%-alpha overla
 
 **Risk:** five connected surfaces create a large review diff.
 
-**Control:** this task remains one PR per project delivery policy. Use task commits and explicit review checkpoints after foundation/fixtures, Battle, Camp+Map, and Conquest+Settings. Do not split into multiple PRs unless the product owner explicitly approves that exception.
+**Control:** this task remains one PR. Use task commits and explicit review checkpoints after foundation/fixtures, Battle, Camp+Map, and Conquest+Settings. Do not split into multiple PRs unless explicitly approved.
 
 ## Delivery shape
 
-The complete runtime redesign is one PR. Tasks are logical TDD commits with intermediate review checkpoints, not independently merged PRs. This avoids temporary compatibility chrome and honors the project's one-PR-per-task planning rule.
+The complete runtime redesign is one PR. Tasks are logical TDD commits with intermediate review checkpoints, not independently merged PRs. This avoids temporary compatibility chrome and keeps the task's delivery atomic.
 
 No runtime PR leaves Draft until full tests/lint/diff, Codecov ≥90% project/patch, Release marker scans, and the parity board are complete.
