@@ -60,7 +60,8 @@ struct ConquestReportLayoutTests {
         #expect(layout.tileFrames.allSatisfy { layout.panelFrame.contains($0) })
         #expect(layout.chipFrames.allSatisfy { layout.panelFrame.contains($0) })
         #expect(layout.panelFrame.contains(layout.continueFrame))
-        #expect(layout.safeFrame.contains(layout.takenMedallionFrame))
+        let medallion = try #require(layout.takenMedallionFrame)
+        #expect(layout.safeFrame.contains(medallion))
         for index in 1..<layout.tileFrames.count {
             #expect(layout.tileFrames[index - 1].maxX <= layout.tileFrames[index].minX)
         }
@@ -139,7 +140,22 @@ struct ConquestReportLayoutTests {
             #expect(layout.safeFrame.contains(completion))
             #expect(!completion.intersects(layout.panelFrame))
             #expect(!completion.intersects(layout.continueFrame))
+            if let medallion = layout.takenMedallionFrame {
+                #expect(!medallion.intersects(layout.titleFrame))
+                #expect(!medallion.intersects(layout.rewardFrame))
+                #expect(!medallion.intersects(completion))
+            }
         }
+    }
+
+    @Test func constrainedCountryCompletionOmitsDecorativeMedallion() throws {
+        let layout = try #require(makeLayout(
+            size: CGSize(width: 320, height: 568),
+            tiles: 3,
+            chips: 2,
+            includesCountryCompletion: true
+        ))
+        #expect(layout.takenMedallionFrame == nil)
     }
 
     @Test func countryCompletionFailsClosedAtPureBoundary() throws {

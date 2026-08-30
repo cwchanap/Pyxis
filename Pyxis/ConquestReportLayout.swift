@@ -109,7 +109,7 @@ struct ConquestReportLayout: Equatable {
 
     let safeFrame: CGRect
     let panelFrame: CGRect
-    let takenMedallionFrame: CGRect
+    let takenMedallionFrame: CGRect?
     let titleFrame: CGRect
     let rewardFrame: CGRect
     let tileFrames: [CGRect]
@@ -209,7 +209,7 @@ struct ConquestReportLayout: Equatable {
             takenMedallionCenterY,
             safeFrame.minY + metrics.takenMedallionDiameter / 2
         )
-        let takenMedallionFrame = CGRect(
+        let medallionCandidateFrame = CGRect(
             x: panelFrame.midX - metrics.takenMedallionDiameter / 2,
             y: takenMedallionCenterY - metrics.takenMedallionDiameter / 2,
             width: metrics.takenMedallionDiameter,
@@ -232,6 +232,15 @@ struct ConquestReportLayout: Equatable {
             width: rewardWidth,
             height: metrics.rewardHeight
         )
+        let avoidsCountryCompletion = countryCompleteFrame.map {
+            !$0.intersects(medallionCandidateFrame)
+        } ?? true
+        let takenMedallionFrame: CGRect? = safeFrame.contains(medallionCandidateFrame)
+            && !medallionCandidateFrame.intersects(titleFrame)
+            && !medallionCandidateFrame.intersects(rewardFrame)
+            && avoidsCountryCompletion
+            ? medallionCandidateFrame
+            : nil
         cursorY -= metrics.rewardHeight + metrics.rewardTilesGap
 
         let tileY = cursorY - metrics.tileHeight
@@ -327,7 +336,7 @@ struct ConquestReportLayout: Equatable {
     private struct ComputedFrames {
         let safeFrame: CGRect
         let panelFrame: CGRect
-        let takenMedallionFrame: CGRect
+        let takenMedallionFrame: CGRect?
         let titleFrame: CGRect
         let rewardFrame: CGRect
         let tileFrames: [CGRect]
@@ -339,7 +348,6 @@ struct ConquestReportLayout: Equatable {
 
     private static func framesAreContained(_ frames: ComputedFrames) -> Bool {
         guard frames.safeFrame.contains(frames.panelFrame),
-              frames.safeFrame.contains(frames.takenMedallionFrame),
               frames.panelFrame.contains(frames.titleFrame),
               frames.panelFrame.contains(frames.rewardFrame),
               frames.tileFrames.allSatisfy({ frames.panelFrame.contains($0) }),
@@ -352,10 +360,17 @@ struct ConquestReportLayout: Equatable {
         } else if !frames.chipFrames.isEmpty {
             return false
         }
+        if let takenMedallionFrame = frames.takenMedallionFrame {
+            guard frames.safeFrame.contains(takenMedallionFrame),
+                  !takenMedallionFrame.intersects(frames.titleFrame),
+                  !takenMedallionFrame.intersects(frames.rewardFrame) else { return false }
+        }
         if let countryCompleteFrame = frames.countryCompleteFrame {
             guard frames.safeFrame.contains(countryCompleteFrame),
-                  !countryCompleteFrame.intersects(frames.panelFrame),
-                  !countryCompleteFrame.intersects(frames.takenMedallionFrame) else { return false }
+                  !countryCompleteFrame.intersects(frames.panelFrame) else { return false }
+            if let takenMedallionFrame = frames.takenMedallionFrame {
+                guard !countryCompleteFrame.intersects(takenMedallionFrame) else { return false }
+            }
         }
         return true
     }
