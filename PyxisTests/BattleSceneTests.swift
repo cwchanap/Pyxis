@@ -291,6 +291,32 @@ struct BattleSceneTests {
         #expect(blockedScene.feedbackTextForTesting == "Mage unlocks at City 8.")
     }
 
+    @Test("Blocked squad feedback uses a dedicated non-overlapping anchor")
+    func blockedSquadFeedbackUsesDedicatedAnchor() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20)),
+            router: BattleRouterSpy(),
+            size: CGSize(width: 393, height: 852)
+        )
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        scene.spawnSoldierForTesting()
+        scene.requestGameplayTabForTesting(.camp)
+
+        let feedbackPanel = try #require(
+            scene.childNode(withName: "feedbackPanel") as? PanelNode
+        )
+        let campPanel = try #require(
+            scene.battleHUDForTesting.tabBarForTesting.childNode(
+                withName: "gameplayTab-camp/gameplayTabPanel-camp"
+            ) as? PanelNode
+        )
+
+        #expect(!feedbackPanel.calculateAccumulatedFrame().intersects(layout.objectiveFrame))
+        #expect(campPanel.styleForTesting == .disabled)
+        #expect(scene.battleHUDForTesting.tabBarForTesting.hitFrameForTesting(for: .camp) == nil)
+        #expect(scene.battleHUDForTesting.tabBarForTesting.hitFrameForTesting(for: .map) == nil)
+    }
+
     @Test func combatUsesCurrentCityLaneDefenseMultipliers() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
@@ -328,14 +354,6 @@ struct BattleSceneTests {
             #expect(nodeCount(in: scene, of: SettingsGearNode.self) == 1)
         }
 
-        #expect(!BattleScene.supportsLeftHUDResourceValueForTesting(
-            leftHUDWidth: 137.9,
-            resourceIconMaximum: 26
-        ))
-        #expect(BattleScene.supportsLeftHUDResourceValueForTesting(
-            leftHUDWidth: 138,
-            resourceIconMaximum: 26
-        ))
     }
 
     @Test("Battle uses injected feedback and preferences for Settings and manual deployment")
@@ -405,11 +423,9 @@ struct BattleSceneTests {
         let scene = makeScene(store: store, router: router)
         let layout = try #require(scene.battleChromeLayoutForTesting)
 
-        scene.openManualTypeMenuForTesting()
         scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
 
         #expect(scene.isFeedbackSettingsVisibleForTesting)
-        #expect(!scene.isManualTypeMenuOpenForTesting)
         #expect(scene.isBattlefieldActionLayerPausedForTesting)
         #expect(!scene.isBattlefieldLayerPausedForTesting)
         #expect(scene.battlefieldActionLayerPositionForTesting == .zero)
@@ -1908,19 +1924,6 @@ struct BattleSceneTests {
         #expect(scene.liveSoldierCountForTesting == 1)
     }
 
-    @Test func toggleManualTypeMenuOpenWithInfantryFallback() throws {
-        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 100))
-        let scene = makeScene(store: store)
-
-        // Infantry is always available, so the menu opens
-        #expect(scene.manualSpawnableSoldierTypesForTesting == [.infantry])
-        #expect(scene.isManualTypeMenuOpenForTesting == false)
-
-        scene.toggleManualTypeMenuForTesting()
-
-        #expect(scene.isManualTypeMenuOpenForTesting == true)
-    }
-
     @Test func manualSelectorUsesBuiltCurrentCityUnitsOnly() throws {
         let state = stateWithBuildings(
             [.barracks, .mageTower],
@@ -2173,12 +2176,11 @@ struct BattleSceneTests {
         )
         let scene = makeScene(store: store)
 
-        let layoutCountBeforeInfantryMenu = scene.battlefieldLayoutCountForTesting
+        let layoutCountBeforeInfantrySelection = scene.battlefieldLayoutCountForTesting
 
-        scene.toggleManualTypeMenuForTesting()
         scene.selectManualSoldierTypeForTesting(.infantry)
 
-        #expect(scene.battlefieldLayoutCountForTesting == layoutCountBeforeInfantryMenu)
+        #expect(scene.battlefieldLayoutCountForTesting == layoutCountBeforeInfantrySelection)
     }
 
     // City 9 tower damage (14 - 1 defense = 13 base) kills a 10-HP soldier in
@@ -2241,17 +2243,17 @@ struct BattleSceneTests {
         let scene = makeScene(store: store, combatSeed: 1)
 
         scene.spawnSoldierForTesting()
-        #expect(scene.gameplayTabContentForTesting.enabledTabs == [.battle])
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) == nil)
+        #expect(scene.battleHUDContentForTesting.enabledTabs == [.battle])
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .map) == nil)
 
         scene.advanceCombatForTesting(deltaTime: 1.2)
 
         #expect(scene.liveSoldierCountForTesting == 0)
         #expect(scene.cityRemainingPowerForTesting == 20)
-        #expect(scene.gameplayTabContentForTesting.enabledTabs == Set(GameplayTab.allCases))
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) != nil)
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) != nil)
+        #expect(scene.battleHUDContentForTesting.enabledTabs == Set(GameplayTab.allCases))
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .camp) != nil)
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .map) != nil)
     }
 
     @Test func liveCombatConquestClearsSoldiersAndShowsPopup() throws {
@@ -2426,7 +2428,7 @@ struct BattleSceneTests {
         #expect(!scene.isGoldBurstRemovalScheduledForTesting)
     }
 
-    @Test func buildButtonRequestsBuildingViewRoute() throws {
+    @Test func campTabRequestsBuildingViewRoute() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
@@ -2436,7 +2438,7 @@ struct BattleSceneTests {
         #expect(router.didRequestBuildingView)
     }
 
-    @Test func worldButtonRequestsCountryMapRoute() throws {
+    @Test func mapTabRequestsCountryMapRoute() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
@@ -2446,7 +2448,7 @@ struct BattleSceneTests {
         #expect(router.didRequestCountryMap)
     }
 
-    @Test func buildButtonWaitsForLiveSoldiersBeforeRouting() throws {
+    @Test func campTabWaitsForLiveSoldiersBeforeRouting() throws {
         let start = Date(timeIntervalSinceReferenceDate: 500)
         var initialState = KingdomGameState(gold: 100, cityRemainingPower: 20)
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
@@ -2463,7 +2465,7 @@ struct BattleSceneTests {
         #expect(store.load() == initialState)
     }
 
-    @Test func buildButtonAllowsRoutingWithOnlyBuildingSpawnedSoldiers() throws {
+    @Test func campTabAllowsRoutingWithOnlyBuildingSpawnedSoldiers() throws {
         let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
         let cityState = CityBattleState(
             slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: 9.95)]
@@ -2788,9 +2790,9 @@ struct BattleSceneTests {
         #expect(!texts.contains { $0.hasPrefix("Gold:") })
         #expect(!texts.contains { $0.hasPrefix("Soldiers:") })
         #expect(!texts.contains { $0.hasPrefix("HP:") })
-        #expect(texts.contains("GOLD 30  ·  Standard Watch"))
+        #expect(texts.contains("30"))
         #expect(texts.contains("0/10"))
-        #expect(texts.contains("CITY 1 · Willowford"))
+        #expect(texts.contains("1 / 15 WILLOWFORD"))
         #expect(texts.contains("INFANTRY"))
         #expect(texts.contains("DEPLOY"))
         #expect(SoldierType.allCases.reduce(0) { count, soldierType in
@@ -2799,9 +2801,6 @@ struct BattleSceneTests {
                 named: "battleMedallionIcon-\(soldierType.rawValue)"
             )
         } == 5)
-        #expect(visibleSpriteCount(in: scene, named: "spawnSoldierButton") == 0)
-        #expect(visibleSpriteCount(in: scene, named: "worldButton") == 0)
-        #expect(visibleSpriteCount(in: scene, named: "buildButton") == 0)
     }
 
     @Test func commonActionButtonsUseCompactIconShapes() throws {
@@ -2867,7 +2866,7 @@ struct BattleSceneTests {
         #expect(scene.isBattleChromeFitFailedForTesting)
     }
 
-    @Test func manualTypeMenuAvoidsFeedbackAndBattlefieldInCompactAndNarrowLayouts() throws {
+    @Test func battleChromeAvoidsFeedbackAndBattlefieldOverlapInCompactAndNarrowLayouts() throws {
         for size in [CGSize(width: 393, height: 700)] {
             let store = try makeStore(initialState: stateWithBarracks(gold: 30, cityRemainingPower: 20))
             let scene = BattleScene(size: size, store: store, router: nil)
@@ -2881,7 +2880,7 @@ struct BattleSceneTests {
         }
     }
 
-    @Test func manualTypeMenuKeepsFiveSpawnableUnitsTappableInNarrowLayout() throws {
+    @Test func battleChromeKeepsFiveSpawnableUnitsTappableInNarrowLayout() throws {
         let size = CGSize(width: 393, height: 700)
         let store = try makeStore(
             initialState: stateWithBuildings(
@@ -3899,18 +3898,6 @@ struct BattleSceneTests {
         #expect(!scene.isConquestContinueEnabledForTesting)
     }
 
-    @Test func touchesEndedOutsideClosesManualTypeMenu() throws {
-        let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
-        let scene = makeScene(store: store)
-        scene.openManualTypeMenuForTesting()
-        #expect(scene.isManualTypeMenuOpenForTesting)
-
-        let point = CGPoint(x: scene.size.width / 2, y: scene.size.height / 2)
-        scene.touchesEnded([MockTouch(location: point)], with: nil)
-
-        #expect(!scene.isManualTypeMenuOpenForTesting)
-    }
-
     @Test func requestCountryMapBlocksWithManualSoldiersAlive() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let router = BattleRouterSpy()
@@ -3940,17 +3927,17 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 20))
         let scene = makeScene(store: store)
 
-        #expect(scene.gameplayTabContentForTesting.enabledTabs == Set(GameplayTab.allCases))
-        #expect(scene.gameplayTabBarForTesting.visualCellCountForTesting == 3)
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) != nil)
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) != nil)
+        #expect(scene.battleHUDContentForTesting.enabledTabs == Set(GameplayTab.allCases))
+        #expect(scene.battleHUDTabBarForTesting.visualCellCountForTesting == 3)
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .camp) != nil)
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .map) != nil)
 
         scene.spawnSoldierForTesting()
 
-        #expect(scene.gameplayTabContentForTesting.enabledTabs == [.battle])
-        #expect(scene.gameplayTabBarForTesting.visualCellCountForTesting == 3)
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) == nil)
+        #expect(scene.battleHUDContentForTesting.enabledTabs == [.battle])
+        #expect(scene.battleHUDTabBarForTesting.visualCellCountForTesting == 3)
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
+        #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .map) == nil)
     }
 
     @Test func directGameplayTabRouteKeepsManualSquadGuardFeedback() throws {

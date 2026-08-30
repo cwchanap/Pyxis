@@ -29,10 +29,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private enum ButtonName {
-        static let spawn = "spawnSoldierButton"
-        static let manualType = "manualType"
-        static let world = "worldButton"
-        static let build = "buildButton"
         static let goldInfo = "goldInfoButton"
         static let cityInfo = "cityInfoButton"
     }
@@ -85,13 +81,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let rowSpacingScale: CGFloat = 0.30
     }
 
-    private struct ManualTypeButtonBundle {
-        let button: SKNode
-        let background: SKShapeNode
-        let icon: SKSpriteNode
-        let label: SKLabelNode
-    }
-
     private let store: KingdomGameStore
     private weak var router: BattleSceneRouting?
     private let feedback: GameplayFeedbackProviding
@@ -109,8 +98,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var didBuildInterface = false
     private var isObservingLifecycle = false
     private var selectedManualSoldierType: SoldierType = .infantry
-    private var isManualTypeMenuOpen = false
-    private var manualTypeMenuTopY: CGFloat = 0
     private let battleHUD = BattleHUDNode()
     private var battleChromeLayout: BattleChromeLayout?
     private(set) var isBattleChromeFitFailed = false
@@ -160,13 +147,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// never needs invalidation — mirrors `soldierAnimationTextureCache`.
     private var soldierAnimatedCanvasFrameNameCache: [SoldierType: String?] = [:]
 
-    /// Memoized per-type HUD icon textures. `updateHUDIcons` runs on every
-    /// combat-damage tick via `redraw` → `applyCombatResult`; without this cache
-    /// it reallocated ~16 `SKTexture` objects per tick even though the resolved
-    /// asset name is deterministic per `SoldierType`. Keyed by static asset
-    /// names, so entries never need invalidation.
-    private var soldierHUDIconTextureCache: [SoldierType: SKTexture] = [:]
-
     private var enemyCityImpactPoint: CGPoint {
         battlefieldLayout.enemyCityImpactPoint
     }
@@ -176,14 +156,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return Country1MilestoneTier.forCity(state.currentCityKey.cityNumber)
     }
 
-    private let goldLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let cityLevelLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let defenseTraitLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
-    private let cityHPLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
-    private let liveCombatStatusLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let feedbackLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
-    private let leftHUDPanel = PanelNode(size: CGSize(width: 160, height: 78))
-    private let rightHUDPanel = PanelNode(size: CGSize(width: 190, height: 86))
     private let feedbackPanel = PanelNode(size: CGSize(width: 260, height: 34))
     private let milestoneArrivalPanel = PanelNode(size: .zero)
     private let milestoneArrivalTitleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
@@ -193,34 +166,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private let countryCompleteLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let cityHPBarBackground = SKShapeNode()
     private let cityHPBarFill = SKShapeNode()
-    private let goldStatusIcon = SKSpriteNode(imageNamed: BattleAssetName.goldBurst)
-    private let soldierStatusIcon = SKSpriteNode()
-    private let cityStatusIcon = SKSpriteNode(imageNamed: BattleAssetName.enemyCity)
-    private let traitStatusIcon = SKShapeNode()
-    private let manualTypeButton = SKNode()
-    private let manualTypeButtonBackground = SKShapeNode()
-    private let manualTypeButtonIcon = SKSpriteNode()
-    private let manualTypeButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private var manualTypeButtonBundles: [SoldierType: ManualTypeButtonBundle] = [:]
-    private let spawnButton = SKNode()
-    private let spawnButtonBackground = SKShapeNode()
-    private let spawnButtonIcon = SKSpriteNode()
-    private let spawnButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let worldButton = SKNode()
-    private let worldButtonBackground = SKShapeNode()
-    private let worldButtonIcon = SKSpriteNode(imageNamed: BattleAssetName.countryMarker)
-    private let worldButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let buildButton = SKNode()
-    private let buildButtonBackground = SKShapeNode()
-    private let buildButtonIcon = SKSpriteNode(imageNamed: BattleAssetName.buildingPadEmpty)
-    private let buildButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-    private let gameplayTabBar = GameplayTabBarNode()
-    private var gameplayTabBarFrame = CGRect.zero
-    private var gameplayTabContent = GameplayTabBarNode.Content(
-        selected: .battle,
-        enabledTabs: [],
-        showsCampAttention: false
-    )
     private let conquestReportNode = ConquestReportNode()
     private var hasPresentedPendingConquestReport = false
     private var isConquestReportVisible = false
@@ -246,8 +191,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private var feedbackText = ""
     private var lastPresentedTooltipText = ""
-    private var currentLeftHUDLabelWidth: CGFloat = 140
-    /// Cached `LayoutMetrics.contentWidth` from the most recent layout pass.
+    /// Cached battle chrome content width from the most recent layout pass.
     /// `showTooltip` reads this instead of recomputing the full metrics struct.
     /// Defaults to a sane positive floor so a tooltip fired before the first
     /// layout pass still gets a non-zero panel width.
@@ -432,7 +376,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        hideManualTypeMenuIfOpen()
     }
 
     private func handleBattleHUDTouch(at point: CGPoint) -> Bool {
@@ -572,7 +515,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        hideManualTypeMenuWithoutLayoutIfNeeded()
         dismissMilestoneArrival(animated: false)
         guard feedbackSettingsController.open() else {
             return
@@ -619,45 +561,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         enemyCityNode?.isPaused = shouldPauseCombatActions
     }
 
-    private func handleTouch(named touchedButtonName: String?) {
-        guard let touchedButtonName else {
-            hideManualTypeMenuIfOpen()
-            return
-        }
-
-        if let soldierType = soldierType(forManualTypeButtonName: touchedButtonName) {
-            selectManualSoldierType(soldierType)
-            return
-        }
-
-        guard !handlePrimaryButton(named: touchedButtonName),
-              !handleInfoButton(named: touchedButtonName) else {
-            return
-        }
-
-        hideManualTypeMenuIfOpen()
-    }
-
-    private func handlePrimaryButton(named touchedButtonName: String) -> Bool {
-        switch touchedButtonName {
-        case ButtonName.manualType:
-            toggleManualTypeMenu()
-        case ButtonName.spawn:
-            hideManualTypeMenuWithoutLayoutIfNeeded()
-            spawnSoldier()
-        case ButtonName.world:
-            hideManualTypeMenuWithoutLayoutIfNeeded()
-            requestGameplayTab(.map)
-        case ButtonName.build:
-            hideManualTypeMenuWithoutLayoutIfNeeded()
-            requestGameplayTab(.camp)
-        default:
-            return false
-        }
-
-        return true
-    }
-
     private func handleInfoButton(named touchedButtonName: String) -> Bool {
         // Info tooltips must not fire while the conquest report is overlaying
         // the HUD — otherwise the tooltip renders behind the report overlay.
@@ -666,22 +569,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
         switch touchedButtonName {
         case ButtonName.goldInfo:
-            hideManualTypeMenuWithoutLayoutIfNeeded()
             showGoldInfoTooltip()
         case ButtonName.cityInfo:
-            hideManualTypeMenuWithoutLayoutIfNeeded()
             showCityInfoTooltip()
         default:
             return false
         }
 
         return true
-    }
-
-    private func hideManualTypeMenuIfOpen() {
-        if isManualTypeMenuOpen {
-            hideManualTypeMenuWithoutLayoutIfNeeded()
-        }
     }
 
     private func buildInterface() {
@@ -700,7 +595,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         buildBattlefield()
 
-        [leftHUDPanel, rightHUDPanel].forEach { $0.zPosition = GameUITheme.Z.hud }
+        feedbackPanel.name = "feedbackPanel"
+        feedbackLabel.name = "feedbackLabel"
         feedbackPanel.zPosition = GameUITheme.Z.hud - 1
         addChild(feedbackPanel)
         addChild(feedbackLabel)
@@ -740,174 +636,20 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         countryCompleteLabel.isHidden = true
         addChild(countryCompleteLabel)
 
-        configureHUDIcon(goldStatusIcon, name: ButtonName.goldInfo)
-        configureHUDIcon(soldierStatusIcon, name: ButtonName.goldInfo)
-        configureHUDIcon(cityStatusIcon, name: ButtonName.cityInfo)
-        configureTraitIcon()
-        traitStatusIcon.name = ButtonName.cityInfo
-        traitStatusIcon.zPosition = 2
-        // The legacy status panels and controls remain allocated for the
-        // existing test seams, but the Forged HUD owns all rendered Battle
-        // chrome. Keep their nodes detached so no duplicate controls appear.
-
-        configureLabel(goldLabel, fontSize: 21, color: GameUITheme.Color.gold)
-        configureLabel(cityLevelLabel, fontSize: 18, color: GameUITheme.Color.textPrimary)
-        configureLabel(defenseTraitLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
-        configureLabel(cityHPLabel, fontSize: 14, color: GameUITheme.Color.textPrimary)
-        configureLabel(liveCombatStatusLabel, fontSize: 18, color: GameUITheme.Color.textPrimary)
-        configureLabel(feedbackLabel, fontSize: 15, color: GameUITheme.Color.gold)
-
-        configureButton(
-            manualTypeButton,
-            background: manualTypeButtonBackground,
-            label: manualTypeButtonLabel,
-            name: ButtonName.manualType,
-            icon: manualTypeButtonIcon,
-            color: SKColor(red: 0.24, green: 0.33, blue: 0.38, alpha: 1.0)
-        )
-        for soldierType in SoldierType.allCases {
-            let bundle = ManualTypeButtonBundle(
-                button: SKNode(),
-                background: SKShapeNode(),
-                icon: SKSpriteNode(),
-                label: SKLabelNode(fontNamed: "AvenirNext-DemiBold")
-            )
-            configureButton(
-                bundle.button,
-                background: bundle.background,
-                label: bundle.label,
-                name: manualTypeButtonName(for: soldierType),
-                icon: bundle.icon,
-                color: SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
-            )
-            bundle.button.zPosition = GameUITheme.Z.hud + 1
-            bundle.button.isHidden = true
-            manualTypeButtonBundles[soldierType] = bundle
-        }
-        configureButton(
-            spawnButton,
-            background: spawnButtonBackground,
-            label: spawnButtonLabel,
-            name: ButtonName.spawn,
-            icon: spawnButtonIcon,
-            color: GameUITheme.Color.spawn
-        )
-        configureButton(
-            worldButton,
-            background: worldButtonBackground,
-            label: worldButtonLabel,
-            name: ButtonName.world,
-            icon: worldButtonIcon,
-            color: SKColor(red: 0.22, green: 0.42, blue: 0.54, alpha: 1.0)
-        )
-        configureButton(
-            buildButton,
-            background: buildButtonBackground,
-            label: buildButtonLabel,
-            name: ButtonName.build,
-            icon: buildButtonIcon,
-            color: SKColor(red: 0.50, green: 0.28, blue: 0.18, alpha: 1.0)
-        )
+        feedbackLabel.fontSize = 15
+        feedbackLabel.fontColor = GameUITheme.Color.gold
+        feedbackLabel.horizontalAlignmentMode = .center
+        feedbackLabel.verticalAlignmentMode = .center
 
         conquestReportNode.zPosition = GameUITheme.Z.modal
         battleHUD.zPosition = GameUITheme.Z.hud
-
-        [
-            goldLabel,
-            cityLevelLabel,
-            defenseTraitLabel,
-            cityHPLabel,
-            liveCombatStatusLabel,
-            feedbackLabel,
-            manualTypeButton,
-            spawnButton,
-            worldButton,
-            buildButton
-        ].forEach { $0.zPosition = GameUITheme.Z.hud }
+        feedbackLabel.zPosition = GameUITheme.Z.hud
 
         addChild(battleHUD)
         addChild(conquestReportNode)
 
-        applyPersistentHUDTextVisibility()
         feedbackPanel.alpha = 0
         feedbackLabel.alpha = 0
-    }
-
-    private func configureHUDIcon(_ icon: SKSpriteNode, name: String) {
-        icon.name = name
-        icon.zPosition = 2
-        icon.alpha = 0.95
-    }
-
-    private func configureTraitIcon() {
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: 0, y: 14))
-        path.addLine(to: CGPoint(x: 12, y: 8))
-        path.addLine(to: CGPoint(x: 11, y: -4))
-        path.addCurve(
-            to: CGPoint(x: 0, y: -16),
-            control1: CGPoint(x: 10, y: -10),
-            control2: CGPoint(x: 5, y: -15)
-        )
-        path.addCurve(
-            to: CGPoint(x: -11, y: -4),
-            control1: CGPoint(x: -5, y: -15),
-            control2: CGPoint(x: -10, y: -10)
-        )
-        path.addLine(to: CGPoint(x: -12, y: 8))
-        path.closeSubpath()
-
-        traitStatusIcon.path = path
-        traitStatusIcon.fillColor = GameUITheme.Color.danger
-        traitStatusIcon.strokeColor = SKColor(white: 1.0, alpha: 0.55)
-        traitStatusIcon.lineWidth = 1.5
-    }
-
-    private func applyPersistentHUDTextVisibility() {
-        [goldLabel, cityLevelLabel, liveCombatStatusLabel, manualTypeButtonLabel, spawnButtonLabel]
-            .forEach { $0.alpha = 1 }
-        cityHPLabel.alpha = 0
-        [defenseTraitLabel, worldButtonLabel, buildButtonLabel].forEach { $0.alpha = 0 }
-
-        for bundle in manualTypeButtonBundles.values {
-            bundle.label.alpha = 1
-        }
-    }
-
-    private func configureLabel(_ label: SKLabelNode, fontSize: CGFloat, color: SKColor) {
-        label.fontSize = fontSize
-        label.fontColor = color
-        label.horizontalAlignmentMode = .center
-        label.verticalAlignmentMode = .center
-    }
-
-    private func configureButton(
-        _ button: SKNode,
-        background: SKShapeNode,
-        label: SKLabelNode,
-        name: String,
-        icon: SKSpriteNode? = nil,
-        color: SKColor
-    ) {
-        button.name = name
-        background.name = name
-        background.fillColor = color
-        background.strokeColor = SKColor(white: 1.0, alpha: 0.18)
-        background.lineWidth = 2
-
-        label.name = name
-        label.fontSize = 16
-        label.fontColor = GameUITheme.Color.textPrimary
-        label.horizontalAlignmentMode = .center
-        label.verticalAlignmentMode = .center
-
-        button.addChild(background)
-        if let icon {
-            icon.name = name
-            icon.zPosition = 1
-            button.addChild(icon)
-        }
-        button.addChild(label)
     }
 
     private func layoutInterface() {
@@ -916,180 +658,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         layoutForgedInterface()
-        return
-
-#if false
-        resetFontSizes()
-        let metrics = layoutMetrics()
-
-        let centerX = size.width / 2
-
-        let hudCenterY = size.height - metrics.topMargin
-        let leftHUDCenterX = metrics.horizontalMargin + metrics.leftHUDWidth / 2
-        let rightHUDCenterX = size.width - metrics.horizontalMargin - metrics.rightHUDWidth / 2
-
-        leftHUDPanel.update(size: CGSize(width: metrics.leftHUDWidth, height: metrics.hudHeight))
-        rightHUDPanel.update(size: CGSize(width: metrics.rightHUDWidth, height: metrics.hudHeight))
-        leftHUDPanel.position = CGPoint(x: leftHUDCenterX, y: hudCenterY)
-        rightHUDPanel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY)
-        layoutStatusIcons(metrics)
-        layoutFeedbackSettings(
-            leftHUDCenterX: leftHUDCenterX,
-            hudCenterY: hudCenterY,
-            metrics: metrics
-        )
-
-        goldLabel.horizontalAlignmentMode = .left
-        liveCombatStatusLabel.horizontalAlignmentMode = .left
-        cityLevelLabel.horizontalAlignmentMode = .left
-        cityHPLabel.horizontalAlignmentMode = .left
-        let resourceValueX = leftHUDCenterX
-            - metrics.leftHUDWidth / 2
-            + LayoutMetrics.leftHUDLeadingContentInset
-            + metrics.resourceIconMaximum
-            + LayoutMetrics.iconValueGap
-        goldLabel.position = CGPoint(
-            x: resourceValueX,
-            y: hudCenterY + metrics.hudHeight * 0.20
-        )
-        liveCombatStatusLabel.position = CGPoint(
-            x: resourceValueX,
-            y: hudCenterY - metrics.hudHeight * 0.20
-        )
-
-        cityLevelLabel.position = CGPoint(
-            x: rightHUDCenterX - metrics.rightHUDWidth * 0.24,
-            y: hudCenterY + metrics.hudHeight * 0.22
-        )
-        defenseTraitLabel.position = CGPoint(x: rightHUDCenterX, y: hudCenterY + metrics.hudHeight * 0.06)
-        cityHPLabel.position = CGPoint(
-            x: rightHUDCenterX - metrics.rightHUDWidth * 0.24,
-            y: hudCenterY - metrics.hudHeight * 0.18
-        )
-
-        let buttonY = metrics.bottomMargin + metrics.buttonHeight / 2
-        let primaryActionLeftX = metrics.horizontalMargin
-        layoutButton(
-            spawnButton,
-            background: spawnButtonBackground,
-            size: CGSize(width: metrics.spawnButtonWidth, height: metrics.buttonHeight),
-            position: CGPoint(x: primaryActionLeftX + metrics.spawnButtonWidth / 2, y: buttonY)
-        )
-        layoutIcon(
-            spawnButtonIcon,
-            maximumSize: CGSize(width: metrics.spawnButtonWidth * 0.30, height: metrics.buttonHeight - 2)
-        )
-        spawnButtonIcon.position = CGPoint(x: -metrics.spawnButtonWidth * 0.24, y: 0)
-        spawnButtonLabel.position = CGPoint(x: metrics.spawnButtonWidth * 0.12, y: 0)
-        let manualTypeButtonSize = CGSize(
-            width: min(metrics.spawnButtonWidth, 112),
-            height: metrics.compactHeight ? 28 : 30
-        )
-        let manualTypeButtonPosition = CGPoint(
-            x: primaryActionLeftX + manualTypeButtonSize.width / 2,
-            y: buttonY + metrics.buttonHeight / 2 + 4 + manualTypeButtonSize.height / 2
-        )
-        layoutButton(
-            manualTypeButton,
-            background: manualTypeButtonBackground,
-            size: manualTypeButtonSize,
-            position: manualTypeButtonPosition
-        )
-        layoutIcon(
-            manualTypeButtonIcon,
-            maximumSize: CGSize(width: manualTypeButtonSize.width * 0.32, height: manualTypeButtonSize.height - 2)
-        )
-        manualTypeButtonIcon.position = CGPoint(x: -manualTypeButtonSize.width * 0.28, y: 0)
-        manualTypeButtonLabel.position = CGPoint(x: manualTypeButtonSize.width * 0.12, y: 0)
-        let rightActionReservation = metrics.buildButtonWidth + metrics.buttonGap
-        let manualTypeMenuItemSize = self.manualTypeMenuItemSize(
-            horizontalMargin: metrics.horizontalMargin,
-            reservedRightWidth: rightActionReservation
-        )
-        layoutManualTypeMenu(
-            selectorPosition: manualTypeButtonPosition,
-            selectorSize: manualTypeButtonSize,
-            itemSize: manualTypeMenuItemSize,
-            horizontalMargin: metrics.horizontalMargin,
-            reservedRightWidth: rightActionReservation
-        )
-        layoutButton(
-            buildButton,
-            background: buildButtonBackground,
-            size: CGSize(width: metrics.buildButtonWidth, height: metrics.buttonHeight),
-            position: CGPoint(
-                x: size.width - metrics.horizontalMargin - metrics.buildButtonWidth / 2,
-                y: buttonY
-            )
-        )
-        layoutIcon(
-            buildButtonIcon,
-            maximumSize: CGSize(width: metrics.buildButtonWidth - 8, height: metrics.buttonHeight - 8)
-        )
-        let worldButtonSize = CGSize(width: metrics.worldButtonWidth, height: metrics.buttonHeight)
-        layoutButton(
-            worldButton,
-            background: worldButtonBackground,
-            size: worldButtonSize,
-            position: CGPoint(
-                x: buildButton.position.x,
-                y: buttonY + metrics.buttonHeight / 2 + 4 + worldButtonSize.height / 2
-            )
-        )
-        layoutIcon(
-            worldButtonIcon,
-            maximumSize: CGSize(width: worldButtonSize.width - 8, height: worldButtonSize.height - 8)
-        )
-
-        let hudBottomY = hudCenterY - metrics.hudHeight / 2
-        let buttonTopY = buttonY + metrics.buttonHeight / 2
-        let bottomControlsTopY = max(
-            buttonTopY,
-            manualTypeButtonPosition.y + manualTypeButtonSize.height / 2,
-            manualTypeMenuTopY,
-            worldButton.position.y + worldButtonSize.height / 2
-        )
-        let feedbackY = bottomControlsTopY + max(32, (hudBottomY - bottomControlsTopY) * 0.25)
-        feedbackLabel.position = CGPoint(x: centerX, y: feedbackY)
-
-        layoutBattlefield(
-            contentWidth: metrics.battlefieldWidth,
-            hpBarBottomY: hudBottomY,
-            spawnButtonTopY: bottomControlsTopY,
-            feedbackY: feedbackY
-        )
-
-        currentLeftHUDLabelWidth = metrics.leftHUDResourceValueWidth
-        cachedContentWidth = metrics.contentWidth
-        fitLabel(goldLabel, maxWidth: metrics.leftHUDResourceValueWidth)
-        fitLabel(cityLevelLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
-        fitLabel(defenseTraitLabel, maxWidth: metrics.rightHUDLabelWidth)
-        fitLabel(cityHPLabel, maxWidth: metrics.rightHUDLabelWidth - 44)
-        fitLabel(liveCombatStatusLabel, maxWidth: metrics.leftHUDResourceValueWidth)
-        fitLabel(feedbackLabel, maxWidth: metrics.contentWidth)
-        fitLabel(manualTypeButtonLabel, maxWidth: manualTypeButtonSize.width - 18)
-        for bundle in manualTypeButtonBundles.values {
-            fitLabel(bundle.label, maxWidth: manualTypeMenuItemSize.width - 18)
-        }
-        fitLabel(spawnButtonLabel, maxWidth: metrics.spawnButtonWidth - 28)
-        fitLabel(worldButtonLabel, maxWidth: metrics.worldButtonWidth - 20)
-        fitLabel(buildButtonLabel, maxWidth: metrics.buildButtonWidth - 24)
-
-        let feedbackPanelWidth = min(metrics.contentWidth, max(220, feedbackLabel.frame.width + 32))
-        feedbackPanel.update(size: CGSize(width: feedbackPanelWidth, height: max(32, feedbackLabel.fontSize + 18)))
-        feedbackPanel.position = feedbackLabel.position
-
-        if state.pendingBattleResult != nil,
-           hasPresentedPendingConquestReport || isConquestReportFitFailed {
-            _ = applyPendingConquestReport(resetsContinueState: false)
-        }
-
-        layoutGameplayTabBar()
-
-        if isMilestoneArrivalVisible {
-            _ = layoutMilestoneArrival()
-        }
-#endif
     }
 
     private func layoutForgedInterface() {
@@ -1123,7 +691,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         layoutBattlefield(
             contentWidth: layout.battlefieldFrame.width,
             hpBarBottomY: layout.battlefieldFrame.maxY,
-            spawnButtonTopY: layout.battlefieldFrame.minY,
+            fieldBottomY: layout.battlefieldFrame.minY,
             feedbackY: layout.battlefieldFrame.minY,
             precomputed: layout.battlefield
         )
@@ -1140,8 +708,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         feedbackLabel.position = CGPoint(
-            x: layout.objectiveFrame.midX,
-            y: layout.objectiveFrame.midY
+            x: layout.feedbackFrame.midX,
+            y: layout.feedbackFrame.midY
         )
         feedbackPanel.position = feedbackLabel.position
         cachedContentWidth = layout.safeFrame.width
@@ -1180,7 +748,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             manualLivingSoldierCount: combat.livingSoldierCount(source: .manual),
             selectedSoldierType: selectedManualSoldierType
         )
-        gameplayTabContent = content.tabContent
         switch battleHUD.apply(content: content, layout: layout) {
         case .presented:
             setBattleChromeFitFailed(false)
@@ -1220,12 +787,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func layoutMilestoneArrival() -> Bool {
         guard isMilestoneArrivalVisible || hasPresentedMilestoneArrival else { return false }
 
-        let metrics = layoutMetrics()
         let insets = view?.safeAreaInsets ?? .zero
         let safeWidth = size.width - insets.left - insets.right
         let safeHeight = size.height - insets.top - insets.bottom
-        let width = min(metrics.contentWidth, safeWidth - 24)
-        let height: CGFloat = metrics.compactHeight ? 64 : 76
+        let compactHeight = battleChromeLayout?.isCompact ?? (size.height < 780)
+        let contentWidth = battleChromeLayout?.topBandFrame.width
+            ?? min(560, max(0, safeWidth - BattleChromeLayout.sideMargin * 2))
+        let width = min(contentWidth, safeWidth - 24)
+        let height: CGFloat = compactHeight ? 64 : 76
         guard width >= 120, safeHeight >= height + 24 else {
             finishMilestoneArrivalDismissal()
             return false
@@ -1246,14 +815,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let titleFits = fitMilestoneLabel(
             milestoneArrivalTitleLabel,
             fontName: GameUITheme.Font.bold,
-            startingAt: metrics.compactHeight ? 17 : 20,
+            startingAt: compactHeight ? 17 : 20,
             minimum: 12,
             maximumWidth: width - 24
         )
         let subtitleFits = fitMilestoneLabel(
             milestoneArrivalSubtitleLabel,
             fontName: GameUITheme.Font.medium,
-            startingAt: metrics.compactHeight ? 12 : 14,
+            startingAt: compactHeight ? 12 : 14,
             minimum: 12,
             maximumWidth: width - 24
         )
@@ -1332,207 +901,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         ]))
     }
 
-    private func resetFontSizes() {
-        goldLabel.fontSize = 21
-        cityLevelLabel.fontSize = 18
-        defenseTraitLabel.fontSize = 13
-        cityHPLabel.fontSize = 14
-        liveCombatStatusLabel.fontSize = 18
-        feedbackLabel.fontSize = 15
-        manualTypeButtonLabel.fontSize = 13
-        for bundle in manualTypeButtonBundles.values {
-            bundle.label.fontSize = 13
-        }
-        spawnButtonLabel.fontSize = 16
-        worldButtonLabel.fontSize = 16
-        buildButtonLabel.fontSize = 16
-    }
-
-    private struct LayoutMetrics {
-        static let leftHUDLeadingContentInset: CGFloat = 6
-        static let leftHUDTrailingInset: CGFloat = 4
-        static let settingsGearSize: CGFloat = 44
-        static let statusToGearGap: CGFloat = 4
-        static let iconValueGap: CGFloat = 6
-        static let minimumResourceValueWidth: CGFloat = 48
-
-        static func resourceValueWidth(
-            leftHUDWidth: CGFloat,
-            resourceIconMaximum: CGFloat
-        ) -> CGFloat {
-            leftHUDWidth
-                - leftHUDLeadingContentInset
-                - leftHUDTrailingInset
-                - settingsGearSize
-                - statusToGearGap
-                - resourceIconMaximum
-                - iconValueGap
-        }
-
-        static func minimumLeftHUDWidth(resourceIconMaximum: CGFloat) -> CGFloat {
-            leftHUDLeadingContentInset
-                + leftHUDTrailingInset
-                + settingsGearSize
-                + statusToGearGap
-                + resourceIconMaximum
-                + iconValueGap
-                + minimumResourceValueWidth
-        }
-
-        let compactHeight: Bool
-        let horizontalMargin: CGFloat
-        let topMargin: CGFloat
-        let buttonHeight: CGFloat
-        let bottomMargin: CGFloat
-        let leftHUDWidth: CGFloat
-        let rightHUDWidth: CGFloat
-        let hudHeight: CGFloat
-        let spawnButtonWidth: CGFloat
-        let worldButtonWidth: CGFloat
-        let buildButtonWidth: CGFloat
-        let contentWidth: CGFloat
-        let buttonGap: CGFloat
-        let battlefieldWidth: CGFloat
-        let resourceIconMaximum: CGFloat
-
-        var leftHUDLabelWidth: CGFloat {
-            leftHUDWidth - 20
-        }
-
-        var leftHUDStatusColumnWidth: CGFloat {
-            leftHUDWidth
-                - LayoutMetrics.leftHUDLeadingContentInset
-                - LayoutMetrics.leftHUDTrailingInset
-                - LayoutMetrics.settingsGearSize
-                - LayoutMetrics.statusToGearGap
-        }
-
-        var leftHUDResourceValueWidth: CGFloat {
-            leftHUDStatusColumnWidth
-                - resourceIconMaximum
-                - LayoutMetrics.iconValueGap
-        }
-
-        var rightHUDLabelWidth: CGFloat {
-            rightHUDWidth - 20
-        }
-    }
-
-    private func layoutMetrics() -> LayoutMetrics {
-        let compactHeight = size.height < 500
-        let horizontalMargin = max(8, min(compactHeight ? 16 : 18, size.width * 0.045))
-        let buttonHeight: CGFloat = compactHeight ? 42 : 52
-        let buttonGap: CGFloat = compactHeight ? 10 : 12
-        let safeBottomInset = GameUITheme.bottomUnsafeInset(sceneSize: size, view: view)
-        let bottomMargin = max(compactHeight ? 20 : 30, safeBottomInset + (compactHeight ? 8 : 12))
-
-        let hudGap: CGFloat = compactHeight ? 10 : 12
-        let availableHUDWidth = max(0, size.width - horizontalMargin * 2 - hudGap)
-        let preferredLeftHUDWidth = min(180, availableHUDWidth * 0.44)
-        let resourceIconMaximum: CGFloat = compactHeight ? 26 : 30
-        let leftHUDWidth = min(
-            availableHUDWidth,
-            max(
-                preferredLeftHUDWidth,
-                LayoutMetrics.minimumLeftHUDWidth(resourceIconMaximum: resourceIconMaximum)
-            )
-        )
-        let rightHUDWidth = max(0, availableHUDWidth - leftHUDWidth)
-        let hudHeight: CGFloat = compactHeight ? 58 : 66
-        let safeTopInset = GameUITheme.topUnsafeInset(sceneSize: size, view: view)
-        let topMargin = max(
-            compactHeight ? 24 : 34,
-            safeTopInset + (compactHeight ? 6 : 10) + hudHeight / 2
-        )
-
-        let availableButtonWidth = max(0, size.width - horizontalMargin * 2 - buttonGap)
-        let buildButtonWidth = min(buttonHeight * 1.05, availableButtonWidth * 0.24)
-        let worldButtonWidth = buildButtonWidth
-        let spawnButtonWidth = max(0, min(156, availableButtonWidth - buildButtonWidth))
-        let contentWidth = min(max(0, size.width - horizontalMargin * 2), 560)
-        let battlefieldWidth = max(0, size.width)
-
-        return LayoutMetrics(
-            compactHeight: compactHeight,
-            horizontalMargin: horizontalMargin,
-            topMargin: topMargin,
-            buttonHeight: buttonHeight,
-            bottomMargin: bottomMargin,
-            leftHUDWidth: leftHUDWidth,
-            rightHUDWidth: rightHUDWidth,
-            hudHeight: hudHeight,
-            spawnButtonWidth: spawnButtonWidth,
-            worldButtonWidth: worldButtonWidth,
-            buildButtonWidth: buildButtonWidth,
-            contentWidth: contentWidth,
-            buttonGap: buttonGap,
-            battlefieldWidth: battlefieldWidth,
-            resourceIconMaximum: resourceIconMaximum
-        )
-    }
-
-    private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
-        background.path = CGPath(
-            roundedRect: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height),
-            cornerWidth: 10,
-            cornerHeight: 10,
-            transform: nil
-        )
-        button.position = position
-    }
-
-    private func layoutStatusIcons(_ metrics: LayoutMetrics) {
-        let resourceIconSize = CGSize(
-            width: metrics.resourceIconMaximum,
-            height: metrics.resourceIconMaximum
-        )
-        let cityIconSize = metrics.compactHeight ? CGSize(width: 28, height: 28) : CGSize(width: 36, height: 36)
-        layoutIcon(goldStatusIcon, maximumSize: resourceIconSize)
-        layoutIcon(soldierStatusIcon, maximumSize: resourceIconSize)
-        layoutIcon(cityStatusIcon, maximumSize: cityIconSize)
-
-        let resourceIconX = -metrics.leftHUDWidth / 2
-            + LayoutMetrics.leftHUDLeadingContentInset
-            + metrics.resourceIconMaximum / 2
-        goldStatusIcon.position = CGPoint(x: resourceIconX, y: metrics.hudHeight * 0.20)
-        soldierStatusIcon.position = CGPoint(x: resourceIconX, y: -metrics.hudHeight * 0.20)
-        cityStatusIcon.position = CGPoint(x: -metrics.rightHUDWidth * 0.42, y: metrics.hudHeight * 0.12)
-
-        let traitScale = (metrics.compactHeight ? 0.78 : 0.92)
-        traitStatusIcon.setScale(traitScale)
-        traitStatusIcon.position = CGPoint(x: -metrics.rightHUDWidth * 0.42, y: -metrics.hudHeight * 0.18)
-    }
-
-    private func layoutFeedbackSettings(
-        leftHUDCenterX: CGFloat,
-        hudCenterY: CGFloat,
-        metrics: LayoutMetrics
-    ) {
-        guard let feedbackSettingsController else {
-            return
-        }
-
-        let gearSize = LayoutMetrics.settingsGearSize
-        let gearFrame = CGRect(
-            x: leftHUDCenterX + metrics.leftHUDWidth / 2
-                - LayoutMetrics.leftHUDTrailingInset
-                - gearSize,
-            y: hudCenterY + metrics.hudHeight / 2
-                - LayoutMetrics.leftHUDTrailingInset
-                - gearSize,
-            width: gearSize,
-            height: gearSize
-        )
-        feedbackSettingsController.applyGearFrame(gearFrame)
-        feedbackSettingsController.gear.position = leftHUDPanel.convert(
-            CGPoint(x: gearFrame.midX, y: gearFrame.midY),
-            from: self
-        )
-
-        feedbackSettingsController.reapply(layout: feedbackSettingsLayoutForCurrentEnvironment())
-        synchronizeBattlefieldActionPause()
-    }
-
     private func feedbackSettingsLayoutForCurrentEnvironment() -> FeedbackSettingsLayout? {
         let safeAreaInsets = view?.safeAreaInsets ?? .zero
         return FeedbackSettingsLayout.compute(
@@ -1544,98 +912,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 right: safeAreaInsets.right
             )
         )
-    }
-
-    private func layoutIcon(_ icon: SKSpriteNode, maximumSize: CGSize) {
-        guard maximumSize.width > 0, maximumSize.height > 0 else {
-            icon.size = .zero
-            return
-        }
-
-        icon.size = aspectFitSize(for: icon.texture, maximumSize: maximumSize)
-        icon.position = .zero
-    }
-
-    private func aspectFitSize(for texture: SKTexture?, maximumSize: CGSize) -> CGSize {
-        guard let texture else {
-            return maximumSize
-        }
-
-        let textureSize = texture.size()
-        guard textureSize.width > 0, textureSize.height > 0 else {
-            return maximumSize
-        }
-
-        let scale = min(maximumSize.width / textureSize.width, maximumSize.height / textureSize.height)
-        return CGSize(width: textureSize.width * scale, height: textureSize.height * scale)
-    }
-
-    private func manualTypeMenuItemSize(horizontalMargin: CGFloat, reservedRightWidth: CGFloat) -> CGSize {
-        let itemGap: CGFloat = 4
-        let minimumItemWidth: CGFloat = 52
-        let maximumItemWidth: CGFloat = 88
-        let itemCount = max(1, manualSpawnableSoldierTypes.count)
-        let availableWidth = max(1, size.width - horizontalMargin * 2 - reservedRightWidth)
-        let columnCount = max(
-            1,
-            min(itemCount, Int((availableWidth + itemGap) / (minimumItemWidth + itemGap)))
-        )
-        let fittedWidth = (availableWidth - itemGap * CGFloat(columnCount - 1)) / CGFloat(columnCount)
-        let itemWidth = max(minimumItemWidth, min(maximumItemWidth, fittedWidth))
-
-        return CGSize(width: itemWidth, height: manualSpawnableSoldierTypes.count > 0 ? 30 : 1)
-    }
-
-    private func layoutManualTypeMenu(
-        selectorPosition: CGPoint,
-        selectorSize: CGSize,
-        itemSize: CGSize,
-        horizontalMargin: CGFloat,
-        reservedRightWidth: CGFloat
-    ) {
-        let itemGap: CGFloat = 4
-        let visibleTypes = manualSpawnableSoldierTypes
-        manualTypeMenuTopY = selectorPosition.y + selectorSize.height / 2
-        guard !visibleTypes.isEmpty else {
-            return
-        }
-
-        let availableWidth = max(1, size.width - horizontalMargin * 2 - reservedRightWidth)
-        let columnCount = max(
-            1,
-            min(visibleTypes.count, Int((availableWidth + itemGap) / (itemSize.width + itemGap)))
-        )
-        let rowStartY = selectorPosition.y + selectorSize.height / 2 + itemGap + itemSize.height / 2
-        let rowWidth = itemSize.width * CGFloat(columnCount) + itemGap * CGFloat(max(0, columnCount - 1))
-        let firstX = horizontalMargin + (availableWidth - rowWidth) / 2 + itemSize.width / 2
-        let rowCount = (visibleTypes.count + columnCount - 1) / columnCount
-        manualTypeMenuTopY = rowStartY
-            + CGFloat(max(0, rowCount - 1)) * (itemSize.height + itemGap)
-            + itemSize.height / 2
-
-        for (index, soldierType) in visibleTypes.enumerated() {
-            guard let bundle = manualTypeButtonBundles[soldierType] else {
-                continue
-            }
-
-            let column = index % columnCount
-            let row = index / columnCount
-            layoutButton(
-                bundle.button,
-                background: bundle.background,
-                size: itemSize,
-                position: CGPoint(
-                    x: firstX + CGFloat(column) * (itemSize.width + itemGap),
-                    y: rowStartY + CGFloat(row) * (itemSize.height + itemGap)
-                )
-            )
-            layoutIcon(
-                bundle.icon,
-                maximumSize: CGSize(width: itemSize.width * 0.32, height: itemSize.height - 2)
-            )
-            bundle.icon.position = CGPoint(x: -itemSize.width * 0.28, y: 0)
-            bundle.label.position = CGPoint(x: itemSize.width * 0.12, y: 0)
-        }
     }
 
     private func buildBattlefield() {
@@ -1698,7 +974,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func layoutBattlefield(
         contentWidth: CGFloat,
         hpBarBottomY: CGFloat,
-        spawnButtonTopY: CGFloat,
+        fieldBottomY: CGFloat,
         feedbackY: CGFloat,
         precomputed: BattlefieldLayout? = nil
     ) {
@@ -1710,7 +986,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 sceneSize: size,
                 contentWidth: contentWidth,
                 safeTopY: hpBarBottomY - 8,
-                safeBottomY: spawnButtonTopY + 2,
+                safeBottomY: fieldBottomY + 2,
                 feedbackY: feedbackY,
                 feedbackFontSize: 0
             ))
@@ -2071,26 +1347,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    private func manualTypeButtonName(for soldierType: SoldierType) -> String {
-        "\(ButtonName.manualType)-\(soldierType.rawValue)"
-    }
-
-    private func soldierType(forManualTypeButtonName buttonName: String) -> SoldierType? {
-        guard buttonName.hasPrefix("\(ButtonName.manualType)-") else {
-            return nil
-        }
-
-        let rawValue = String(buttonName.dropFirst(ButtonName.manualType.count + 1))
-        return SoldierType(rawValue: rawValue)
-    }
-
     private func redraw(shouldLayout: Bool = true) {
         reconcileSelectedManualSoldierType()
-        goldLabel.text = CompactNumberFormatter.string(from: state.gold)
-        cityLevelLabel.text = state.displayCityTitle
-        defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
-        cityHPLabel.text = ""
-        updateLiveCombatStatusLabel()
         feedbackLabel.text = feedbackText
         if shouldLayout {
             layoutInterface()
@@ -2099,148 +1357,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             applyBattleHUD()
         }
         presentFeedbackTooltipIfNeeded()
-        return
-
-#if false
-        updateHUDIcons()
-        applyGameplayTabBar()
-
-        goldLabel.text = CompactNumberFormatter.string(from: state.gold)
-        cityLevelLabel.text = state.displayCityTitle
-        defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
-        cityHPLabel.text = ""
-        // When `shouldLayout` is true, `layoutInterface()` below re-runs
-        // `layoutCityHPBar()` as part of the full layout pass, so calling it
-        // here would build CGPaths that are immediately discarded. Skip it in
-        // that case; when `shouldLayout` is false (the per-damage-tick hot
-        // path), `layoutInterface()` does not run, so the HP bar must be
-        // refreshed here to reflect the new `cityRemainingPower`.
-        if !shouldLayout {
-            layoutCityHPBar()
-        }
-        updateLiveCombatStatusLabel()
-        feedbackLabel.text = feedbackText
-        let spawnableTypes = manualSpawnableSoldierTypes
-        manualTypeButtonLabel.text = spawnableTypes.isEmpty ? "No Units" : selectedManualSoldierType.displayName
-        for (soldierType, bundle) in manualTypeButtonBundles {
-            bundle.label.text = soldierType.displayName
-            bundle.background.fillColor = selectedManualSoldierType == soldierType
-                ? GameUITheme.Color.spawn
-                : SKColor(red: 0.18, green: 0.34, blue: 0.42, alpha: 1.0)
-            bundle.button.isHidden = !isManualTypeMenuOpen || !spawnableTypes.contains(soldierType)
-        }
-        spawnButtonLabel.text = spawnableTypes.isEmpty ? "Build Unit" : "Spawn"
-        buildButtonLabel.text = ""
-        worldButtonLabel.text = ""
-        if shouldLayout {
-            layoutInterface()
-        }
-        presentFeedbackTooltipIfNeeded()
-#endif
     }
 
-    private func applyGameplayTabBar() {
+    private func refreshBattleHUD() {
         applyBattleHUD()
-        return
-
-#if false
-        guard !isConquestReportVisible, !isConquestReportFitFailed else {
-            gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
-            return
-        }
-
-        let enabledTabs: Set<GameplayTab>
-        if state.stageStatus == .battleActive {
-            enabledTabs = combat.livingSoldierCount(source: .manual) == 0
-                ? Set(GameplayTab.allCases)
-                : [.battle]
-        } else {
-            enabledTabs = [.map]
-        }
-        let showsCampAttention: Bool
-        switch RecommendedCampRecommendation.make(for: state) {
-        case .ready, .saveFor:
-            showsCampAttention = true
-        case .noAction:
-            showsCampAttention = false
-        }
-
-        gameplayTabContent = GameplayTabBarNode.Content(
-            selected: .battle,
-            enabledTabs: enabledTabs,
-            showsCampAttention: showsCampAttention
-        )
-        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
-#endif
-    }
-
-    private func layoutGameplayTabBar() {
-        guard !isConquestReportVisible, !isConquestReportFitFailed else {
-            gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
-            return
-        }
-
-        let horizontalMargin = max(16, min(22, size.width * 0.05))
-        let bottomInset = GameUITheme.bottomUnsafeInset(sceneSize: size, view: view)
-        gameplayTabBarFrame = CGRect(
-            x: horizontalMargin,
-            y: bottomInset + 76,
-            width: max(0, size.width - horizontalMargin * 2),
-            height: 72
-        )
-        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
-    }
-
-    private func updateHUDIcons() {
-        setIconTexture(manualTypeButtonIcon, type: selectedManualSoldierType)
-        setIconTexture(spawnButtonIcon, type: selectedManualSoldierType)
-        setIconTexture(soldierStatusIcon, type: selectedManualSoldierType)
-
-        for (soldierType, bundle) in manualTypeButtonBundles {
-            setIconTexture(bundle.icon, type: soldierType)
-        }
-    }
-
-    private func soldierIconAssetName(for type: SoldierType) -> String {
-        firstAvailableSoldierAnimationFrameName(for: type) ?? soldierAssetName(for: type)
-    }
-
-    /// Returns the cached HUD icon texture for `type`, allocating it once.
-    /// The resolved asset name is deterministic per `SoldierType` (animation
-    /// frame availability is stable across the scene's lifetime), so the cached
-    /// `SKTexture` is reused across every `updateHUDIcons` call.
-    private func soldierHUDIconTexture(for type: SoldierType) -> SKTexture {
-        if let cached = soldierHUDIconTextureCache[type] {
-            return cached
-        }
-        let assetName = soldierIconAssetName(for: type)
-        let source = SKTexture(imageNamed: assetName)
-        // Crop the full-canvas walk frame to the authored body bounds so the
-        // icon shows the full body (hood/head included) without the transparent
-        // canvas padding. The body region is per-type and matches the actual
-        // opaque artwork, so no edge of the silhouette is clipped.
-        let texture = isSoldierAnimationFrameAssetName(assetName)
-            ? SKTexture(rect: SoldierAnimationGeometry(type: type).bodyRegion, in: source)
-            : source
-        soldierHUDIconTextureCache[type] = texture
-        return texture
-    }
-
-    private func setIconTexture(_ icon: SKSpriteNode, type: SoldierType) {
-        let texture = soldierHUDIconTexture(for: type)
-        // Pointer equality guards redundant reassignment on the hot path: the
-        // cache returns the same `SKTexture` instance for a given type, so this
-        // skips the texture swap entirely when the type is unchanged.
-        if icon.texture !== texture {
-            icon.texture = texture
-        }
-        icon.colorBlendFactor = 0
-    }
-
-    private func isSoldierAnimationFrameAssetName(_ assetName: String) -> Bool {
-        SoldierType.allCases.contains { type in
-            assetName.hasPrefix("\(type.rawValue)-\(SoldierAnimationAction.walk.rawValue)-")
-        }
     }
 
     private func presentFeedbackTooltipIfNeeded() {
@@ -2286,12 +1406,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// can re-trigger the tooltip instead of being silently suppressed.
     private func resetFeedbackTooltipDedupeToken() {
         lastPresentedTooltipText = ""
-    }
-
-    private func updateLiveCombatStatusLabel() {
-        liveCombatStatusLabel.fontSize = 18
-        liveCombatStatusLabel.text = "\(combat.livingSoldierCount)"
-        fitLabel(liveCombatStatusLabel, maxWidth: currentLeftHUDLabelWidth)
     }
 
     private func advanceCombat(deltaTime: TimeInterval) {
@@ -2364,7 +1478,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         applyCombatResult(result)
         syncSoldierNodes()
         if !buildingSpawns.isEmpty {
-            updateLiveCombatStatusLabel()
+            applyBattleHUD()
         }
     }
 
@@ -2411,7 +1525,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // above with schedulesRemoval=true. No separate killed-loop is needed.
 
         if !result.soldierLosses.isEmpty {
-            updateLiveCombatStatusLabel()
+            applyBattleHUD()
         }
 
         state.recordSoldierLosses(result.soldierLosses)
@@ -2419,7 +1533,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guard !result.soldierAttacks.isEmpty else {
             if !result.soldierLosses.isEmpty {
                 store.save(state)
-                applyGameplayTabBar()
+                refreshBattleHUD()
             }
             return
         }
@@ -2532,25 +1646,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
-        updateLiveCombatStatusLabel()
-        applyGameplayTabBar()
-    }
-
-    private func toggleManualTypeMenu() {
-        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
-            return
-        }
-
-        if manualSpawnableSoldierTypes.isEmpty {
-            feedback.emit(.invalidAction)
-            feedbackText = "Build a unit building first."
-            isManualTypeMenuOpen = false
-            redraw(shouldLayout: false)
-            return
-        }
-
-        isManualTypeMenuOpen.toggle()
-        redraw(shouldLayout: false)
+        applyBattleHUD()
     }
 
     private func selectManualSoldierType(_ type: SoldierType) {
@@ -2561,22 +1657,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guard manualSpawnableSoldierTypes.contains(type) else {
             feedback.emit(.invalidAction)
             feedbackText = "Build \(type.displayName) first."
-            isManualTypeMenuOpen = false
             redraw(shouldLayout: false)
             return
         }
 
         selectedManualSoldierType = type
-        isManualTypeMenuOpen = false
-        redraw(shouldLayout: false)
-    }
-
-    private func hideManualTypeMenuWithoutLayoutIfNeeded() {
-        guard isManualTypeMenuOpen else {
-            return
-        }
-
-        isManualTypeMenuOpen = false
         redraw(shouldLayout: false)
     }
 
@@ -2828,7 +1913,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         pendingAnimatedRemovalSoldierIDs.removeAll()
         soldierHitAnimationRemaining.removeAll()
 
-        updateLiveCombatStatusLabel()
+        applyBattleHUD()
     }
 
     private func removeSoldierNode(id: BattleCombatState.SoldierID, animated: Bool) {
@@ -3465,33 +2550,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    private func buttonName(at point: CGPoint) -> String? {
-        let priority = manualSpawnableSoldierTypes.map { manualTypeButtonName(for: $0) } + [
-            ButtonName.manualType,
-            ButtonName.spawn,
-            ButtonName.world,
-            ButtonName.build,
-            ButtonName.goldInfo,
-            ButtonName.cityInfo
-        ]
-        let touchedNames = Set(nodes(at: point).compactMap(\.name))
-        for name in priority where touchedNames.contains(name) {
-            return name
-        }
-
-        return nil
-    }
-
-    private func fitLabel(_ label: SKLabelNode, maxWidth: CGFloat) {
-        guard maxWidth > 0 else {
-            return
-        }
-
-        while label.frame.width > maxWidth && label.fontSize > 8 {
-            label.fontSize -= 1
-        }
-    }
-
     private static func isPendingResultPresentable(
         _ result: BattleResult,
         currentCityKey: CityKey
@@ -3532,8 +2590,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         for content: ConquestReportContent,
         result: BattleResult
     ) -> ConquestReportLayout? {
-        let metrics = layoutMetrics()
         let insets = view?.safeAreaInsets ?? .zero
+        let safeWidth = size.width - insets.left - insets.right
+        let compactHeight = battleChromeLayout?.isCompact ?? (size.height < 780)
+        let contentWidth = battleChromeLayout?.topBandFrame.width
+            ?? min(560, max(0, safeWidth - BattleChromeLayout.sideMargin * 2))
         let tier = result.cityKey.countryNumber == 1
             ? Country1MilestoneTier.forCity(result.cityKey.cityNumber)
             : nil
@@ -3541,10 +2602,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             sceneSize: size,
             safeAreaInsets: .init(top: insets.top, left: insets.left,
                                   bottom: insets.bottom, right: insets.right),
-            battleContentWidth: metrics.contentWidth,
+            battleContentWidth: contentWidth,
             summaryRowCount: content.summaryLines.count,
             achievementCount: content.achievements.count,
-            compactHeight: metrics.compactHeight,
+            compactHeight: compactHeight,
             includesCountryCompletion: tier?.isCountryFinale == true
         )
         #if DEBUG
@@ -3616,7 +2677,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let fits = fitMilestoneLabel(
             countryCompleteLabel,
             fontName: GameUITheme.Font.bold,
-            startingAt: layoutMetrics().compactHeight ? 15 : 18,
+            startingAt: battleChromeLayout?.isCompact ?? (size.height < 780) ? 15 : 18,
             minimum: 15,
             maximumWidth: frame.width
         )
@@ -3693,7 +2754,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             conquestReportNode.isHidden = true
             milestoneConquestAccent.isHidden = true
             countryCompleteLabel.isHidden = true
-            applyGameplayTabBar()
+            refreshBattleHUD()
             // A fresh live/idle conquest that cannot render blocks all scene
             // input, but the fit-failed flag alone never surfaces to the
             // controller unless a layout event happens to refresh the gate.
@@ -3705,7 +2766,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         isConquestReportVisible = true
         isConquestReportFitFailed = false
         hasPresentedPendingConquestReport = true
-        applyGameplayTabBar()
+            refreshBattleHUD()
         return result
     }
 
@@ -3911,20 +2972,6 @@ extension BattleScene {
         battleHUD
     }
 
-    var leftHUDResourceValueWidthForTesting: CGFloat {
-        currentLeftHUDLabelWidth
-    }
-
-    static func supportsLeftHUDResourceValueForTesting(
-        leftHUDWidth: CGFloat,
-        resourceIconMaximum: CGFloat
-    ) -> Bool {
-        LayoutMetrics.resourceValueWidth(
-            leftHUDWidth: leftHUDWidth,
-            resourceIconMaximum: resourceIconMaximum
-        ) >= LayoutMetrics.minimumResourceValueWidth
-    }
-
     var battlefieldActionLayerPositionForTesting: CGPoint {
         battlefieldActionLayer.position
     }
@@ -3941,94 +2988,6 @@ extension BattleScene {
         lastAdvanceCombatDeltaForTestingStorage
     }
 
-    struct BattleLayoutFrames {
-        let leftHUD: CGRect
-        let rightHUD: CGRect
-        let battlefield: CGRect
-        let feedback: CGRect
-        let feedbackPanel: CGRect
-        let spawnButton: CGRect
-        let spawnButtonBackground: CGRect
-        let worldButton: CGRect
-        let worldButtonBackground: CGRect
-        let buildButton: CGRect
-        let buildButtonBackground: CGRect
-        let manualTypeButton: CGRect
-        let manualTypeButtonBackground: CGRect
-        let manualTypeMenuButtons: [SoldierType: CGRect]
-        let goldLabel: CGRect
-        let defenseTraitLabel: CGRect
-        let cityLevelLabel: CGRect
-        let cityHPLabel: CGRect
-        let cityHPBar: CGRect
-        let spawnButtonLabel: CGRect
-        let worldButtonLabel: CGRect
-        let buildButtonLabel: CGRect
-        let liveCombatStatus: CGRect
-    }
-
-    var battleLayoutFramesForTesting: BattleLayoutFrames? {
-        guard
-            let leftHUD = sceneFrame(for: leftHUDPanel),
-            let rightHUD = sceneFrame(for: rightHUDPanel),
-            let feedback = sceneFrame(for: feedbackLabel),
-            let feedbackPanel = sceneFrame(for: feedbackPanel),
-            let spawnFrame = sceneFrame(for: spawnButton),
-            let spawnBackgroundFrame = sceneFrame(for: spawnButtonBackground),
-            let worldFrame = sceneFrame(for: worldButton),
-            let worldBackgroundFrame = sceneFrame(for: worldButtonBackground),
-            let buildFrame = sceneFrame(for: buildButton),
-            let buildBackgroundFrame = sceneFrame(for: buildButtonBackground),
-            let manualTypeFrame = sceneFrame(for: manualTypeButton),
-            let manualTypeBackgroundFrame = sceneFrame(for: manualTypeButtonBackground),
-            let goldFrame = sceneFrame(for: goldLabel),
-            let defenseTraitFrame = sceneFrame(for: defenseTraitLabel),
-            let cityLevelFrame = sceneFrame(for: cityLevelLabel),
-            let cityHPFrame = sceneFrame(for: cityHPLabel),
-            let cityHPBarFrame = sceneFrame(for: cityHPBarBackground),
-            let spawnLabelFrame = sceneFrame(for: spawnButtonLabel),
-            let worldLabelFrame = sceneFrame(for: worldButtonLabel),
-            let buildLabelFrame = sceneFrame(for: buildButtonLabel),
-            let liveCombatStatusFrame = sceneFrame(for: liveCombatStatusLabel)
-        else {
-            return nil
-        }
-
-        let menuButtonFrames = manualTypeButtonBundles.reduce(into: [SoldierType: CGRect]()) { frames, element in
-            guard !element.value.button.isHidden, let frame = sceneFrame(for: element.value.button) else {
-                return
-            }
-            frames[element.key] = frame
-        }
-
-        let battlefieldFrame = battlefieldLayout.frame
-        return BattleLayoutFrames(
-            leftHUD: leftHUD,
-            rightHUD: rightHUD,
-            battlefield: battlefieldFrame,
-            feedback: feedback,
-            feedbackPanel: feedbackPanel,
-            spawnButton: spawnFrame,
-            spawnButtonBackground: spawnBackgroundFrame,
-            worldButton: worldFrame,
-            worldButtonBackground: worldBackgroundFrame,
-            buildButton: buildFrame,
-            buildButtonBackground: buildBackgroundFrame,
-            manualTypeButton: manualTypeFrame,
-            manualTypeButtonBackground: manualTypeBackgroundFrame,
-            manualTypeMenuButtons: menuButtonFrames,
-            goldLabel: goldFrame,
-            defenseTraitLabel: defenseTraitFrame,
-            cityLevelLabel: cityLevelFrame,
-            cityHPLabel: cityHPFrame,
-            cityHPBar: cityHPBarFrame,
-            spawnButtonLabel: spawnLabelFrame,
-            worldButtonLabel: worldLabelFrame,
-            buildButtonLabel: buildLabelFrame,
-            liveCombatStatus: liveCombatStatusFrame
-        )
-    }
-
     var feedbackTextForTesting: String {
         feedbackText
     }
@@ -4041,7 +3000,7 @@ extension BattleScene {
     }
 
     var defenseTraitTextForTesting: String? {
-        defenseTraitLabel.text
+        battleHUD.currentContentForTesting.map { "Trait: \($0.defenseTrait.displayName)" }
     }
 
     var isUpgradeButtonVisibleForTesting: Bool {
@@ -4405,11 +3364,11 @@ extension BattleScene {
     }
 
     var cityTitleTextForTesting: String? {
-        cityLevelLabel.text
+        battleHUD.currentContentForTesting?.cityTitle
     }
 
     var liveCombatStatusTextForTesting: String? {
-        liveCombatStatusLabel.text
+        battleHUD.currentContentForTesting.map { "\($0.manualCount)" }
     }
 
     var isConquestPopupVisibleForTesting: Bool {
@@ -4523,50 +3482,26 @@ extension BattleScene {
         return bundle.isAnimatedCanvas
     }
 
-    /// Returns the cached HUD icon texture for `soldierType`. Exposed so tests
-    /// can verify the cache memoizes — repeated calls must return the same
-    /// `SKTexture` instance rather than re-allocating from `UIImage(named:)`.
-    func cachedSoldierHUDIconTextureForTesting(soldierType: SoldierType) -> SKTexture {
-        soldierHUDIconTexture(for: soldierType)
-    }
-
-    /// Number of type entries currently held in the HUD icon texture cache.
-    var soldierHUDIconTextureCacheEntryCountForTesting: Int {
-        soldierHUDIconTextureCache.count
-    }
-
     /// IDs of soldiers awaiting animated removal after a tower kill. Exposed so
     /// tests can verify the death-flow scheduler fires for killed soldiers.
     var pendingAnimatedRemovalSoldierIDsForTesting: Set<BattleCombatState.SoldierID> {
         pendingAnimatedRemovalSoldierIDs
     }
 
-    func openManualTypeMenuForTesting() {
-        isManualTypeMenuOpen = true
-        redraw(shouldLayout: false)
-    }
-
-    func toggleManualTypeMenuForTesting() {
-        toggleManualTypeMenu()
-    }
-
-    var isManualTypeMenuOpenForTesting: Bool {
-        isManualTypeMenuOpen
-    }
-
     func requestGameplayTabForTesting(_ tab: GameplayTab) {
         requestGameplayTab(tab)
     }
 
-    var gameplayTabBarForTesting: GameplayTabBarNode {
+    var battleHUDTabBarForTesting: GameplayTabBarNode {
         battleHUD.tabBarForTesting
     }
 
-    var gameplayTabContentForTesting: GameplayTabBarNode.Content {
-        gameplayTabContent
+    var battleHUDContentForTesting: GameplayTabBarNode.Content {
+        battleHUD.currentContentForTesting?.tabContent
+            ?? GameplayTabBarNode.Content(selected: .battle, enabledTabs: [], showsCampAttention: false)
     }
 
-    var gameplayTabBarFrameForTesting: CGRect {
+    var battleHUDTabBarFrameForTesting: CGRect {
         battleChromeLayout?.tabBarFrame ?? .zero
     }
 
@@ -4606,7 +3541,7 @@ extension BattleScene {
     func forceDismissConquestOverlayForTesting() {
         isConquestReportVisible = false
         conquestReportNode.isHidden = true
-        applyGameplayTabBar()
+            refreshBattleHUD()
     }
 
     /// Presents the conquest report flag without requiring a live conquest, so
@@ -4614,7 +3549,7 @@ extension BattleScene {
     func presentConquestPopupForTesting() {
         isConquestReportVisible = true
         hasPresentedPendingConquestReport = true
-        applyGameplayTabBar()
+        refreshBattleHUD()
     }
 
     /// Drives the info-button touch path. Returns whether an info tooltip was

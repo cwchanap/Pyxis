@@ -42,6 +42,10 @@ struct BattleChromeLayout: Equatable {
     let sceneFrame: CGRect
     let safeFrame: CGRect
     let topBandFrame: CGRect
+    let incomeFrame: CGRect
+    let cityProgressFrame: CGRect
+    let recommendationFrame: CGRect
+    let feedbackFrame: CGRect
     let objectiveFrame: CGRect
     let statusFrame: CGRect
     let settingsFrame: CGRect
@@ -171,23 +175,58 @@ struct BattleChromeLayout: Equatable {
             width: contentWidth,
             height: safeFrame.maxY - battlefieldFrame.maxY - topBandGap
         )
+        // Keep the actual battlefield budget unchanged while splitting the
+        // top chrome into three fixed visual bands. The compact row heights
+        // are deliberately tight so the 340pt field floor remains available
+        // on short phones.
+        let topRowHeight: CGFloat = 44
+        let preferredRecommendationHeight: CGFloat = compact ? 40 : 52
+        let rowGap: CGFloat = compact ? 8 : 10
+        let topRowY = topBandFrame.maxY - 4 - topRowHeight
+        let recommendationHeight = min(
+            preferredRecommendationHeight,
+            max(32, topBandFrame.height - topRowHeight - rowGap - 8)
+        )
+        let recommendationFrame = CGRect(
+            x: topBandFrame.minX,
+            y: max(topBandFrame.minY + 4, topRowY - rowGap - recommendationHeight),
+            width: topBandFrame.width,
+            height: recommendationHeight
+        )
         let settingsFrame = CGRect(
             x: topBandFrame.maxX - 44,
-            y: topBandFrame.maxY - 48,
+            y: topRowY,
             width: 44,
-            height: 44
+            height: topRowHeight
         )
-        let objectiveFrame = CGRect(
+        // The authored chrome gives the gold/income readout enough room for
+        // its coin and two compact values. The city progress row remains
+        // between this band and the 44pt settings hit target.
+        let incomeWidth = min(160, max(112, topBandFrame.width * 0.42))
+        let incomeFrame = CGRect(
             x: topBandFrame.minX,
-            y: settingsFrame.minY,
-            width: max(44, settingsFrame.minX - topBandFrame.minX - 10),
-            height: 44
+            y: topRowY,
+            width: incomeWidth,
+            height: topRowHeight
         )
-        let statusFrame = CGRect(
-            x: topBandFrame.minX,
-            y: topBandFrame.minY + 8,
-            width: topBandFrame.width,
-            height: 32
+        let cityProgressFrame = CGRect(
+            x: incomeFrame.maxX + 8,
+            y: topRowY,
+            width: settingsFrame.minX - incomeFrame.maxX - 16,
+            height: topRowHeight
+        )
+        guard cityProgressFrame.width >= 44 else { return nil }
+
+        // Legacy names remain aliases for callers that only need the city and
+        // recommendation hit regions. They no longer describe one shared
+        // panel, and each visual band has its own fixed frame above.
+        let objectiveFrame = recommendationFrame
+        let statusFrame = cityProgressFrame
+        let feedbackFrame = CGRect(
+            x: battlefieldFrame.minX + 8,
+            y: battlefieldFrame.midY - 18,
+            width: battlefieldFrame.width - 16,
+            height: 36
         )
 
         let laneChipFrames = laneFrames(in: battlefieldFrame)
@@ -206,6 +245,10 @@ struct BattleChromeLayout: Equatable {
             sceneFrame,
             safeFrame,
             topBandFrame,
+            incomeFrame,
+            cityProgressFrame,
+            recommendationFrame,
+            feedbackFrame,
             objectiveFrame,
             statusFrame,
             settingsFrame,
@@ -229,9 +272,18 @@ struct BattleChromeLayout: Equatable {
               safeFrame.contains(battlefieldFrame),
               safeFrame.contains(tabBarFrame),
               safeFrame.contains(settingsFrame),
+              topBandFrame.contains(incomeFrame),
+              topBandFrame.contains(cityProgressFrame),
+              topBandFrame.contains(recommendationFrame),
               topBandFrame.contains(objectiveFrame),
               topBandFrame.contains(statusFrame),
               topBandFrame.contains(settingsFrame),
+              battlefieldFrame.contains(feedbackFrame),
+              !incomeFrame.intersects(cityProgressFrame),
+              !cityProgressFrame.intersects(settingsFrame),
+              !recommendationFrame.intersects(incomeFrame),
+              !recommendationFrame.intersects(cityProgressFrame),
+              !recommendationFrame.intersects(settingsFrame),
               medallionFrames.allSatisfy({ safeFrame.contains($0) }),
               medallionHitFrames.allSatisfy({ safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44 }),
               tabHitFrames.allSatisfy({ safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44 }),
@@ -244,6 +296,10 @@ struct BattleChromeLayout: Equatable {
             sceneFrame: sceneFrame,
             safeFrame: safeFrame,
             topBandFrame: topBandFrame,
+            incomeFrame: incomeFrame,
+            cityProgressFrame: cityProgressFrame,
+            recommendationFrame: recommendationFrame,
+            feedbackFrame: feedbackFrame,
             objectiveFrame: objectiveFrame,
             statusFrame: statusFrame,
             settingsFrame: settingsFrame,

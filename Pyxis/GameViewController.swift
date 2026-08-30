@@ -433,6 +433,10 @@ extension GameViewController {
         if fixture == .battleBlocked,
            let battleScene = view.scene as? BattleScene {
             battleScene.spawnSoldierForTesting()
+            // Keep the blocked fixture self-describing for visual regression
+            // captures: the same guarded tab request used by production input
+            // renders the transient feedback beside, not over, the NEXT card.
+            battleScene.requestGameplayTabForTesting(.camp)
         }
         return true
     }

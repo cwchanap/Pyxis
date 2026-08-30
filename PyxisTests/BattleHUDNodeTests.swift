@@ -31,6 +31,62 @@ struct BattleHUDNodeTests {
         #expect(node.action(at: CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY)) == .deploy)
     }
 
+    @Test func applyProjectsGoldCityProgressAndNextRecommendationIntoSeparateBands() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let state = KingdomGameState(
+            gold: 1_234,
+            cityRemainingPower: 42,
+            cityNumberInCountry: 5,
+            completedCityCount: 4
+        )
+        let node = BattleHUDNode()
+        _ = node.apply(content: .project(from: state, manualCount: 0), layout: layout)
+
+        let incomePanel = try #require(node.childNode(withName: "battleIncomePanel") as? PanelNode)
+        let cityPanel = try #require(node.childNode(withName: "battleCityProgressPanel") as? PanelNode)
+        let recommendationPanel = try #require(
+            node.childNode(withName: "battleRecommendationPanel") as? PanelNode
+        )
+        let goldLabel = try #require(node.childNode(withName: "battleGoldLabel") as? SKLabelNode)
+        let cityLabel = try #require(node.childNode(withName: "battleCityProgressLabel") as? SKLabelNode)
+        let cityHPLabel = try #require(node.childNode(withName: "battleCityHPLabel") as? SKLabelNode)
+        let recommendationLabel = try #require(
+            node.childNode(withName: "battleRecommendationLabel") as? SKLabelNode
+        )
+
+        #expect(incomePanel.styleForTesting == .normal)
+        #expect(cityPanel.styleForTesting == .normal)
+        #expect(recommendationPanel.styleForTesting == .normal)
+        #expect(goldLabel.text?.contains("1.2K") == true)
+        #expect(cityLabel.text?.contains("5 / 15") == true)
+        #expect(cityHPLabel.text?.contains("42") == true)
+        #expect(recommendationLabel.text?.hasPrefix("NEXT") == true)
+    }
+
+    @Test func medallionsUseAuthoredUnitFramesAsTheirPrimaryVisual() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        let content = BattleHUDContent.project(
+            from: KingdomGameState(cityNumberInCountry: 5, completedCityCount: 4),
+            manualCount: 0
+        )
+        _ = node.apply(content: content, layout: layout)
+
+        for type in SoldierType.allCases {
+            let icon = try #require(
+                node.childNode(withName: "//battleMedallionIcon-\(type.rawValue)") as? SKSpriteNode
+            )
+            let assetName = try #require(icon.userData?["assetName"] as? String)
+            #expect(assetName.hasPrefix("\(type.rawValue)-walk-") || assetName == "normal-soldier")
+        }
+    }
+
     @Test func availableAndUnavailableMedallionsReturnSelectOrRequirement() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),

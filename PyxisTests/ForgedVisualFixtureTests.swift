@@ -171,6 +171,8 @@ struct ForgedVisualFixtureTests {
         ))
         let battle = try #require(view.scene as? BattleScene)
         #expect(battle.manualLiveSoldierCountForTesting == 1)
+        #expect(battle.isFeedbackTooltipVisibleForTesting)
+        #expect(battle.feedbackTextForTesting == "Finish the current squad before building.")
         #expect(store.load().activeSiegeSession == nil)
         #expect(store.load().pendingBattleResult == nil)
     }

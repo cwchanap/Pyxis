@@ -21,7 +21,9 @@ struct BattleHUDContent: Equatable {
 
     let cityTitle: String
     let cityLevel: Int
+    let cityNumber: Int
     let gold: Int
+    let goldReward: Int
     let cityRemainingPower: Int
     let cityMaxPower: Int
     let defenseTrait: CityDefenseTrait
@@ -84,7 +86,9 @@ struct BattleHUDContent: Equatable {
         return BattleHUDContent(
             cityTitle: state.displayCityTitle,
             cityLevel: state.cityLevel,
+            cityNumber: state.cityNumberInCountry,
             gold: state.gold,
+            goldReward: state.currentGoldReward,
             cityRemainingPower: state.cityRemainingPower,
             cityMaxPower: state.cityMaxPower,
             defenseTrait: state.currentCityDefenseTrait,
@@ -141,10 +145,19 @@ final class BattleHUDNode: SKNode {
         let label: SKLabelNode
     }
 
-    private let topPanel = PanelNode(size: .zero)
+    private let incomePanel = PanelNode(size: .zero)
+    private let cityProgressPanel = PanelNode(size: .zero)
+    private let recommendationPanel = PanelNode(size: .zero)
+    private let goldIcon = SKSpriteNode()
+    private let recommendationIcon = SKSpriteNode()
     private let cityLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let statusLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let objectiveLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let cityProgressLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let cityHPLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let recommendationDetailLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let cityProgressBar = ProgressBarNode(size: .zero)
     private let deployPanel = PanelNode(size: .zero)
     private let deployLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let manualCountLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
@@ -172,7 +185,9 @@ final class BattleHUDNode: SKNode {
             statusLabel.name = "battleMedallionStatus-\(soldierType.rawValue)"
             multiplierLabel.name = "battleMedallionMultiplier-\(soldierType.rawValue)"
             icon.texture = Self.texture(for: soldierType)
-            icon.size = CGSize(width: 34, height: 34)
+            icon.userData = NSMutableDictionary()
+            icon.userData?["assetName"] = Self.assetName(for: soldierType)
+            icon.size = CGSize(width: 42, height: 42)
             icon.color = GameUITheme.Color.textPrimary
             icon.colorBlendFactor = 0.2
             for label in [typeLabel, statusLabel, multiplierLabel] {
@@ -216,30 +231,65 @@ final class BattleHUDNode: SKNode {
         })
         super.init()
         name = "battleHUD"
-        topPanel.name = "battleTopPanel"
-        cityLabel.name = "battleCityLabel"
-        statusLabel.name = "battleStatusLabel"
-        objectiveLabel.name = "battleObjectiveLabel"
+        incomePanel.name = "battleIncomePanel"
+        cityProgressPanel.name = "battleCityProgressPanel"
+        recommendationPanel.name = "battleRecommendationPanel"
+        goldIcon.name = "battleGoldIcon"
+        recommendationIcon.name = "battleRecommendationIcon"
+        cityLabel.name = "battleCityTitleLabel"
+        statusLabel.name = "battleGoldLabel"
+        objectiveLabel.name = "battleRecommendationLabel"
+        rewardLabel.name = "battleIncomeLabel"
+        cityProgressLabel.name = "battleCityProgressLabel"
+        cityHPLabel.name = "battleCityHPLabel"
+        recommendationDetailLabel.name = "battleRecommendationDetailLabel"
+        cityProgressBar.name = "battleCityProgressBar"
         deployPanel.name = "battleDeployPanel"
         deployLabel.name = "battleDeployLabel"
         manualCountLabel.name = "battleManualCountLabel"
 
-        for label in [cityLabel, statusLabel, objectiveLabel, deployLabel, manualCountLabel] {
+        for label in [
+            cityLabel,
+            statusLabel,
+            objectiveLabel,
+            rewardLabel,
+            cityProgressLabel,
+            cityHPLabel,
+            recommendationDetailLabel,
+            deployLabel,
+            manualCountLabel
+        ] {
             label.horizontalAlignmentMode = .center
             label.verticalAlignmentMode = .center
             label.fontColor = GameUITheme.Color.textPrimary
         }
-        cityLabel.fontSize = 17
-        statusLabel.fontSize = 11
+        cityLabel.fontSize = 8
+        statusLabel.fontSize = 12
         statusLabel.fontColor = GameUITheme.Color.textSecondary
         objectiveLabel.fontSize = 11
+        rewardLabel.fontSize = 9
+        rewardLabel.fontColor = GameUITheme.Color.gold
+        cityProgressLabel.fontSize = 10
+        cityHPLabel.fontSize = 8
+        cityHPLabel.fontColor = GameUITheme.Color.textSecondary
+        recommendationDetailLabel.fontSize = 8
+        recommendationDetailLabel.fontColor = GameUITheme.Color.textSecondary
         deployLabel.fontSize = 16
         manualCountLabel.fontSize = 13
 
-        addChild(topPanel)
+        addChild(incomePanel)
+        addChild(cityProgressPanel)
+        addChild(recommendationPanel)
+        addChild(goldIcon)
+        addChild(recommendationIcon)
         addChild(cityLabel)
         addChild(statusLabel)
         addChild(objectiveLabel)
+        addChild(rewardLabel)
+        addChild(cityProgressLabel)
+        addChild(cityHPLabel)
+        addChild(recommendationDetailLabel)
+        addChild(cityProgressBar)
         for bundle in medallions {
             addChild(bundle.root)
         }
@@ -272,6 +322,9 @@ final class BattleHUDNode: SKNode {
               layout.laneChipFrames.count == laneChips.count,
               layout.battlefield.isVisible,
               layout.battlefieldFrame.height >= minimumBattlefieldHeight,
+              layout.topBandFrame.contains(layout.incomeFrame),
+              layout.topBandFrame.contains(layout.cityProgressFrame),
+              layout.topBandFrame.contains(layout.recommendationFrame),
               layout.safeFrame.contains(layout.deployFrame),
               layout.safeFrame.contains(layout.tabBarFrame),
               layout.medallionHitFrames.allSatisfy({
@@ -291,15 +344,88 @@ final class BattleHUDNode: SKNode {
         isHidden = false
         currentLayout = layout
         currentContent = content
-        topPanel.apply(size: layout.topBandFrame.size, style: .normal, showsRivets: false)
-        topPanel.position = CGPoint(x: layout.topBandFrame.midX, y: layout.topBandFrame.midY)
-        cityLabel.text = "CITY \(content.cityLevel) · \(content.cityTitle)"
-        cityLabel.position = CGPoint(x: layout.statusFrame.midX, y: layout.statusFrame.midY + 8)
-        statusLabel.text = "GOLD \(CompactNumberFormatter.string(from: content.gold))"
-            + "  ·  \(content.defenseTrait.displayName)"
-        statusLabel.position = CGPoint(x: layout.statusFrame.midX, y: layout.statusFrame.midY - 9)
-        objectiveLabel.text = Self.objectiveText(for: content.recommendation)
-        objectiveLabel.position = CGPoint(x: layout.objectiveFrame.midX, y: layout.objectiveFrame.midY)
+        incomePanel.apply(size: layout.incomeFrame.size, style: .normal, showsRivets: false)
+        incomePanel.position = CGPoint(x: layout.incomeFrame.midX, y: layout.incomeFrame.midY)
+        cityProgressPanel.apply(size: layout.cityProgressFrame.size, style: .normal, showsRivets: false)
+        cityProgressPanel.position = CGPoint(
+            x: layout.cityProgressFrame.midX,
+            y: layout.cityProgressFrame.midY
+        )
+        // The authored city row sits directly on the battlefield art. Keep
+        // the panel in the fixed tree for ownership/tests, but let the
+        // progress, HP, and title read against the scenic background.
+        cityProgressPanel.alpha = 0
+        recommendationPanel.apply(
+            size: layout.recommendationFrame.size,
+            style: .normal,
+            showsRivets: false
+        )
+        recommendationPanel.position = CGPoint(
+            x: layout.recommendationFrame.midX,
+            y: layout.recommendationFrame.midY
+        )
+        goldIcon.texture = Self.goldTexture()
+        goldIcon.size = CGSize(width: 22, height: 22)
+        goldIcon.position = CGPoint(
+            x: layout.incomeFrame.minX + 16,
+            y: layout.incomeFrame.midY + 7
+        )
+        statusLabel.text = CompactNumberFormatter.string(from: content.gold)
+        statusLabel.horizontalAlignmentMode = .left
+        statusLabel.position = CGPoint(
+            x: layout.incomeFrame.minX + 34,
+            y: layout.incomeFrame.midY + 7
+        )
+        rewardLabel.text = "+\(CompactNumberFormatter.string(from: content.goldReward)) ↑"
+        rewardLabel.horizontalAlignmentMode = .left
+        rewardLabel.position = CGPoint(
+            x: layout.incomeFrame.minX + 34,
+            y: layout.incomeFrame.midY - 9
+        )
+        cityProgressLabel.text = "\(content.cityNumber) / \(KingdomGameState.firstCountryCityCount) "
+            + content.cityTitle.uppercased()
+        cityProgressLabel.fontSize = 12
+        cityProgressLabel.position = CGPoint(
+            x: layout.cityProgressFrame.midX,
+            y: layout.cityProgressFrame.midY + 11
+        )
+        cityLabel.isHidden = true
+        cityHPLabel.text = "\(CompactNumberFormatter.string(from: content.cityRemainingPower)) / "
+            + CompactNumberFormatter.string(from: content.cityMaxPower)
+        cityHPLabel.fontSize = 9
+        cityHPLabel.position = CGPoint(
+            x: layout.cityProgressFrame.midX,
+            y: layout.cityProgressFrame.midY - 6
+        )
+        cityProgressBar.update(size: CGSize(
+            width: max(44, layout.cityProgressFrame.width - 16),
+            height: 4
+        ))
+        cityProgressBar.update(progress: CGFloat(content.cityRemainingPower)
+            / CGFloat(max(1, content.cityMaxPower)))
+        cityProgressBar.position = CGPoint(
+            x: layout.cityProgressFrame.midX,
+            y: layout.cityProgressFrame.minY + 5
+        )
+        objectiveLabel.text = "NEXT"
+        objectiveLabel.horizontalAlignmentMode = .left
+        objectiveLabel.position = CGPoint(
+            x: layout.recommendationFrame.minX + 45,
+            y: layout.recommendationFrame.midY + 11
+        )
+        recommendationDetailLabel.text = Self.objectiveText(for: content.recommendation)
+        recommendationDetailLabel.horizontalAlignmentMode = .center
+        recommendationDetailLabel.fontSize = Self.objectiveFontSize(for: content.recommendation)
+        recommendationDetailLabel.position = CGPoint(
+            x: layout.recommendationFrame.midX + 22,
+            y: layout.recommendationFrame.midY - 8
+        )
+        recommendationIcon.texture = Self.recommendationTexture(for: content.recommendation)
+        recommendationIcon.size = CGSize(width: 28, height: 28)
+        recommendationIcon.position = CGPoint(
+            x: layout.recommendationFrame.minX + 18,
+            y: layout.recommendationFrame.midY
+        )
 
         for (index, bundle) in medallions.enumerated() {
             let medallion = content.medallions[index]
@@ -313,11 +439,11 @@ final class BattleHUDNode: SKNode {
             }
             bundle.panel.apply(size: frame.size, style: style, showsRivets: false)
             bundle.root.position = CGPoint(x: frame.midX, y: frame.midY)
-            bundle.icon.position = CGPoint(x: 0, y: 8)
+            bundle.icon.position = CGPoint(x: 0, y: 7)
             bundle.typeLabel.text = medallion.soldierType.displayName.uppercased()
-            bundle.typeLabel.position = CGPoint(x: 0, y: -17)
+            bundle.typeLabel.position = CGPoint(x: 0, y: -18)
             bundle.statusLabel.text = Self.statusText(for: medallion.availability)
-            bundle.statusLabel.position = CGPoint(x: 0, y: -27)
+            bundle.statusLabel.position = CGPoint(x: 0, y: -28)
             bundle.multiplierLabel.text = Self.multiplierText(medallion.damageMultiplier)
             bundle.multiplierLabel.position = CGPoint(x: 0, y: 25)
         }
@@ -435,21 +561,71 @@ final class BattleHUDNode: SKNode {
 
     private static func objectiveText(for recommendation: RecommendedCampRecommendation) -> String {
         switch recommendation {
-        case .ready(let action, let reason):
-            return "READY · \(action.buildingType.shortDisplayName) · \(reason)"
-        case .saveFor(let action, let missingGold, let reason):
-            return "SAVE \(missingGold) GOLD · \(action.buildingType.shortDisplayName) · \(reason)"
+        case .ready(let action, _):
+            return "\(action.buildingType.shortDisplayName) · \(CompactNumberFormatter.string(from: action.cost))"
+        case .saveFor(let action, let missingGold, _):
+            let costText = CompactNumberFormatter.string(from: action.cost)
+            let missingGoldText = CompactNumberFormatter.string(from: missingGold)
+            return "\(action.buildingType.shortDisplayName) · \(costText) · +\(missingGoldText)"
         case .noAction(let message):
             return message
         }
     }
 
-    private static func texture(for type: SoldierType) -> SKTexture? {
-        let assetName = type == .infantry ? "normal-soldier" : "\(type.rawValue)-soldier"
-        guard UIImage(named: assetName) != nil else {
-            return UIImage(systemName: symbolName(for: type)).map(SKTexture.init(image:))
+    private static func objectiveFontSize(
+        for recommendation: RecommendedCampRecommendation
+    ) -> CGFloat {
+        switch recommendation {
+        case .noAction:
+            return 8
+        case .ready:
+            return 12
+        case .saveFor:
+            return 10
         }
-        return SKTexture(imageNamed: assetName)
+    }
+
+    private static func texture(for type: SoldierType) -> SKTexture? {
+        let assetName = assetName(for: type)
+        if UIImage(named: assetName) != nil {
+            let source = SKTexture(imageNamed: assetName)
+            return assetName.contains("-walk-")
+                ? SKTexture(rect: SoldierAnimationGeometry(type: type).bodyRegion, in: source)
+                : source
+        }
+        return UIImage(systemName: symbolName(for: type)).map(SKTexture.init(image:))
+    }
+
+    private static func assetName(for type: SoldierType) -> String {
+        let animationFrameName = "\(type.rawValue)-walk-01"
+        if UIImage(named: animationFrameName) != nil {
+            return animationFrameName
+        }
+        return type == .infantry ? "normal-soldier" : "\(type.rawValue)-soldier"
+    }
+
+    private static func goldTexture() -> SKTexture? {
+        guard UIImage(named: "gold-burst") != nil else {
+            return UIImage(systemName: "circle.fill").map(SKTexture.init(image:))
+        }
+        return SKTexture(imageNamed: "gold-burst")
+    }
+
+    private static func recommendationTexture(
+        for recommendation: RecommendedCampRecommendation
+    ) -> SKTexture? {
+        let buildingType: BuildingType?
+        switch recommendation {
+        case .ready(let action, _), .saveFor(let action, _, _):
+            buildingType = action.buildingType
+        case .noAction:
+            buildingType = nil
+        }
+        guard let buildingType,
+              UIImage(named: buildingType.buildingAssetName) != nil else {
+            return UIImage(systemName: "sparkles").map(SKTexture.init(image:))
+        }
+        return SKTexture(imageNamed: buildingType.buildingAssetName)
     }
 
     private static func symbolName(for type: SoldierType) -> String {
@@ -479,6 +655,10 @@ extension BattleHUDNode {
 
     var currentLayoutForTesting: BattleChromeLayout? {
         currentLayout
+    }
+
+    var currentContentForTesting: BattleHUDContent? {
+        currentContent
     }
 }
 #endif
