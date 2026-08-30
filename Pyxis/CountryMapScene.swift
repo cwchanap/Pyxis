@@ -9,7 +9,10 @@ import UIKit
 
 protocol CountryMapSceneRouting: AnyObject {
     @discardableResult
-    func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) -> Bool
+    func countryMapSceneDidRequestGameplayTab(
+        _ scene: CountryMapScene,
+        tab: GameplayTab
+    ) -> Bool
     func countryMapScene(
         _ scene: CountryMapScene,
         didRequestLayoutGate reason: AppLayoutGateReason
@@ -86,6 +89,13 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private var scoutCardLayout: CountryMapScoutCardLayout?
     private var transientFeedback: CountryMapTransientFeedback?
     private var previousUpdateTime: TimeInterval?
+    private let gameplayTabBar = GameplayTabBarNode()
+    private var gameplayTabBarFrame = CGRect.zero
+    private var gameplayTabContent = GameplayTabBarNode.Content(
+        selected: .map,
+        enabledTabs: [],
+        showsCampAttention: false
+    )
     private var layoutFrames = (
         scene: CGRect.zero,
         titlePanel: CGRect.zero,
@@ -200,12 +210,28 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             openFeedbackSettings()
             return
         }
-        if scoutCardNode.overlayHitFrame?.contains(point) == true {
+        if handleGameplayTabTouch(at: point) {
             return
+        }
+        if handleScoutCardTouch(at: point) {
+            return
+        }
+        if currentCityControlFrame?.contains(point) == true {
+            requestEntry(for: state.cityNumberInCountry)
+            return
+        }
+        if let cityNumber = cityNumber(at: point) {
+            handleCityNodeTouch(cityNumber)
+        }
+    }
+
+    private func handleScoutCardTouch(at point: CGPoint) -> Bool {
+        if scoutCardNode.overlayHitFrame?.contains(point) == true {
+            return true
         }
         if scoutCardNode.attackHitFrame?.contains(point) == true {
             requestProjectedScoutEntry()
-            return
+            return true
         }
         if scoutCardNode.cardHitFrame?.contains(point) == true {
             // Tapping the Scout card body shows the current scout's flavor
@@ -221,15 +247,19 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                transientFeedback?.kind.blocksScoutEntry != true {
                 showFeedback(.flavor(scout.flavorText))
             }
-            return
+            return true
         }
-        if currentCityControlFrame?.contains(point) == true {
-            requestEntry(for: state.cityNumberInCountry)
-            return
+
+        return false
+    }
+
+    private func handleGameplayTabTouch(at point: CGPoint) -> Bool {
+        guard let tab = gameplayTabBar.tab(at: point) else {
+            return false
         }
-        if let cityNumber = cityNumber(at: point) {
-            handleCityNodeTouch(cityNumber)
-        }
+
+        requestGameplayTab(tab)
+        return true
     }
 
     private func buildInterface() {
@@ -242,6 +272,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         addChild(cityLayer)
         addChild(titlePanel)
         addChild(scoutCardNode)
+        gameplayTabBar.zPosition = GameUITheme.Z.hud
+        addChild(gameplayTabBar)
 
         guard Self.isBackdropAvailable(
             named: MapAssetName.countryMapBackdrop,
@@ -581,6 +613,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         currentCityButton.position = .zero
         currentCityButtonBackground.path = nil
         feedbackSettingsController?.applyGearFrame(.zero)
+        gameplayTabBarFrame = .zero
+        gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
 
         cityBaseScales.removeAll()
         cityVisualStates.removeAll()
@@ -627,6 +661,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             illustratedRegion: layout.illustratedMapRegionFrame,
             scoutCard: layout.informationRegionFrame
         )
+        layoutGameplayTabBar(informationRegionFrame: layout.informationRegionFrame)
 
         let showsCurrentCityButton = layout.currentCityControlFrame != nil
         titleLabel.text = "Country \(state.countryNumber)"
@@ -679,6 +714,17 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
 
         return true
+    }
+
+    private func layoutGameplayTabBar(informationRegionFrame: CGRect) {
+        let horizontalMargin = max(16, min(22, size.width * 0.05))
+        gameplayTabBarFrame = CGRect(
+            x: horizontalMargin,
+            y: informationRegionFrame.maxY + 8,
+            width: max(0, size.width - horizontalMargin * 2),
+            height: 72
+        )
+        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
     }
 
     private func layoutButton(_ button: SKNode, background: SKShapeNode, size: CGSize, position: CGPoint) {
@@ -761,6 +807,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func redraw() {
         titleLabel.text = "Country \(state.countryNumber)"
+        applyGameplayTabBar()
 
         guard let countryMapLayout,
               let scoutCardLayout else {
@@ -797,6 +844,27 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             applyVisualState(visualState(for: cityNumber), to: cityNumber)
         }
+    }
+
+    private func applyGameplayTabBar() {
+        let enabledTabs: Set<GameplayTab> = state.stageStatus == .battleActive
+            && state.pendingBattleResult == nil
+            ? Set(GameplayTab.allCases)
+            : [.map]
+        let showsCampAttention: Bool
+        switch RecommendedCampRecommendation.make(for: state) {
+        case .ready, .saveFor:
+            showsCampAttention = true
+        case .noAction:
+            showsCampAttention = false
+        }
+
+        gameplayTabContent = GameplayTabBarNode.Content(
+            selected: .map,
+            enabledTabs: enabledTabs,
+            showsCampAttention: showsCampAttention
+        )
+        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
     }
 
     private func visualState(for cityNumber: Int) -> CountryMapCityVisualState {
@@ -1031,6 +1099,24 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
     }
 
+    private func requestGameplayTab(_ tab: GameplayTab) {
+        guard tab != .map,
+              !isRoutingToBattle,
+              state.stageStatus == .battleActive,
+              countryMapLayout != nil,
+              scoutCardLayout != nil else {
+            return
+        }
+
+        isRoutingToBattle = true
+        redraw()
+        guard router?.countryMapSceneDidRequestGameplayTab(self, tab: tab) ?? false else {
+            isRoutingToBattle = false
+            redraw()
+            return
+        }
+    }
+
     private func requestEntry(for cityNumber: Int) {
         guard !isRoutingToBattle,
               countryMapLayout != nil,
@@ -1063,7 +1149,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             isRoutingToBattle = true
             redraw()
 
-            guard router.countryMapSceneDidRequestBattle(self) else {
+            guard router.countryMapSceneDidRequestGameplayTab(self, tab: .battle) else {
                 isRoutingToBattle = false
                 feedback.emit(.invalidAction)
                 showFeedback(.cannotEnterCityYet())
@@ -1225,6 +1311,22 @@ extension CountryMapScene {
 
     func requestCurrentCityBattleForTesting() {
         requestEntry(for: state.cityNumberInCountry)
+    }
+
+    func requestGameplayTabForTesting(_ tab: GameplayTab) {
+        requestGameplayTab(tab)
+    }
+
+    var gameplayTabBarForTesting: GameplayTabBarNode {
+        gameplayTabBar
+    }
+
+    var gameplayTabContentForTesting: GameplayTabBarNode.Content {
+        gameplayTabContent
+    }
+
+    var gameplayTabBarFrameForTesting: CGRect {
+        gameplayTabBarFrame
     }
 
     func cityNumberAtPointForTesting(_ point: CGPoint) -> Int? {

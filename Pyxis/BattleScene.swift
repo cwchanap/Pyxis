@@ -10,8 +10,7 @@ import SpriteKit
 import UIKit
 
 protocol BattleSceneRouting: AnyObject {
-    func battleSceneDidRequestCountryMap(_ scene: BattleScene)
-    func battleSceneDidRequestBuildingView(_ scene: BattleScene)
+    func battleSceneDidRequestGameplayTab(_ scene: BattleScene, tab: GameplayTab)
     func battleScene(_ scene: BattleScene, didRequestLayoutGate reason: AppLayoutGateReason)
 }
 
@@ -211,6 +210,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private let buildButtonBackground = SKShapeNode()
     private let buildButtonIcon = SKSpriteNode(imageNamed: BattleAssetName.buildingPadEmpty)
     private let buildButtonLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+    private let gameplayTabBar = GameplayTabBarNode()
+    private var gameplayTabBarFrame = CGRect.zero
+    private var gameplayTabContent = GameplayTabBarNode.Content(
+        selected: .battle,
+        enabledTabs: [],
+        showsCampAttention: false
+    )
     private let conquestReportNode = ConquestReportNode()
     private var hasPresentedPendingConquestReport = false
     private var isConquestReportVisible = false
@@ -408,7 +414,20 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
+        if handleGameplayTabTouch(at: point) {
+            return
+        }
+
         handleTouch(named: buttonName(at: point))
+    }
+
+    private func handleGameplayTabTouch(at point: CGPoint) -> Bool {
+        guard let tab = gameplayTabBar.tab(at: point) else {
+            return false
+        }
+
+        requestGameplayTab(tab)
+        return true
     }
 
     private var isFeedbackSettingsVisible: Bool {
@@ -599,10 +618,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             spawnSoldier()
         case ButtonName.world:
             hideManualTypeMenuWithoutLayoutIfNeeded()
-            requestCountryMap()
+            requestGameplayTab(.map)
         case ButtonName.build:
             hideManualTypeMenuWithoutLayoutIfNeeded()
-            requestBuildingView()
+            requestGameplayTab(.camp)
         default:
             return false
         }
@@ -789,6 +808,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         addChild(spawnButton)
         addChild(worldButton)
         addChild(buildButton)
+        gameplayTabBar.zPosition = GameUITheme.Z.hud
+        addChild(gameplayTabBar)
         addChild(conquestReportNode)
 
         applyPersistentHUDTextVisibility()
@@ -1042,6 +1063,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
            hasPresentedPendingConquestReport || isConquestReportFitFailed {
             _ = applyPendingConquestReport(resetsContinueState: false)
         }
+
+        layoutGameplayTabBar()
 
         if isMilestoneArrivalVisible {
             _ = layoutMilestoneArrival()
@@ -1944,6 +1967,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func redraw(shouldLayout: Bool = true) {
         reconcileSelectedManualSoldierType()
         updateHUDIcons()
+        applyGameplayTabBar()
 
         goldLabel.text = CompactNumberFormatter.string(from: state.gold)
         cityLevelLabel.text = state.displayCityTitle
@@ -1976,6 +2000,53 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             layoutInterface()
         }
         presentFeedbackTooltipIfNeeded()
+    }
+
+    private func applyGameplayTabBar() {
+        guard !isConquestReportVisible, !isConquestReportFitFailed else {
+            gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
+            return
+        }
+
+        let enabledTabs: Set<GameplayTab>
+        if state.stageStatus == .battleActive {
+            enabledTabs = combat.livingSoldierCount(source: .manual) == 0
+                ? Set(GameplayTab.allCases)
+                : [.battle]
+        } else {
+            enabledTabs = [.map]
+        }
+        let showsCampAttention: Bool
+        switch RecommendedCampRecommendation.make(for: state) {
+        case .ready, .saveFor:
+            showsCampAttention = true
+        case .noAction:
+            showsCampAttention = false
+        }
+
+        gameplayTabContent = GameplayTabBarNode.Content(
+            selected: .battle,
+            enabledTabs: enabledTabs,
+            showsCampAttention: showsCampAttention
+        )
+        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
+    }
+
+    private func layoutGameplayTabBar() {
+        guard !isConquestReportVisible, !isConquestReportFitFailed else {
+            gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
+            return
+        }
+
+        let horizontalMargin = max(16, min(22, size.width * 0.05))
+        let bottomInset = GameUITheme.bottomUnsafeInset(sceneSize: size, view: view)
+        gameplayTabBarFrame = CGRect(
+            x: horizontalMargin,
+            y: bottomInset + 76,
+            width: max(0, size.width - horizontalMargin * 2),
+            height: 72
+        )
+        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
     }
 
     private func updateHUDIcons() {
@@ -2376,40 +2447,28 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
     }
 
-    private func requestCountryMap() {
-        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
+    private func requestGameplayTab(_ tab: GameplayTab) {
+        guard !isConquestReportVisible,
+              state.stageStatus == .battleActive,
+              tab != .battle else {
             return
         }
 
         guard combat.livingSoldierCount(source: .manual) == 0 else {
             feedback.emit(.invalidAction)
-            feedbackText = "Finish the current squad before viewing world."
+            feedbackText = tab == .map
+                ? "Finish the current squad before viewing world."
+                : "Finish the current squad before building."
             redraw()
             return
         }
 
         state.markCurrentCityBuildingProgressInactive(at: Date())
         store.save(state)
-        router?.battleSceneDidRequestCountryMap(self)
-    }
-
-    private func requestBuildingView() {
-        guard !isConquestReportVisible, state.stageStatus == .battleActive else {
-            return
-        }
-
-        // BuildingViewScene does not carry over BattleCombatState's live soldier roster.
-        // Transitioning with living manual soldiers would lose them without refund.
-        guard combat.livingSoldierCount(source: .manual) == 0 else {
-            feedback.emit(.invalidAction)
-            feedbackText = "Finish the current squad before building."
-            redraw()
-            return
-        }
-
-        state.markCurrentCityBuildingProgressInactive(at: Date())
-        store.save(state)
-        router?.battleSceneDidRequestBuildingView(self)
+        router?.battleSceneDidRequestGameplayTab(
+            self,
+            tab: tab
+        )
     }
 
     private func createSoldierNode(id: BattleCombatState.SoldierID) {
@@ -3490,6 +3549,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             conquestReportNode.isHidden = true
             milestoneConquestAccent.isHidden = true
             countryCompleteLabel.isHidden = true
+            applyGameplayTabBar()
             // A fresh live/idle conquest that cannot render blocks all scene
             // input, but the fit-failed flag alone never surfaces to the
             // controller unless a layout event happens to refresh the gate.
@@ -3501,6 +3561,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         isConquestReportVisible = true
         isConquestReportFitFailed = false
         hasPresentedPendingConquestReport = true
+        applyGameplayTabBar()
         return result
     }
 
@@ -3525,7 +3586,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
         state.acknowledgePendingBattleResult()
         store.save(state)
-        router.battleSceneDidRequestCountryMap(self)
+        router.battleSceneDidRequestGameplayTab(self, tab: .map)
     }
 
     private func playGoldBurst(at anchor: CGPoint) {
@@ -4329,12 +4390,20 @@ extension BattleScene {
         isManualTypeMenuOpen
     }
 
-    func requestBuildingViewForTesting() {
-        requestBuildingView()
+    func requestGameplayTabForTesting(_ tab: GameplayTab) {
+        requestGameplayTab(tab)
     }
 
-    func requestCountryMapForTesting() {
-        requestCountryMap()
+    var gameplayTabBarForTesting: GameplayTabBarNode {
+        gameplayTabBar
+    }
+
+    var gameplayTabContentForTesting: GameplayTabBarNode.Content {
+        gameplayTabContent
+    }
+
+    var gameplayTabBarFrameForTesting: CGRect {
+        gameplayTabBarFrame
     }
 
     func advanceCombatForTesting(deltaTime: TimeInterval) {
@@ -4373,6 +4442,7 @@ extension BattleScene {
     func forceDismissConquestOverlayForTesting() {
         isConquestReportVisible = false
         conquestReportNode.isHidden = true
+        applyGameplayTabBar()
     }
 
     /// Presents the conquest report flag without requiring a live conquest, so
@@ -4380,6 +4450,7 @@ extension BattleScene {
     func presentConquestPopupForTesting() {
         isConquestReportVisible = true
         hasPresentedPendingConquestReport = true
+        applyGameplayTabBar()
     }
 
     /// Drives the info-button touch path. Returns whether an info tooltip was

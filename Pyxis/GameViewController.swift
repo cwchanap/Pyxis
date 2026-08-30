@@ -198,7 +198,10 @@ final class GameViewController: UIViewController {
         presentSceneForCurrentStage(in: view)
     }
 
-    private func presentSceneForCurrentStage(in view: SKView) {
+    private func presentSceneForCurrentStage(
+        in view: SKView,
+        preferredTab: GameplayTab = .battle
+    ) {
         let state = store.load()
 
         if state.pendingBattleResult != nil {
@@ -208,7 +211,14 @@ final class GameViewController: UIViewController {
 
         switch state.stageStatus {
         case .battleActive:
-            presentBattleScene(in: view)
+            switch preferredTab {
+            case .battle:
+                presentBattleScene(in: view)
+            case .camp:
+                presentBuildingViewScene(in: view)
+            case .map:
+                presentCountryMapScene(in: view)
+            }
         case .cityConqueredPendingMap, .countryComplete:
             presentCountryMapScene(in: view)
         }
@@ -339,20 +349,12 @@ extension GameViewController: SceneLifecycleHandoff {
 }
 
 extension GameViewController: BattleSceneRouting {
-    func battleSceneDidRequestCountryMap(_ scene: BattleScene) {
+    func battleSceneDidRequestGameplayTab(_ scene: BattleScene, tab: GameplayTab) {
         guard let view = self.view as? SKView else {
             return
         }
 
-        presentCountryMapScene(in: view)
-    }
-
-    func battleSceneDidRequestBuildingView(_ scene: BattleScene) {
-        guard let view = self.view as? SKView else {
-            return
-        }
-
-        presentBuildingViewScene(in: view)
+        presentSceneForCurrentStage(in: view, preferredTab: tab)
     }
 
     func battleScene(_ scene: BattleScene, didRequestLayoutGate reason: AppLayoutGateReason) {
@@ -363,12 +365,15 @@ extension GameViewController: BattleSceneRouting {
 
 extension GameViewController: CountryMapSceneRouting {
     @discardableResult
-    func countryMapSceneDidRequestBattle(_ scene: CountryMapScene) -> Bool {
+    func countryMapSceneDidRequestGameplayTab(
+        _ scene: CountryMapScene,
+        tab: GameplayTab
+    ) -> Bool {
         guard let view = self.view as? SKView else {
             return false
         }
 
-        presentBattleScene(in: view)
+        presentSceneForCurrentStage(in: view, preferredTab: tab)
         return true
     }
 
@@ -383,12 +388,15 @@ extension GameViewController: CountryMapSceneRouting {
 
 extension GameViewController: BuildingViewSceneRouting {
     @discardableResult
-    func buildingViewSceneDidRequestBattle(_ scene: BuildingViewScene) -> Bool {
+    func buildingViewSceneDidRequestGameplayTab(
+        _ scene: BuildingViewScene,
+        tab: GameplayTab
+    ) -> Bool {
         guard let view = self.view as? SKView else {
             return false
         }
 
-        presentSceneForCurrentStage(in: view)
+        presentSceneForCurrentStage(in: view, preferredTab: tab)
         return true
     }
 }
@@ -466,6 +474,13 @@ extension GameViewController {
         environment: CountryMapLayoutEnvironment
     ) {
         refreshLayoutSupport(environment: environment)
+    }
+
+    func presentSceneForCurrentStageForTesting(
+        in view: SKView,
+        preferredTab: GameplayTab = .battle
+    ) {
+        presentSceneForCurrentStage(in: view, preferredTab: preferredTab)
     }
 
     var isLayoutGateVisibleForTesting: Bool {
