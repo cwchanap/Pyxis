@@ -429,6 +429,10 @@ extension GameViewController {
 
         store.save(fixture.makeState())
         presentSceneForCurrentStage(in: view, preferredTab: fixture.preferredTab)
+        if fixture == .battleBlocked,
+           let battleScene = view.scene as? BattleScene {
+            battleScene.spawnSoldierForTesting()
+        }
         return true
     }
 
