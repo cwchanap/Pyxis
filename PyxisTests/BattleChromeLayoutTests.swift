@@ -31,6 +31,18 @@ struct BattleChromeLayoutTests {
         #expect(layout.battlefield.isVisible)
     }
 
+    @Test func topBandReservesReadableCityProgressRow() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+
+        #expect(layout.statusFrame.height >= 40)
+        #expect(layout.topBandFrame.contains(layout.statusFrame))
+        #expect(layout.topBandFrame.contains(layout.objectiveFrame))
+        #expect(!layout.statusFrame.intersects(layout.objectiveFrame))
+    }
+
     @Test func compactPhoneKeepsVisibleBattlefieldAboveCompactFloor() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 375, height: 667),
