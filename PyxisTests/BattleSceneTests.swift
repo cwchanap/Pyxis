@@ -311,10 +311,38 @@ struct BattleSceneTests {
             ) as? PanelNode
         )
 
-        #expect(!feedbackPanel.calculateAccumulatedFrame().intersects(layout.objectiveFrame))
+        #expect(!feedbackPanel.calculateAccumulatedFrame().intersects(layout.recommendationFrame))
         #expect(campPanel.styleForTesting == .disabled)
         #expect(scene.battleHUDForTesting.tabBarForTesting.hitFrameForTesting(for: .camp) == nil)
         #expect(scene.battleHUDForTesting.tabBarForTesting.hitFrameForTesting(for: .map) == nil)
+    }
+
+    @Test("Tapping the visible income band presents Gold info")
+    func tappingIncomeBandPresentsGoldInfo() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: stateWithBarracks(gold: 123, cityRemainingPower: 200)),
+            size: CGSize(width: 393, height: 852)
+        )
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+
+        scene.handleTouchForTesting(at: layout.incomeFrame.center)
+
+        #expect(scene.lastPresentedTooltipTextForTesting.hasPrefix("Gold "))
+        #expect(scene.lastPresentedTooltipTextForTesting.contains("Soldiers"))
+    }
+
+    @Test("Tapping the visible city progress band presents City info")
+    func tappingCityProgressBandPresentsCityInfo() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: stateWithBarracks(gold: 123, cityRemainingPower: 200)),
+            size: CGSize(width: 393, height: 852)
+        )
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+
+        scene.handleTouchForTesting(at: layout.cityProgressFrame.center)
+
+        #expect(scene.lastPresentedTooltipTextForTesting.contains(scene.gameStateForTesting.displayCityTitle))
+        #expect(scene.lastPresentedTooltipTextForTesting.contains("HP "))
     }
 
     @Test func combatUsesCurrentCityLaneDefenseMultipliers() throws {
@@ -434,7 +462,8 @@ struct BattleSceneTests {
             layout.deployFrame.center,
             layout.tabHitFrames[2].center,
             layout.tabHitFrames[1].center,
-            layout.statusFrame.center
+            layout.incomeFrame.center,
+            layout.cityProgressFrame.center
         ] {
             scene.handleTouchForTesting(at: point)
         }

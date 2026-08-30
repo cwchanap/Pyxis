@@ -46,8 +46,6 @@ struct BattleChromeLayout: Equatable {
     let cityProgressFrame: CGRect
     let recommendationFrame: CGRect
     let feedbackFrame: CGRect
-    let objectiveFrame: CGRect
-    let statusFrame: CGRect
     let settingsFrame: CGRect
     let medallionFrames: [CGRect]
     let medallionHitFrames: [CGRect]
@@ -217,11 +215,6 @@ struct BattleChromeLayout: Equatable {
         )
         guard cityProgressFrame.width >= 44 else { return nil }
 
-        // Legacy names remain aliases for callers that only need the city and
-        // recommendation hit regions. They no longer describe one shared
-        // panel, and each visual band has its own fixed frame above.
-        let objectiveFrame = recommendationFrame
-        let statusFrame = cityProgressFrame
         let feedbackFrame = CGRect(
             x: battlefieldFrame.minX + 8,
             y: battlefieldFrame.midY - 18,
@@ -249,8 +242,6 @@ struct BattleChromeLayout: Equatable {
             cityProgressFrame,
             recommendationFrame,
             feedbackFrame,
-            objectiveFrame,
-            statusFrame,
             settingsFrame,
             deployFrame,
             manualCountFrame,
@@ -275,8 +266,6 @@ struct BattleChromeLayout: Equatable {
               topBandFrame.contains(incomeFrame),
               topBandFrame.contains(cityProgressFrame),
               topBandFrame.contains(recommendationFrame),
-              topBandFrame.contains(objectiveFrame),
-              topBandFrame.contains(statusFrame),
               topBandFrame.contains(settingsFrame),
               battlefieldFrame.contains(feedbackFrame),
               !incomeFrame.intersects(cityProgressFrame),
@@ -300,8 +289,6 @@ struct BattleChromeLayout: Equatable {
             cityProgressFrame: cityProgressFrame,
             recommendationFrame: recommendationFrame,
             feedbackFrame: feedbackFrame,
-            objectiveFrame: objectiveFrame,
-            statusFrame: statusFrame,
             settingsFrame: settingsFrame,
             medallionFrames: medallionFrames,
             medallionHitFrames: medallionHitFrames,
