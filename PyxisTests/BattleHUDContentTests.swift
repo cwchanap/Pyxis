@@ -68,4 +68,13 @@ struct BattleHUDContentTests {
         #expect(content.medallions[1].damageMultiplier == 0.80)
         #expect(content.medallions[2].damageMultiplier == 1.25)
     }
+
+    @Test func projectsAuthoredLaneDefenseProfileForCurrentCity() {
+        let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        #expect(content.laneDefenseProfile.exposedLane == .center)
+        #expect(content.laneDefenseProfile.fortifiedLane == .right)
+        #expect(content.laneDefenseProfile.role(for: .left) == .standard)
+    }
 }
