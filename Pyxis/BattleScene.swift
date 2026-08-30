@@ -2390,6 +2390,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         createSoldierNode(id: soldierID)
         syncSoldierNodes()
         updateLiveCombatStatusLabel()
+        applyGameplayTabBar()
     }
 
     private func toggleManualTypeMenu() {
