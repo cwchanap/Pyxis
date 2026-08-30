@@ -86,6 +86,85 @@ struct CountryMapSceneTests {
         #expect(router.battleRequestCount == 1)
     }
 
+    @Test("Selected current city RETURN settles nonlethal idle progress before routing")
+    func selectedCurrentCityReturnSettlesNonlethalIdleProgressBeforeRouting() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1_000,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(3))
+
+        scene.handleTouchForTesting(at: cityPoint)
+        scene.handleTouchForTesting(at: try #require(scene.scoutCardAttackHitFrameForTesting).center)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.lastBackgroundedAt == nil)
+        #expect(saved.cityRemainingPower < initialState.cityRemainingPower)
+        #expect(router.requestedTabs == [.battle])
+    }
+
+    @Test("Selected current city RETURN leaves a lethal idle conquest pending on the map")
+    func selectedCurrentCityReturnLeavesLethalIdleConquestPending() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(3))
+
+        scene.handleTouchForTesting(at: cityPoint)
+        scene.handleTouchForTesting(at: try #require(scene.scoutCardAttackHitFrameForTesting).center)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.lastBackgroundedAt == nil)
+        #expect(saved.pendingBattleResult?.conquestMode == .idle)
+        #expect(router.requestedTabs.isEmpty)
+    }
+
+    @Test("Country Map keeps resource, progress, and settings in its top chrome")
+    func countryMapChromeShowsGoldProgressAndRightAlignedSettings() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: KingdomGameState(
+                gold: 7_400,
+                cityNumberInCountry: 3,
+                completedCityCount: 3,
+                stageStatus: .cityConqueredPendingMap
+            )),
+            router: RouteSpy()
+        )
+        let layout = try #require(scene.countryMapLayoutForTesting)
+        let resourceFrame = try #require(scene.mapResourceFrameForTesting)
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+
+        #expect(resourceFrame == layout.resourceFrame)
+        #expect(layout.titleControlRegionFrame.contains(layout.progressFrame))
+        #expect(gearFrame == layout.settingsControlFrame)
+        #expect(gearFrame.maxX == layout.titleControlRegionFrame.maxX - 10)
+        #expect(scene.mapGoldTextForTesting == "7.4K")
+        #expect(scene.mapProgressTextForTesting == "3/15")
+        #expect(scene.mapProgressSegmentCountForTesting == KingdomGameState.firstCountryCityCount)
+        #expect(scene.mapProgressCompletedCountForTesting == 3)
+    }
+
     @Test("Country Map uses injected feedback and Settings dependencies")
     func countryMapUsesInjectedFeedbackAndSettingsDependencies() throws {
         let feedback = CountryMapFeedbackRecorder()
@@ -1070,6 +1149,11 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardHitFrameForTesting == layout.informationRegionFrame)
         #expect(scene.scoutCardAttackHitFrameForTesting != nil)
         #expect(scene.scoutCardOverlayHitFrameForTesting == nil)
+
+        let tabBarFrame = scene.gameplayTabBarFrameForTesting
+        #expect(tabBarFrame.minY >= layout.sceneFrame.minY + 34)
+        #expect(layout.informationRegionFrame.minY >= tabBarFrame.maxY)
+        #expect(layout.illustratedMapRegionFrame.minY >= layout.informationRegionFrame.maxY)
     }
 
     @Test func mapLayoutKeepsTitleScoutCardAndAllCitiesVisible() throws {
@@ -1089,7 +1173,7 @@ struct CountryMapSceneTests {
         #expect(frames.illustratedRegionFrame == layout.illustratedMapRegionFrame)
         #expect(frames.scoutCardFrame == layout.informationRegionFrame)
         #expect(frames.titlePanelFrame.minY > frames.illustratedRegionFrame.maxY)
-        #expect(frames.scoutCardFrame.maxY < frames.illustratedRegionFrame.minY)
+        #expect(frames.scoutCardFrame.maxY <= frames.illustratedRegionFrame.minY)
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             let position = try #require(scene.cityNodePositionForTesting(cityNumber))
@@ -1161,9 +1245,9 @@ struct CountryMapSceneTests {
         let layout = try #require(scene.countryMapLayoutForTesting)
 
         #expect(layout.titleControlRegionFrame.maxY == size.height - 59 - 10)
-        #expect(layout.informationRegionFrame.minY == 34)
+        #expect(layout.informationRegionFrame.minY == 114)
         #expect(layout.illustratedMapRegionFrame.maxY < layout.titleControlRegionFrame.minY)
-        #expect(layout.illustratedMapRegionFrame.minY > layout.informationRegionFrame.maxY)
+        #expect(layout.illustratedMapRegionFrame.minY >= layout.informationRegionFrame.maxY)
     }
 
     @Test func cityStateStylingDistinguishesCompletedUnlockedAndLocked() throws {
@@ -1573,7 +1657,7 @@ struct CountryMapSceneTests {
         )
 
         #expect(router.battleRequestCount == 2)
-        #expect(countingStore.defaults.stateSaveCount == 1)
+        #expect(countingStore.defaults.stateSaveCount == 2)
         #expect(store.load() == saved)
         #expect(!scene.isRoutingToBattleForTesting)
     }

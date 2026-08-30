@@ -42,3 +42,23 @@ The map fixture shows the authored route and compact identity/status card with M
 - SwiftLint over all 12 changed Swift files: 0 violations.
 - `git diff --check`: passed.
 
+## Review fix round
+
+- Current-city RETURN now uses the existing `requestEntry(for:)` path. It settles and saves idle progress before routing, leaves lethal idle conquest pending on the map, and preserves the active city instead of restarting it. Added nonlethal and lethal action-path coverage.
+- The vertical stack is bottom-up: the 72pt tabs sit at the bottom safe area, the scout card is above them, and the illustrated map is above the card. The reference arithmetic remains tabs `y=34...106`, card `y=114...278` at 164pt, and map `y=278...709` at 431pt for 393x852 with 59/34 insets.
+- Map chrome now has a separate gold/resource tile, a 15-segment Country 1 progress row, and the one existing framed Settings gear at top-right. Rich selected-city cards use the existing `enemy-city` art while retaining authored identity, defense details, reward, flavor, and the 44pt+ MARCH/RETURN action.
+
+Review-round captures (XcodeBuildMCP, iPhone 17 DEBUG fixtures, optimized 368x800 output):
+
+- [map fixture PNG](/private/tmp/pyxis-task7-map-fix.png)
+- [country-complete fixture PNG](/private/tmp/pyxis-task7-map-country-complete-fix.png)
+
+The 164pt selected-city card remains intentionally shallower than the canonical mock; all other observed stack/chrome/card gaps were addressed.
+
+Review-round verification:
+
+- Focused Map/Card/GameplayTab/GameViewController suites: 196 passed, 0 failed, 0 skipped.
+- Full serial `PyxisTests` via XcodeBuildMCP (`-parallel-testing-enabled NO`): 845 passed, 0 failed, 0 skipped.
+- `swiftc -parse` over all fix-round Swift files: passed.
+- SwiftLint over all fix-round Swift files: 0 violations.
+- `git diff --check`: passed; report ends with one newline.

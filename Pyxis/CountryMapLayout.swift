@@ -57,6 +57,9 @@ struct CountryMapLayout: Equatable {
         static let gearToTitleGap: CGFloat = 8
         static let minimumTitleTextWidth: CGFloat = 160
         static let minimumTitleFontSize: CGFloat = 16
+        static let resourceWidth: CGFloat = 106
+        static let resourceHeight: CGFloat = 44
+        static let progressHeight: CGFloat = 24
     }
 
     static let tabBarHeight: CGFloat = 72
@@ -74,6 +77,8 @@ struct CountryMapLayout: Equatable {
     let titleControlRegionFrame: CGRect
     let settingsControlFrame: CGRect
     let titleTextFrame: CGRect
+    let resourceFrame: CGRect
+    let progressFrame: CGRect
     let informationRegionFrame: CGRect
     let illustratedMapRegionFrame: CGRect
     let cityPositions: [Int: CGPoint]
@@ -141,35 +146,54 @@ struct CountryMapLayout: Equatable {
             height: 66
         )
         let settingsControlFrame = CGRect(
-            x: titleControlRegionFrame.minX + TitleControlMetrics.sideInset,
+            x: titleControlRegionFrame.maxX
+                - TitleControlMetrics.sideInset
+                - TitleControlMetrics.gearHitSize,
             y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
             width: TitleControlMetrics.gearHitSize,
             height: TitleControlMetrics.gearHitSize
         )
         let titleTextFrame = CGRect(
-            x: settingsControlFrame.maxX + TitleControlMetrics.gearToTitleGap,
+            x: titleControlRegionFrame.minX + TitleControlMetrics.sideInset,
             y: titleControlRegionFrame.midY - TitleControlMetrics.gearHitSize / 2,
             width: titleControlRegionFrame.maxX
-                - TitleControlMetrics.sideInset
-                - settingsControlFrame.maxX
+                - titleControlRegionFrame.minX
+                - TitleControlMetrics.sideInset * 2
+                - TitleControlMetrics.gearHitSize
                 - TitleControlMetrics.gearToTitleGap,
             height: TitleControlMetrics.gearHitSize
+        )
+        // Keep map-only chrome within the existing title treatment. The
+        // resource tile rises slightly above the title plate, matching the
+        // authored presentation without consuming map/card budget.
+        let resourceFrame = CGRect(
+            x: titleControlRegionFrame.minX + TitleControlMetrics.sideInset - 2,
+            y: titleControlRegionFrame.maxY - TitleControlMetrics.resourceHeight + 10,
+            width: min(TitleControlMetrics.resourceWidth, titleControlRegionFrame.width * 0.32),
+            height: TitleControlMetrics.resourceHeight
+        )
+        let progressFrame = CGRect(
+            x: titleControlRegionFrame.minX + 140,
+            y: titleControlRegionFrame.minY + 5,
+            width: settingsControlFrame.minX - 10 - (titleControlRegionFrame.minX + 140),
+            height: TitleControlMetrics.progressHeight
         )
 
         let preferredInformationHeight: CGFloat = constraints.environment.layoutClass == .phone
             ? preferredPhoneInformationHeight
             : preferredPadInformationHeight
         let mapToTitleGap: CGFloat = 8
-        let cardToMapGap: CGFloat = 8
-        // The shared tab bar always occupies the band between the card and the
-        // illustrated map. Keep that reservation independent of card layout so
-        // map hit targets cannot render beneath the tabs on iPad.
+        let tabToCardGap: CGFloat = 8
+        // Build the vertical stack from the bottom safe area upward: tabs,
+        // scout card, then the illustrated map. Keep the tab reservation
+        // independent of card layout so map hit targets cannot render beneath
+        // the tabs on iPad.
         let reservedTabHeight = tabBarHeight
         let informationHeightBudget = titleControlRegionFrame.minY
             - mapToTitleGap
             - minimumIllustratedMapHeight
             - reservedTabHeight
-            - cardToMapGap
+            - tabToCardGap
             - insets.bottom
         guard informationHeightBudget >= minimumCompactInformationHeight else {
             return .unsupported(.unsupportedGeometry)
@@ -178,23 +202,25 @@ struct CountryMapLayout: Equatable {
         let informationWidth = min(constraints.sceneSize.width - 32, 600)
         var informationRegionFrame = CGRect(
             x: (constraints.sceneSize.width - informationWidth) / 2,
-            y: insets.bottom,
+            y: insets.bottom + reservedTabHeight + tabToCardGap,
             width: informationWidth,
             height: min(preferredInformationHeight, informationHeightBudget)
         )
         var illustratedMapRegionFrame = CGRect(
             x: sceneFrame.minX,
-            y: informationRegionFrame.maxY + cardToMapGap + reservedTabHeight,
+            y: informationRegionFrame.maxY,
             width: sceneFrame.width,
             height: constraints.environment.layoutClass == .phone
                 ? minimumIllustratedMapHeight
                 : titleControlRegionFrame.minY
                     - mapToTitleGap
-                    - (informationRegionFrame.maxY + cardToMapGap + reservedTabHeight)
+                    - informationRegionFrame.maxY
         )
 
         guard sceneFrame.contains(titleControlRegionFrame),
               sceneFrame.contains(settingsControlFrame),
+              sceneFrame.contains(resourceFrame),
+              sceneFrame.contains(progressFrame),
               titleControlRegionFrame.contains(settingsControlFrame),
               titleControlRegionFrame.contains(titleTextFrame),
               titleTextFrame.width >= TitleControlMetrics.minimumTitleTextWidth,
@@ -214,6 +240,10 @@ struct CountryMapLayout: Equatable {
               titleControlRegionFrame.maxX <= safeContentMaxX,
               settingsControlFrame.minX >= safeContentMinX,
               settingsControlFrame.maxX <= safeContentMaxX,
+              resourceFrame.minX >= safeContentMinX,
+              resourceFrame.maxX <= safeContentMaxX,
+              progressFrame.minX >= safeContentMinX,
+              progressFrame.maxX <= safeContentMaxX,
               titleTextFrame.minX >= safeContentMinX,
               titleTextFrame.maxX <= safeContentMaxX,
               informationRegionFrame.minX >= safeContentMinX,
@@ -295,8 +325,6 @@ struct CountryMapLayout: Equatable {
                     return .unsupported(.unsupportedGeometry)
                 }
                 illustratedMapRegionFrame.origin.y = informationRegionFrame.maxY
-                    + cardToMapGap
-                    + reservedTabHeight
             }
             let finalMaximumMapHeight = titleControlRegionFrame.minY
                 - mapToTitleGap
@@ -347,6 +375,8 @@ struct CountryMapLayout: Equatable {
             titleControlRegionFrame: titleControlRegionFrame,
             settingsControlFrame: settingsControlFrame,
             titleTextFrame: titleTextFrame,
+            resourceFrame: resourceFrame,
+            progressFrame: progressFrame,
             informationRegionFrame: informationRegionFrame,
             illustratedMapRegionFrame: illustratedMapRegionFrame,
             cityPositions: cityPositions,

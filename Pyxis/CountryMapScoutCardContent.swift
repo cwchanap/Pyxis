@@ -20,10 +20,6 @@ enum CountryMapScoutCardContent: Equatable {
         let flavorText: String
         let status: CountryMapScoutStatus
 
-        var state: CountryMapScoutStatus {
-            status
-        }
-
         var actionTitle: String? {
             switch status {
             case .attackable:
@@ -53,25 +49,6 @@ enum CountryMapScoutCardContent: Equatable {
             self.status = status
         }
 
-        init(
-            cityNumber: Int,
-            displayTitle: String,
-            defenseTrait: CityDefenseTrait,
-            exposedLane: BattleLane,
-            goldReward: Int,
-            flavorText: String,
-            state: CountryMapScoutStatus
-        ) {
-            self.init(
-                cityNumber: cityNumber,
-                displayTitle: displayTitle,
-                defenseTrait: defenseTrait,
-                exposedLane: exposedLane,
-                goldReward: goldReward,
-                flavorText: flavorText,
-                status: state
-            )
-        }
     }
 
     case scout(Scout)
