@@ -1,4 +1,6 @@
 #if DEBUG
+import Foundation
+
 enum ForgedVisualFixture: String, CaseIterable, Equatable {
     case battle
     case battleBlocked = "battle-blocked"
@@ -20,6 +22,10 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         case .battle, .battleBlocked, .conquestLive, .conquestIdle:
             return .battle
         }
+    }
+
+    var conquestBuildingCount: Int {
+        self == .conquestIdle ? 2 : 0
     }
 
     init?(launchArguments: [String]) {
@@ -78,35 +84,48 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
 
     private static func conquestState(mode: BattleConquestMode) -> KingdomGameState {
         var state = DevJumpState.make(city: 3)
+
+        guard mode == .live else {
+            let backgroundAt = Date(timeIntervalSince1970: 1_000)
+            let cityKey = state.currentCityKey
+            state.cityRemainingPower = 1
+            state.cityBattleStates[cityKey.storageKey] = CityBattleState(
+                slots: [
+                    1: CityBuilding(type: .barracks),
+                    2: CityBuilding(type: .barracks)
+                ],
+                lastBuildingProgressResolvedAt: backgroundAt
+            )
+            state.markCurrentCityBuildingProgressInactive(at: backgroundAt)
+            _ = state.returnFromBackground(
+                at: backgroundAt.addingTimeInterval(30_000)
+            )
+            return state
+        }
+
         state.stageStatus = .cityConqueredPendingMap
         state.pendingBattleResult = BattleResult(
             cityKey: state.currentCityKey,
-            conquestMode: mode,
+            conquestMode: .live,
             activeBattleSeconds: 74,
-            deployments: mode == .live
-                ? [SiegeDeploymentCount(
-                    type: .infantry,
-                    source: .manual,
-                    lane: .center,
-                    count: 6
-                )]
-                : [],
-            appliedDamage: mode == .live
-                ? [SiegeDamageAttribution(
-                    type: .infantry,
-                    source: .manual,
-                    lane: .center,
-                    damage: 640
-                )]
-                : [],
-            losses: mode == .live
-                ? [SiegeLossCount(type: .infantry, source: .manual, count: 1)]
-                : [],
+            deployments: [SiegeDeploymentCount(
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                count: 6
+            )],
+            appliedDamage: [SiegeDamageAttribution(
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                damage: 640
+            )],
+            losses: [SiegeLossCount(type: .infantry, source: .manual, count: 1)],
             idleDamageByType: [],
-            mvpSoldierType: mode == .live ? .infantry : nil,
-            mvpDamageSharePercent: mode == .live ? 100 : nil,
-            usedFavorableUnit: mode == .live,
-            usedExposedLane: mode == .live,
+            mvpSoldierType: .infantry,
+            mvpDamageSharePercent: 100,
+            usedFavorableUnit: true,
+            usedExposedLane: true,
             goldEarned: 640
         )
         return state

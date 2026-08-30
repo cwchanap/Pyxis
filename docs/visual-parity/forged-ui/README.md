@@ -22,13 +22,13 @@ Every minimum state has the canonical mock, a native simulator capture, a determ
 | --- | --- | --- | --- | --- |
 | Battle normal | `battle.png` | `native/battle-normal-393x852@3x.png` | `overlays/battle-normal-50-overlay.png` | Frozen live combat keeps the authored HUD and lane geometry stable; soldier positions, counters, and terrain details are runtime state rather than mock pixels. |
 | Battle blocked | `battle.png` | `native/battle-blocked-393x852@3x.png` | `overlays/battle-blocked-50-overlay.png` | The blocked fixture keeps the same shipping battle chrome while the action is disabled by the live-soldier rule; the mock does not encode that gameplay gate. |
-| Camp empty | `camp.png` | `native/camp-empty-393x852@3x.png` | `overlays/camp-empty-50-overlay.png` | An empty city uses the shipping slot grid and current build affordances; the mock is a scenic reference and does not prescribe persisted prices or unlock copy. |
-| Camp occupied | `camp.png` | `native/camp-occupied-393x852@3x.png` | `overlays/camp-occupied-50-overlay.png` | Existing buildings and their authored levels come from the fixture state, so lot contents intentionally differ from the generic mock. |
+| Camp empty | `camp.png` | `native/camp-empty-393x852@3x.png` | `overlays/camp-empty-50-overlay.png` | The deterministic empty fixture mounts the five-option builder and selects slot 1 through the DEBUG scene seam (`selectedSlot=1; mode=builder`); the mock is a scenic reference and does not prescribe persisted prices or unlock copy. |
+| Camp occupied | `camp.png` | `native/camp-occupied-393x852@3x.png` | `overlays/camp-occupied-50-overlay.png` | The deterministic occupied fixture mounts the inspector on slot 1 (`selectedSlot=1; mode=inspector`); existing buildings and authored levels intentionally differ from the generic mock. |
 | Map attackable | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-attackable-50-overlay.png` | The native route shows the current attackable City 4 and locked later cities together; shipping unlock colors and authored labels are state-driven. |
 | Map locked | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-attackable-50-overlay.png` | Attackable and locked are intentionally one route fixture/capture: the locked nodes are the later cities visible beside City 4, not a second fabricated screen. |
 | Map Country 1 complete | `map.png` | `native/map-complete-393x852@3x.png` | `overlays/map-complete-50-overlay.png` | The complete campaign uses the shipping completion treatment and route state; the map mock's taller card is not a geometry contract. |
-| Conquest live | `conquest.png` | `native/conquest-live-393x852@3x.png` | `overlays/conquest-live-50-overlay.png` | The report's title, gold, and rows are resolved from the live battle result and fixture catalog; the mock intentionally omits those values. |
-| Conquest idle | `conquest.png` | `native/conquest-idle-393x852@3x.png` | `overlays/conquest-idle-50-overlay.png` | Idle catch-up reports use the same report shell but authored offline-progress values and copy. |
+| Conquest live | `conquest.png` | `native/conquest-live-393x852@3x.png` | `overlays/conquest-live-50-overlay.png` | The report's title, gold, and rows are resolved from the live battle result and fixture catalog; the sole Settings gear is hidden while the report is visible, and the mock intentionally omits runtime values. |
+| Conquest idle | `conquest.png` | `native/conquest-idle-393x852@3x.png` | `overlays/conquest-idle-50-overlay.png` | The fixture contains two Barracks and nonempty building-driven idle damage, so the report truthfully shows `+17`, `2 BUILDINGS`, `100% MVP`, and `0/0 SENT/LOST`; the sole Settings gear is hidden while the report is visible. |
 | Settings one-off toggle | `settings.png` | `native/settings-toggle-393x852@3x.png` | `overlays/settings-toggle-50-overlay.png` | The one-off toggle capture preserves the underlying battle scene and persisted preference transition; no additional settings are introduced. |
 
 ### Capture provenance
@@ -37,10 +37,19 @@ Every minimum state has the canonical mock, a native simulator capture, a determ
 - Runtime: iOS 26.5 (`23F77`); UDID `771133AB-2A09-4C6E-85FD-9D7523E8D2C7`
 - Native framebuffer: 1179×2556 pixels, 3×, logical 393×852 points (`simctl io screenshot`, no resampling)
 - XCTest attachment note: XCUITest's `XCUIScreenshot` export is 1178×2556 on this runner; those files remain in the result bundle and are not mislabeled as the board's native captures.
-- Dedicated result bundle: `test_sim_2026-08-30T21-33-55-887Z_pid81865_febf2c4d.xcresult`
+- Dedicated result bundle: `test_sim_2026-08-30T22-40-11-991Z_pid19570_8c96f413.xcresult`
 - Smoke test: `PyxisUITests/testForgedFixtureParitySmoke393x852`, serial, 1 passed / 0 failed on this device
+- Full serial unit/UI result bundle: `test_sim_2026-08-30T22-43-57-522Z_pid19570_71a2c86d.xcresult`
 - The same capture-only test throws `XCTSkip` before its fixture loop on a
   non-393x852 destination; the CI-shaped iPhone 17 run is therefore an
   intentional 0 passed / 0 failed / 1 skipped result, not a failed capture gate.
+
+The Camp empty/occupied and Conquest live/idle files were recaptured after the
+final-review fixes from the four exact DEBUG fixture launches on this device,
+then written directly with `simctl io screenshot`. The four matching overlays
+were regenerated from those native framebuffers and the canonical 393x852 mock
+using the existing deterministic 50% blend; neither the native files nor the
+canonical files were resized or cropped. Camp selection and Conquest report
+semantics were checked from the same DEBUG-derived probe used by the UI smoke.
 
 The Map implementation deliberately uses a computed 164pt card, not the taller presentation mock card. At 393pt width, the 164pt card leaves the authored 44pt node interactions and the required route spacing/headroom viable; this is a deliberate geometry-contract difference, not a capture defect. The overlays are evidence for human review only; there is no pixel-diff CI assertion.

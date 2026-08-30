@@ -261,6 +261,58 @@ struct CountryMapSceneTests {
         #expect(store.load().stageStatus == .battleActive)
     }
 
+    @Test("Battle-tab exit settles nonlethal idle progress before routing")
+    func battleTabExitSettlesNonlethalIdleProgressBeforeRouting() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1_000,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let countingStore = try makeCountingStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: countingStore.store, router: router)
+
+        scene.requestGameplayTabForTesting(.battle)
+
+        let saved = countingStore.store.load()
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.lastBackgroundedAt == nil)
+        #expect(saved.cityRemainingPower < initialState.cityRemainingPower)
+        #expect(router.requestedTabs == [.battle])
+        #expect(countingStore.defaults.stateSaveCount == 1)
+    }
+
+    @Test("Battle-tab exit routes a lethal idle settlement with its pending report")
+    func battleTabExitRoutesLethalIdleSettlementWithPendingReport() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let countingStore = try makeCountingStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: countingStore.store, router: router)
+
+        scene.requestGameplayTabForTesting(.battle)
+
+        let saved = countingStore.store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.pendingBattleResult?.conquestMode == .idle)
+        #expect(saved.lastBackgroundedAt == nil)
+        #expect(router.requestedTabs == [.battle])
+        #expect(countingStore.defaults.stateSaveCount == 1)
+    }
+
     @Test("Country Map Settings gear wins over an overlapping scout attack")
     func countryMapGearPrecedesScoutAttack() throws {
         let store = try makeStore(initialState: KingdomGameState(

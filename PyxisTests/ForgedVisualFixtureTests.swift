@@ -114,11 +114,13 @@ struct ForgedVisualFixtureTests {
 
         let idle = ForgedVisualFixture.conquestIdle.makeState()
         let idleResult = try #require(idle.pendingBattleResult)
-        #expect(idleResult.goldEarned == 640)
-        #expect(idleResult.mvpSoldierType == nil)
-        #expect(idleResult.mvpDamageSharePercent == nil)
+        #expect(idleResult.goldEarned == KingdomGameState.goldReward(for: 3))
+        #expect(idleResult.mvpSoldierType == .infantry)
+        #expect(idleResult.mvpDamageSharePercent == 100)
         #expect(idleResult.totalDeploymentCount == 0)
         #expect(idleResult.totalLossCount == 0)
+        #expect(!idleResult.idleDamageByType.isEmpty)
+        #expect(ForgedVisualFixture.conquestIdle.conquestBuildingCount == 2)
         #expect(!idleResult.usedFavorableUnit)
         #expect(!idleResult.usedExposedLane)
     }
@@ -193,7 +195,8 @@ struct ForgedVisualFixtureTests {
         #expect(idleView.scene is BattleScene)
         #expect(
             idleView.accessibilityValue ==
-                "Conquest;pending=true;mode=idle;city=1-3;source=idle;deployments=0;losses=0"
+                "Conquest;pending=true;mode=idle;city=1-3;source=idle;"
+                + "deployments=0;losses=0;buildings=2;idleDamage=1"
         )
     }
 
@@ -226,8 +229,14 @@ struct ForgedVisualFixtureTests {
     @Test("DEBUG fixture hook routes non-pending fixtures through the stage authority")
     func hookRoutesNonPendingFixturesThroughStageAuthority() throws {
         let fixtures: [(ForgedVisualFixture, String)] = [
-            (.campEmpty, "Camp;stage=battleActive;city=1-5;buildings=0"),
-            (.campOccupied, "Camp;stage=battleActive;city=1-5;buildings=6")
+            (
+                .campEmpty,
+                "Camp;stage=battleActive;city=1-5;buildings=0;selectedSlot=1;mode=builder"
+            ),
+            (
+                .campOccupied,
+                "Camp;stage=battleActive;city=1-5;buildings=6;selectedSlot=1;mode=inspector"
+            )
         ]
 
         for (fixture, expectedValue) in fixtures {

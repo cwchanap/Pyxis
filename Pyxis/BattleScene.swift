@@ -172,6 +172,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var isMilestoneArrivalVisible = false
     private var hasPresentedMilestoneConquestFlourish = false
     private var lastAppliedConquestReportContent: ConquestReportContent?
+    private var conquestBuildingCount = 0
     private var isGoldBurstRemovalScheduled = false
     private var goldBurstRemovalTask: Task<Void, Never>?
 
@@ -218,7 +219,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         },
         feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil,
         launchArguments: [String]? = nil,
-        combatSeed: UInt64? = nil
+        combatSeed: UInt64? = nil,
+        conquestBuildingCount: Int? = nil
     ) {
         let loadedState = store.load()
         self.store = store
@@ -229,6 +231,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.feedback = feedback
         self.feedbackPreferences = feedbackPreferences
         self.feedbackSettingsAccessibilityAdapter = feedbackSettingsAccessibilityAdapter
+        self.conquestBuildingCount = max(0, conquestBuildingCount ?? 0)
         #if DEBUG
         self.isCombatFrozen = (launchArguments ?? ProcessInfo.processInfo.arguments)
             .contains(Self.freezeCombatLaunchArgument)
@@ -246,6 +249,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.feedback = NoOpGameplayFeedbackProvider()
         self.feedbackPreferences = FeedbackPreferencesStore.shared
         self.feedbackSettingsAccessibilityAdapter = nil
+        self.conquestBuildingCount = 0
         #if DEBUG
         self.isCombatFrozen = ProcessInfo.processInfo.arguments.contains(Self.freezeCombatLaunchArgument)
         #endif
@@ -675,6 +679,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             removeLaneIndicatorNodes()
             setBattleChromeFitFailed(true)
             feedbackSettingsController?.applyGearFrame(.zero)
+            updateSettingsGearVisibility()
             // Keep an already-open Settings modal alive while the app-level
             // unsupported-geometry gate is presented. Recovery below reapplies
             // the newly fitted layout without synthesizing a close/catch-up.
@@ -699,6 +704,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 from: self
             )
             feedbackSettingsController.reapply(layout: feedbackSettingsLayoutForCurrentEnvironment())
+            updateSettingsGearVisibility()
             synchronizeBattlefieldActionPause()
         }
 
@@ -731,6 +737,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func applyBattleHUD() {
+        updateSettingsGearVisibility()
         guard let layout = battleChromeLayout,
               !isConquestReportVisible,
               !isConquestReportFitFailed else {
@@ -749,6 +756,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         case .requiredContentDoesNotFit:
             battleHUD.isHidden = true
             setBattleChromeFitFailed(true)
+        }
+    }
+
+    private func updateSettingsGearVisibility() {
+        guard let feedbackSettingsController else {
+            return
+        }
+
+        let reportBlocksSettings = isConquestReportVisible || isConquestReportFitFailed
+        settingsGearHost.isHidden = reportBlocksSettings
+        feedbackSettingsController.gear.isHidden = reportBlocksSettings
+        if reportBlocksSettings {
+            feedbackSettingsController.setSettingsAccessibilityActionable(false)
         }
     }
 
@@ -2511,6 +2531,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func handleSceneWillEnterForeground(at date: Date) {
+        let idleBuildingCount = state.cityBattleStateForCurrentCity.occupiedSlotCount
         let result = state.returnFromBackground(at: date)
 
         store.save(state)
@@ -2518,6 +2539,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
+                conquestBuildingCount = idleBuildingCount
                 feedbackSettingsController?.setSettingsAccessibilityActionable(false)
                 closeFeedbackSettings(focusTarget: .systemDefault)
                 emitFreshOutcomeFeedback(
@@ -2577,7 +2599,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func conquestReportContent(for result: BattleResult) -> ConquestReportContent {
         .project(
             from: result,
-            title: KingdomGameState.displayConquestTitle(for: result.cityKey)
+            title: KingdomGameState.displayConquestTitle(for: result.cityKey),
+            buildingCount: result.conquestMode == .idle
+                ? max(
+                    conquestBuildingCount,
+                    state.cityBattleState(for: result.cityKey).occupiedSlotCount
+                )
+                : 0
         )
     }
 
@@ -2941,6 +2969,10 @@ extension BattleScene {
         feedbackSettingsController?.gear.hitFrameForTesting
     }
 
+    var feedbackSettingsGearHiddenForTesting: Bool {
+        feedbackSettingsController?.gear.isHidden ?? true
+    }
+
     func activateFeedbackSettingsForTesting(_ action: FeedbackSettingsAction) {
         activateFeedbackSettings(action)
     }
@@ -3292,6 +3324,16 @@ extension BattleScene {
 
     var conquestReportTilesForTesting: [ConquestReportContent.StatTile] {
         lastAppliedConquestReportContent?.tiles ?? []
+    }
+
+    var conquestReportBuildingCountForTesting: Int? {
+        guard let tiles = lastAppliedConquestReportContent?.tiles else {
+            return nil
+        }
+        return tiles.compactMap { tile -> Int? in
+            guard case let .buildings(count) = tile else { return nil }
+            return count
+        }.first
     }
 
     var conquestReportRewardTextForTesting: String {
