@@ -50,7 +50,7 @@ final class PanelNode: SKNode {
         )
         let cornerRadius = min(12, max(0, size.height / 4))
         shadow.path = CGPath(
-            roundedRect: rect.offsetBy(dx: 0, dy: -3),
+            roundedRect: rect,
             cornerWidth: cornerRadius,
             cornerHeight: cornerRadius,
             transform: nil
