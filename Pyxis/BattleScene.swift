@@ -111,6 +111,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var selectedManualSoldierType: SoldierType = .infantry
     private var isManualTypeMenuOpen = false
     private var manualTypeMenuTopY: CGFloat = 0
+    private let battleHUD = BattleHUDNode()
+    private var battleChromeLayout: BattleChromeLayout?
+    private(set) var isBattleChromeFitFailed = false
+    private let settingsGearHost = SKNode()
 
     private let battlefieldLayer = SKNode()
     private let environmentLayer = SKNode()
@@ -414,19 +418,44 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        if handleGameplayTabTouch(at: point) {
+        if handleBattleHUDTouch(at: point) {
             return
         }
 
-        handleTouch(named: buttonName(at: point))
+        if let layout = battleChromeLayout,
+           layout.statusFrame.contains(point) {
+            if point.x < layout.statusFrame.midX {
+                showGoldInfoTooltip()
+            } else {
+                showCityInfoTooltip()
+            }
+            return
+        }
+
+        hideManualTypeMenuIfOpen()
     }
 
-    private func handleGameplayTabTouch(at point: CGPoint) -> Bool {
-        guard let tab = gameplayTabBar.tab(at: point) else {
+    private func handleBattleHUDTouch(at point: CGPoint) -> Bool {
+        guard let action = battleHUD.action(at: point) else {
             return false
         }
 
-        requestGameplayTab(tab)
+        switch action {
+        case .select(let soldierType):
+            selectManualSoldierType(soldierType)
+        case .deploy:
+            spawnSoldier()
+        case .tab(let tab):
+            requestGameplayTab(tab)
+        case let .requirement(soldierType, unlocksAtCity):
+            feedback.emit(.invalidAction)
+            if let unlocksAtCity {
+                feedbackText = "\(soldierType.displayName) unlocks at City \(unlocksAtCity)."
+            } else {
+                feedbackText = "Build \(soldierType.displayName) first."
+            }
+            redraw(shouldLayout: false)
+        }
         return true
     }
 
@@ -466,12 +495,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        if feedbackSettingsController.gear.parent !== leftHUDPanel {
-            leftHUDPanel.addChild(feedbackSettingsController.gear)
+        if feedbackSettingsController.gear.parent !== settingsGearHost {
+            settingsGearHost.addChild(feedbackSettingsController.gear)
         }
-        // The shared gear defaults to a scene-level HUD z position for the
-        // Map and Building scenes. Battle parents it under this HUD panel, so
-        // it needs the local offset to keep its effective z at hud + 2.
+        // The shared gear is scene-owned and positioned by BattleChromeLayout;
+        // keeping it outside BattleHUDNode prevents the HUD from owning modal
+        // Settings behavior.
         feedbackSettingsController.gear.zPosition = 2
         if feedbackSettingsController.modal.parent !== self {
             addChild(feedbackSettingsController.modal)
@@ -673,11 +702,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         [leftHUDPanel, rightHUDPanel].forEach { $0.zPosition = GameUITheme.Z.hud }
         feedbackPanel.zPosition = GameUITheme.Z.hud - 1
-        leftHUDPanel.name = ButtonName.goldInfo
-        rightHUDPanel.name = ButtonName.cityInfo
-        addChild(leftHUDPanel)
-        addChild(rightHUDPanel)
         addChild(feedbackPanel)
+        addChild(feedbackLabel)
+
+        settingsGearHost.name = "battleSettingsHost"
+        settingsGearHost.zPosition = GameUITheme.Z.hud
+        addChild(settingsGearHost)
 
         milestoneArrivalPanel.zPosition = GameUITheme.Z.modal - 1
         milestoneArrivalPanel.isHidden = true
@@ -716,10 +746,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         configureTraitIcon()
         traitStatusIcon.name = ButtonName.cityInfo
         traitStatusIcon.zPosition = 2
-        leftHUDPanel.addChild(goldStatusIcon)
-        leftHUDPanel.addChild(soldierStatusIcon)
-        rightHUDPanel.addChild(cityStatusIcon)
-        rightHUDPanel.addChild(traitStatusIcon)
+        // The legacy status panels and controls remain allocated for the
+        // existing test seams, but the Forged HUD owns all rendered Battle
+        // chrome. Keep their nodes detached so no duplicate controls appear.
 
         configureLabel(goldLabel, fontSize: 21, color: GameUITheme.Color.gold)
         configureLabel(cityLevelLabel, fontSize: 18, color: GameUITheme.Color.textPrimary)
@@ -781,6 +810,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
 
         conquestReportNode.zPosition = GameUITheme.Z.modal
+        battleHUD.zPosition = GameUITheme.Z.hud
 
         [
             goldLabel,
@@ -795,21 +825,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             buildButton
         ].forEach { $0.zPosition = GameUITheme.Z.hud }
 
-        addChild(goldLabel)
-        addChild(cityLevelLabel)
-        addChild(defenseTraitLabel)
-        addChild(cityHPLabel)
-        addChild(liveCombatStatusLabel)
-        addChild(feedbackLabel)
-        addChild(manualTypeButton)
-        for bundle in manualTypeButtonBundles.values {
-            addChild(bundle.button)
-        }
-        addChild(spawnButton)
-        addChild(worldButton)
-        addChild(buildButton)
-        gameplayTabBar.zPosition = GameUITheme.Z.hud
-        addChild(gameplayTabBar)
+        addChild(battleHUD)
         addChild(conquestReportNode)
 
         applyPersistentHUDTextVisibility()
@@ -899,6 +915,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
+        layoutForgedInterface()
+        return
+
+#if false
         resetFontSizes()
         let metrics = layoutMetrics()
 
@@ -1068,6 +1088,105 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if isMilestoneArrivalVisible {
             _ = layoutMilestoneArrival()
+        }
+#endif
+    }
+
+    private func layoutForgedInterface() {
+        let insets = view?.safeAreaInsets ?? .zero
+        let chromeInput = BattleChromeLayout.Input(
+            sceneSize: size,
+            safeAreaInsets: .init(
+                top: insets.top,
+                left: insets.left,
+                bottom: insets.bottom,
+                right: insets.right
+            )
+        )
+
+        guard let layout = BattleChromeLayout.compute(chromeInput) else {
+            battleChromeLayout = nil
+            battleHUD.isHidden = true
+            setBattlefieldHidden(true)
+            removeLaneNodes()
+            removeLaneIndicatorNodes()
+            setBattleChromeFitFailed(true)
+            feedbackSettingsController?.applyGearFrame(.zero)
+            // Keep an already-open Settings modal alive while the app-level
+            // unsupported-geometry gate is presented. Recovery below reapplies
+            // the newly fitted layout without synthesizing a close/catch-up.
+            return
+        }
+
+        battleChromeLayout = layout
+        setBattleChromeFitFailed(false)
+        layoutBattlefield(
+            contentWidth: layout.battlefieldFrame.width,
+            hpBarBottomY: layout.battlefieldFrame.maxY,
+            spawnButtonTopY: layout.battlefieldFrame.minY,
+            feedbackY: layout.battlefieldFrame.minY,
+            precomputed: layout.battlefield
+        )
+        applyBattleHUD()
+
+        if let feedbackSettingsController {
+            feedbackSettingsController.applyGearFrame(layout.settingsFrame)
+            feedbackSettingsController.gear.position = settingsGearHost.convert(
+                CGPoint(x: layout.settingsFrame.midX, y: layout.settingsFrame.midY),
+                from: self
+            )
+            feedbackSettingsController.reapply(layout: feedbackSettingsLayoutForCurrentEnvironment())
+            synchronizeBattlefieldActionPause()
+        }
+
+        feedbackLabel.position = CGPoint(
+            x: layout.objectiveFrame.midX,
+            y: layout.objectiveFrame.midY
+        )
+        feedbackPanel.position = feedbackLabel.position
+        cachedContentWidth = layout.safeFrame.width
+
+        if state.pendingBattleResult != nil,
+           hasPresentedPendingConquestReport || isConquestReportFitFailed {
+            _ = applyPendingConquestReport(resetsContinueState: false)
+        }
+
+        if isMilestoneArrivalVisible {
+            _ = layoutMilestoneArrival()
+        }
+    }
+
+    private func setBattleChromeFitFailed(_ value: Bool) {
+        guard isBattleChromeFitFailed != value else {
+            return
+        }
+
+        isBattleChromeFitFailed = value
+        if value {
+            router?.battleScene(self, didRequestLayoutGate: .unsupportedGeometry)
+        }
+    }
+
+    private func applyBattleHUD() {
+        guard let layout = battleChromeLayout,
+              !isConquestReportVisible,
+              !isConquestReportFitFailed else {
+            battleHUD.isHidden = true
+            return
+        }
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualLivingSoldierCount: combat.livingSoldierCount(source: .manual),
+            selectedSoldierType: selectedManualSoldierType
+        )
+        gameplayTabContent = content.tabContent
+        switch battleHUD.apply(content: content, layout: layout) {
+        case .presented:
+            setBattleChromeFitFailed(false)
+        case .requiredContentDoesNotFit:
+            battleHUD.isHidden = true
+            setBattleChromeFitFailed(true)
         }
     }
 
@@ -1580,20 +1699,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         contentWidth: CGFloat,
         hpBarBottomY: CGFloat,
         spawnButtonTopY: CGFloat,
-        feedbackY: CGFloat
+        feedbackY: CGFloat,
+        precomputed: BattlefieldLayout? = nil
     ) {
         #if DEBUG
         battlefieldLayoutCount += 1
         #endif
 
-        battlefieldLayout = BattlefieldLayout.compute(constraints: .init(
-            sceneSize: size,
-            contentWidth: contentWidth,
-            safeTopY: hpBarBottomY - 8,
-            safeBottomY: spawnButtonTopY + 2,
-            feedbackY: feedbackY,
-            feedbackFontSize: 0
-        ))
+        battlefieldLayout = precomputed ?? BattlefieldLayout.compute(constraints: .init(
+                sceneSize: size,
+                contentWidth: contentWidth,
+                safeTopY: hpBarBottomY - 8,
+                safeBottomY: spawnButtonTopY + 2,
+                feedbackY: feedbackY,
+                feedbackFontSize: 0
+            ))
 
         if !isConquestReportVisible {
             cancelCityFeedbackActions()
@@ -1966,6 +2086,22 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private func redraw(shouldLayout: Bool = true) {
         reconcileSelectedManualSoldierType()
+        goldLabel.text = CompactNumberFormatter.string(from: state.gold)
+        cityLevelLabel.text = state.displayCityTitle
+        defenseTraitLabel.text = "Trait: \(state.currentCityDefenseTrait.displayName)"
+        cityHPLabel.text = ""
+        updateLiveCombatStatusLabel()
+        feedbackLabel.text = feedbackText
+        if shouldLayout {
+            layoutInterface()
+        } else {
+            layoutCityHPBar()
+            applyBattleHUD()
+        }
+        presentFeedbackTooltipIfNeeded()
+        return
+
+#if false
         updateHUDIcons()
         applyGameplayTabBar()
 
@@ -2000,9 +2136,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             layoutInterface()
         }
         presentFeedbackTooltipIfNeeded()
+#endif
     }
 
     private func applyGameplayTabBar() {
+        applyBattleHUD()
+        return
+
+#if false
         guard !isConquestReportVisible, !isConquestReportFitFailed else {
             gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
             return
@@ -2030,6 +2171,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             showsCampAttention: showsCampAttention
         )
         gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
+#endif
     }
 
     private func layoutGameplayTabBar() {
@@ -3753,6 +3895,22 @@ extension BattleScene {
         feedbackSettingsController?.gear.zPosition
     }
 
+    var isBattleChromeFitFailedForTesting: Bool {
+        isBattleChromeFitFailed
+    }
+
+    func setBattleChromeFitFailedForTesting(_ value: Bool) {
+        setBattleChromeFitFailed(value)
+    }
+
+    var battleChromeLayoutForTesting: BattleChromeLayout? {
+        battleChromeLayout
+    }
+
+    var battleHUDForTesting: BattleHUDNode {
+        battleHUD
+    }
+
     var leftHUDResourceValueWidthForTesting: CGFloat {
         currentLeftHUDLabelWidth
     }
@@ -4292,6 +4450,10 @@ extension BattleScene {
         cityHPBarFill.path == nil
     }
 
+    var cityHPBarFrameForTesting: CGRect? {
+        sceneFrame(for: cityHPBarBackground)
+    }
+
     /// Number of times `layoutCityHPBar` has run since scene creation. Tests
     /// use this to verify `redraw(shouldLayout: true)` invokes it exactly once
     /// (via `layoutInterface`) rather than twice (a discarded first pass).
@@ -4397,7 +4559,7 @@ extension BattleScene {
     }
 
     var gameplayTabBarForTesting: GameplayTabBarNode {
-        gameplayTabBar
+        battleHUD.tabBarForTesting
     }
 
     var gameplayTabContentForTesting: GameplayTabBarNode.Content {
@@ -4405,7 +4567,7 @@ extension BattleScene {
     }
 
     var gameplayTabBarFrameForTesting: CGRect {
-        gameplayTabBarFrame
+        battleChromeLayout?.tabBarFrame ?? .zero
     }
 
     func advanceCombatForTesting(deltaTime: TimeInterval) {
@@ -4495,15 +4657,14 @@ extension BattleScene {
     /// modal-block test can iterate every underlying touch path while the
     /// conquest report overlays the HUD.
     var underlyingControlCentersForTesting: [CGPoint] {
-        guard let frames = battleLayoutFramesForTesting else {
+        guard let layout = battleChromeLayout else {
             return []
         }
         return [
-            CGPoint(x: frames.spawnButton.midX, y: frames.spawnButton.midY),
-            CGPoint(x: frames.worldButton.midX, y: frames.worldButton.midY),
-            CGPoint(x: frames.buildButton.midX, y: frames.buildButton.midY),
-            CGPoint(x: frames.leftHUD.midX, y: frames.leftHUD.midY),
-            CGPoint(x: frames.rightHUD.midX, y: frames.rightHUD.midY)
+            CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY),
+            CGPoint(x: layout.tabHitFrames[2].midX, y: layout.tabHitFrames[2].midY),
+            CGPoint(x: layout.tabHitFrames[1].midX, y: layout.tabHitFrames[1].midY),
+            CGPoint(x: layout.statusFrame.midX, y: layout.statusFrame.midY)
         ]
     }
 

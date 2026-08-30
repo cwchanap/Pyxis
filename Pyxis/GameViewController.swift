@@ -294,7 +294,8 @@ final class GameViewController: UIViewController {
         let reason: AppLayoutGateReason?
         if requestedMapGateReason == .mapUnavailable {
             reason = .mapUnavailable
-        } else if let battle = skView.scene as? BattleScene, battle.isConquestReportFitFailed {
+        } else if let battle = skView.scene as? BattleScene,
+                  battle.isBattleChromeFitFailed || battle.isConquestReportFitFailed {
             reason = .unsupportedGeometry
         } else {
             switch layoutResult {
