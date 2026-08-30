@@ -3102,8 +3102,9 @@ struct BattleSceneTests {
 
         // While the popup is visible, both info buttons must be suppressed —
         // no tooltip presentation (panel stays hidden), no dedupe token recorded.
-        scene.handleInfoButtonForTesting(named: scene.goldInfoButtonNameForTesting)
-        scene.handleInfoButtonForTesting(named: scene.cityInfoButtonNameForTesting)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        scene.handleTouchForTesting(at: layout.incomeFrame.center)
+        scene.handleTouchForTesting(at: layout.cityProgressFrame.center)
         #expect(!scene.isFeedbackTooltipVisibleForTesting)
         #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
 
@@ -3112,7 +3113,7 @@ struct BattleSceneTests {
         // (which is covered by `touchesEndedContinueDisablesAndRoutes`).
         scene.forceDismissConquestOverlayForTesting()
         #expect(!scene.isConquestPopupVisibleForTesting)
-        scene.handleInfoButtonForTesting(named: scene.cityInfoButtonNameForTesting)
+        scene.handleTouchForTesting(at: layout.cityProgressFrame.center)
         #expect(scene.isFeedbackTooltipVisibleForTesting)
         #expect(!scene.lastPresentedTooltipTextForTesting.isEmpty)
     }

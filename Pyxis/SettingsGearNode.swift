@@ -8,6 +8,7 @@ final class SettingsGearNode: SKNode {
     private static let minimumHitSize = CGSize(width: 44, height: 44)
     private static let glyphSize = CGSize(width: 21, height: 21)
 
+    private let tile = PanelNode(size: .zero)
     private let hitShape = SKShapeNode()
     private let glyph = SKSpriteNode()
     private var hitFrame = CGRect.zero
@@ -54,6 +55,8 @@ final class SettingsGearNode: SKNode {
             width: resolvedFrame.width,
             height: resolvedFrame.height
         )
+        tile.apply(size: resolvedFrame.size, style: .normal, showsRivets: true)
+        tile.position = .zero
         hitShape.path = CGPath(rect: localHitFrame, transform: nil)
         glyph.size = Self.glyphSize
         glyph.position = .zero
@@ -76,6 +79,10 @@ final class SettingsGearNode: SKNode {
     private func configureTree() {
         name = Self.semanticName
         zPosition = GameUITheme.Z.hud + 2
+
+        tile.name = "settingsGearTile"
+        tile.zPosition = -1
+        addChild(tile)
 
         hitShape.name = Self.semanticName
         hitShape.fillColor = .clear

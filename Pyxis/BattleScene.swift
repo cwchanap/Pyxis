@@ -28,11 +28,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let goldBurst = "gold-burst"
     }
 
-    private enum ButtonName {
-        static let goldInfo = "goldInfoButton"
-        static let cityInfo = "cityInfoButton"
-    }
-
     private enum EffectName {
         static let floatingFeedback = "floatingFeedback"
         static let goldBurst = "goldBurst"
@@ -561,24 +556,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // and conquest feedback actions run directly on that node. Pausing the
         // action host freezes those transient effects without hiding the city.
         enemyCityNode?.isPaused = shouldPauseCombatActions
-    }
-
-    private func handleInfoButton(named touchedButtonName: String) -> Bool {
-        // Info tooltips must not fire while the conquest report is overlaying
-        // the HUD — otherwise the tooltip renders behind the report overlay.
-        guard !isConquestReportVisible else {
-            return false
-        }
-        switch touchedButtonName {
-        case ButtonName.goldInfo:
-            showGoldInfoTooltip()
-        case ButtonName.cityInfo:
-            showCityInfoTooltip()
-        default:
-            return false
-        }
-
-        return true
     }
 
     private func buildInterface() {
@@ -3002,7 +2979,7 @@ extension BattleScene {
     }
 
     var defenseTraitTextForTesting: String? {
-        battleHUD.currentContentForTesting.map { "Trait: \($0.defenseTrait.displayName)" }
+        "Trait: \(state.currentCityDefenseTrait.displayName)"
     }
 
     var isUpgradeButtonVisibleForTesting: Bool {
@@ -3553,17 +3530,6 @@ extension BattleScene {
         hasPresentedPendingConquestReport = true
         refreshBattleHUD()
     }
-
-    /// Drives the info-button touch path. Returns whether an info tooltip was
-    /// presented (true) or suppressed (false, e.g. while the conquest popup is
-    /// visible).
-    @discardableResult
-    func handleInfoButtonForTesting(named buttonName: String) -> Bool {
-        handleInfoButton(named: buttonName)
-    }
-
-    var goldInfoButtonNameForTesting: String { ButtonName.goldInfo }
-    var cityInfoButtonNameForTesting: String { ButtonName.cityInfo }
 
     func flushBuildingProgressSaveForTesting() {
         buildingProgressSaveAccumulator = 0

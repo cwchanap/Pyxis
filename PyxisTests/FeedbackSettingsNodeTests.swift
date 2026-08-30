@@ -199,6 +199,19 @@ struct FeedbackSettingsNodeTests {
         #expect(gear.hitFrameForTesting == CGRect(x: 78, y: 98, width: 44, height: 44))
     }
 
+    @Test func gearUsesItsHitFrameForADarkFramedRivetTile() throws {
+        let gear = SettingsGearNode()
+        let frame = CGRect(x: 20, y: 40, width: 44, height: 44)
+
+        gear.apply(frame: frame)
+
+        let tile = try #require(gear.childNode(withName: "settingsGearTile") as? PanelNode)
+        #expect(tile.contentSizeForTesting == frame.size)
+        #expect(tile.styleForTesting == .normal)
+        #expect(tile.visibleRivetCountForTesting == 4)
+        #expect(gear.hitFrameForTesting == frame)
+    }
+
     @Test func testingHelpersExposeLabel_textsAndControlCounts() throws {
         let node = FeedbackSettingsNode()
         let layout = try nodeTestLayout()
