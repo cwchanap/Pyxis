@@ -25,6 +25,7 @@ struct BattleHUDContent: Equatable {
     let cityRemainingPower: Int
     let cityMaxPower: Int
     let defenseTrait: CityDefenseTrait
+    let laneDefenseProfile: LaneDefenseProfile
     let recommendation: RecommendedCampRecommendation
     let manualCount: Int
     let manualCapacity: Int
@@ -87,6 +88,7 @@ struct BattleHUDContent: Equatable {
             cityRemainingPower: state.cityRemainingPower,
             cityMaxPower: state.cityMaxPower,
             defenseTrait: state.currentCityDefenseTrait,
+            laneDefenseProfile: state.currentCityLaneDefenseProfile,
             recommendation: recommendation,
             manualCount: normalizedManualCount,
             manualCapacity: KingdomGameState.manualSoldierCap,
@@ -150,7 +152,6 @@ final class BattleHUDNode: SKNode {
     private let medallions: [MedallionBundle]
     private let laneChips: [BattleLane: LaneChipBundle]
 
-    private var medallionHitFrames: [CGRect] = []
     private var deployHitFrame: CGRect?
     private var currentLayout: BattleChromeLayout?
     private var currentContent: BattleHUDContent?
@@ -336,6 +337,20 @@ final class BattleHUDNode: SKNode {
         for lane in BattleLane.allCases {
             let frame = layout.laneChipFrames[lane]!
             let bundle = laneChips[lane]!
+            let role = content.laneDefenseProfile.role(for: lane)
+            let chipText: String?
+            let chipColor: SKColor
+            switch role {
+            case .exposed:
+                chipText = "OPEN"
+                chipColor = GameUITheme.Color.hpFill
+            case .fortified:
+                chipText = "HELD"
+                chipColor = GameUITheme.Color.danger
+            case .standard:
+                chipText = nil
+                chipColor = GameUITheme.Color.textPrimary
+            }
             bundle.background.path = CGPath(
                 roundedRect: CGRect(
                     x: frame.minX,
@@ -347,13 +362,15 @@ final class BattleHUDNode: SKNode {
                 cornerHeight: frame.height / 2,
                 transform: nil
             )
-            bundle.background.isHidden = false
+            bundle.background.strokeColor = chipColor.withAlphaComponent(0.75)
+            bundle.background.isHidden = chipText == nil
+            bundle.label.text = chipText
+            bundle.label.fontColor = chipColor
             bundle.label.position = CGPoint(x: frame.midX, y: frame.midY)
-            bundle.label.isHidden = false
+            bundle.label.isHidden = chipText == nil
         }
         tabBar.apply(content: content.tabContent, frame: layout.tabBarFrame)
 
-        medallionHitFrames = layout.medallionHitFrames
         deployHitFrame = layout.deployFrame
         return .presented
     }
@@ -388,7 +405,6 @@ final class BattleHUDNode: SKNode {
         isHidden = true
         currentLayout = nil
         currentContent = nil
-        medallionHitFrames.removeAll()
         deployHitFrame = nil
         return .requiredContentDoesNotFit
     }

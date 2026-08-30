@@ -87,3 +87,51 @@ it is not presented as visual parity.
 
 No BattleScene cutover, router/store/combat/settings change, or SDD progress
 ledger change was made.
+
+## Reviewer fix round 1
+
+The first review found that the initial fixed HUD tree treated all three lanes
+as identical `OPEN` chips. The correction projects
+`state.currentCityLaneDefenseProfile` into `BattleHUDContent`. The HUD now
+renders only the two authored non-standard roles: an exposed lane is a green
+`OPEN` chip, a fortified lane is a red `HELD` chip, and the standard lane's
+fixed bundle remains hidden. This matches the existing BattleScene convention
+of presenting only non-standard lane roles while keeping the layout's three
+overlay frames available and unchanged.
+
+The unused `medallionHitFrames` node cache was also removed; hit testing reads
+the current pure layout directly, so apply/failure no longer stores or clears
+duplicate geometry state.
+
+### RED
+
+Added content and node assertions for City 3's authored profile
+(`exposed == center`, `fortified == right`, `standard == left`) and its
+`OPEN`/`HELD` visibility/text. Before the implementation change, the focused
+XcodeBuildMCP run failed to compile with six diagnostics because
+`BattleHUDContent` had no `laneDefenseProfile` member.
+
+### GREEN and checks
+
+The six required focused suites were rerun serially with parallel testing
+disabled:
+
+```text
+BattleHUDContentTests
+BattleChromeLayoutTests
+BattleHUDNodeTests
+BattlefieldLayoutTests
+GameUIComponentsTests
+GameplayTabBarNodeTests
+44 tests passed, 0 failed, 0 skipped
+```
+
+The full `PyxisTests` target then passed serially with parallel testing
+disabled:
+
+```text
+879 tests passed, 0 failed, 0 skipped
+```
+
+Targeted SwiftLint (`--no-cache`) and `git diff --check` passed. The fix did
+not alter the BattleScene cutover or any runtime ownership boundary.

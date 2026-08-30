@@ -87,4 +87,29 @@ struct BattleHUDNodeTests {
             y: battleFrame.midY
         )) == .tab(.battle))
     }
+
+    @Test func rendersOnlyAuthoredNonStandardLaneChips() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+        let node = BattleHUDNode()
+        _ = node.apply(content: content, layout: layout)
+
+        let leftChip = try #require(node.childNode(withName: "battleLaneChip-0"))
+        let exposedLabel = try #require(
+            node.childNode(withName: "battleLaneChipLabel-1") as? SKLabelNode
+        )
+        let fortifiedLabel = try #require(
+            node.childNode(withName: "battleLaneChipLabel-2") as? SKLabelNode
+        )
+
+        #expect(leftChip.isHidden)
+        #expect(exposedLabel.isHidden == false)
+        #expect(exposedLabel.text == "OPEN")
+        #expect(fortifiedLabel.isHidden == false)
+        #expect(fortifiedLabel.text == "HELD")
+    }
 }
