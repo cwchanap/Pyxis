@@ -42,6 +42,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private enum MapAssetName {
         static let countryMapBackdrop = "country-map-backdrop"
         static let conqueredMarker = "conquered-marker"
+        static let goldBurst = "gold-burst"
     }
 
     private enum ActionKey {
@@ -74,6 +75,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private let cityLayer = SKNode()
     private let titlePanel = PanelNode(size: CGSize(width: 320, height: 68))
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let resourcePanel = PanelNode(size: .zero)
+    private let resourceIcon = SKSpriteNode()
+    private let resourceLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let progressLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let progressSegments = (0..<KingdomGameState.firstCountryCityCount).map { index in
+        let segment = SKShapeNode()
+        segment.name = "countryMapProgressSegment-\(index + 1)"
+        return segment
+    }
     private let scoutCardNode: CountryMapScoutCardNode
     private var backdropNode: SKSpriteNode?
     private var cityNodes: [Int: SKShapeNode] = [:]
@@ -93,6 +103,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         enabledTabs: [],
         showsCampAttention: false
     )
+    private var mapResourceFrame = CGRect.zero
+    private var mapProgressText = ""
+    private var mapProgressCompletedCount = 0
     private var layoutFrames = (
         scene: CGRect.zero,
         titlePanel: CGRect.zero,
@@ -261,10 +274,24 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         routeLayer.zPosition = 0
         cityLayer.zPosition = 10
         titlePanel.zPosition = GameUITheme.Z.hud
+        resourcePanel.name = "countryMapGoldPanel"
+        resourcePanel.zPosition = GameUITheme.Z.hud + 2
+        resourceIcon.name = "countryMapGoldIcon"
+        resourceIcon.zPosition = GameUITheme.Z.hud + 3
+        resourceLabel.name = "countryMapGoldLabel"
+        resourceLabel.zPosition = GameUITheme.Z.hud + 3
+        progressLabel.name = "countryMapProgressLabel"
+        progressLabel.zPosition = GameUITheme.Z.hud + 1
+        progressSegments.forEach { $0.zPosition = GameUITheme.Z.hud + 1 }
         addChild(backdropLayer)
         addChild(routeLayer)
         addChild(cityLayer)
         addChild(titlePanel)
+        addChild(resourcePanel)
+        addChild(resourceIcon)
+        addChild(resourceLabel)
+        addChild(progressLabel)
+        progressSegments.forEach(addChild)
         addChild(scoutCardNode)
         gameplayTabBar.zPosition = GameUITheme.Z.hud
         addChild(gameplayTabBar)
@@ -288,6 +315,17 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
         configureLabel(titleLabel, fontSize: 30, color: GameUITheme.Color.textPrimary)
         titlePanel.addChild(titleLabel)
+        configureLabel(resourceLabel, fontSize: 16, color: GameUITheme.Color.gold)
+        resourceLabel.horizontalAlignmentMode = .left
+        configureLabel(progressLabel, fontSize: 11, color: GameUITheme.Color.textPrimary)
+        progressLabel.horizontalAlignmentMode = .right
+        if let image = (imageLoaderOverride ?? { UIImage(named: $0) })(MapAssetName.goldBurst) {
+            resourceIcon.texture = SKTexture(image: image)
+        } else if let image = UIImage(systemName: "circle.fill") {
+            resourceIcon.texture = SKTexture(image: image)
+            resourceIcon.color = GameUITheme.Color.gold
+            resourceIcon.colorBlendFactor = 1
+        }
 
         let hasConqueredMarkerAsset = UIImage(named: MapAssetName.conqueredMarker) != nil
 
@@ -568,6 +606,24 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         titlePanel.isHidden = true
         titlePanel.update(size: .zero)
         titlePanel.position = .zero
+        resourcePanel.isHidden = true
+        resourcePanel.update(size: .zero)
+        resourcePanel.position = .zero
+        resourceIcon.isHidden = true
+        resourceIcon.size = .zero
+        resourceIcon.position = .zero
+        resourceLabel.isHidden = true
+        resourceLabel.text = nil
+        progressLabel.isHidden = true
+        progressLabel.text = nil
+        progressSegments.forEach {
+            $0.isHidden = true
+            $0.path = nil
+            $0.position = .zero
+        }
+        mapResourceFrame = .zero
+        mapProgressText = ""
+        mapProgressCompletedCount = 0
         scoutCardNode.clearLayout()
         feedbackSettingsController?.applyGearFrame(.zero)
         gameplayTabBarFrame = .zero
@@ -621,14 +677,16 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         layoutGameplayTabBar(informationRegionFrame: layout.informationRegionFrame)
 
         titleLabel.text = "Country \(state.countryNumber)"
-        titleLabel.fontSize = 28
+        titleLabel.fontSize = 24
+        titleLabel.horizontalAlignmentMode = .left
         guard fitTitleLabel(titleLabel, maxWidth: layout.titleTextFrame.width) else {
             return false
         }
         titleLabel.position = titlePanel.convert(
-            CGPoint(x: layout.titleTextFrame.midX, y: layout.titleTextFrame.midY),
+            CGPoint(x: layout.titleTextFrame.minX, y: layout.titleTextFrame.minY + 16),
             from: self
         )
+        layoutMapChrome(layout)
         layoutFeedbackSettings(layout, environment: environment)
 
         drawRoutes(layout.routes)
@@ -659,9 +717,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         let horizontalMargin = max(16, min(22, size.width * 0.05))
         gameplayTabBarFrame = CGRect(
             x: horizontalMargin,
-            y: informationRegionFrame.maxY + 8,
+            y: informationRegionFrame.minY - CountryMapLayout.tabBarHeight - 8,
             width: max(0, size.width - horizontalMargin * 2),
-            height: 72
+            height: CountryMapLayout.tabBarHeight
         )
         gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
     }
@@ -686,6 +744,101 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             label.fontSize -= 1
         }
         return label.frame.width <= maxWidth
+    }
+
+    private func layoutMapChrome(_ layout: CountryMapLayout) {
+        let resourceFrame = layout.resourceFrame
+        mapResourceFrame = resourceFrame
+        resourcePanel.apply(
+            size: resourceFrame.size,
+            style: .normal,
+            showsRivets: true
+        )
+        resourcePanel.position = CGPoint(x: resourceFrame.midX, y: resourceFrame.midY)
+        resourcePanel.isHidden = false
+
+        let iconFrame = CGRect(
+            x: resourceFrame.minX + 8,
+            y: resourceFrame.minY + 8,
+            width: 28,
+            height: 28
+        )
+        if let texture = resourceIcon.texture {
+            resourceIcon.size = fitResourceIconSize(texture.size(), in: iconFrame.size)
+            resourceIcon.position = CGPoint(x: iconFrame.midX, y: iconFrame.midY)
+            resourceIcon.isHidden = false
+        } else {
+            resourceIcon.isHidden = true
+            resourceIcon.size = .zero
+        }
+        resourceLabel.text = CompactNumberFormatter.string(from: state.gold)
+        resourceLabel.fontSize = 16
+        resourceLabel.position = CGPoint(
+            x: resourceFrame.minX + 42,
+            y: resourceFrame.midY
+        )
+        resourceLabel.isHidden = false
+
+        let progressFrame = layout.progressFrame
+        mapProgressText = "\(state.completedCityCount)/\(KingdomGameState.firstCountryCityCount)"
+        mapProgressCompletedCount = min(
+            KingdomGameState.firstCountryCityCount,
+            max(0, state.completedCityCount)
+        )
+        progressLabel.text = mapProgressText
+        progressLabel.fontSize = 11
+        progressLabel.position = CGPoint(x: progressFrame.maxX, y: progressFrame.midY)
+        progressLabel.isHidden = false
+
+        let labelReservation: CGFloat = 32
+        let segmentGap: CGFloat = 2
+        let segmentRegionWidth = max(
+            0,
+            progressFrame.width - labelReservation
+        )
+        let segmentWidth = max(
+            2,
+            (segmentRegionWidth - segmentGap * CGFloat(progressSegments.count - 1))
+                / CGFloat(progressSegments.count)
+        )
+        let segmentHeight: CGFloat = 8
+        for (index, segment) in progressSegments.enumerated() {
+            let x = progressFrame.minX
+                + CGFloat(index) * (segmentWidth + segmentGap)
+                + segmentWidth / 2
+            let rect = CGRect(
+                x: -segmentWidth / 2,
+                y: -segmentHeight / 2,
+                width: segmentWidth,
+                height: segmentHeight
+            )
+            segment.path = CGPath(
+                roundedRect: rect,
+                cornerWidth: segmentHeight / 2,
+                cornerHeight: segmentHeight / 2,
+                transform: nil
+            )
+            segment.fillColor = index < mapProgressCompletedCount
+                ? GameUITheme.Color.gold
+                : GameUITheme.Color.locked.withAlphaComponent(0.75)
+            segment.strokeColor = .clear
+            segment.position = CGPoint(x: x, y: progressFrame.midY)
+            segment.isHidden = false
+        }
+    }
+
+    private func fitResourceIconSize(_ sourceSize: CGSize, in targetSize: CGSize) -> CGSize {
+        guard sourceSize.width > 0,
+              sourceSize.height > 0,
+              targetSize.width > 0,
+              targetSize.height > 0 else {
+            return .zero
+        }
+        let scale = min(
+            targetSize.width / sourceSize.width,
+            targetSize.height / sourceSize.height
+        )
+        return CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
     }
 
     private func layoutFeedbackSettings(
@@ -736,6 +889,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func redraw() {
         titleLabel.text = "Country \(state.countryNumber)"
+        if let layout = countryMapLayout {
+            layoutMapChrome(layout)
+        }
         applyGameplayTabBar()
 
         guard countryMapLayout != nil,
@@ -912,7 +1068,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
         switch scout.status {
         case .current:
-            requestGameplayTab(.battle)
+            requestEntry(for: scout.cityNumber)
         case .attackable:
             requestEntry(for: scout.cityNumber)
         case .completed:
@@ -1124,6 +1280,26 @@ extension CountryMapScene {
 
     var feedbackSettingsGearFrameForTesting: CGRect? {
         feedbackSettingsController?.gear.hitFrameForTesting
+    }
+
+    var mapResourceFrameForTesting: CGRect? {
+        resourcePanel.isHidden ? nil : mapResourceFrame
+    }
+
+    var mapGoldTextForTesting: String? {
+        resourceLabel.isHidden ? nil : resourceLabel.text
+    }
+
+    var mapProgressTextForTesting: String? {
+        progressLabel.isHidden ? nil : mapProgressText
+    }
+
+    var mapProgressSegmentCountForTesting: Int {
+        progressSegments.filter { !$0.isHidden }.count
+    }
+
+    var mapProgressCompletedCountForTesting: Int {
+        mapProgressCompletedCount
     }
 
     func activateFeedbackSettingsForTesting(_ action: FeedbackSettingsAction) {

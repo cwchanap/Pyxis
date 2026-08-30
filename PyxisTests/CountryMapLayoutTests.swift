@@ -111,7 +111,7 @@ struct CountryMapLayoutTests {
         #expect(layout.settingsControlFrame.size == CGSize(width: 44, height: 44))
         #expect(layout.titleTextFrame.width >= 160)
         #expect(!layout.settingsControlFrame.intersects(layout.titleTextFrame))
-        #expect(layout.titleTextFrame.maxX == layout.titleControlRegionFrame.maxX - 10)
+        #expect(layout.titleTextFrame.maxX == layout.settingsControlFrame.minX - 8)
     }
 
     @Test func titleControlsUseTheReviewed375PointGeometry() throws {
@@ -121,8 +121,8 @@ struct CountryMapLayoutTests {
             layoutClass: .phone
         )
 
-        #expect(layout.settingsControlFrame == CGRect(x: 30, y: 578, width: 44, height: 44))
-        #expect(layout.titleTextFrame == CGRect(x: 82, y: 578, width: 263, height: 44))
+        #expect(layout.settingsControlFrame == CGRect(x: 301, y: 578, width: 44, height: 44))
+        #expect(layout.titleTextFrame == CGRect(x: 30, y: 578, width: 263, height: 44))
     }
 
     @Test func country1DefinitionMatchesCampaignAndRouteContract() {
@@ -247,7 +247,7 @@ struct CountryMapLayoutTests {
             layoutClass: .pad
         )
         #expect(upright.titleControlRegionFrame.maxY == 1160)
-        #expect(upright.informationRegionFrame.minY == 36)
+        #expect(upright.informationRegionFrame.minY == 116)
 
         let upsideDown = try supportedLayout(
             size: CGSize(width: 834, height: 1194),
@@ -255,7 +255,7 @@ struct CountryMapLayoutTests {
             layoutClass: .pad
         )
         #expect(upsideDown.titleControlRegionFrame.maxY == 1148)
-        #expect(upsideDown.informationRegionFrame.minY == 24)
+        #expect(upsideDown.informationRegionFrame.minY == 104)
     }
 
     @Test func reviewedNarrowPortraitPadKeepsAuthoredTargetsContained() {

@@ -63,6 +63,26 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.overlayHitFrame == nil)
     }
 
+    @Test("Selected scout cards use the authored city art without replacing content")
+    func richScoutCardRendersCityArtAlongsideRealContentAndAction() throws {
+        let image = testImage(width: 160, height: 120)
+        let spy = ScoutCardImageLoaderSpy(images: completeImageSet(image: image))
+        let node = CountryMapScoutCardNode(imageLoader: spy.load)
+        let layout = try scoutCardLayout(named: "small phone")
+
+        #expect(node.apply(
+            content: .scout(testScout(status: .attackable)),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.cityArtAssetNameForTesting == "enemy-city")
+        #expect(node.cityArtIsVisibleForTesting)
+        #expect(node.cityArtTargetFrameForTesting != nil)
+        #expect(node.titleTextForTesting == "City 3 · Falconridge")
+        #expect(node.attackTextForTesting == "MARCH")
+        #expect(node.attackHitFrame == layout.attackFrame)
+    }
+
     @Test func countryCompleteCentersExactCopyAndHasNoAttackTarget() throws {
         let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
         let layout = try scoutCardLayout(named: "small phone")
@@ -152,7 +172,7 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.disadvantagedPrefixTextForTesting == "-")
         #expect(node.favorablePrefixIsInstalledForTesting)
         #expect(node.disadvantagedPrefixIsInstalledForTesting)
-        #expect(spy.requestedNames == ["gold-burst"])
+        #expect(spy.requestedNames == ["enemy-city", "gold-burst"])
     }
 
     @Test func installedGoldUsesSeparateIconAndNumericRewardFrames() throws {
@@ -249,7 +269,7 @@ struct CountryMapScoutCardNodeTests {
             #expect(item.labelFontSize == 11)
             #expect(spy.requestedNames.contains(expectedName))
         }
-        let allowedNames = Set(["gold-burst"] + SoldierType.allCases.map {
+        let allowedNames = Set(["gold-burst", "enemy-city"] + SoldierType.allCases.map {
             "\($0.rawValue)-walk-01"
         })
         #expect(Set(spy.requestedNames).isSubset(of: allowedNames))
@@ -874,7 +894,7 @@ private func testScout(
 
 private func completeImageSet(image: UIImage = testImage()) -> [String: UIImage] {
     Dictionary(uniqueKeysWithValues:
-        [("gold-burst", image)]
+        [("gold-burst", image), ("enemy-city", image)]
         + SoldierType.allCases.map { ("\($0.rawValue)-walk-01", image) }
     )
 }

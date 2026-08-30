@@ -49,6 +49,8 @@ final class CountryMapScoutCardNode: SKNode {
         let favorableItems: [PreparedFooterItem]
         let disadvantagedItems: [PreparedFooterItem]
         let laneText: String
+        let cityImage: UIImage?
+        let cityAssetName: String?
         let goldImage: UIImage?
         let rewardText: String
         let rewardFontSize: CGFloat
@@ -64,6 +66,7 @@ final class CountryMapScoutCardNode: SKNode {
     private let cardPanel = PanelNode(size: .zero)
     private let contentLayer = SKNode()
     private let overlayLayer = SKNode()
+    private let cityArt = SKSpriteNode()
     private let badgePanel = PanelNode(size: .zero)
     private let badgeLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
@@ -90,6 +93,8 @@ final class CountryMapScoutCardNode: SKNode {
     private var currentGoldIconTargetFrame: CGRect?
     private var currentRewardTargetFrame: CGRect?
     private var currentCountryCompleteTitleFrame: CGRect?
+    private var currentCityArtTargetFrame: CGRect?
+    private var currentCityArtAssetName: String?
 
     #if DEBUG
     struct FooterItemReadback: Equatable {
@@ -222,6 +227,8 @@ final class CountryMapScoutCardNode: SKNode {
         currentLayout = nil
         currentPresentationIsScout = false
         currentEntryIsEnabled = false
+        currentCityArtTargetFrame = nil
+        currentCityArtAssetName = nil
         feedbackIsVisible = false
         cardPanel.isHidden = true
         contentLayer.isHidden = true
@@ -240,6 +247,9 @@ final class CountryMapScoutCardNode: SKNode {
         addChild(overlayLayer)
 
         contentLayer.addChild(badgePanel)
+        cityArt.name = "countryMapScoutCityArt"
+        cityArt.zPosition = -1
+        contentLayer.addChild(cityArt)
         contentLayer.addChild(badgeLabel)
         contentLayer.addChild(titleLabel)
         contentLayer.addChild(goldIcon)
@@ -327,6 +337,8 @@ final class CountryMapScoutCardNode: SKNode {
                 favorableItems: [],
                 disadvantagedItems: [],
                 laneText: "",
+                cityImage: nil,
+                cityAssetName: nil,
                 goldImage: nil,
                 rewardText: "",
                 rewardFontSize: metrics.rewardSize,
@@ -390,6 +402,8 @@ final class CountryMapScoutCardNode: SKNode {
             return nil
         }
 
+        let cityAssetName = "enemy-city"
+        let cityImage = imageLoader(cityAssetName)
         let goldImage = imageLoader("gold-burst")
         let numericReward = "\(scout.goldReward)"
         let fallbackReward = "Gold \(scout.goldReward)"
@@ -421,6 +435,8 @@ final class CountryMapScoutCardNode: SKNode {
             favorableItems: favorableItems,
             disadvantagedItems: disadvantagedItems,
             laneText: laneText,
+            cityImage: cityImage,
+            cityAssetName: cityImage == nil ? nil : cityAssetName,
             goldImage: goldImage,
             rewardText: rewardText,
             rewardFontSize: rewardFontSize,
@@ -486,12 +502,14 @@ final class CountryMapScoutCardNode: SKNode {
         currentGoldIconTargetFrame = nil
         currentRewardTargetFrame = nil
         currentCountryCompleteTitleFrame = nil
+        currentCityArtTargetFrame = nil
+        currentCityArtAssetName = nil
         feedbackIsVisible = false
         overlayLayer.isHidden = true
         overlayLayer.alpha = 1
         overlayHitFrame = nil
 
-        cardPanel.update(size: layout.cardFrame.size)
+        cardPanel.apply(size: layout.cardFrame.size, style: .normal, showsRivets: true)
         cardPanel.position = CGPoint(x: layout.cardFrame.midX, y: layout.cardFrame.midY)
         cardPanel.isHidden = false
         contentLayer.isHidden = false
@@ -527,6 +545,7 @@ final class CountryMapScoutCardNode: SKNode {
         badgeLabel.text = "\(prepared.scout.cityNumber)"
         badgeLabel.fontSize = prepared.metrics.badgeSize
         badgeLabel.position = CGPoint(x: layout.badgeFrame.midX, y: layout.badgeFrame.midY)
+        renderCityArt(prepared, layout: layout)
 
         titleLabel.horizontalAlignmentMode = .left
         titleLabel.text = prepared.scout.displayTitle
@@ -605,7 +624,11 @@ final class CountryMapScoutCardNode: SKNode {
             return
         }
 
-        attackPanel.update(size: frame.size)
+        attackPanel.apply(
+            size: frame.size,
+            style: isEnabled ? .primaryAction : .disabled,
+            showsRivets: true
+        )
         attackPanel.position = .zero
         attackLabel.text = title
         attackLabel.fontSize = fontSize
@@ -614,6 +637,35 @@ final class CountryMapScoutCardNode: SKNode {
         attackContainer.isHidden = false
         attackContainer.alpha = isEnabled ? 1 : GameUITheme.Alpha.lockedIcon
         attackHitFrame = isEnabled ? frame : nil
+    }
+
+    private func renderCityArt(
+        _ prepared: PreparedScout,
+        layout: CountryMapScoutCardLayout
+    ) {
+        guard !layout.isCompact,
+              let image = prepared.cityImage,
+              let assetName = prepared.cityAssetName else {
+            cityArt.isHidden = true
+            cityArt.texture = nil
+            cityArt.size = .zero
+            return
+        }
+
+        let targetFrame = CGRect(
+            x: layout.cardFrame.minX + 8,
+            y: layout.cardFrame.midY - min(44, layout.cardFrame.height / 2 - 10),
+            width: min(80, layout.cardFrame.width * 0.24),
+            height: min(88, layout.cardFrame.height - 20)
+        )
+        let texture = SKTexture(image: image)
+        cityArt.texture = texture
+        cityArt.size = aspectFit(texture.size(), in: targetFrame.size)
+        cityArt.position = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+        cityArt.alpha = 0.78
+        cityArt.isHidden = false
+        currentCityArtTargetFrame = targetFrame
+        currentCityArtAssetName = assetName
     }
 
     private func renderReward(
@@ -754,6 +806,9 @@ final class CountryMapScoutCardNode: SKNode {
 
     private func resetVisibleContent() {
         badgePanel.isHidden = true
+        cityArt.isHidden = true
+        cityArt.texture = nil
+        cityArt.size = .zero
         badgeLabel.text = nil
         titleLabel.text = nil
         goldIcon.isHidden = true
@@ -1015,6 +1070,18 @@ extension CountryMapScoutCardNode {
 
     var countryCompleteTitleFrameForTesting: CGRect? {
         currentCountryCompleteTitleFrame
+    }
+
+    var cityArtAssetNameForTesting: String? {
+        currentCityArtAssetName
+    }
+
+    var cityArtIsVisibleForTesting: Bool {
+        !cityArt.isHidden && cityArt.texture != nil
+    }
+
+    var cityArtTargetFrameForTesting: CGRect? {
+        currentCityArtTargetFrame
     }
 
     var rewardFontSizeForTesting: CGFloat {
