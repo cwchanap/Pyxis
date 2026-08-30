@@ -677,13 +677,13 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         layoutGameplayTabBar(informationRegionFrame: layout.informationRegionFrame)
 
         titleLabel.text = "Country \(state.countryNumber)"
-        titleLabel.fontSize = 24
+        titleLabel.fontSize = 20
         titleLabel.horizontalAlignmentMode = .left
         guard fitTitleLabel(titleLabel, maxWidth: layout.titleTextFrame.width) else {
             return false
         }
         titleLabel.position = titlePanel.convert(
-            CGPoint(x: layout.titleTextFrame.minX, y: layout.titleTextFrame.minY + 16),
+            CGPoint(x: layout.titleTextFrame.minX, y: layout.titleTextFrame.midY),
             from: self
         )
         layoutMapChrome(layout)

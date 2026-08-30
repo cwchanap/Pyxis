@@ -111,7 +111,33 @@ struct CountryMapLayoutTests {
         #expect(layout.settingsControlFrame.size == CGSize(width: 44, height: 44))
         #expect(layout.titleTextFrame.width >= 160)
         #expect(!layout.settingsControlFrame.intersects(layout.titleTextFrame))
+        #expect(layout.titleControlRegionFrame.contains(layout.resourceFrame))
+        #expect(layout.titleControlRegionFrame.contains(layout.progressFrame))
+        #expect(!layout.resourceFrame.intersects(layout.titleTextFrame))
+        #expect(!layout.resourceFrame.intersects(layout.settingsControlFrame))
+        #expect(!layout.progressFrame.intersects(layout.settingsControlFrame))
         #expect(layout.titleTextFrame.maxX == layout.settingsControlFrame.minX - 8)
+    }
+
+    @Test func referenceHeaderChromeDoesNotOverlap() throws {
+        let layout = try supportedLayout(
+            size: CGSize(width: 393, height: 852),
+            insets: CountryMapSafeAreaInsets(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        )
+
+        #expect(layout.resourceFrame == CGRect(x: 28, y: 739, width: 106, height: 44))
+        #expect(layout.titleTextFrame == CGRect(x: 30, y: 717, width: 281, height: 22))
+        #expect(layout.progressFrame == CGRect(x: 160, y: 717, width: 149, height: 22))
+        #expect(layout.settingsControlFrame == CGRect(x: 319, y: 739, width: 44, height: 44))
+        #expect(!layout.resourceFrame.intersects(layout.titleTextFrame))
+        #expect(!layout.resourceFrame.intersects(layout.progressFrame))
+        #expect(!layout.resourceFrame.intersects(layout.settingsControlFrame))
+        #expect(!layout.titleTextFrame.intersects(layout.settingsControlFrame))
+        #expect(!layout.progressFrame.intersects(layout.settingsControlFrame))
+        #expect(layout.titleControlRegionFrame.contains(layout.resourceFrame))
+        #expect(layout.titleControlRegionFrame.contains(layout.progressFrame))
+        #expect(layout.titleControlRegionFrame.contains(layout.settingsControlFrame))
     }
 
     @Test func titleControlsUseTheReviewed375PointGeometry() throws {
@@ -121,8 +147,8 @@ struct CountryMapLayoutTests {
             layoutClass: .phone
         )
 
-        #expect(layout.settingsControlFrame == CGRect(x: 301, y: 578, width: 44, height: 44))
-        #expect(layout.titleTextFrame == CGRect(x: 30, y: 578, width: 263, height: 44))
+        #expect(layout.settingsControlFrame == CGRect(x: 301, y: 589, width: 44, height: 44))
+        #expect(layout.titleTextFrame == CGRect(x: 30, y: 567, width: 263, height: 22))
     }
 
     @Test func country1DefinitionMatchesCampaignAndRouteContract() {
