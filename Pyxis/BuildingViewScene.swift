@@ -1011,15 +1011,19 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
 
     private func applyGameplayTabBar() {
         let enabledTabs: Set<GameplayTab>
+        let selectedTab: GameplayTab
         if state.pendingBattleResult != nil {
             enabledTabs = [.battle]
+            selectedTab = .battle
         } else if state.stageStatus == .battleActive {
             enabledTabs = Set(GameplayTab.allCases)
+            selectedTab = .camp
         } else {
             enabledTabs = [.map]
+            selectedTab = .map
         }
         gameplayTabContent = GameplayTabBarNode.Content(
-            selected: .camp,
+            selected: selectedTab,
             enabledTabs: enabledTabs,
             showsCampAttention: false
         )
