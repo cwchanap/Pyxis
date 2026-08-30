@@ -88,6 +88,7 @@ struct CampChromeLayout: Equatable {
     let progressFrame: CGRect
     let settingsFrame: CGRect
     let lotRegionFrame: CGRect
+    let feedbackFrame: CGRect
     let lotPositions: [Int: CGPoint]
     let lotVisualScales: [Int: CGFloat]
     let lotHitFrames: [Int: CGRect]
@@ -105,8 +106,6 @@ struct CampChromeLayout: Equatable {
     var selectionFrame: CGRect? {
         builderFrame ?? inspectorFrame
     }
-
-    var selectionPanelFrame: CGRect? { selectionFrame }
 
     static func compute(_ input: Input) -> CampChromeLayout? {
         let size = input.sceneSize
@@ -237,6 +236,18 @@ struct CampChromeLayout: Equatable {
             return nil
         }
 
+        let feedbackFrame = CGRect(
+            x: lotRegionFrame.minX + 16,
+            y: lotRegionFrame.minY + 4,
+            width: lotRegionFrame.width - 32,
+            height: 20
+        )
+        guard lotRegionFrame.contains(feedbackFrame),
+              !feedbackFrame.intersects(tabBarFrame),
+              selectionFrame.map({ !feedbackFrame.intersects($0) }) ?? true else {
+            return nil
+        }
+
         let lotPositions = Dictionary(uniqueKeysWithValues: scenicLotAnchors.map { anchor in
             (
                 anchor.slot,
@@ -332,6 +343,7 @@ struct CampChromeLayout: Equatable {
             progressFrame: progressFrame,
             settingsFrame: settingsFrame,
             lotRegionFrame: lotRegionFrame,
+            feedbackFrame: feedbackFrame,
             lotPositions: lotPositions,
             lotVisualScales: lotVisualScales,
             lotHitFrames: lotHitFrames,
@@ -345,15 +357,4 @@ struct CampChromeLayout: Equatable {
         )
     }
 
-    static func compute(
-        sceneSize: CGSize,
-        safeAreaInsets: CampSafeAreaInsets = .zero,
-        selection: Selection = .none
-    ) -> CampChromeLayout? {
-        compute(Input(
-            sceneSize: sceneSize,
-            safeAreaInsets: safeAreaInsets,
-            selection: selection
-        ))
-    }
 }

@@ -135,3 +135,84 @@ building assets/mutation APIs.
 No gameplay model, economy formula, persistence schema, lifecycle
 notification, feedback policy, settings controller, router, or SDD progress
 ledger file was modified.
+
+## Fix round 1
+
+The occupied-inspector feedback label now uses a Camp layout-owned frame in
+the scenic lot region. The layout rejects a feedback frame that intersects the
+selected-lot inspector or bottom tabs, and the scene regression checks both
+the projected and rendered frames. The obsolete compatibility aliases and
+unused projection fields identified in review were removed after verifying
+there were no callers (`Option.type`, `Inspector.lot`,
+`Inspector.soldierType`, `selectionPanelFrame`, the convenience layout
+overload, and unused gold/city-title/count/recommendation storage).
+
+The replacement contract tests also cover layout-gate idle accounting and
+active-battle-only rearming, lifecycle observer deduplication after remount,
+single fresh conquest feedback across redraw/remount, route-latch clearing on
+nil/refusing routers, Settings modal shielding of Camp controls plus the
+layout accessibility guard, and exactly one save for each valid build/upgrade.
+
+### Fix-round TDD and verification
+
+The focused RED run failed as intended before the frame seam existed:
+
+```text
+CampLayoutFrames has no member `feedback`
+BuildingViewScene has no member `feedbackLabelFrameForTesting`
+Testing cancelled because the build failed (3 compile failures)
+```
+
+After the minimum layout/scene seam and tests were implemented, the focused
+serial run passed:
+
+```text
+Camp/BuildingView/Settings/GameVC focused suites: 26 passed, 0 failed, 0 skipped
+/private/tmp/PyxisTask6FixGreen1/Logs/Test/Test-Pyxis-2026.08.30_06-10-24--0700.xcresult
+```
+
+The final serial unit run passed all 843 tests with no failures or skips:
+
+```text
+/private/tmp/PyxisTask6FixFull/Logs/Test/Test-Pyxis-2026.08.30_06-13-34--0700.xcresult
+```
+
+The Debug app build succeeded using the same project/scheme and iPhone 17
+destination. `swiftlint lint` completed with 74 non-serious repository
+violations (including the existing Camp layout complexity warning); no new
+serious violations were reported. `git diff --check` passed.
+
+### Fix-round runtime evidence
+
+XcodeBuildMCP was unavailable, so the real DEBUG fixtures were exercised with
+the documented direct `xcodebuild`/simulator fallback on iPhone 17. The
+temporary UI capture test selected empty lot 1 through the scene's actual
+touch path before taking the first screenshot. Both mounted screenshots are
+1206x2622 PNGs (3x, 393x852 logical surface) and were inspected with the image
+viewer:
+
+```text
+camp-empty, lot 1 selected:
+/private/tmp/pyxis-task6-fix-camp-empty-builder.png
+SHA-256 74e389afc8ee1ac5a85f847546d9aa2e2eb5f742d343fe37db459bd989a38389
+
+camp-occupied, lot 1 selected:
+/private/tmp/pyxis-task6-fix-camp-occupied-inspector.png
+SHA-256 8c656784fc9cded30578fcb798290df2d24051cb673a0d811fdc131c7d0696a9
+```
+
+The selected-empty capture visibly shows all five enum-order options (Barracks,
+Archery Range, Stable, Mage Tower, Siege Workshop), with the first option
+recommended. Its builder hit targets are laid out above the bottom tabs. The
+fixed occupied capture visibly shows feedback inside the lot region, separate
+from the inspector and tabs, plus authored Barracks art/name, `Lv 2`, five
+level pips, `LOT 1`, `Produces Infantry`, and the live upgrade cost/action.
+
+Against `docs/visual-parity/forged-ui/camp.png`, the captures retain the
+authored countryside, 25-lot arrangement, selected-lot flow, and one Settings
+gear. They are not claimed as pixel parity: the canonical uses a coin drawing
+and `7.4K`, compact circular lot medallions, and a fixture cost of `320`,
+whereas the live DEBUG scene uses the existing compact gold presentation,
+authored `building-pad-empty` art, and the existing level-2 Barracks cost of
+`20`. These are documented gameplay/art or fixture deltas, not a second
+economy or generic radial UI.

@@ -466,14 +466,9 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         cityProgressBar.update(progress: CGFloat(occupied) / CGFloat(CityBattleState.slotRange.count))
         cityProgressBar.position = CGPoint(x: layout.progressFrame.midX, y: layout.progressFrame.midY)
 
-        let feedbackFrame = layout.selectionFrame ?? CGRect(
-            x: layout.safeFrame.midX - 100,
-            y: layout.tabBarFrame.maxY + 10,
-            width: 200,
-            height: 24
-        )
+        let feedbackFrame = layout.feedbackFrame
         feedbackLabel.text = feedbackText
-        feedbackLabel.position = CGPoint(x: feedbackFrame.midX, y: feedbackFrame.minY - 13)
+        feedbackLabel.position = CGPoint(x: feedbackFrame.midX, y: feedbackFrame.midY)
         feedbackLabel.isHidden = feedbackText == "Select a city lot."
         fitLabel(feedbackLabel, maxWidth: layout.safeFrame.width - 32)
 
@@ -860,6 +855,7 @@ extension BuildingViewScene {
         let progress: CGRect
         let settings: CGRect
         let lots: CGRect
+        let feedback: CGRect
         let selection: CGRect?
         let builderOptions: [BuildingType: CGRect]
         let inspectorAction: CGRect?
@@ -881,6 +877,7 @@ extension BuildingViewScene {
             progress: layout.progressFrame,
             settings: layout.settingsFrame,
             lots: layout.lotRegionFrame,
+            feedback: layout.feedbackFrame,
             selection: layout.selectionFrame,
             builderOptions: layout.builderOptionFrames,
             inspectorAction: layout.inspectorActionFrame,
@@ -908,6 +905,10 @@ extension BuildingViewScene {
 
     var feedbackSettingsGearFrameForTesting: CGRect? {
         feedbackSettingsController?.gear.hitFrameForTesting
+    }
+
+    var feedbackLabelFrameForTesting: CGRect? {
+        sceneFrame(for: feedbackLabel)
     }
 
     var isCampLayoutSupportedForTesting: Bool { campChromeLayout != nil }
