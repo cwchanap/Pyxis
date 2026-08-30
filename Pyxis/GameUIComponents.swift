@@ -7,6 +7,9 @@ import CoreGraphics
 import SpriteKit
 
 final class PanelNode: SKNode {
+    private static let shadowColor = SKColor(white: 0, alpha: 0.42)
+    private static let primaryActionFillColor = SKColor(red: 0.42, green: 0.25, blue: 0.08, alpha: 0.98)
+
     enum Style: Equatable {
         case normal
         case selected
@@ -115,7 +118,7 @@ final class PanelNode: SKNode {
     }
 
     private func applyStyle() {
-        shadow.fillColor = GameUITheme.Color.panelShadow
+        shadow.fillColor = Self.shadowColor
         shadow.strokeColor = .clear
 
         let fillColor: SKColor
@@ -134,7 +137,7 @@ final class PanelNode: SKNode {
             highlightColor = GameUITheme.Color.gold.withAlphaComponent(0.34)
             rivetColor = GameUITheme.Color.gold
         case .primaryAction:
-            fillColor = GameUITheme.Color.panelPrimaryActionFill
+            fillColor = Self.primaryActionFillColor
             strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.9)
             highlightColor = GameUITheme.Color.gold.withAlphaComponent(0.5)
             rivetColor = GameUITheme.Color.gold
