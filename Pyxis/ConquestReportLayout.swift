@@ -67,6 +67,8 @@ struct ConquestReportLayout: Equatable {
         let continueMinimumFontSize: CGFloat
         let countryCompletionLine: CGFloat
         let countryCompletionGap: CGFloat
+        let takenMedallionDiameter: CGFloat
+        let takenMedallionOverlap: CGFloat
 
         init(compactHeight: Bool) {
             let compact = compactHeight
@@ -100,11 +102,14 @@ struct ConquestReportLayout: Equatable {
             continueMinimumFontSize = 15
             countryCompletionLine = compact ? 22 : 26
             countryCompletionGap = 8
+            takenMedallionDiameter = compact ? 96 : 124
+            takenMedallionOverlap = compact ? 28 : 50
         }
     }
 
     let safeFrame: CGRect
     let panelFrame: CGRect
+    let takenMedallionFrame: CGRect
     let titleFrame: CGRect
     let rewardFrame: CGRect
     let tileFrames: [CGRect]
@@ -189,6 +194,28 @@ struct ConquestReportLayout: Equatable {
             )
             : nil
 
+        var takenMedallionCenterY = panelFrame.maxY + metrics.takenMedallionOverlap
+        if let countryCompleteFrame {
+            takenMedallionCenterY = min(
+                takenMedallionCenterY,
+                countryCompleteFrame.minY - metrics.takenMedallionDiameter / 2 - 4
+            )
+        }
+        takenMedallionCenterY = min(
+            takenMedallionCenterY,
+            safeFrame.maxY - metrics.takenMedallionDiameter / 2
+        )
+        takenMedallionCenterY = max(
+            takenMedallionCenterY,
+            safeFrame.minY + metrics.takenMedallionDiameter / 2
+        )
+        let takenMedallionFrame = CGRect(
+            x: panelFrame.midX - metrics.takenMedallionDiameter / 2,
+            y: takenMedallionCenterY - metrics.takenMedallionDiameter / 2,
+            width: metrics.takenMedallionDiameter,
+            height: metrics.takenMedallionDiameter
+        )
+
         var cursorY = panelFrame.maxY - metrics.verticalPadding
         let titleFrame = CGRect(
             x: panelX + metrics.horizontalPadding,
@@ -259,6 +286,7 @@ struct ConquestReportLayout: Equatable {
         let frames = ComputedFrames(
             safeFrame: safeFrame,
             panelFrame: panelFrame,
+            takenMedallionFrame: takenMedallionFrame,
             titleFrame: titleFrame,
             rewardFrame: rewardFrame,
             tileFrames: tileFrames,
@@ -272,6 +300,7 @@ struct ConquestReportLayout: Equatable {
         return ConquestReportLayout(
             safeFrame: safeFrame,
             panelFrame: panelFrame,
+            takenMedallionFrame: takenMedallionFrame,
             titleFrame: titleFrame,
             rewardFrame: rewardFrame,
             tileFrames: tileFrames,
@@ -298,6 +327,7 @@ struct ConquestReportLayout: Equatable {
     private struct ComputedFrames {
         let safeFrame: CGRect
         let panelFrame: CGRect
+        let takenMedallionFrame: CGRect
         let titleFrame: CGRect
         let rewardFrame: CGRect
         let tileFrames: [CGRect]
@@ -309,6 +339,7 @@ struct ConquestReportLayout: Equatable {
 
     private static func framesAreContained(_ frames: ComputedFrames) -> Bool {
         guard frames.safeFrame.contains(frames.panelFrame),
+              frames.safeFrame.contains(frames.takenMedallionFrame),
               frames.panelFrame.contains(frames.titleFrame),
               frames.panelFrame.contains(frames.rewardFrame),
               frames.tileFrames.allSatisfy({ frames.panelFrame.contains($0) }),
@@ -323,7 +354,8 @@ struct ConquestReportLayout: Equatable {
         }
         if let countryCompleteFrame = frames.countryCompleteFrame {
             guard frames.safeFrame.contains(countryCompleteFrame),
-                  !countryCompleteFrame.intersects(frames.panelFrame) else { return false }
+                  !countryCompleteFrame.intersects(frames.panelFrame),
+                  !countryCompleteFrame.intersects(frames.takenMedallionFrame) else { return false }
         }
         return true
     }

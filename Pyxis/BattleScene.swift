@@ -2725,7 +2725,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
               conquestReportNode.apply(
                   content: content,
                   layout: layout,
-                  isContinueEnabled: isConquestContinueEnabled
+                  isContinueEnabled: isConquestContinueEnabled,
+                  cityNumber: result.cityKey.cityNumber,
+                  cityName: state.displayCityTitle(for: result.cityKey.cityNumber)
               ) == .presented,
               applyMilestoneConquestPresentation(result: result, layout: layout) else {
             isConquestReportVisible = true
