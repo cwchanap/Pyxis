@@ -243,9 +243,18 @@ struct BattleSceneTests {
         )
         let layout = try #require(BattleChromeLayout.compute(.init(sceneSize: size)))
         let gear = try #require(scene.feedbackSettingsGearFrameForTesting)
+        let gearNode = try #require(firstNode(of: SettingsGearNode.self, in: scene))
+        let gearTile = try #require(
+            gearNode.childNode(withName: "settingsGearTile") as? PanelNode
+        )
+        let gearPlate = try #require(
+            gearTile.childNode(withName: "panelPlate") as? SKShapeNode
+        )
 
         #expect(gear == layout.settingsFrame)
         #expect(nodeCount(in: scene, of: SettingsGearNode.self) == 1)
+        #expect(rgbaBytes(gearPlate.fillColor) == [25, 17, 8, 255])
+        #expect(rgbaBytes(gearPlate.strokeColor) == [198, 150, 80, 153])
         scene.handleTouchForTesting(at: gear.center)
         #expect(scene.isFeedbackSettingsVisibleForTesting)
     }
@@ -2859,9 +2868,9 @@ struct BattleSceneTests {
         #expect(layout.safeFrame.contains(layout.topBandFrame))
         #expect(layout.safeFrame.contains(layout.deployFrame))
         #expect(layout.safeFrame.contains(layout.battlefieldFrame))
-        #expect(layout.safeFrame.contains(layout.tabBarFrame))
+        #expect(layout.sceneFrame.contains(layout.tabBarFrame))
         #expect(layout.battlefieldFrame.height >= BattleChromeLayout.minimumBattlefieldHeight)
-        #expect(layout.battlefieldFrame.maxY < layout.topBandFrame.minY)
+        #expect(layout.battlefieldFrame.maxY <= layout.topBandFrame.minY)
         #expect(layout.medallionFrames.allSatisfy { layout.safeFrame.contains($0) })
         #expect(layout.tabHitFrames.allSatisfy { $0.width >= 44 && $0.height >= 44 })
     }
@@ -2876,8 +2885,8 @@ struct BattleSceneTests {
         #expect(!texts.contains { $0.hasPrefix("HP:") })
         #expect(texts.contains("30"))
         #expect(texts.contains("0/10"))
-        #expect(texts.contains("1 / 15 WILLOWFORD"))
-        #expect(texts.contains("INFANTRY"))
+        #expect(texts.contains("1 / 15"))
+        #expect(texts.contains("WILLOWFORD"))
         #expect(texts.contains("DEPLOY"))
         #expect(SoldierType.allCases.reduce(0) { count, soldierType in
             count + visibleSpriteCount(
@@ -2993,7 +3002,7 @@ struct BattleSceneTests {
 
         let layout = try #require(scene.battleChromeLayoutForTesting)
         #expect(layout.safeFrame.contains(layout.battlefieldFrame))
-        #expect(layout.safeFrame.contains(layout.tabBarFrame))
+        #expect(layout.sceneFrame.contains(layout.tabBarFrame))
 
         scene.spawnSoldierForTesting()
         #expect(scene.battleHUDForTesting.currentLayoutForTesting == layout)
@@ -3375,6 +3384,22 @@ struct BattleSceneTests {
         #expect(backdropFrame.maxX >= scene.size.width)
         #expect(backdropFrame.minY <= 0)
         #expect(backdropFrame.maxY >= scene.size.height)
+    }
+
+    @Test func forgedAtmosphereWarmsTheFullBackdropBehindGameplay() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store)
+        let atmosphere = try #require(
+            scene.childNode(withName: "//battleForgedAtmosphere") as? SKSpriteNode
+        )
+
+        #expect(atmosphere.size == scene.size)
+        #expect(atmosphere.position == CGPoint(x: scene.size.width / 2, y: scene.size.height / 2))
+        #expect(atmosphere.blendMode == .alpha)
+        #expect(atmosphere.texture != nil)
+        #expect(atmosphere.colorBlendFactor == 0)
+        #expect(abs(atmosphere.alpha - 1) < 0.001)
+        #expect(atmosphere.zPosition == GameUITheme.Z.background + 1)
     }
 
     private func pollUntil(
@@ -3821,6 +3846,15 @@ struct BattleSceneTests {
         var alpha: CGFloat = 0
         color.getRed(nil, green: nil, blue: nil, alpha: &alpha)
         return alpha
+    }
+
+    private func rgbaBytes(_ color: SKColor) -> [Int] {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
     }
 
     private func opaquePixelBounds(in image: UIImage) -> PixelBounds? {

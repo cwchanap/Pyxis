@@ -221,6 +221,21 @@ struct FeedbackSettingsNodeTests {
         #expect(gear.hitFrameForTesting == frame)
     }
 
+    @Test func forgedGearUsesASourceTintedGlyphForDarkPanelContrast() {
+        let gear = SettingsGearNode()
+
+        gear.apply(
+            frame: CGRect(x: 20, y: 40, width: 44, height: 44),
+            appearance: .forged
+        )
+
+        #expect(gear.glyphColorBlendFactorForTesting == 0)
+        #expect(brightestImageRGBSum(gameUISymbolImage(
+            named: "gearshape.fill",
+            color: SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+        )) > 600)
+    }
+
     @Test func testingHelpersExposeLabel_textsAndControlCounts() throws {
         let node = FeedbackSettingsNode()
         let layout = try nodeTestLayout()

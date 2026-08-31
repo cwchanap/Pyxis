@@ -14,6 +14,11 @@ enum GameplayTab: CaseIterable, Hashable {
 }
 
 final class GameplayTabBarNode: SKNode {
+    enum Appearance {
+        case standard
+        case forged
+    }
+
     struct Content: Equatable {
         let selected: GameplayTab
         let enabledTabs: Set<GameplayTab>
@@ -27,10 +32,10 @@ final class GameplayTabBarNode: SKNode {
         let title: SKLabelNode
         let attention: SKShapeNode
 
-        init(for tab: GameplayTab) {
+        init(for tab: GameplayTab, appearance: Appearance) {
             root = SKNode()
             panel = PanelNode(size: .zero)
-            icon = GameplayTabBarNode.makeIcon(for: tab)
+            icon = GameplayTabBarNode.makeIcon(for: tab, appearance: appearance)
             title = SKLabelNode(fontNamed: GameUITheme.Font.bold)
             attention = SKShapeNode(circleOfRadius: 4)
 
@@ -46,8 +51,10 @@ final class GameplayTabBarNode: SKNode {
             attention.zPosition = 2
 
             if let icon = icon as? SKSpriteNode {
-                icon.color = GameUITheme.Color.textPrimary
-                icon.colorBlendFactor = 1
+                if appearance == .standard {
+                    icon.color = GameUITheme.Color.textPrimary
+                    icon.colorBlendFactor = 1
+                }
                 icon.size = CGSize(width: 20, height: 20)
             }
 
@@ -69,9 +76,11 @@ final class GameplayTabBarNode: SKNode {
     }
 
     private let tabBundles: [GameplayTab: TabBundle]
+    private let appearance: Appearance
+    private let forgedBackdrop = SKShapeNode()
     private var hitFrames = [GameplayTab: CGRect]()
 
-    private static func makeIcon(for tab: GameplayTab) -> SKNode {
+    private static func makeIcon(for tab: GameplayTab, appearance: Appearance) -> SKNode {
         if tab == .battle {
             let path = CGMutablePath()
             path.move(to: CGPoint(x: -7, y: -7))
@@ -93,18 +102,32 @@ final class GameplayTabBarNode: SKNode {
             return glyph
         }
 
-        guard let image = UIImage(systemName: tab.symbolName) else {
-            return SKNode()
+        let image: UIImage?
+        switch appearance {
+        case .standard:
+            image = UIImage(systemName: tab.symbolName)
+        case .forged:
+            image = gameUISymbolImage(
+                named: tab.symbolName,
+                color: SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+            )
         }
+        guard let image else { return SKNode() }
         return SKSpriteNode(texture: SKTexture(image: image))
     }
 
-    override init() {
+    init(appearance: Appearance = .standard) {
+        self.appearance = appearance
         tabBundles = Dictionary(uniqueKeysWithValues: GameplayTab.allCases.map { tab in
-            (tab, TabBundle(for: tab))
+            (tab, TabBundle(for: tab, appearance: appearance))
         })
         super.init()
         name = "gameplayTabBar"
+        forgedBackdrop.name = "gameplayTabForgedBackdrop"
+        forgedBackdrop.zPosition = -1
+        forgedBackdrop.lineWidth = 1.5
+        forgedBackdrop.isHidden = appearance == .standard
+        addChild(forgedBackdrop)
         for tab in GameplayTab.allCases {
             addChild(tabBundles[tab]!.root)
         }
@@ -128,14 +151,40 @@ final class GameplayTabBarNode: SKNode {
 
         isHidden = false
         hitFrames.removeAll(keepingCapacity: true)
-        let cellWidth = frame.width / CGFloat(GameplayTab.allCases.count)
+        let visualFrame: CGRect
+        if appearance == .forged, frame.minX >= BattleChromeLayout.sideMargin {
+            visualFrame = frame.insetBy(dx: -BattleChromeLayout.sideMargin, dy: 0)
+        } else {
+            visualFrame = frame
+        }
+        let cellWidth = visualFrame.width / CGFloat(GameplayTab.allCases.count)
+        if appearance == .forged {
+            forgedBackdrop.path = CGPath(
+                roundedRect: visualFrame,
+                cornerWidth: 10,
+                cornerHeight: 10,
+                transform: nil
+            )
+            forgedBackdrop.fillColor = SKColor(
+                red: 16 / 255,
+                green: 9 / 255,
+                blue: 3 / 255,
+                alpha: 0.98
+            )
+            forgedBackdrop.strokeColor = SKColor(
+                red: 255 / 255,
+                green: 206 / 255,
+                blue: 140 / 255,
+                alpha: 0.34
+            )
+        }
 
         for (index, tab) in GameplayTab.allCases.enumerated() {
             let cellFrame = CGRect(
-                x: frame.minX + cellWidth * CGFloat(index),
-                y: frame.minY,
+                x: visualFrame.minX + cellWidth * CGFloat(index),
+                y: visualFrame.minY,
                 width: cellWidth,
-                height: frame.height
+                height: visualFrame.height
             )
             let bundle = tabBundles[tab]!
             let style: PanelNode.Style
@@ -147,18 +196,43 @@ final class GameplayTabBarNode: SKNode {
                 style = .disabled
             }
 
+            let panelSize: CGSize
+            if appearance == .forged {
+                panelSize = CGSize(
+                    width: min(96, max(44, cellFrame.width - 8)),
+                    height: min(52, max(44, cellFrame.height - 8))
+                )
+            } else {
+                panelSize = cellFrame.size
+            }
+            let tileCenterY = appearance == .forged
+                ? cellFrame.midY + 11
+                : cellFrame.midY
             bundle.panel.apply(
-                size: cellFrame.size,
+                size: panelSize,
                 style: style,
-                showsRivets: false
+                showsRivets: false,
+                appearance: appearance == .forged ? .forged : .standard
             )
-            bundle.panel.position = CGPoint(x: cellFrame.midX, y: cellFrame.midY)
-            bundle.icon.position = CGPoint(x: cellFrame.midX, y: cellFrame.midY + 10)
-            bundle.title.position = CGPoint(x: cellFrame.midX, y: cellFrame.midY - 16)
+            bundle.panel.alpha = appearance == .forged && tab != content.selected ? 0 : 1
+            bundle.panel.position = CGPoint(x: cellFrame.midX, y: tileCenterY)
+            bundle.icon.position = CGPoint(x: cellFrame.midX, y: tileCenterY + 10)
+            bundle.title.position = CGPoint(x: cellFrame.midX, y: tileCenterY - 16)
             bundle.attention.position = CGPoint(x: cellFrame.maxX - 18, y: cellFrame.maxY - 15)
             bundle.attention.isHidden = !(tab == .camp && content.showsCampAttention)
 
-            let iconAlpha: CGFloat = content.enabledTabs.contains(tab) || tab == content.selected ? 1 : 0.4
+            if appearance == .forged {
+                let color = tab == content.selected
+                    ? SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+                    : SKColor(red: 1, green: 225 / 255, blue: 180 / 255, alpha: 1)
+                if let shape = bundle.icon as? SKShapeNode {
+                    shape.strokeColor = color
+                }
+                bundle.title.fontColor = color
+            }
+            let iconAlpha: CGFloat = content.enabledTabs.contains(tab) || tab == content.selected
+                ? 1
+                : (appearance == .forged ? 0.45 : 0.4)
             bundle.icon.alpha = iconAlpha
             bundle.title.alpha = iconAlpha
 
@@ -221,6 +295,10 @@ extension GameplayTabBarNode {
 
     func hitFrameForTesting(for tab: GameplayTab) -> CGRect? {
         hitFrames[tab]
+    }
+
+    func iconColorBlendFactorForTesting(for tab: GameplayTab) -> CGFloat? {
+        (tabBundles[tab]?.icon as? SKSpriteNode)?.colorBlendFactor
     }
 }
 #endif
