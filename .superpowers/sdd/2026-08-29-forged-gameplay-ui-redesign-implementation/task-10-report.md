@@ -129,10 +129,12 @@ was not changed.
 - The current compiled product passed the same boundaries as CI with parallel
   testing disabled: **859/859 PyxisTests** and **3/3 PyxisUITests**, with the
   one intentional non-393x852 capture-smoke skip.
-- One immediate combined build-and-run exposed Apple AX ordering/initialization
-  behavior. The unchanged affected product passed **139/139** on rerun; the
-  unchanged split unit and UI targets then passed. No retry, sleep, disabled
-  test, accessibility workaround, or coverage-policy change was added.
+- The first combined build-and-run produced six accessibility-element failures;
+  the unchanged affected product then passed **139/139** on rerun. A second
+  combined run passed all **859** unit assertions before the UI runner timed
+  out waiting for Apple AX initialization. The unchanged split unit and UI
+  targets then passed at the repository's actual CI boundary. No retry, sleep,
+  disabled test, accessibility workaround, or coverage-policy change was added.
 - Current unit result bundle:
   `test_sim_2026-08-31T00-37-59-747Z_pid19904_7ef57679.xcresult`.
 - Current UI result bundle:
