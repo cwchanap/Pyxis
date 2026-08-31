@@ -58,3 +58,39 @@ unexecuted and require a host with a concrete simulator destination.
 
 DONE_WITH_CONCERNS: the source/test slice is committed after static checks, but
 runtime and visual parity evidence is still an open gate.
+
+## Fix round 1/5: canonical safe-area top-band containment
+
+Reviewer finding: with the canonical 393x852 input and top/bottom insets of
+59/34, safeFrame.maxY is 793 while the authored income and Settings frames
+end at y=796. The previous regular topBandFrame therefore failed its
+containment guards and caused the Battle HUD to enter unsupported geometry.
+
+The regular top band now uses the scene-authored extent
+sceneFrame.maxY - battlefieldFrame.maxY. The direct arithmetic check printed:
+
+safeFrame.maxY=793
+fieldFrame=210...636 (height=426)
+incomeFrame=750...796
+topBandFrame=636...852
+containsIncome=true
+
+The covering assertion pins layout.topBandFrame.maxY == sceneHeight for the
+canonical inset fixture. Gameplay hit-frame safe-area checks remain unchanged.
+
+Exact arithmetic command: `rtk awk 'BEGIN { scene=852; safeTop=59; safeBottom=34; fieldMin=210; fieldMax=scene-216; safeMax=scene-safeTop; incomeMin=scene-102; incomeMax=incomeMin+46; topBandMin=fieldMax; topBandMax=scene; printf "safeFrame.maxY=%g\\nfieldFrame=%g...%g (height=%g)\\nincomeFrame=%g...%g\\ntopBandFrame=%g...%g\\ncontainsIncome=%s\\n", safeMax, fieldMin, fieldMax, fieldMax-fieldMin, incomeMin, incomeMax, topBandMin, topBandMax, (incomeMin >= topBandMin && incomeMax <= topBandMax ? "true" : "false") }'`.
+
+Result: exit 0, with the output shown above.
+
+Targeted SwiftLint command: `rtk swiftlint lint --quiet --no-cache --force-exclude Pyxis/BattleChromeLayout.swift PyxisTests/BattleChromeLayoutTests.swift`.
+
+Result: exit 0, no warnings.
+
+Diff check command: `rtk git diff --check`.
+
+Result: exit 0.
+
+No simulator, xcodebuild, simctl, Xcode, GUI, or screenshot-capture command
+was executed. The focused Swift tests and fresh 393x852 native visual capture
+remain explicitly unexecuted because no concrete simulator destination is
+available. Status remains DONE_WITH_CONCERNS pending those runtime gates.

@@ -58,6 +58,7 @@ struct BattleChromeLayoutTests {
 
         #expect(income == CGRect(x: 16, y: 56, width: 160, height: 46))
         #expect(settings == CGRect(x: 331, y: 56, width: 46, height: 46))
+        #expect(layout.topBandFrame.maxY == sceneHeight)
         #expect(city.minY == 112)
         #expect(city.height == 48)
         #expect(recommendation == CGRect(x: 16, y: 168, width: 361, height: 48))

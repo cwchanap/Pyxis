@@ -252,7 +252,7 @@ struct BattleChromeLayout: Equatable {
                 x: contentX,
                 y: battlefieldFrame.maxY,
                 width: contentWidth,
-                height: safeFrame.maxY - battlefieldFrame.maxY
+                height: sceneFrame.maxY - battlefieldFrame.maxY
             )
             incomeFrame = CGRect(
                 x: contentX,
