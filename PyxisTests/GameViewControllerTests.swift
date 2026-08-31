@@ -909,11 +909,11 @@ struct GameViewControllerTests {
         battle.didMove(to: view)
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
         #expect(battle.lastConquestReportOriginForTesting == "restored")
-        #expect(battle.conquestReportTilesForTesting.contains(.buildings(count: 1)))
+        #expect(battle.conquestReportTilesForTesting.contains(.idleDamage(damage: 1)))
         #expect(battle.isConquestPopupVisibleForTesting)
     }
 
-    @Test func relaunchedControllerRestoresIdleConquestBuildingCount() throws {
+    @Test func relaunchedControllerRestoresIdleConquestDamage() throws {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         var initialState = KingdomGameState(
             gold: 100,
@@ -933,7 +933,7 @@ struct GameViewControllerTests {
         firstController.viewDidLoad()
         let firstBattle = try #require(firstView.scene as? BattleScene)
         firstBattle.didMove(to: firstView)
-        #expect(firstBattle.conquestReportBuildingCountForTesting == 2)
+        #expect(firstBattle.conquestReportTilesForTesting.contains(.idleDamage(damage: 1)))
 
         let relaunchedController = makeGameViewController(store: store)
         let relaunchedView = SKView(frame: firstView.frame)
@@ -943,7 +943,7 @@ struct GameViewControllerTests {
         relaunchedBattle.didMove(to: relaunchedView)
 
         #expect(relaunchedBattle.lastConquestReportOriginForTesting == "restored")
-        #expect(relaunchedBattle.conquestReportBuildingCountForTesting == 2)
+        #expect(relaunchedBattle.conquestReportTilesForTesting.contains(.idleDamage(damage: 1)))
     }
 
     @Test func buildingViewBattleRequestRestoresPendingIdleReport() throws {
@@ -957,7 +957,7 @@ struct GameViewControllerTests {
         controller.buildingViewSceneDidRequestGameplayTab(building, tab: .battle)
         let battle = try #require(view.scene as? BattleScene)
         battle.didMove(to: view)
-        #expect(battle.conquestReportTilesForTesting[0] == .buildings(count: 0))
+        #expect(battle.conquestReportTilesForTesting[0] == .idleDamage(damage: nil))
         #expect(!battle.isGoldBurstVisibleForTesting)
     }
 

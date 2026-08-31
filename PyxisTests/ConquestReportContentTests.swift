@@ -29,13 +29,13 @@ struct ConquestReportContentTests {
         #expect(content.achievements == [.favorableUnit, .exposedLane])
     }
 
-    @Test func idleReportUsesBuildingTileAndNoDuration() {
+    @Test func idleReportUsesDamageTileAndNoDuration() {
         let content = ConquestReportContent.project(
             from: makeResult(mode: .idle, seconds: 90_061, mvp: nil, share: nil),
             title: "Falconridge Silenced"
         )
         #expect(content.tiles == [
-            .buildings(count: 0),
+            .idleDamage(damage: nil),
             .sentLost(sent: 7, lost: 2)
         ])
         #expect(!content.tiles.contains { tile in
@@ -44,8 +44,8 @@ struct ConquestReportContentTests {
         })
     }
 
-    @Test("Idle BUILDINGS tile uses occupied slots rather than damage type rows")
-    func idleReportUsesPersistedBuildingCount() throws {
+    @Test("Idle damage tile uses durable damage rows rather than presentation-only fields")
+    func idleReportUsesDurableDamageRows() throws {
         let resultJSON = Data("""
         {
           "cityKey": "1-3",
@@ -73,19 +73,19 @@ struct ConquestReportContentTests {
 
         #expect(content.tiles == [
             .mvp(soldierType: .infantry, sharePercent: 100),
-            .buildings(count: 2),
+            .idleDamage(damage: 2),
             .sentLost(sent: 0, lost: 0)
         ])
     }
 
-    @Test func idleReportWithMVPKeepsMVPBeforeBuildingsAndSentLost() {
+    @Test func idleReportWithMVPKeepsMVPBeforeDamageAndSentLost() {
         let content = ConquestReportContent.project(
             from: makeResult(mode: .idle),
             title: "Falconridge Silenced"
         )
         #expect(content.tiles == [
             .mvp(soldierType: .archer, sharePercent: 63),
-            .buildings(count: 0),
+            .idleDamage(damage: nil),
             .sentLost(sent: 7, lost: 2)
         ])
     }

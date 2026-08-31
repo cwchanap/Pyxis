@@ -120,7 +120,7 @@ final class PyxisUITests: XCTestCase {
                 + "source=manual;deployments=6;losses=1"
         case "conquest-idle":
             expected = "Conquest;pending=true;mode=idle;city=1-3;"
-                + "source=idle;deployments=0;losses=0;buildings=2;idleDamage=1"
+                + "source=idle;deployments=0;losses=0;idleDamage=1"
         default:
             XCTFail("Unexpected fixture: " + fixture, file: file, line: line)
             return

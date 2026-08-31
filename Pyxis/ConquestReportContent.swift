@@ -14,7 +14,7 @@ struct ConquestReportContent: Equatable {
     enum StatTile: Equatable {
         case mvp(soldierType: SoldierType, sharePercent: Int)
         case battleTime(seconds: TimeInterval)
-        case buildings(count: Int)
+        case idleDamage(damage: Int?)
         case sentLost(sent: Int, lost: Int)
 
         var valueText: String {
@@ -23,8 +23,9 @@ struct ConquestReportContent: Equatable {
                 return "\(max(0, min(100, sharePercent)))%"
             case let .battleTime(seconds):
                 return Self.durationText(seconds)
-            case let .buildings(count):
-                return CompactNumberFormatter.string(from: max(0, count))
+            case let .idleDamage(damage):
+                guard let damage else { return "—" }
+                return CompactNumberFormatter.string(from: max(0, damage))
             case let .sentLost(sent, lost):
                 let sentText = CompactNumberFormatter.string(from: max(0, sent))
                 let lostText = CompactNumberFormatter.string(from: max(0, lost))
@@ -38,8 +39,8 @@ struct ConquestReportContent: Equatable {
                 return "MVP"
             case .battleTime:
                 return "SIEGE"
-            case .buildings:
-                return "BUILDINGS"
+            case .idleDamage:
+                return "IDLE DAMAGE"
             case .sentLost:
                 return "SENT/LOST"
             }
@@ -57,8 +58,8 @@ struct ConquestReportContent: Equatable {
                 }
             case .battleTime:
                 return "timer"
-            case .buildings:
-                return "building.2.fill"
+            case .idleDamage:
+                return "bolt.fill"
             case .sentLost:
                 return "person.3.fill"
             }
@@ -96,7 +97,7 @@ struct ConquestReportContent: Equatable {
             let seconds = ActiveSiegeSession.normalizedActiveBattleSeconds(result.activeBattleSeconds)
             tiles.append(.battleTime(seconds: seconds))
         case .idle:
-            tiles.append(.buildings(count: max(0, result.idleBuildingCount ?? 0)))
+            tiles.append(.idleDamage(damage: result.totalIdleDamage))
         }
 
         tiles.append(.sentLost(

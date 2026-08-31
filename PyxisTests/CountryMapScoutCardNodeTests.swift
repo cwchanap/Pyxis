@@ -53,14 +53,30 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.titleTextForTesting == "City 3 · Falconridge")
         #expect(node.traitLineTextsForTesting.joined(separator: " ")
             == "Arrow Tower · Durable and fast melee troops perform better.")
-        #expect(node.favorableTextForTesting == "+ Inf Cav")
-        #expect(node.disadvantagedTextForTesting == "- Arc Mag")
+        #expect(node.favorableTextForTesting == "+ Inf Cav ×1.25")
+        #expect(node.disadvantagedTextForTesting == "- Arc Mag ×0.80")
         #expect(node.laneTextForTesting == "Open: Center")
         #expect(node.rewardTextForTesting == "27")
         #expect(node.attackTextForTesting == "MARCH")
         #expect(node.cardHitFrame == layout.cardFrame)
         #expect(node.attackHitFrame == layout.attackFrame)
         #expect(node.overlayHitFrame == nil)
+    }
+
+    @Test func footerReadbackAndVisibleTextIncludeTraitMultipliers() throws {
+        let spy = ScoutCardImageLoaderSpy(images: completeImageSet())
+        let node = CountryMapScoutCardNode(imageLoader: spy.load)
+        let layout = try scoutCardLayout(named: "small phone")
+
+        #expect(node.apply(
+            content: .scout(testScout(trait: .arrowTower)),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.favorableTextForTesting == "+ Inf Cav ×1.25")
+        #expect(node.disadvantagedTextForTesting == "- Arc Mag ×0.80")
+        #expect(node.favorableItemsForTesting.allSatisfy { $0.multiplierText == "×1.25" })
+        #expect(node.disadvantagedItemsForTesting.allSatisfy { $0.multiplierText == "×0.80" })
     }
 
     @Test("Selected scout cards use the authored city art without replacing content")
@@ -285,8 +301,8 @@ struct CountryMapScoutCardNodeTests {
             layout: layout,
             isEntryEnabled: true
         ) == .presented)
-        #expect(node.favorableTextForTesting == "+ Inf Cav")
-        #expect(node.disadvantagedTextForTesting == "- Arc Mag")
+        #expect(node.favorableTextForTesting == "+ Inf Cav ×1.25")
+        #expect(node.disadvantagedTextForTesting == "- Arc Mag ×0.80")
         #expect(node.favorableItemsForTesting.allSatisfy { $0.textureRect == nil && $0.iconSize == .zero })
         #expect(node.disadvantagedItemsForTesting.allSatisfy { $0.textureRect == nil && $0.iconSize == .zero })
         #expect(node.favorableItemsForTesting.allSatisfy { $0.labelIsInstalled && !$0.iconIsInstalled })
@@ -321,7 +337,7 @@ struct CountryMapScoutCardNodeTests {
             layout: boundaryLayout,
             isEntryEnabled: true
         ) == .presented)
-        #expect(missingNode.favorableTextForTesting == "+ Inf Cav")
+        #expect(missingNode.favorableTextForTesting == "+ Inf Cav ×1.25")
         #expect(missingNode.favorableItemsForTesting.allSatisfy {
             $0.labelIsInstalled && !$0.iconIsInstalled
         })

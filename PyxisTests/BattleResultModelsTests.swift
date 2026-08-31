@@ -130,8 +130,8 @@ struct BattleResultModelsTests {
         #expect(try JSONDecoder().decode(BattleLane.self, from: laneData) == .right)
     }
 
-    @Test("Idle building count round-trips and legacy results omit it")
-    func idleBuildingCountRoundTripsAndLegacyResultsDecode() throws {
+    @Test("Idle report projection uses durable damage and drops legacy building count")
+    func idleReportProjectionUsesDurableDamageAndDropsLegacyBuildingCount() throws {
         let currentJSONString = """
         {
           "cityKey": "1-3",
@@ -151,12 +151,17 @@ struct BattleResultModelsTests {
         """
         let currentJSON = Data(currentJSONString.utf8)
         let decoded = try JSONDecoder().decode(BattleResult.self, from: currentJSON)
-        #expect(decoded.idleBuildingCount == 2)
         let reencoded = try JSONEncoder().encode(decoded)
         let currentObject = try #require(
             JSONSerialization.jsonObject(with: reencoded) as? [String: Any]
         )
-        #expect(currentObject["idleBuildingCount"] as? Int == 2)
+        #expect(currentObject["idleBuildingCount"] == nil)
+        let currentReport = ConquestReportContent.project(
+            from: decoded,
+            title: "Falconridge Silenced"
+        )
+        #expect(currentReport.tiles.first?.labelText == "IDLE DAMAGE")
+        #expect(currentReport.tiles.first?.valueText == "2")
 
         let legacyJSON = currentJSONString.replacingOccurrences(
             of: "  \"idleBuildingCount\": 2,\n",
@@ -166,12 +171,38 @@ struct BattleResultModelsTests {
             BattleResult.self,
             from: Data(legacyJSON.utf8)
         )
-        #expect(legacy.idleBuildingCount == nil)
         let legacyReencoded = try JSONEncoder().encode(legacy)
         let legacyObject = try #require(
             JSONSerialization.jsonObject(with: legacyReencoded) as? [String: Any]
         )
         #expect(legacyObject["idleBuildingCount"] == nil)
+        let legacyReport = ConquestReportContent.project(
+            from: legacy,
+            title: "Falconridge Silenced"
+        )
+        #expect(legacyReport.tiles.first?.labelText == "IDLE DAMAGE")
+        #expect(legacyReport.tiles.first?.valueText == "2")
+
+        let emptyIdleResult = BattleResult(
+            cityKey: CityKey(countryNumber: 1, cityNumber: 3),
+            conquestMode: .idle,
+            activeBattleSeconds: 0,
+            deployments: [],
+            appliedDamage: [],
+            losses: [],
+            idleDamageByType: [],
+            mvpSoldierType: nil,
+            mvpDamageSharePercent: nil,
+            usedFavorableUnit: false,
+            usedExposedLane: false,
+            goldEarned: 17
+        )
+        let emptyReport = ConquestReportContent.project(
+            from: emptyIdleResult,
+            title: "Falconridge Silenced"
+        )
+        #expect(emptyReport.tiles.first?.labelText == "IDLE DAMAGE")
+        #expect(emptyReport.tiles.first?.valueText == "—")
     }
 
     @Test func decodedActiveBattleSecondsAreClampedNonNegativeAndFinite() throws {

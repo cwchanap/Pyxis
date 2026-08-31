@@ -200,6 +200,30 @@ struct BattleHUDNodeTests {
         #expect(node.action(at: CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY)) == .deploy)
     }
 
+    @Test func forgedGoldTexturesReuseOneSharedCoinAcrossRedraws() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        let content = BattleHUDContent.project(
+            from: KingdomGameState(cityNumberInCountry: 5, completedCityCount: 4),
+            manualCount: 0
+        )
+
+        #expect(node.apply(content: content, layout: layout) == .presented)
+        let goldIcon = try #require(node.childNode(withName: "battleGoldIcon") as? SKSpriteNode)
+        let recommendationCoin = try #require(
+            node.childNode(withName: "battleRecommendationCoinIcon") as? SKSpriteNode
+        )
+        let firstTexture = try #require(goldIcon.texture)
+        #expect(firstTexture === recommendationCoin.texture)
+
+        node.apply(content: content, layout: layout)
+        let secondTexture = try #require(goldIcon.texture)
+        #expect(firstTexture === secondTexture)
+    }
+
     @Test func applyProjectsGoldCityProgressAndNextRecommendationIntoSeparateBands() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),

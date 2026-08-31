@@ -264,6 +264,18 @@ final class GameplayTabBarNode: SKNode {
         }
     }
 
+    func apply(content: Content, frame: CGRect, hitFrames authoritativeHitFrames: [CGRect]) {
+        apply(content: content, frame: frame)
+        guard authoritativeHitFrames.count == GameplayTab.allCases.count else {
+            return
+        }
+
+        for (index, tab) in GameplayTab.allCases.enumerated()
+        where content.enabledTabs.contains(tab) {
+            hitFrames[tab] = authoritativeHitFrames[index]
+        }
+    }
+
     func tab(at point: CGPoint) -> GameplayTab? {
         guard !isHidden else {
             return nil

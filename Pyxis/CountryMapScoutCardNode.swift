@@ -29,12 +29,14 @@ final class CountryMapScoutCardNode: SKNode {
     private struct PreparedFooterItem {
         let type: SoldierType?
         let label: String
+        let multiplierText: String?
         let requestedImageName: String?
         let image: UIImage?
     }
 
     private struct RenderedFooterItem {
         let type: SoldierType?
+        let multiplierText: String?
         let requestedImageName: String?
         let labelNode: SKLabelNode
         let iconNode: SKSpriteNode?
@@ -100,6 +102,7 @@ final class CountryMapScoutCardNode: SKNode {
     struct FooterItemReadback: Equatable {
         let type: SoldierType?
         let label: String
+        let multiplierText: String?
         let requestedImageName: String?
         let textureRect: CGRect?
         let iconSize: CGSize
@@ -375,10 +378,12 @@ final class CountryMapScoutCardNode: SKNode {
 
         let favorableItems = preparedFooterItems(
             for: scout.defenseTrait.favorableSoldierTypes,
+            trait: scout.defenseTrait,
             layoutClass: layout.layoutClass
         )
         let disadvantagedItems = preparedFooterItems(
             for: scout.defenseTrait.disadvantagedSoldierTypes,
+            trait: scout.defenseTrait,
             layoutClass: layout.layoutClass
         )
         guard footerRequiredWidth(
@@ -446,23 +451,40 @@ final class CountryMapScoutCardNode: SKNode {
 
     private func preparedFooterItems(
         for types: [SoldierType],
+        trait: CityDefenseTrait,
         layoutClass: CountryMapLayoutClass
     ) -> [PreparedFooterItem] {
         guard !types.isEmpty else {
             return [
-                PreparedFooterItem(type: nil, label: "None", requestedImageName: nil, image: nil)
+                PreparedFooterItem(
+                    type: nil,
+                    label: "None",
+                    multiplierText: nil,
+                    requestedImageName: nil,
+                    image: nil
+                )
             ]
         }
 
+        let multiplierText = footerMultiplierText(
+            trait.damageMultiplier(for: types[0])
+        )
         return types.map { type in
             let frameName = "\(type.rawValue)-walk-01"
             return PreparedFooterItem(
                 type: type,
                 label: layoutClass == .phone ? compactName(for: type) : type.displayName,
+                multiplierText: multiplierText,
                 requestedImageName: frameName,
                 image: imageLoader(frameName)
             )
         }
+    }
+
+    private func footerMultiplierText(_ multiplier: Double) -> String? {
+        if multiplier == 1.25 { return "×1.25" }
+        if multiplier == 0.80 { return "×0.80" }
+        return nil
     }
 
     private func footerRequiredWidth(
@@ -773,11 +795,22 @@ final class CountryMapScoutCardNode: SKNode {
             cursorX += labelWidth
             renderedItems.append(RenderedFooterItem(
                 type: item.type,
+                multiplierText: item.multiplierText,
                 requestedImageName: item.requestedImageName,
                 labelNode: label,
                 iconNode: iconNode,
                 targetFrame: targetFrame
             ))
+        }
+        if let multiplierText = items.first?.multiplierText {
+            let multiplierLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+            multiplierLabel.name = "footerMultiplier"
+            configureLabel(multiplierLabel, horizontal: .right)
+            multiplierLabel.fontColor = GameUITheme.Color.textSecondary
+            multiplierLabel.fontSize = max(7, metrics.footerSize - 1)
+            multiplierLabel.text = multiplierText
+            multiplierLabel.position = CGPoint(x: frame.maxX, y: frame.midY)
+            container.addChild(multiplierLabel)
         }
         return renderedItems
     }
@@ -791,6 +824,7 @@ final class CountryMapScoutCardNode: SKNode {
             FooterItemReadback(
                 type: $0.type,
                 label: $0.labelNode.text ?? "",
+                multiplierText: $0.multiplierText,
                 requestedImageName: $0.requestedImageName,
                 textureRect: $0.iconNode?.texture?.textureRect(),
                 iconSize: $0.iconNode?.size ?? .zero,
@@ -1138,7 +1172,9 @@ extension CountryMapScoutCardNode {
         guard !items.isEmpty else {
             return nil
         }
-        return ([prefix] + items.map(\.label)).joined(separator: " ")
+        let multiplier = items.compactMap(\.multiplierText).first
+        return ([prefix] + items.map(\.label) + [multiplier].compactMap { $0 })
+            .joined(separator: " ")
     }
 }
 #endif

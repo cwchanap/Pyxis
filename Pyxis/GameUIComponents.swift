@@ -10,6 +10,7 @@ import UIKit
 final class PanelNode: SKNode {
     private static let shadowColor = SKColor(white: 0, alpha: 0.42)
     private static let primaryActionFillColor = SKColor(red: 0.42, green: 0.25, blue: 0.08, alpha: 0.98)
+    private static var forgedGradientTextures = [Style: SKTexture]()
 
     enum Appearance: Equatable {
         case standard
@@ -21,7 +22,7 @@ final class PanelNode: SKNode {
         case hexagon
     }
 
-    enum Style: Equatable {
+    enum Style: Hashable {
         case normal
         case selected
         case primaryAction
@@ -227,7 +228,11 @@ final class PanelNode: SKNode {
         let hasTexture = appearance == .forged
         plate.fillColor = hasTexture ? .white : fillColor
         plate.fillTexture = hasTexture
-            ? Self.gradientTexture(top: gradientTopColor, bottom: fillColor)
+            ? Self.forgedGradientTexture(
+                for: style,
+                top: gradientTopColor,
+                bottom: fillColor
+            )
             : nil
         plate.strokeColor = strokeColor
         highlight.strokeColor = highlightColor
@@ -235,6 +240,21 @@ final class PanelNode: SKNode {
             $0.fillColor = rivetColor
             $0.strokeColor = .clear
         }
+    }
+
+    private static func forgedGradientTexture(
+        for style: Style,
+        top: SKColor,
+        bottom: SKColor
+    ) -> SKTexture? {
+        if let cached = forgedGradientTextures[style] {
+            return cached
+        }
+        guard let texture = gradientTexture(top: top, bottom: bottom) else {
+            return nil
+        }
+        forgedGradientTextures[style] = texture
+        return texture
     }
 
     private static func gradientTexture(top: SKColor, bottom: SKColor) -> SKTexture? {

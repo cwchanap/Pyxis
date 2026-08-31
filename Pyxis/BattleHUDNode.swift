@@ -456,7 +456,7 @@ final class BattleHUDNode: SKNode {
             x: layout.recommendationFrame.midX,
             y: layout.recommendationFrame.midY
         )
-        goldIcon.texture = Self.goldTexture()
+        goldIcon.texture = Self.cachedGoldTexture
         goldIcon.size = CGSize(width: 34, height: 34)
         goldIcon.position = CGPoint(
             x: layout.incomeFrame.minX + 22,
@@ -547,7 +547,7 @@ final class BattleHUDNode: SKNode {
             x: layout.recommendationFrame.minX + 26,
             y: layout.recommendationFrame.midY
         )
-        recommendationCoinIcon.texture = Self.goldTexture()
+        recommendationCoinIcon.texture = Self.cachedGoldTexture
         recommendationCoinIcon.size = CGSize(width: 16, height: 16)
         recommendationCoinIcon.position = CGPoint(
             x: layout.recommendationFrame.maxX - 54,
@@ -769,7 +769,11 @@ final class BattleHUDNode: SKNode {
             bundle.label.position = CGPoint(x: frame.midX + 5, y: frame.midY)
             bundle.label.isHidden = chipText == nil
         }
-        tabBar.apply(content: content.tabContent, frame: layout.tabBarFrame)
+        tabBar.apply(
+            content: content.tabContent,
+            frame: layout.tabBarFrame,
+            hitFrames: layout.tabHitFrames
+        )
 
         deployHitFrame = layout.deployFrame
         return .presented
@@ -901,7 +905,9 @@ final class BattleHUDNode: SKNode {
         return type == .infantry ? "normal-soldier" : "\(type.rawValue)-soldier"
     }
 
-    private static func goldTexture() -> SKTexture? {
+    private static let cachedGoldTexture = makeGoldTexture()
+
+    private static func makeGoldTexture() -> SKTexture? {
         let size = CGSize(width: 34, height: 34)
         let image = UIGraphicsImageRenderer(size: size).image { context in
             let colors = [
