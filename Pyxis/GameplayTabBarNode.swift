@@ -308,8 +308,5 @@ extension GameplayTabBarNode {
         (tabBundles[tab]?.icon as? SKShapeNode)?.path?.boundingBox.size ?? .zero
     }
 
-    func iconColorBlendFactorForTesting(for tab: GameplayTab) -> CGFloat? {
-        (tabBundles[tab]?.icon as? SKSpriteNode)?.colorBlendFactor ?? 0
-    }
 }
 #endif

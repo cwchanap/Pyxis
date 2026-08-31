@@ -7,16 +7,6 @@ import CoreGraphics
 import SpriteKit
 import UIKit
 
-func gameUISymbolImage(named name: String, color: SKColor) -> UIImage? {
-    guard let symbol = UIImage(systemName: name) else { return nil }
-    let bounds = CGRect(origin: .zero, size: symbol.size)
-    return UIGraphicsImageRenderer(size: symbol.size).image { context in
-        context.cgContext.setFillColor(color.cgColor)
-        context.cgContext.fill(bounds)
-        symbol.draw(in: bounds, blendMode: .destinationIn, alpha: 1)
-    }
-}
-
 final class PanelNode: SKNode {
     private static let shadowColor = SKColor(white: 0, alpha: 0.42)
     private static let primaryActionFillColor = SKColor(red: 0.42, green: 0.25, blue: 0.08, alpha: 0.98)
@@ -234,8 +224,9 @@ final class PanelNode: SKNode {
         }
 
         plate.lineWidth = 1.5
-        plate.fillColor = fillColor
-        plate.fillTexture = appearance == .forged
+        let hasTexture = appearance == .forged
+        plate.fillColor = hasTexture ? .white : fillColor
+        plate.fillTexture = hasTexture
             ? Self.gradientTexture(top: gradientTopColor, bottom: fillColor)
             : nil
         plate.strokeColor = strokeColor

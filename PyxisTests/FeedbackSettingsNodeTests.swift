@@ -232,7 +232,6 @@ struct FeedbackSettingsNodeTests {
         #expect(gear.glyphIsVectorForTesting)
         #expect(gear.glyphFillAlphaForTesting == 0)
         #expect(gear.glyphSizeForTesting == CGSize(width: 21, height: 21))
-        #expect(gear.glyphColorBlendFactorForTesting == 0)
     }
 
     @Test func testingHelpersExposeLabel_textsAndControlCounts() throws {

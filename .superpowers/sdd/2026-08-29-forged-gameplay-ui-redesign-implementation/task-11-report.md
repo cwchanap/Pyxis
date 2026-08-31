@@ -224,3 +224,63 @@ Result: exit 0, no warnings. `rtk git diff --check`: exit 0.
 No screenshot or pixel-capture command was executed, per the round-3
 instruction; the controller-owned visual comparison remains the final visual
 gate.
+
+## Fix round 4/5: forged texture tint and dead-code cleanup
+
+The remaining material mismatch was isolated to `PanelNode.applyStyle`: forged
+plates installed a gradient texture but retained the dark bottom color as the
+SpriteKit texture tint, multiplying the authored gradient toward black. Forged
+plates now use a white fill tint while the gradient texture continues to carry
+the authored warm top/bottom colors; standard plates still use their existing
+fill color with no texture. The selected and primary-action material readbacks
+continue to assert their requested gradient texture, stroke alpha, and glow
+width/alpha. Battle HUD and Settings gear readbacks now assert the white forged
+tint plus their unchanged authored strokes.
+
+The orphaned `gameUISymbolImage` renderer and the obsolete vector-era
+`iconColorBlendFactorForTesting` / `glyphColorBlendFactorForTesting` hooks were
+removed now that all relevant glyphs are `SKShapeNode`s.
+
+TDD red run (serial):
+
+```text
+XcodeBuildMCP test_sim --extraArgs "-parallel-testing-enabled NO
+  -only-testing:PyxisTests/GameUIComponentsTests"
+```
+
+Before the production tint fix, the suite reported 8 passed, 1 failed; the
+new white-tint assertions failed with the forged plate tint readbacks at
+`0.20` / `0.439` red and `0.12` / `0.282` green, confirming the reported
+darkening path.
+
+Focused component/tab/gear verification (serial, simulator
+`771133AB-2A09-4C6E-85FD-9D7523E8D2C7`):
+
+```text
+XcodeBuildMCP test_sim --extraArgs "-parallel-testing-enabled NO
+  -only-testing:PyxisTests/GameUIComponentsTests
+  -only-testing:PyxisTests/GameplayTabBarNodeTests
+  -only-testing:PyxisTests/FeedbackSettingsNodeTests"
+```
+
+Result: 20 tests passed, 0 failed, 0 skipped. XcodeBuildMCP reported one
+pre-existing main-actor warning at
+`PyxisTests/GameplayFeedbackTestDoubles.swift:19`.
+
+Affected-suite verification (serial, same simulator):
+
+```text
+XcodeBuildMCP test_sim --extraArgs "-parallel-testing-enabled NO
+  -only-testing:PyxisTests/BattleChromeLayoutTests
+  -only-testing:PyxisTests/BattleHUDNodeTests
+  -only-testing:PyxisTests/BattleSceneTests
+  -only-testing:PyxisTests/FeedbackSettingsNodeTests
+  -only-testing:PyxisTests/GameUIComponentsTests
+  -only-testing:PyxisTests/GameplayTabBarNodeTests"
+```
+
+Result: 227 tests passed, 0 failed, 0 skipped. Targeted SwiftLint over the
+seven changed source/test files exited 0 with no warnings, and `git diff
+--check` exited 0. No screenshot or pixel-capture command was executed.
+
+Status: DONE pending controller-owned decisive visual capture.

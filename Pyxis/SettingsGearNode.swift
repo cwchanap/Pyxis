@@ -152,7 +152,6 @@ extension SettingsGearNode {
     var glyphSizeForTesting: CGSize { glyph.path?.boundingBox.size ?? .zero }
     var glyphIsVectorForTesting: Bool { glyph.path != nil }
     var glyphFillAlphaForTesting: CGFloat { glyph.fillColor.cgColor.alpha }
-    var glyphColorBlendFactorForTesting: CGFloat { 0 }
     var nodeCountForTesting: Int {
         var count = 0
         var stack: [SKNode] = [self]

@@ -253,7 +253,8 @@ struct BattleSceneTests {
 
         #expect(gear == layout.settingsFrame)
         #expect(nodeCount(in: scene, of: SettingsGearNode.self) == 1)
-        #expect(rgbaBytes(gearPlate.fillColor) == [25, 17, 8, 255])
+        #expect(gearPlate.fillTexture != nil)
+        #expect(rgbaBytes(gearPlate.fillColor) == [255, 255, 255, 255])
         #expect(rgbaBytes(gearPlate.strokeColor) == [198, 150, 80, 153])
         scene.handleTouchForTesting(at: gear.center)
         #expect(scene.isFeedbackSettingsVisibleForTesting)
