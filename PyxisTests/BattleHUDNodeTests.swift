@@ -45,6 +45,9 @@ struct BattleHUDNodeTests {
         let multiplier = try #require(
             node.childNode(withName: "//battleMedallionMultiplier-infantry") as? SKLabelNode
         )
+        let disadvantagedMultiplier = try #require(
+            node.childNode(withName: "//battleMedallionMultiplier-archer") as? SKLabelNode
+        )
         let pill = try #require(node.childNode(withName: "//battleMedallionPill-infantry"))
 
         #expect(progress.text == "3 / 15")
@@ -57,6 +60,7 @@ struct BattleHUDNodeTests {
         #expect(typeLabel.isHidden)
         #expect(status.isHidden)
         #expect(multiplier.text == "1.25")
+        #expect(disadvantagedMultiplier.text == "0.80")
         #expect(pill.isHidden == false)
     }
 

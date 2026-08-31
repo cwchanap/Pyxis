@@ -401,7 +401,10 @@ struct BattleSceneTests {
             let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
 
             #expect(gearFrame == layout.settingsFrame)
-            #expect(gearFrame.size == CGSize(width: 44, height: 44))
+            let expectedGearSize = size.height >= 780
+                ? CGSize(width: 46, height: 46)
+                : CGSize(width: 44, height: 44)
+            #expect(gearFrame.size == expectedGearSize)
             #expect(layout.topBandFrame.contains(gearFrame))
             #expect(nodeCount(in: scene, of: SettingsGearNode.self) == 1)
         }
@@ -482,11 +485,18 @@ struct BattleSceneTests {
         #expect(!scene.isBattlefieldLayerPausedForTesting)
         #expect(scene.battlefieldActionLayerPositionForTesting == .zero)
 
+        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+            sceneSize: scene.size,
+            safeAreaInsets: .zero
+        ))
         let tabPoints = [layout.tabHitFrames[2], layout.tabHitFrames[1]].map { frame in
-            // The bottom sheet covers the tab centers; use the exposed edge of
-            // each hit frame to verify the modal still consumes the tabs.
-            CGPoint(x: frame.midX, y: frame.minY + 4)
+            // The bottom sheet covers the tab centers; use the exposed edge
+            // above its close button to verify the modal still consumes tabs.
+            CGPoint(x: frame.midX, y: frame.maxY - 4)
         }
+        #expect(tabPoints.allSatisfy { point in
+            !settingsLayout.closeFrame.contains(point)
+        })
         for point in [layout.deployFrame.center] + tabPoints + [
             layout.incomeFrame.center,
             layout.cityProgressFrame.center
@@ -498,10 +508,6 @@ struct BattleSceneTests {
         #expect(!router.didRequestCountryMap)
         #expect(!router.didRequestBuildingView)
 
-        let settingsLayout = try #require(FeedbackSettingsLayout.compute(
-            sceneSize: scene.size,
-            safeAreaInsets: .zero
-        ))
         scene.handleTouchForTesting(at: settingsLayout.closeFrame.center)
 
         #expect(!scene.isFeedbackSettingsVisibleForTesting)

@@ -94,3 +94,78 @@ No simulator, xcodebuild, simctl, Xcode, GUI, or screenshot-capture command
 was executed. The focused Swift tests and fresh 393x852 native visual capture
 remain explicitly unexecuted because no concrete simulator destination is
 available. Status remains DONE_WITH_CONCERNS pending those runtime gates.
+
+## Fix round 2/5: modal hit probe, canonical gear size, and multiplier precision
+
+The parity run on `b519f5c` exposed three focused failures. The Settings modal
+already owns the production touch path and returns before Battle HUD routing;
+the failing test probe was instead landing inside the modal's full-width Done
+button. Its first tab-edge tap closed Settings, so the following tab tap could
+reach the underlying Battle router. The test now probes the exposed edge above
+the modal close frame while remaining inside each tab hit frame, preserving the
+valid Done action and accessibility behavior. The tall 393x852 fixture now
+expects the canonical 46x46 gear frame while the compact fixture retains its
+44x44 frame. The shared HUD multiplier formatter now uses fixed two-decimal
+formatting, so favorable and disadvantaged values render as `1.25` and `0.80`.
+
+Focused parity command (serial):
+
+```text
+XcodeBuildMCP test_sim --extraArgs "-parallel-testing-enabled NO \
+  -only-testing:PyxisTests/BattleSceneTests/battleSettingsBlocksInputAndPausesTheBattlefieldActionLayer \
+  -only-testing:PyxisTests/BattleSceneTests/battleHUDReservesSettingsSpaceAcrossPhoneFixtures \
+  -only-testing:PyxisTests/BattleHUDNodeTests/referenceHierarchySeparatesCityIdentityAndKeepsMedallionsPortraitLed"
+```
+
+Result: 3 tests passed, 0 failed, 0 skipped (83.6s). XcodeBuildMCP emitted
+two pre-existing Swift concurrency warnings in
+`PyxisTests/GameplayFeedbackTestDoubles.swift:19` and an unknown source
+location; neither was a test failure.
+
+Affected-suite parity command (serial):
+
+```text
+XcodeBuildMCP test_sim --extraArgs "-parallel-testing-enabled NO \
+  -only-testing:PyxisTests/BattleChromeLayoutTests \
+  -only-testing:PyxisTests/BattleHUDNodeTests \
+  -only-testing:PyxisTests/BattleSceneTests \
+  -only-testing:PyxisTests/FeedbackSettingsNodeTests \
+  -only-testing:PyxisTests/GameUIComponentsTests \
+  -only-testing:PyxisTests/GameplayTabBarNodeTests"
+```
+
+Result: 223 tests passed, 0 failed, 0 skipped (73.6s), on simulator
+`771133AB-2A09-4C6E-85FD-9D7523E8D2C7` (`Pyxis-Parity-393x852`).
+
+Targeted SwiftLint command:
+
+```text
+rtk swiftlint lint --quiet --no-cache --force-exclude \
+  Pyxis/BattleHUDNode.swift PyxisTests/BattleSceneTests.swift
+```
+
+Result: exit 0, no warnings.
+
+Diff check command: `rtk git diff --check`.
+
+Result: exit 0.
+
+Per the round-2 instruction, no screenshot, GUI, or pixel-capture command was
+executed. Visual capture remains an explicit unexecuted gate for a later round;
+the simulator test gate is green. Status: DONE.
+
+### Final round-2 verification after the disadvantaged-value assertion
+
+The focused command above was rerun unchanged after adding the explicit `0.80`
+assertion. Result: 3 tests passed, 0 failed, 0 skipped (45.8s). XcodeBuildMCP
+reported one pre-existing main-actor warning at
+`PyxisTests/GameplayFeedbackTestDoubles.swift:19`.
+
+The six-suite command above was also rerun against the final tree. Result: 223
+tests passed, 0 failed, 0 skipped (55.7s) on simulator
+`771133AB-2A09-4C6E-85FD-9D7523E8D2C7` (`Pyxis-Parity-393x852`).
+
+Final targeted SwiftLint command:
+`rtk swiftlint lint --quiet --no-cache --force-exclude Pyxis/BattleHUDNode.swift PyxisTests/BattleHUDNodeTests.swift PyxisTests/BattleSceneTests.swift`.
+Result: exit 0, no warnings. Final `rtk git diff --check`: exit 0. No
+screenshot/capture command was executed.

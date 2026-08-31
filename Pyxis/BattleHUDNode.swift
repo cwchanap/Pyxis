@@ -764,7 +764,7 @@ final class BattleHUDNode: SKNode {
     }
 
     private static func multiplierText(_ multiplier: Double) -> String {
-        String(format: "%.2g", multiplier)
+        String(format: "%.2f", multiplier)
     }
 
     private static func objectiveText(
