@@ -1211,8 +1211,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         isRoutingToBattle = true
         guard router?.countryMapSceneDidRequestGameplayTab(self, tab: tab) ?? false else {
             isRoutingToBattle = false
-            if idleResult.elapsedSeconds > 0,
-               idleResult.conqueredCities == 0,
+            if idleResult.conqueredCities == 0,
                state.stageStatus == .battleActive {
                 state.markCurrentCityBuildingProgressInactive(at: exitDate)
                 store.save(state)
