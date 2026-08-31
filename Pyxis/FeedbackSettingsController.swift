@@ -66,8 +66,11 @@ final class FeedbackSettingsController {
         return action
     }
 
-    func applyGearFrame(_ frame: CGRect) {
-        gear.apply(frame: frame)
+    func applyGearFrame(
+        _ frame: CGRect,
+        appearance: PanelNode.Appearance = .standard
+    ) {
+        gear.apply(frame: frame, appearance: appearance)
         accessibilityAdapter.applyGear(frame: gear.resolvedHitFrame)
     }
 

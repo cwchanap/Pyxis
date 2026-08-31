@@ -23,7 +23,7 @@ final class SettingsGearNode: SKNode {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func apply(frame: CGRect) {
+    func apply(frame: CGRect, appearance: PanelNode.Appearance = .standard) {
         guard frame.origin.x.isFinite,
               frame.origin.y.isFinite,
               frame.width.isFinite,
@@ -55,9 +55,15 @@ final class SettingsGearNode: SKNode {
             width: resolvedFrame.width,
             height: resolvedFrame.height
         )
-        tile.apply(size: resolvedFrame.size, style: .normal, showsRivets: true)
+        tile.apply(
+            size: resolvedFrame.size,
+            style: .normal,
+            showsRivets: true,
+            appearance: appearance
+        )
         tile.position = .zero
         hitShape.path = CGPath(rect: localHitFrame, transform: nil)
+        applyGlyphAppearance(appearance)
         glyph.size = Self.glyphSize
         glyph.position = .zero
         isHidden = false
@@ -76,6 +82,27 @@ final class SettingsGearNode: SKNode {
 
     var resolvedHitFrame: CGRect { hitFrame }
 
+    private func applyGlyphAppearance(_ appearance: PanelNode.Appearance) {
+        guard let symbol = UIImage(systemName: "gearshape.fill") else {
+            assertionFailure("Missing SF Symbol: gearshape.fill")
+            return
+        }
+
+        switch appearance {
+        case .standard:
+            glyph.texture = SKTexture(image: symbol)
+            glyph.color = GameUITheme.Color.textPrimary
+            glyph.colorBlendFactor = 1
+        case .forged:
+            guard let tinted = gameUISymbolImage(
+                named: "gearshape.fill",
+                color: SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+            ) else { return }
+            glyph.texture = SKTexture(image: tinted)
+            glyph.colorBlendFactor = 0
+        }
+    }
+
     private func configureTree() {
         name = Self.semanticName
         zPosition = GameUITheme.Z.hud + 2
@@ -91,13 +118,7 @@ final class SettingsGearNode: SKNode {
         hitShape.zPosition = 0
         addChild(hitShape)
 
-        if let image = UIImage(systemName: "gearshape.fill") {
-            glyph.texture = SKTexture(image: image)
-        } else {
-            assertionFailure("Missing SF Symbol: gearshape.fill")
-        }
-        glyph.color = GameUITheme.Color.textPrimary
-        glyph.colorBlendFactor = 1
+        applyGlyphAppearance(.standard)
         glyph.zPosition = 1
         addChild(glyph)
 
@@ -110,6 +131,7 @@ extension SettingsGearNode {
     var hitShapeNameForTesting: String? { hitShape.name }
     var hitFrameForTesting: CGRect { hitFrame }
     var glyphSizeForTesting: CGSize { glyph.size }
+    var glyphColorBlendFactorForTesting: CGFloat { glyph.colorBlendFactor }
     var nodeCountForTesting: Int {
         var count = 0
         var stack: [SKNode] = [self]

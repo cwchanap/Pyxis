@@ -425,3 +425,19 @@ Before runtime implementation starts, confirm this plan still states all of the 
 - Risks section and actionable Codecov fallback are present;
 - all five exact canonical PNGs are present before runtime implementation starts;
 - canonical mock/real/overlay evidence is required before leaving Draft.
+
+---
+
+## Task 11: Correct Battle to the canonical 393×852 reference after visual rejection
+
+**User-approved correction:** The prior Battle palette pass was rejected because the composition, information density, icon rendering, and material behavior still visibly diverged from `docs/visual-parity/forged-ui/battle.png`. Treat the exact HTML-derived reference below as binding visual data while preserving gameplay behavior, hit targets, accessibility, routing, and state ownership.
+
+**Files:** `BattleChromeLayout.swift`, `BattleHUDNode.swift`, `BattleScene.swift`, `GameUIComponents.swift`, `GameplayTabBarNode.swift`, `SettingsGearNode.swift`, and focused existing tests. Touch fewer files if the existing owners can express the correction.
+
+- [ ] **Step 1: RED exact reference geometry at 393×852.** Pin the canonical bands in full-screen top-origin coordinates: resource/gear `top 56, height 46, side margin 16`; city band `top 112`; recommendation `top 168, height 48`; medallions `bottom 154, height 56`; Deploy `bottom 90, height 58`; tab shell `bottom 0, height 82`. The battlefield between the recommendation and medallion bands remains 424...440 pt and never below the existing 416 pt regular minimum. Pin the selected tab tile at 96×52 inside the 82 pt shell and every interactive hit at ≥44×44.
+- [ ] **Step 2: RED information hierarchy.** Pin separate city progress and 21 pt uppercase city-title labels, a 14 pt HP bar without the redundant numeric HP label, one compact recommendation row, and portrait-led medallions with no soldier-type prose. Favorable/disadvantaged multipliers and lock/city requirements live only in the bottom medallion pill. Derive recommendation build/upgrade level detail from the existing city state; do not add or change game rules.
+- [ ] **Step 3: RED transparency/material checks.** Cream SF-symbol textures must preserve transparent corners. The gold indicator must render as a smooth coin rather than `gold-burst`. Forged panels use continuous top-to-bottom gradients rather than a solid fill plus rectangular half-sheen. The Battle atmosphere reproduces the reference vertical warm grade and inset vignette instead of a uniform overlay.
+- [ ] **Step 4: Implement through current owners only.** Reuse `PanelNode`, `BattleChromeLayout`, `BattleHUDNode`, `GameplayTabBarNode`, and the existing gear. Use native CoreGraphics/UIKit/SpriteKit rendering; add no dependency, generic styling framework, new asset pipeline, or duplicate interaction owner.
+- [ ] **Step 5: GREEN focused tests and lint.** Run the affected layout/HUD/component/tab/Battle suites serially, targeted SwiftLint, and `git diff --check`.
+- [ ] **Step 6: Launch the deterministic Battle fixture at 393×852.** Capture a fresh native screenshot, rebuild the side-by-side and 50% overlay, and inspect the actual rendered pixels. Do not claim parity from source geometry alone.
+- [ ] **Step 7: Commit the correction as one reviewed slice.**

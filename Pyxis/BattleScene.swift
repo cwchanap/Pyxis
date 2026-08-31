@@ -110,6 +110,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var playerCastleNode: SKNode?
     private var enemyCityNode: SKNode?
     private var battlefieldBackdropNode: SKSpriteNode?
+    private let forgedAtmosphereNode = SKSpriteNode(
+        color: SKColor(red: 52 / 255, green: 26 / 255, blue: 6 / 255, alpha: 1),
+        size: .zero
+    )
     private var battlefieldLayout = BattlefieldLayout(
         frame: .zero, structureHeight: 0,
         castleGatePoints: [:], enemyGatePoints: [:],
@@ -694,7 +698,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         applyBattleHUD()
 
         if let feedbackSettingsController {
-            feedbackSettingsController.applyGearFrame(layout.settingsFrame)
+            feedbackSettingsController.applyGearFrame(
+                layout.settingsFrame,
+                appearance: .forged
+            )
             feedbackSettingsController.gear.position = settingsGearHost.convert(
                 CGPoint(x: layout.settingsFrame.midX, y: layout.settingsFrame.midY),
                 from: self
@@ -935,6 +942,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             battlefieldBackdropNode = backdrop
         }
 
+        forgedAtmosphereNode.name = "battleForgedAtmosphere"
+        forgedAtmosphereNode.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        forgedAtmosphereNode.zPosition = GameUITheme.Z.background + 1
+        forgedAtmosphereNode.blendMode = .alpha
+        forgedAtmosphereNode.alpha = 1
+        forgedAtmosphereNode.colorBlendFactor = 0
+        environmentLayer.addChild(forgedAtmosphereNode)
+
         let castleNode = makeBattleSprite(
             named: BattleAssetName.playerCastle,
             fallbackColor: SKColor(red: 0.22, green: 0.40, blue: 0.64, alpha: 1.0)
@@ -1025,6 +1040,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
             battlefieldBackdropNode.setScale(scale)
         }
+        forgedAtmosphereNode.texture = makeForgedAtmosphereTexture(size: size)
+        forgedAtmosphereNode.size = size
+        forgedAtmosphereNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
 
         if let playerCastleNode {
             fitBattleNode(playerCastleNode, targetHeight: battlefieldLayout.structureHeight)
@@ -1051,6 +1069,50 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         layoutLaneIndicators()
         syncSoldierNodes()
         layoutMilestoneCityAccent()
+    }
+
+    private func makeForgedAtmosphereTexture(size: CGSize) -> SKTexture? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { context in
+            let warmColors = [
+                SKColor(red: 52 / 255, green: 26 / 255, blue: 6 / 255, alpha: 0.60).cgColor,
+                SKColor(red: 30 / 255, green: 16 / 255, blue: 4 / 255, alpha: 0.10).cgColor,
+                SKColor(red: 46 / 255, green: 14 / 255, blue: 4 / 255, alpha: 0.55).cgColor
+            ] as CFArray
+            if let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: warmColors,
+                locations: [0, 0.44, 1]
+            ) {
+                context.cgContext.drawLinearGradient(
+                    gradient,
+                    start: CGPoint(x: size.width / 2, y: 0),
+                    end: CGPoint(x: size.width / 2, y: size.height),
+                    options: []
+                )
+            }
+
+            let vignetteColors = [
+                SKColor(white: 0, alpha: 0).cgColor,
+                SKColor(red: 24 / 255, green: 10 / 255, blue: 2 / 255, alpha: 0.62).cgColor
+            ] as CFArray
+            if let vignette = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: vignetteColors,
+                locations: [0, 1]
+            ) {
+                context.cgContext.drawRadialGradient(
+                    vignette,
+                    startCenter: CGPoint(x: size.width / 2, y: size.height / 2),
+                    startRadius: min(size.width, size.height) * 0.18,
+                    endCenter: CGPoint(x: size.width / 2, y: size.height / 2),
+                    endRadius: max(size.width, size.height) * 0.72,
+                    options: []
+                )
+            }
+        }
+        return SKTexture(image: image)
     }
 
     private func layoutMilestoneCityAccent() {

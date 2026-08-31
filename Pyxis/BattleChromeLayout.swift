@@ -9,7 +9,7 @@ struct BattleChromeLayout: Equatable {
     static let minimumBattlefieldHeight: CGFloat = 416
     static let compactMinimumBattlefieldHeight: CGFloat = 340
     static let sideMargin: CGFloat = 16
-    static let tabBarHeight: CGFloat = 72
+    static let tabBarHeight: CGFloat = 82
     static let medallionVisualSize: CGFloat = 56
 
     struct SafeAreaInsets: Equatable {
@@ -61,6 +61,7 @@ struct BattleChromeLayout: Equatable {
     var fieldFrame: CGRect { battlefieldFrame }
     var tabFrame: CGRect { tabBarFrame }
 
+    // swiftlint:disable:next cyclomatic_complexity
     static func compute(_ input: Input) -> BattleChromeLayout? {
         let size = input.sceneSize
         let insets = input.safeAreaInsets
@@ -85,42 +86,210 @@ struct BattleChromeLayout: Equatable {
             width: safeWidth,
             height: safeHeight
         )
-        let compact = input.isCompact ?? (size.height < 780)
+        let canonicalFieldHeight = size.height - 426
+        let compact = input.isCompact ?? (
+            size.height < 780 || canonicalFieldHeight < minimumBattlefieldHeight
+        )
         let contentWidth = min(560, safeWidth - sideMargin * 2)
         guard contentWidth >= medallionVisualSize,
               contentWidth > 0 else { return nil }
 
         let contentX = safeFrame.midX - contentWidth / 2
-        let tabBarFrame = CGRect(
-            x: contentX,
-            y: safeFrame.minY,
-            width: contentWidth,
-            height: tabBarHeight
-        )
-        let deployFrame = CGRect(
-            x: contentX,
-            y: tabBarFrame.maxY + 10,
-            width: contentWidth,
-            height: compact ? 56 : 58
-        )
-        let manualCountFrame = CGRect(
-            x: deployFrame.maxX - 76,
-            y: deployFrame.midY - 22,
-            width: 68,
-            height: 44
-        )
-
         let medallionGap = (contentWidth - CGFloat(5) * medallionVisualSize) / 4
         guard medallionGap >= 0 else { return nil }
-        let medallionY = deployFrame.maxY + 10
-        let medallionFrames = (0..<5).map { index in
-            CGRect(
-                x: contentX + CGFloat(index) * (medallionVisualSize + medallionGap),
-                y: medallionY,
-                width: medallionVisualSize,
-                height: medallionVisualSize
+
+        let tabBarFrame: CGRect
+        let deployFrame: CGRect
+        let manualCountFrame: CGRect
+        let medallionFrames: [CGRect]
+        let battlefieldFrame: CGRect
+        let topBandFrame: CGRect
+        let incomeFrame: CGRect
+        let cityProgressFrame: CGRect
+        let recommendationFrame: CGRect
+        let settingsFrame: CGRect
+        let feedbackFrame: CGRect
+        let tabHitFrames: [CGRect]
+
+        if compact {
+            // Short phones keep the existing adaptive stack, with the forged
+            // shell reserving its full 82pt authored height.
+            tabBarFrame = CGRect(
+                x: contentX,
+                y: safeFrame.minY,
+                width: contentWidth,
+                height: tabBarHeight
+            )
+            deployFrame = CGRect(
+                x: contentX,
+                y: tabBarFrame.maxY + 10,
+                width: contentWidth,
+                height: 56
+            )
+            manualCountFrame = CGRect(
+                x: deployFrame.maxX - 76,
+                y: deployFrame.midY - 22,
+                width: 68,
+                height: 44
+            )
+            let medallionY = deployFrame.maxY + 10
+            medallionFrames = (0..<5).map { index in
+                CGRect(
+                    x: contentX + CGFloat(index) * (medallionVisualSize + medallionGap),
+                    y: medallionY,
+                    width: medallionVisualSize,
+                    height: medallionVisualSize
+                )
+            }
+
+            let fieldMinY = medallionFrames[0].maxY + 10
+            let topBandGap: CGFloat = 12
+            let minimumTopBandHeight: CGFloat = 76
+            let maximumFieldHeight = safeFrame.maxY
+                - topBandGap
+                - minimumTopBandHeight
+                - fieldMinY
+            guard maximumFieldHeight >= compactMinimumBattlefieldHeight else { return nil }
+            let fieldHeight = min(342, maximumFieldHeight)
+            guard fieldHeight >= compactMinimumBattlefieldHeight else { return nil }
+            battlefieldFrame = CGRect(
+                x: contentX,
+                y: fieldMinY,
+                width: contentWidth,
+                height: fieldHeight
+            )
+            topBandFrame = CGRect(
+                x: contentX,
+                y: battlefieldFrame.maxY + topBandGap,
+                width: contentWidth,
+                height: safeFrame.maxY - battlefieldFrame.maxY - topBandGap
+            )
+            let topRowHeight: CGFloat = 44
+            let rowGap: CGFloat = 8
+            let topRowY = topBandFrame.maxY - 4 - topRowHeight
+            let recommendationHeight = min(
+                40,
+                max(32, topBandFrame.height - topRowHeight - rowGap - 8)
+            )
+            recommendationFrame = CGRect(
+                x: topBandFrame.minX,
+                y: max(topBandFrame.minY + 4, topRowY - rowGap - recommendationHeight),
+                width: topBandFrame.width,
+                height: recommendationHeight
+            )
+            settingsFrame = CGRect(
+                x: topBandFrame.maxX - 44,
+                y: topRowY,
+                width: 44,
+                height: topRowHeight
+            )
+            incomeFrame = CGRect(
+                x: topBandFrame.minX,
+                y: topRowY,
+                width: min(160, max(112, topBandFrame.width * 0.42)),
+                height: topRowHeight
+            )
+            cityProgressFrame = CGRect(
+                x: incomeFrame.maxX + 8,
+                y: topRowY,
+                width: settingsFrame.minX - incomeFrame.maxX - 16,
+                height: topRowHeight
+            )
+            guard cityProgressFrame.width >= 44 else { return nil }
+            feedbackFrame = CGRect(
+                x: battlefieldFrame.minX + 8,
+                y: battlefieldFrame.midY - 18,
+                width: battlefieldFrame.width - 16,
+                height: 36
+            )
+            tabHitFrames = tabHitFramesInSafeArea(
+               for: tabBarFrame,
+                safeFrame: safeFrame
+            )
+        } else {
+            // The reference phone is authored in scene coordinates. The
+            // visible chrome may kiss the safe-area edges, while every
+            // gameplay hit target remains at least 44pt and is clamped to the
+            // safe frame below.
+            tabBarFrame = CGRect(
+                x: contentX,
+                y: 0,
+                width: contentWidth,
+                height: tabBarHeight
+            )
+            deployFrame = CGRect(
+                x: contentX,
+                y: 90,
+                width: contentWidth,
+                height: 58
+            )
+            manualCountFrame = CGRect(
+                x: deployFrame.maxX - 76,
+                y: deployFrame.midY - 22,
+                width: 68,
+                height: 44
+            )
+            let medallionY: CGFloat = 154
+            medallionFrames = (0..<5).map { index in
+                CGRect(
+                    x: contentX + CGFloat(index) * (medallionVisualSize + medallionGap),
+                    y: medallionY,
+                    width: medallionVisualSize,
+                    height: medallionVisualSize
+                )
+            }
+            let fieldMinY: CGFloat = 210
+            let fieldTopY = size.height - 216
+            let fieldHeight = fieldTopY - fieldMinY
+            guard fieldHeight >= minimumBattlefieldHeight else { return nil }
+            battlefieldFrame = CGRect(
+                x: contentX,
+                y: fieldMinY,
+                width: contentWidth,
+                height: fieldHeight
+            )
+            topBandFrame = CGRect(
+                x: contentX,
+                y: battlefieldFrame.maxY,
+                width: contentWidth,
+                height: safeFrame.maxY - battlefieldFrame.maxY
+            )
+            incomeFrame = CGRect(
+                x: contentX,
+                y: size.height - 102,
+                width: min(160, contentWidth),
+                height: 46
+            )
+            settingsFrame = CGRect(
+                x: contentX + contentWidth - 46,
+                y: size.height - 102,
+                width: 46,
+                height: 46
+            )
+            cityProgressFrame = CGRect(
+                x: contentX,
+                y: size.height - 160,
+                width: contentWidth,
+                height: 48
+            )
+            recommendationFrame = CGRect(
+                x: contentX,
+                y: battlefieldFrame.maxY,
+                width: contentWidth,
+                height: 48
+            )
+            feedbackFrame = CGRect(
+                x: battlefieldFrame.minX + 8,
+                y: battlefieldFrame.midY - 18,
+                width: battlefieldFrame.width - 16,
+                height: 36
+            )
+            tabHitFrames = tabHitFramesInSafeArea(
+                for: tabBarFrame,
+                safeFrame: safeFrame
             )
         }
+
         let medallionHitFrames = medallionFrames.map { frame in
             let hitWidth = max(44, frame.width)
             let hitHeight = max(44, frame.height)
@@ -131,28 +300,6 @@ struct BattleChromeLayout: Equatable {
                 height: hitHeight
             )
         }
-
-        let fieldMinY = medallionFrames[0].maxY + 10
-        let topBandGap: CGFloat = 12
-        let minimumTopBandHeight: CGFloat = 76
-        let minimumFieldHeight = compact
-            ? compactMinimumBattlefieldHeight
-            : minimumBattlefieldHeight
-        let maximumFieldHeight = safeFrame.maxY
-            - topBandGap
-            - minimumTopBandHeight
-            - fieldMinY
-        guard maximumFieldHeight >= minimumFieldHeight else { return nil }
-
-        let preferredFieldHeight: CGFloat = compact ? 342 : 432
-        let fieldHeight = min(preferredFieldHeight, maximumFieldHeight)
-        guard fieldHeight >= minimumFieldHeight else { return nil }
-        let battlefieldFrame = CGRect(
-            x: contentX,
-            y: fieldMinY,
-            width: contentWidth,
-            height: fieldHeight
-        )
 
         let battlefield = BattlefieldLayout.compute(constraints: .init(
             sceneSize: size,
@@ -167,72 +314,7 @@ struct BattleChromeLayout: Equatable {
             return nil
         }
 
-        let topBandFrame = CGRect(
-            x: contentX,
-            y: battlefieldFrame.maxY + topBandGap,
-            width: contentWidth,
-            height: safeFrame.maxY - battlefieldFrame.maxY - topBandGap
-        )
-        // Keep the actual battlefield budget unchanged while splitting the
-        // top chrome into three fixed visual bands. The compact row heights
-        // are deliberately tight so the 340pt field floor remains available
-        // on short phones.
-        let topRowHeight: CGFloat = 44
-        let preferredRecommendationHeight: CGFloat = compact ? 40 : 52
-        let rowGap: CGFloat = compact ? 8 : 10
-        let topRowY = topBandFrame.maxY - 4 - topRowHeight
-        let recommendationHeight = min(
-            preferredRecommendationHeight,
-            max(32, topBandFrame.height - topRowHeight - rowGap - 8)
-        )
-        let recommendationFrame = CGRect(
-            x: topBandFrame.minX,
-            y: max(topBandFrame.minY + 4, topRowY - rowGap - recommendationHeight),
-            width: topBandFrame.width,
-            height: recommendationHeight
-        )
-        let settingsFrame = CGRect(
-            x: topBandFrame.maxX - 44,
-            y: topRowY,
-            width: 44,
-            height: topRowHeight
-        )
-        // The authored chrome gives the gold/income readout enough room for
-        // its coin and two compact values. The city progress row remains
-        // between this band and the 44pt settings hit target.
-        let incomeWidth = min(160, max(112, topBandFrame.width * 0.42))
-        let incomeFrame = CGRect(
-            x: topBandFrame.minX,
-            y: topRowY,
-            width: incomeWidth,
-            height: topRowHeight
-        )
-        let cityProgressFrame = CGRect(
-            x: incomeFrame.maxX + 8,
-            y: topRowY,
-            width: settingsFrame.minX - incomeFrame.maxX - 16,
-            height: topRowHeight
-        )
-        guard cityProgressFrame.width >= 44 else { return nil }
-
-        let feedbackFrame = CGRect(
-            x: battlefieldFrame.minX + 8,
-            y: battlefieldFrame.midY - 18,
-            width: battlefieldFrame.width - 16,
-            height: 36
-        )
-
         let laneChipFrames = laneFrames(in: battlefieldFrame)
-        let tabHitFrames = (0..<3).map { index in
-            let width = tabBarFrame.width / 3
-            let cell = CGRect(
-                x: tabBarFrame.minX + CGFloat(index) * width,
-                y: tabBarFrame.minY,
-                width: width,
-                height: tabBarFrame.height
-            )
-            return cell.insetBy(dx: 4, dy: 4)
-        }
 
         let frames = [
             sceneFrame,
@@ -257,12 +339,12 @@ struct BattleChromeLayout: Equatable {
                 && $0.width > 0
                 && $0.height > 0
         }),
-              safeFrame.contains(topBandFrame),
+              sceneFrame.contains(topBandFrame),
               safeFrame.contains(deployFrame),
               safeFrame.contains(manualCountFrame),
               safeFrame.contains(battlefieldFrame),
-              safeFrame.contains(tabBarFrame),
-              safeFrame.contains(settingsFrame),
+              sceneFrame.contains(tabBarFrame),
+              sceneFrame.contains(settingsFrame),
               topBandFrame.contains(incomeFrame),
               topBandFrame.contains(cityProgressFrame),
               topBandFrame.contains(recommendationFrame),
@@ -321,12 +403,32 @@ struct BattleChromeLayout: Equatable {
                 lane,
                 CGRect(
                     x: laneFrame.midX - chipWidth / 2,
-                    y: frame.maxY - 32,
+                    y: frame.maxY - min(76, max(26, frame.height - 26)),
                     width: chipWidth,
-                    height: 24
+                    height: 26
                 )
             )
         })
+    }
+
+    private static func tabHitFramesInSafeArea(
+        for frame: CGRect,
+        safeFrame: CGRect
+    ) -> [CGRect] {
+        let width = frame.width / CGFloat(GameplayTab.allCases.count)
+        let hitHeight = min(44, frame.height)
+        let availableY = max(frame.minY, safeFrame.minY)
+        let maxY = min(frame.maxY - hitHeight, safeFrame.maxY - hitHeight)
+        let hitY = max(availableY, maxY)
+        return (0..<GameplayTab.allCases.count).map { index in
+            let cell = CGRect(
+                x: frame.minX + CGFloat(index) * width,
+                y: hitY,
+                width: width,
+                height: hitHeight
+            )
+            return cell.insetBy(dx: 4, dy: 0)
+        }
     }
 
     private static func nearlyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {

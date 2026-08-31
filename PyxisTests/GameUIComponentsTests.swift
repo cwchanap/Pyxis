@@ -80,4 +80,18 @@ struct GameUIComponentsTests {
         let semanticBoundsPadding: CGFloat = 2
         #expect(frame.minY >= -panel.contentSizeForTesting.height / 2 - semanticBoundsPadding)
     }
+
+    @Test func forgedPanelUsesAContinuousGradientWithoutASeparateSheenPlate() throws {
+        let panel = PanelNode(size: CGSize(width: 180, height: 58))
+        panel.apply(
+            size: CGSize(width: 180, height: 58),
+            style: .normal,
+            showsRivets: true,
+            appearance: .forged
+        )
+
+        let plate = try #require(panel.childNode(withName: "panelPlate") as? SKShapeNode)
+        #expect(plate.fillTexture != nil)
+        #expect(panel.childNode(withName: "panelSheen") == nil)
+    }
 }
