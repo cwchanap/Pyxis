@@ -121,6 +121,31 @@ was not changed.
   The Release `build_sim` returned 0, and `strings` proved both
   `-pyxis-forged-fixture` and `-pyxis-freeze-combat` absent.
 
+### Post-final-review verification (`bdd33cc`)
+
+- Final architecture/whole-branch review found no open P0-P3 findings and
+  approved plan/spec, runtime semantics, visual parity, architecture/YAGNI,
+  and code quality.
+- The current compiled product passed the same boundaries as CI with parallel
+  testing disabled: **859/859 PyxisTests** and **3/3 PyxisUITests**, with the
+  one intentional non-393x852 capture-smoke skip.
+- One immediate combined build-and-run exposed Apple AX ordering/initialization
+  behavior. The unchanged affected product passed **139/139** on rerun; the
+  unchanged split unit and UI targets then passed. No retry, sleep, disabled
+  test, accessibility workaround, or coverage-policy change was added.
+- Current unit result bundle:
+  `test_sim_2026-08-31T00-37-59-747Z_pid19904_7ef57679.xcresult`.
+- Current UI result bundle:
+  `test_sim_2026-08-31T00-39-34-436Z_pid19904_b1be6a94.xcresult`.
+- Current `Pyxis.app` line coverage is **94.61% (15,012/15,868)**, above the
+  90% project gate. Remote Codecov project/patch publication remains pending
+  until hosted CI runs.
+- SwiftLint exited 0 with 70 existing warnings and 0 serious violations;
+  `git diff --check origin/main...HEAD` passed; the worktree was clean.
+- A fresh Release build at
+  `/private/tmp/PyxisFinalRelease.KjXW5S/Build/Products/Release-iphonesimulator/Pyxis.app/Pyxis`
+  succeeded, and both DEBUG markers were absent.
+
 ## Evidence paths
 
 - Board: `docs/visual-parity/forged-ui/README.md`
