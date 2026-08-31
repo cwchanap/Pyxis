@@ -159,7 +159,7 @@ final class BattleHUDNode: SKNode {
         let panel: PanelNode
         let icon: SKSpriteNode
         let pill: SKShapeNode
-        let lockIcon: SKSpriteNode
+        let lockIcon: SKShapeNode
         let typeLabel: SKLabelNode
         let statusLabel: SKLabelNode
         let multiplierLabel: SKLabelNode
@@ -167,6 +167,7 @@ final class BattleHUDNode: SKNode {
 
     private struct LaneChipBundle {
         let background: SKShapeNode
+        let shield: SKShapeNode
         let label: SKLabelNode
     }
 
@@ -190,6 +191,7 @@ final class BattleHUDNode: SKNode {
     private let deployPanel = PanelNode(size: .zero)
     private let deployIcon = SKSpriteNode()
     private let deployLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let deployDivider = SKShapeNode()
     private let manualCountLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let tabBar = GameplayTabBarNode(appearance: .forged)
     private let medallions: [MedallionBundle]
@@ -205,7 +207,7 @@ final class BattleHUDNode: SKNode {
             let panel = PanelNode(size: .zero)
             let icon = SKSpriteNode()
             let pill = SKShapeNode()
-            let lockIcon = SKSpriteNode()
+            let lockIcon = SKShapeNode(path: Self.makeLockPath())
             let typeLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
             let statusLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
             let multiplierLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
@@ -224,9 +226,11 @@ final class BattleHUDNode: SKNode {
             icon.size = CGSize(width: 42, height: 42)
             icon.color = GameUITheme.Color.textPrimary
             icon.colorBlendFactor = 0
-            lockIcon.texture = UIImage(systemName: "lock.fill").map(SKTexture.init(image:))
-            lockIcon.color = SKColor(red: 1, green: 220 / 255, blue: 170 / 255, alpha: 1)
-            lockIcon.colorBlendFactor = 1
+            lockIcon.fillColor = .clear
+            lockIcon.strokeColor = SKColor(red: 1, green: 220 / 255, blue: 170 / 255, alpha: 1)
+            lockIcon.lineWidth = 1.2
+            lockIcon.lineCap = .round
+            lockIcon.lineJoin = .round
             for label in [typeLabel, statusLabel, multiplierLabel] {
                 label.horizontalAlignmentMode = .center
                 label.verticalAlignmentMode = .center
@@ -260,18 +264,25 @@ final class BattleHUDNode: SKNode {
         }
         laneChips = Dictionary(uniqueKeysWithValues: BattleLane.allCases.map { lane in
             let background = SKShapeNode()
+            let shield = SKShapeNode(path: Self.makeShieldPath())
             let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
             background.name = "battleLaneChip-\(lane.rawValue)"
             background.fillColor = GameUITheme.Color.panelFill.withAlphaComponent(0.92)
             background.strokeColor = GameUITheme.Color.panelStroke
             background.lineWidth = 1
+            shield.name = "battleLaneChipShield-\(lane.rawValue)"
+            shield.fillColor = .clear
+            shield.strokeColor = GameUITheme.Color.textPrimary
+            shield.lineWidth = 1.2
+            shield.lineCap = .round
+            shield.lineJoin = .round
             label.name = "battleLaneChipLabel-\(lane.rawValue)"
             label.text = "OPEN"
             label.fontSize = 9
             label.fontColor = GameUITheme.Color.textPrimary
             label.horizontalAlignmentMode = .center
             label.verticalAlignmentMode = .center
-            return (lane, LaneChipBundle(background: background, label: label))
+            return (lane, LaneChipBundle(background: background, shield: shield, label: label))
         })
         super.init()
         name = "battleHUD"
@@ -295,6 +306,7 @@ final class BattleHUDNode: SKNode {
         deployPanel.name = "battleDeployPanel"
         deployIcon.name = "battleDeployIcon"
         deployLabel.name = "battleDeployLabel"
+        deployDivider.name = "battleDeployDivider"
         manualCountLabel.name = "battleManualCountLabel"
 
         for label in [
@@ -335,7 +347,7 @@ final class BattleHUDNode: SKNode {
         )
         recommendationArrowLabel.fontSize = 17
         recommendationArrowLabel.fontColor = GameUITheme.Color.textSecondary
-        deployLabel.fontSize = 16
+        deployLabel.fontSize = 18
         manualCountLabel.fontSize = 13
 
         addChild(incomePanel)
@@ -361,9 +373,11 @@ final class BattleHUDNode: SKNode {
         addChild(deployPanel)
         addChild(deployIcon)
         addChild(deployLabel)
+        addChild(deployDivider)
         addChild(manualCountLabel)
         for lane in BattleLane.allCases {
             addChild(laneChips[lane]!.background)
+            addChild(laneChips[lane]!.shield)
             addChild(laneChips[lane]!.label)
         }
         addChild(tabBar)
@@ -479,16 +493,22 @@ final class BattleHUDNode: SKNode {
         cityProgressLabel.fontSize = 11
         cityProgressLabel.fontColor = SKColor(red: 255 / 255, green: 207 / 255, blue: 138 / 255, alpha: 1)
         cityProgressLabel.horizontalAlignmentMode = .left
-        cityProgressLabel.position = CGPoint(
-            x: layout.cityProgressFrame.minX,
-            y: layout.cityProgressFrame.maxY - 21
-        )
         cityTitleLabel.text = content.cityTitle.uppercased()
         cityTitleLabel.fontSize = 21
         cityTitleLabel.horizontalAlignmentMode = .left
+        let cityGroupGap: CGFloat = 9
+        let cityGroupWidth = cityProgressLabel.frame.width
+            + cityGroupGap
+            + cityTitleLabel.frame.width
+        let cityGroupMinX = layout.cityProgressFrame.midX - cityGroupWidth / 2
+        let cityGroupY = layout.cityProgressFrame.maxY - 21
+        cityProgressLabel.position = CGPoint(
+            x: cityGroupMinX,
+            y: cityGroupY
+        )
         cityTitleLabel.position = CGPoint(
-            x: layout.cityProgressFrame.minX + cityProgressLabel.frame.width + 9,
-            y: layout.cityProgressFrame.maxY - 21
+            x: cityGroupMinX + cityProgressLabel.frame.width + cityGroupGap,
+            y: cityGroupY
         )
         cityHPLabel.text = nil
         cityHPLabel.isHidden = true
@@ -631,7 +651,6 @@ final class BattleHUDNode: SKNode {
                 x: isLocked ? 4 : 0,
                 y: -23.5
             )
-            bundle.lockIcon.size = CGSize(width: 8, height: 8)
             bundle.lockIcon.position = CGPoint(x: -7, y: -23.5)
             bundle.lockIcon.isHidden = !isLocked
         }
@@ -645,16 +664,8 @@ final class BattleHUDNode: SKNode {
         deployPanel.position = CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY)
         deployIcon.texture = Self.texture(for: content.selectedSoldierType)
         deployIcon.size = CGSize(width: 46, height: 46)
-        deployIcon.position = CGPoint(
-            x: layout.deployFrame.midX - 78,
-            y: layout.deployFrame.midY
-        )
         deployLabel.text = "DEPLOY"
         deployLabel.fontColor = SKColor(red: 1, green: 244 / 255, blue: 222 / 255, alpha: 1)
-        deployLabel.position = CGPoint(
-            x: layout.deployFrame.midX - 12,
-            y: layout.deployFrame.midY
-        )
         manualCountLabel.text = "\(content.manualCount)/\(content.manualCapacity)"
         manualCountLabel.fontColor = SKColor(
             red: 1,
@@ -662,9 +673,47 @@ final class BattleHUDNode: SKNode {
             blue: 200 / 255,
             alpha: 0.85
         )
+        let deploySpacing: CGFloat = 20
+        let deployDividerWidth: CGFloat = 1
+        let deployClusterWidth = deployIcon.size.width
+            + deploySpacing
+            + deployLabel.frame.width
+            + deploySpacing
+            + deployDividerWidth
+            + deploySpacing
+            + manualCountLabel.frame.width
+        let deployClusterMinX = layout.deployFrame.midX - deployClusterWidth / 2
+        let deployCenterY = layout.deployFrame.midY
+        deployIcon.position = CGPoint(
+            x: deployClusterMinX + deployIcon.size.width / 2,
+            y: deployCenterY
+        )
+        deployLabel.position = CGPoint(
+            x: deployIcon.position.x + deployIcon.size.width / 2
+                + deploySpacing
+                + deployLabel.frame.width / 2,
+            y: deployCenterY
+        )
+        let dividerX = deployLabel.position.x + deployLabel.frame.width / 2
+            + deploySpacing
+            + deployDividerWidth / 2
+        deployDivider.path = CGPath(
+            rect: CGRect(
+                x: -deployDividerWidth / 2,
+                y: -11,
+                width: deployDividerWidth,
+                height: 22
+            ),
+            transform: nil
+        )
+        deployDivider.fillColor = SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 0.65)
+        deployDivider.strokeColor = .clear
+        deployDivider.position = CGPoint(x: dividerX, y: deployCenterY)
         manualCountLabel.position = CGPoint(
-            x: layout.manualCountFrame.midX,
-            y: layout.manualCountFrame.midY
+            x: dividerX + deployDividerWidth / 2
+                + deploySpacing
+                + manualCountLabel.frame.width / 2,
+            y: deployCenterY
         )
         for lane in BattleLane.allCases {
             let frame = layout.laneChipFrames[lane]!
@@ -709,9 +758,15 @@ final class BattleHUDNode: SKNode {
             bundle.background.strokeColor = chipColor.withAlphaComponent(0.75)
             bundle.background.lineWidth = 1.5
             bundle.background.isHidden = chipText == nil
+            bundle.shield.strokeColor = chipColor
+            bundle.shield.position = CGPoint(
+                x: frame.minX + 11,
+                y: frame.midY
+            )
+            bundle.shield.isHidden = chipText == nil
             bundle.label.text = chipText
             bundle.label.fontColor = chipColor
-            bundle.label.position = CGPoint(x: frame.midX, y: frame.midY)
+            bundle.label.position = CGPoint(x: frame.midX + 5, y: frame.midY)
             bundle.label.isHidden = chipText == nil
         }
         tabBar.apply(content: content.tabContent, frame: layout.tabBarFrame)
@@ -765,6 +820,42 @@ final class BattleHUDNode: SKNode {
 
     private static func multiplierText(_ multiplier: Double) -> String {
         String(format: "%.2f", multiplier)
+    }
+
+    private static func makeLockPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: -3.5, y: -4))
+        path.addLine(to: CGPoint(x: 3.5, y: -4))
+        path.addLine(to: CGPoint(x: 3.5, y: 1))
+        path.addLine(to: CGPoint(x: -3.5, y: 1))
+        path.closeSubpath()
+        path.move(to: CGPoint(x: -2.5, y: 1))
+        path.addCurve(
+            to: CGPoint(x: 2.5, y: 1),
+            control1: CGPoint(x: -2.5, y: 4),
+            control2: CGPoint(x: 2.5, y: 4)
+        )
+        return path
+    }
+
+    private static func makeShieldPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 5))
+        path.addLine(to: CGPoint(x: 4, y: 3))
+        path.addLine(to: CGPoint(x: 4, y: -1))
+        path.addCurve(
+            to: CGPoint(x: 0, y: -5),
+            control1: CGPoint(x: 4, y: -3),
+            control2: CGPoint(x: 2.5, y: -4.5)
+        )
+        path.addCurve(
+            to: CGPoint(x: -4, y: -1),
+            control1: CGPoint(x: -2.5, y: -4.5),
+            control2: CGPoint(x: -4, y: -3)
+        )
+        path.addLine(to: CGPoint(x: -4, y: 3))
+        path.closeSubpath()
+        return path
     }
 
     private static func objectiveText(

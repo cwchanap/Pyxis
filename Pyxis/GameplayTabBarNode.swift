@@ -5,7 +5,6 @@
 
 import CoreGraphics
 import SpriteKit
-import UIKit
 
 enum GameplayTab: CaseIterable, Hashable {
     case battle
@@ -50,14 +49,6 @@ final class GameplayTabBarNode: SKNode {
             title.zPosition = 1
             attention.zPosition = 2
 
-            if let icon = icon as? SKSpriteNode {
-                if appearance == .standard {
-                    icon.color = GameUITheme.Color.textPrimary
-                    icon.colorBlendFactor = 1
-                }
-                icon.size = CGSize(width: 20, height: 20)
-            }
-
             title.text = tab.title
             title.fontSize = 11
             title.fontColor = GameUITheme.Color.textPrimary
@@ -81,39 +72,62 @@ final class GameplayTabBarNode: SKNode {
     private var hitFrames = [GameplayTab: CGRect]()
 
     private static func makeIcon(for tab: GameplayTab, appearance: Appearance) -> SKNode {
-        if tab == .battle {
-            let path = CGMutablePath()
-            path.move(to: CGPoint(x: -7, y: -7))
-            path.addLine(to: CGPoint(x: 7, y: 7))
-            path.move(to: CGPoint(x: -4, y: 0))
-            path.addLine(to: CGPoint(x: 0, y: -4))
-            path.move(to: CGPoint(x: 7, y: -7))
-            path.addLine(to: CGPoint(x: -7, y: 7))
-            path.move(to: CGPoint(x: 4, y: 0))
-            path.addLine(to: CGPoint(x: 0, y: -4))
-
-            let glyph = SKShapeNode(path: path)
-            glyph.name = "gameplayTabGlyph-battle"
-            glyph.strokeColor = GameUITheme.Color.textPrimary
-            glyph.fillColor = .clear
-            glyph.lineWidth = 2
-            glyph.lineCap = .round
-            glyph.lineJoin = .round
-            return glyph
+        let path: CGPath
+        switch tab {
+        case .battle:
+            let battlePath = CGMutablePath()
+            battlePath.move(to: CGPoint(x: -7, y: -7))
+            battlePath.addLine(to: CGPoint(x: 7, y: 7))
+            battlePath.move(to: CGPoint(x: -4, y: 0))
+            battlePath.addLine(to: CGPoint(x: 0, y: -4))
+            battlePath.move(to: CGPoint(x: 7, y: -7))
+            battlePath.addLine(to: CGPoint(x: -7, y: 7))
+            battlePath.move(to: CGPoint(x: 4, y: 0))
+            battlePath.addLine(to: CGPoint(x: 0, y: -4))
+            path = battlePath
+        case .camp:
+            let campPath = CGMutablePath()
+            campPath.move(to: CGPoint(x: -12.5, y: -1))
+            campPath.addLine(to: CGPoint(x: 0, y: 12.5))
+            campPath.addLine(to: CGPoint(x: 12.5, y: -1))
+            campPath.addLine(to: CGPoint(x: 9.5, y: -1))
+            campPath.addLine(to: CGPoint(x: 9.5, y: -12.5))
+            campPath.addLine(to: CGPoint(x: -9.5, y: -12.5))
+            campPath.addLine(to: CGPoint(x: -9.5, y: -1))
+            campPath.closeSubpath()
+            campPath.move(to: CGPoint(x: 0, y: -12.5))
+            campPath.addLine(to: CGPoint(x: 0, y: -4))
+            campPath.addLine(to: CGPoint(x: 3, y: -4))
+            campPath.addLine(to: CGPoint(x: 3, y: -12.5))
+            path = campPath
+        case .map:
+            let mapPath = CGMutablePath()
+            mapPath.move(to: CGPoint(x: -12.5, y: -10.5))
+            mapPath.addLine(to: CGPoint(x: -4, y: -12.5))
+            mapPath.addLine(to: CGPoint(x: 4, y: -10.5))
+            mapPath.addLine(to: CGPoint(x: 12.5, y: -12.5))
+            mapPath.addLine(to: CGPoint(x: 12.5, y: 10.5))
+            mapPath.addLine(to: CGPoint(x: 4, y: 12.5))
+            mapPath.addLine(to: CGPoint(x: -4, y: 10.5))
+            mapPath.addLine(to: CGPoint(x: -12.5, y: 12.5))
+            mapPath.closeSubpath()
+            mapPath.move(to: CGPoint(x: -4, y: -12.5))
+            mapPath.addLine(to: CGPoint(x: -4, y: 10))
+            mapPath.move(to: CGPoint(x: 4, y: -10.5))
+            mapPath.addLine(to: CGPoint(x: 4, y: 12))
+            path = mapPath
         }
 
-        let image: UIImage?
-        switch appearance {
-        case .standard:
-            image = UIImage(systemName: tab.symbolName)
-        case .forged:
-            image = gameUISymbolImage(
-                named: tab.symbolName,
-                color: SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
-            )
-        }
-        guard let image else { return SKNode() }
-        return SKSpriteNode(texture: SKTexture(image: image))
+        let glyph = SKShapeNode(path: path)
+        glyph.name = "gameplayTabGlyph-\(tab.name)"
+        glyph.strokeColor = appearance == .forged
+            ? SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+            : GameUITheme.Color.textPrimary
+        glyph.fillColor = .clear
+        glyph.lineWidth = tab == .battle ? 2 : 1.8
+        glyph.lineCap = .round
+        glyph.lineJoin = .round
+        return glyph
     }
 
     init(appearance: Appearance = .standard) {
@@ -271,13 +285,6 @@ private extension GameplayTab {
         name.uppercased()
     }
 
-    var symbolName: String {
-        switch self {
-        case .battle: return "crossed.swords"
-        case .camp: return "house.fill"
-        case .map: return "map.fill"
-        }
-    }
 }
 
 #if DEBUG
@@ -297,8 +304,12 @@ extension GameplayTabBarNode {
         hitFrames[tab]
     }
 
+    func iconSizeForTesting(for tab: GameplayTab) -> CGSize {
+        (tabBundles[tab]?.icon as? SKShapeNode)?.path?.boundingBox.size ?? .zero
+    }
+
     func iconColorBlendFactorForTesting(for tab: GameplayTab) -> CGFloat? {
-        (tabBundles[tab]?.icon as? SKSpriteNode)?.colorBlendFactor
+        (tabBundles[tab]?.icon as? SKSpriteNode)?.colorBlendFactor ?? 0
     }
 }
 #endif

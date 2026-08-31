@@ -1,6 +1,5 @@
 import CoreGraphics
 import SpriteKit
-import UIKit
 
 final class SettingsGearNode: SKNode {
     static let semanticName = "feedbackSettingsGear"
@@ -10,7 +9,7 @@ final class SettingsGearNode: SKNode {
 
     private let tile = PanelNode(size: .zero)
     private let hitShape = SKShapeNode()
-    private let glyph = SKSpriteNode()
+    private let glyph = SKShapeNode(path: SettingsGearNode.makeGlyphPath())
     private var hitFrame = CGRect.zero
     private var localHitFrame = CGRect.zero
 
@@ -64,7 +63,6 @@ final class SettingsGearNode: SKNode {
         tile.position = .zero
         hitShape.path = CGPath(rect: localHitFrame, transform: nil)
         applyGlyphAppearance(appearance)
-        glyph.size = Self.glyphSize
         glyph.position = .zero
         isHidden = false
     }
@@ -83,24 +81,45 @@ final class SettingsGearNode: SKNode {
     var resolvedHitFrame: CGRect { hitFrame }
 
     private func applyGlyphAppearance(_ appearance: PanelNode.Appearance) {
-        guard let symbol = UIImage(systemName: "gearshape.fill") else {
-            assertionFailure("Missing SF Symbol: gearshape.fill")
-            return
-        }
+        glyph.fillColor = .clear
+        glyph.strokeColor = appearance == .forged
+            ? SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+            : GameUITheme.Color.textPrimary
+        glyph.lineWidth = 1.5
+        glyph.lineCap = .round
+        glyph.lineJoin = .round
+    }
 
-        switch appearance {
-        case .standard:
-            glyph.texture = SKTexture(image: symbol)
-            glyph.color = GameUITheme.Color.textPrimary
-            glyph.colorBlendFactor = 1
-        case .forged:
-            guard let tinted = gameUISymbolImage(
-                named: "gearshape.fill",
-                color: SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
-            ) else { return }
-            glyph.texture = SKTexture(image: tinted)
-            glyph.colorBlendFactor = 0
+    private static func makeGlyphPath() -> CGPath {
+        let path = CGMutablePath()
+        let outerRadius = Self.glyphSize.width / 2
+        let innerRadius = outerRadius * 0.4
+        path.addEllipse(in: CGRect(
+            x: -innerRadius,
+            y: -innerRadius,
+            width: innerRadius * 2,
+            height: innerRadius * 2
+        ))
+        path.addEllipse(in: CGRect(
+            x: -outerRadius * 0.8,
+            y: -outerRadius * 0.8,
+            width: outerRadius * 1.6,
+            height: outerRadius * 1.6
+        ))
+        for index in 0..<8 {
+            let angle = CGFloat(index) * (.pi / 4)
+            let innerPoint = CGPoint(
+                x: cos(angle) * outerRadius * 0.6,
+                y: sin(angle) * outerRadius * 0.6
+            )
+            let outerPoint = CGPoint(
+                x: cos(angle) * outerRadius,
+                y: sin(angle) * outerRadius
+            )
+            path.move(to: innerPoint)
+            path.addLine(to: outerPoint)
         }
+        return path
     }
 
     private func configureTree() {
@@ -130,8 +149,10 @@ final class SettingsGearNode: SKNode {
 extension SettingsGearNode {
     var hitShapeNameForTesting: String? { hitShape.name }
     var hitFrameForTesting: CGRect { hitFrame }
-    var glyphSizeForTesting: CGSize { glyph.size }
-    var glyphColorBlendFactorForTesting: CGFloat { glyph.colorBlendFactor }
+    var glyphSizeForTesting: CGSize { glyph.path?.boundingBox.size ?? .zero }
+    var glyphIsVectorForTesting: Bool { glyph.path != nil }
+    var glyphFillAlphaForTesting: CGFloat { glyph.fillColor.cgColor.alpha }
+    var glyphColorBlendFactorForTesting: CGFloat { 0 }
     var nodeCountForTesting: Int {
         var count = 0
         var stack: [SKNode] = [self]

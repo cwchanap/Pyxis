@@ -221,7 +221,7 @@ struct FeedbackSettingsNodeTests {
         #expect(gear.hitFrameForTesting == frame)
     }
 
-    @Test func forgedGearUsesASourceTintedGlyphForDarkPanelContrast() {
+    @Test func forgedGearUsesA21PointOutlineVectorForDarkPanelContrast() {
         let gear = SettingsGearNode()
 
         gear.apply(
@@ -229,11 +229,10 @@ struct FeedbackSettingsNodeTests {
             appearance: .forged
         )
 
+        #expect(gear.glyphIsVectorForTesting)
+        #expect(gear.glyphFillAlphaForTesting == 0)
+        #expect(gear.glyphSizeForTesting == CGSize(width: 21, height: 21))
         #expect(gear.glyphColorBlendFactorForTesting == 0)
-        #expect(brightestImageRGBSum(gameUISymbolImage(
-            named: "gearshape.fill",
-            color: SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
-        )) > 600)
     }
 
     @Test func testingHelpersExposeLabel_textsAndControlCounts() throws {

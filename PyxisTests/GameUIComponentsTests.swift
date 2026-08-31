@@ -94,4 +94,28 @@ struct GameUIComponentsTests {
         #expect(plate.fillTexture != nil)
         #expect(panel.childNode(withName: "panelSheen") == nil)
     }
+
+    @Test func forgedSelectedPanelUsesWarmAmberSurfaceAndGlow() throws {
+        let panel = PanelNode(size: CGSize(width: 96, height: 52))
+        panel.apply(
+            size: CGSize(width: 96, height: 52),
+            style: .selected,
+            showsRivets: false,
+            appearance: .forged
+        )
+
+        let plate = try #require(panel.childNode(withName: "panelPlate") as? SKShapeNode)
+        let shadow = try #require(panel.childNode(withName: "panelShadow") as? SKShapeNode)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        plate.fillColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+        #expect(red > 0.4)
+        #expect(green > 0.25)
+        #expect(blue < green)
+        #expect(shadow.lineWidth >= 6)
+        #expect(shadow.strokeColor.cgColor.alpha >= 0.4)
+    }
 }
