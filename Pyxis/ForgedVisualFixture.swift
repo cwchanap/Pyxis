@@ -24,10 +24,6 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         }
     }
 
-    var conquestBuildingCount: Int {
-        self == .conquestIdle ? 2 : 0
-    }
-
     init?(launchArguments: [String]) {
         guard let markerIndex = launchArguments.firstIndex(of: Self.launchArgument),
               markerIndex + 1 < launchArguments.count else {

@@ -45,20 +45,36 @@ struct ConquestReportContentTests {
     }
 
     @Test("Idle BUILDINGS tile uses occupied slots rather than damage type rows")
-    func idleReportUsesCallerOwnedBuildingCount() {
-        let cityState = CityBattleState(slots: [
-            1: CityBuilding(type: .barracks),
-            2: CityBuilding(type: .barracks)
-        ])
+    func idleReportUsesPersistedBuildingCount() throws {
+        let resultJSON = Data("""
+        {
+          "cityKey": "1-3",
+          "conquestMode": "idle",
+          "activeBattleSeconds": 0,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [
+            {"type": "infantry", "damage": 2}
+          ],
+          "idleBuildingCount": 2,
+          "mvpSoldierType": "infantry",
+          "mvpDamageSharePercent": 100,
+          "usedFavorableUnit": false,
+          "usedExposedLane": false,
+          "goldEarned": 17
+        }
+        """.utf8)
+        let result = try JSONDecoder().decode(BattleResult.self, from: resultJSON)
         let content = ConquestReportContent.project(
-            from: makeResult(mode: .idle, mvp: nil, share: nil),
-            title: "Falconridge Silenced",
-            buildingCount: cityState.occupiedSlotCount
+            from: result,
+            title: "Falconridge Silenced"
         )
 
         #expect(content.tiles == [
+            .mvp(soldierType: .infantry, sharePercent: 100),
             .buildings(count: 2),
-            .sentLost(sent: 7, lost: 2)
+            .sentLost(sent: 0, lost: 0)
         ])
     }
 

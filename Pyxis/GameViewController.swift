@@ -210,13 +210,12 @@ final class GameViewController: UIViewController {
 
     private func presentSceneForCurrentStage(
         in view: SKView,
-        preferredTab: GameplayTab = .battle,
-        conquestBuildingCount: Int? = nil
+        preferredTab: GameplayTab = .battle
     ) {
         let state = store.load()
 
         if state.pendingBattleResult != nil {
-            presentBattleScene(in: view, conquestBuildingCount: conquestBuildingCount)
+            presentBattleScene(in: view)
             return
         }
 
@@ -224,7 +223,7 @@ final class GameViewController: UIViewController {
         case .battleActive:
             switch preferredTab {
             case .battle:
-                presentBattleScene(in: view, conquestBuildingCount: conquestBuildingCount)
+                presentBattleScene(in: view)
             case .camp:
                 presentBuildingViewScene(in: view)
             case .map:
@@ -235,7 +234,7 @@ final class GameViewController: UIViewController {
         }
     }
 
-    private func presentBattleScene(in view: SKView, conquestBuildingCount: Int? = nil) {
+    private func presentBattleScene(in view: SKView) {
         requestedMapGateReason = nil
         let scene = BattleScene(
             size: view.bounds.size,
@@ -243,8 +242,7 @@ final class GameViewController: UIViewController {
             router: self,
             feedback: feedbackRuntime.feedback,
             feedbackPreferences: feedbackRuntime.preferences,
-            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter,
-            conquestBuildingCount: conquestBuildingCount
+            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
         )
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
@@ -388,8 +386,7 @@ extension GameViewController: CountryMapSceneRouting {
 
         presentSceneForCurrentStage(
             in: view,
-            preferredTab: tab,
-            conquestBuildingCount: scene.pendingIdleConquestBuildingCountForRouting
+            preferredTab: tab
         )
         return true
     }
@@ -438,8 +435,7 @@ extension GameViewController {
         store.save(fixture.makeState())
         presentSceneForCurrentStage(
             in: view,
-            preferredTab: fixture.preferredTab,
-            conquestBuildingCount: fixture.conquestBuildingCount
+            preferredTab: fixture.preferredTab
         )
         if fixture == .battleBlocked,
            let battleScene = view.scene as? BattleScene {

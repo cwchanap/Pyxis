@@ -913,6 +913,39 @@ struct GameViewControllerTests {
         #expect(battle.isConquestPopupVisibleForTesting)
     }
 
+    @Test func relaunchedControllerRestoresIdleConquestBuildingCount() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        _ = initialState.buildBuilding(.barracks, inSlot: 2, at: start)
+        _ = initialState.returnFromBackground(at: start.addingTimeInterval(30_000))
+
+        let store = try makeStore(initialState: initialState)
+        let firstController = makeGameViewController(store: store)
+        let firstView = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        firstController.view = firstView
+        firstController.viewDidLoad()
+        let firstBattle = try #require(firstView.scene as? BattleScene)
+        firstBattle.didMove(to: firstView)
+        #expect(firstBattle.conquestReportBuildingCountForTesting == 2)
+
+        let relaunchedController = makeGameViewController(store: store)
+        let relaunchedView = SKView(frame: firstView.frame)
+        relaunchedController.view = relaunchedView
+        relaunchedController.viewDidLoad()
+        let relaunchedBattle = try #require(relaunchedView.scene as? BattleScene)
+        relaunchedBattle.didMove(to: relaunchedView)
+
+        #expect(relaunchedBattle.lastConquestReportOriginForTesting == "restored")
+        #expect(relaunchedBattle.conquestReportBuildingCountForTesting == 2)
+    }
+
     @Test func buildingViewBattleRequestRestoresPendingIdleReport() throws {
         let store = try makeStore(initialState: pendingConqueredState(
             city: 1, stage: .cityConqueredPendingMap, mode: .idle

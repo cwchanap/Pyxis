@@ -188,7 +188,11 @@ struct ActiveSiegeSession: Codable, Equatable {
         value.isFinite ? max(0, value) : 0
     }
 
-    func finalized(conquestMode: BattleConquestMode, goldEarned: Int) -> BattleResult {
+    func finalized(
+        conquestMode: BattleConquestMode,
+        goldEarned: Int,
+        idleBuildingCount: Int? = nil
+    ) -> BattleResult {
         // Use Decimal so many distinct Int.max rows for the same type (different
         // source/lane) keep exact relative magnitude for MVP ranking and share.
         var damageByType: [SoldierType: Decimal] = [:]
@@ -223,7 +227,8 @@ struct ActiveSiegeSession: Codable, Equatable {
             mvpDamageSharePercent: mvpPercent,
             usedFavorableUnit: usedFavorableUnit,
             usedExposedLane: usedExposedLane,
-            goldEarned: goldEarned
+            goldEarned: goldEarned,
+            idleBuildingCount: idleBuildingCount
         )
     }
 
@@ -244,6 +249,9 @@ struct BattleResult: Codable, Equatable {
     var appliedDamage: [SiegeDamageAttribution]
     var losses: [SiegeLossCount]
     var idleDamageByType: [SiegeIdleDamageByType]
+    /// Occupied building slots that produced an idle conquest. Optional so
+    /// results written before this field existed remain decodable.
+    var idleBuildingCount: Int?
     var mvpSoldierType: SoldierType?
     var mvpDamageSharePercent: Int?
     var usedFavorableUnit: Bool
@@ -258,6 +266,7 @@ struct BattleResult: Codable, Equatable {
         case appliedDamage
         case losses
         case idleDamageByType
+        case idleBuildingCount
         case mvpSoldierType
         case mvpDamageSharePercent
         case usedFavorableUnit
@@ -277,7 +286,8 @@ struct BattleResult: Codable, Equatable {
         mvpDamageSharePercent: Int?,
         usedFavorableUnit: Bool,
         usedExposedLane: Bool,
-        goldEarned: Int
+        goldEarned: Int,
+        idleBuildingCount: Int? = nil
     ) {
         self.cityKey = cityKey
         self.conquestMode = conquestMode
@@ -286,6 +296,7 @@ struct BattleResult: Codable, Equatable {
         self.appliedDamage = saturatingNormalizedDamageAttribution(appliedDamage)
         self.losses = saturatingNormalizedLosses(losses)
         self.idleDamageByType = saturatingNormalizedIdleDamage(idleDamageByType)
+        self.idleBuildingCount = idleBuildingCount.map { max(0, $0) }
         self.mvpSoldierType = mvpSoldierType
         self.mvpDamageSharePercent = mvpDamageSharePercent
         self.usedFavorableUnit = usedFavorableUnit
@@ -349,7 +360,11 @@ struct BattleResult: Codable, Equatable {
             ),
             usedFavorableUnit: try container.decode(Bool.self, forKey: .usedFavorableUnit),
             usedExposedLane: try container.decode(Bool.self, forKey: .usedExposedLane),
-            goldEarned: try container.decode(Int.self, forKey: .goldEarned)
+            goldEarned: try container.decode(Int.self, forKey: .goldEarned),
+            idleBuildingCount: try container.decodeIfPresent(
+                Int.self,
+                forKey: .idleBuildingCount
+            )
         )
     }
 
@@ -366,7 +381,8 @@ struct BattleResult: Codable, Equatable {
             mvpDamageSharePercent: mvpDamageSharePercent,
             usedFavorableUnit: usedFavorableUnit,
             usedExposedLane: usedExposedLane,
-            goldEarned: goldEarned
+            goldEarned: goldEarned,
+            idleBuildingCount: idleBuildingCount
         )
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(normalized.cityKey, forKey: .cityKey)
@@ -376,6 +392,7 @@ struct BattleResult: Codable, Equatable {
         try container.encode(normalized.appliedDamage, forKey: .appliedDamage)
         try container.encode(normalized.losses, forKey: .losses)
         try container.encode(normalized.idleDamageByType, forKey: .idleDamageByType)
+        try container.encodeIfPresent(normalized.idleBuildingCount, forKey: .idleBuildingCount)
         try container.encodeIfPresent(normalized.mvpSoldierType, forKey: .mvpSoldierType)
         try container.encodeIfPresent(
             normalized.mvpDamageSharePercent,

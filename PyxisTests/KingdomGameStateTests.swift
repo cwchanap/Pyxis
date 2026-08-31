@@ -1636,7 +1636,7 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .countryComplete)
     }
 
-    @Test func buildingIdleDamageCanConquerCurrentCity() {
+    @Test func buildingIdleDamageCanConquerCurrentCity() throws {
         let start = Date(timeIntervalSinceReferenceDate: 3_000)
         let end = start.addingTimeInterval(1_000)
         var state = KingdomGameState(gold: 100, cityRemainingPower: 2)
@@ -1654,6 +1654,10 @@ struct KingdomGameStateTests {
         #expect(state.completedCityCount == 1)
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 1)).occupiedSlotCount == 0)
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.idleBuildingCount == 2)
+        let report = ConquestReportContent.project(from: pending, title: "Willowford Secured")
+        #expect(report.tiles.contains(.buildings(count: 2)))
     }
 
     @Test func activeBuildingSpawnsAdvanceTimersAndEmitSpawnEvents() {

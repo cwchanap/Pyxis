@@ -66,7 +66,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private var isSystemBackgrounded = false
     private var isRoutingToBattle = false
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
-    private(set) var pendingIdleConquestBuildingCountForRouting: Int?
 
     private(set) var lastLayoutResult: CountryMapLayoutResult?
     private(set) var countryMapLayout: CountryMapLayout?
@@ -1202,21 +1201,22 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return
         }
 
-        pendingIdleConquestBuildingCountForRouting = nil
-        let buildingCount = state.cityBattleStateForCurrentCity.occupiedSlotCount
-        let idleResult = state.returnFromBackground(at: Date())
+        let exitDate = Date()
+        let idleResult = state.returnFromBackground(at: exitDate)
         lastIdleProgressResult = idleResult
         store.save(state)
         applyIdleProgressFeedback(idleResult)
         redraw()
 
-        if idleResult.conqueredCities > 0 {
-            pendingIdleConquestBuildingCountForRouting = buildingCount
-        }
-
         isRoutingToBattle = true
         guard router?.countryMapSceneDidRequestGameplayTab(self, tab: tab) ?? false else {
             isRoutingToBattle = false
+            if idleResult.elapsedSeconds > 0,
+               idleResult.conqueredCities == 0,
+               state.stageStatus == .battleActive {
+                state.markCurrentCityBuildingProgressInactive(at: exitDate)
+                store.save(state)
+            }
             redraw()
             return
         }
