@@ -172,7 +172,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var isMilestoneArrivalVisible = false
     private var hasPresentedMilestoneConquestFlourish = false
     private var lastAppliedConquestReportContent: ConquestReportContent?
-    private var conquestBuildingCount = 0
     private var isGoldBurstRemovalScheduled = false
     private var goldBurstRemovalTask: Task<Void, Never>?
 
@@ -219,8 +218,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         },
         feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil,
         launchArguments: [String]? = nil,
-        combatSeed: UInt64? = nil,
-        conquestBuildingCount: Int? = nil
+        combatSeed: UInt64? = nil
     ) {
         let loadedState = store.load()
         self.store = store
@@ -231,7 +229,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.feedback = feedback
         self.feedbackPreferences = feedbackPreferences
         self.feedbackSettingsAccessibilityAdapter = feedbackSettingsAccessibilityAdapter
-        self.conquestBuildingCount = max(0, conquestBuildingCount ?? 0)
         #if DEBUG
         self.isCombatFrozen = (launchArguments ?? ProcessInfo.processInfo.arguments)
             .contains(Self.freezeCombatLaunchArgument)
@@ -249,7 +246,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.feedback = NoOpGameplayFeedbackProvider()
         self.feedbackPreferences = FeedbackPreferencesStore.shared
         self.feedbackSettingsAccessibilityAdapter = nil
-        self.conquestBuildingCount = 0
         #if DEBUG
         self.isCombatFrozen = ProcessInfo.processInfo.arguments.contains(Self.freezeCombatLaunchArgument)
         #endif
@@ -1113,10 +1109,23 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         milestoneCityAccent.isHidden = false
     }
 
+    private func hideCityHPBar() {
+        cityHPBarBackground.isHidden = true
+        cityHPBarFill.isHidden = true
+        cityHPBarBackground.path = nil
+        cityHPBarFill.path = nil
+    }
+
     private func layoutCityHPBar() {
         #if DEBUG
         layoutCityHPBarCallCount &+= 1
         #endif
+        guard !isConquestReportVisible, !isConquestReportFitFailed else {
+            hideCityHPBar()
+            return
+        }
+        cityHPBarBackground.isHidden = false
+        cityHPBarFill.isHidden = false
         guard battlefieldLayout.isVisible, let enemyCityNode else {
             cityHPBarBackground.path = nil
             cityHPBarFill.path = nil
@@ -1375,6 +1384,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func refreshBattleHUD() {
+        layoutCityHPBar()
         applyBattleHUD()
     }
 
@@ -2531,7 +2541,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func handleSceneWillEnterForeground(at date: Date) {
-        let idleBuildingCount = state.cityBattleStateForCurrentCity.occupiedSlotCount
         let result = state.returnFromBackground(at: date)
 
         store.save(state)
@@ -2539,7 +2548,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
-                conquestBuildingCount = idleBuildingCount
                 feedbackSettingsController?.setSettingsAccessibilityActionable(false)
                 closeFeedbackSettings(focusTarget: .systemDefault)
                 emitFreshOutcomeFeedback(
@@ -2599,13 +2607,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func conquestReportContent(for result: BattleResult) -> ConquestReportContent {
         .project(
             from: result,
-            title: KingdomGameState.displayConquestTitle(for: result.cityKey),
-            buildingCount: result.conquestMode == .idle
-                ? max(
-                    conquestBuildingCount,
-                    state.cityBattleState(for: result.cityKey).occupiedSlotCount
-                )
-                : 0
+            title: KingdomGameState.displayConquestTitle(for: result.cityKey)
         )
     }
 
@@ -2791,7 +2793,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         isConquestReportVisible = true
         isConquestReportFitFailed = false
         hasPresentedPendingConquestReport = true
-            refreshBattleHUD()
+        refreshBattleHUD()
         return result
     }
 
@@ -3584,7 +3586,7 @@ extension BattleScene {
     func forceDismissConquestOverlayForTesting() {
         isConquestReportVisible = false
         conquestReportNode.isHidden = true
-            refreshBattleHUD()
+        refreshBattleHUD()
     }
 
     /// Presents the conquest report flag without requiring a live conquest, so

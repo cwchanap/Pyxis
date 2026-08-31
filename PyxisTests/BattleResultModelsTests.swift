@@ -130,6 +130,50 @@ struct BattleResultModelsTests {
         #expect(try JSONDecoder().decode(BattleLane.self, from: laneData) == .right)
     }
 
+    @Test("Idle building count round-trips and legacy results omit it")
+    func idleBuildingCountRoundTripsAndLegacyResultsDecode() throws {
+        let currentJSONString = """
+        {
+          "cityKey": "1-3",
+          "conquestMode": "idle",
+          "activeBattleSeconds": 0,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [
+            {"type": "infantry", "damage": 2}
+          ],
+          "idleBuildingCount": 2,
+          "usedFavorableUnit": false,
+          "usedExposedLane": false,
+          "goldEarned": 17
+        }
+        """
+        let currentJSON = Data(currentJSONString.utf8)
+        let decoded = try JSONDecoder().decode(BattleResult.self, from: currentJSON)
+        #expect(decoded.idleBuildingCount == 2)
+        let reencoded = try JSONEncoder().encode(decoded)
+        let currentObject = try #require(
+            JSONSerialization.jsonObject(with: reencoded) as? [String: Any]
+        )
+        #expect(currentObject["idleBuildingCount"] as? Int == 2)
+
+        let legacyJSON = currentJSONString.replacingOccurrences(
+            of: "  \"idleBuildingCount\": 2,\n",
+            with: ""
+        )
+        let legacy = try JSONDecoder().decode(
+            BattleResult.self,
+            from: Data(legacyJSON.utf8)
+        )
+        #expect(legacy.idleBuildingCount == nil)
+        let legacyReencoded = try JSONEncoder().encode(legacy)
+        let legacyObject = try #require(
+            JSONSerialization.jsonObject(with: legacyReencoded) as? [String: Any]
+        )
+        #expect(legacyObject["idleBuildingCount"] == nil)
+    }
+
     @Test func decodedActiveBattleSecondsAreClampedNonNegativeAndFinite() throws {
         let negativeSessionJSON = """
         {

@@ -2631,23 +2631,33 @@ struct BattleSceneTests {
         let scene = makeScene(
             store: try makeStore(initialState: pendingConqueredState(city: 3, mode: .live))
         )
+        let hpBar = try #require(scene.childNode(withName: "//cityHPBarBackground"))
+        let hpFill = try #require(scene.childNode(withName: "//cityHPBarFill") as? SKShapeNode)
 
         #expect(scene.feedbackSettingsGearHiddenForTesting)
+        #expect(hpBar.isHidden)
+        #expect(hpFill.path == nil)
 
         scene.forceDismissConquestOverlayForTesting()
         #expect(!scene.feedbackSettingsGearHiddenForTesting)
+        #expect(!hpBar.isHidden)
 
         scene.presentConquestPopupForTesting()
         #expect(scene.feedbackSettingsGearHiddenForTesting)
+        #expect(hpBar.isHidden)
+        #expect(hpFill.path == nil)
 
         scene.forceDismissConquestOverlayForTesting()
         scene.setConquestReportFitFailedForTesting(true)
         scene.redrawForTesting(shouldLayout: false)
         #expect(scene.feedbackSettingsGearHiddenForTesting)
+        #expect(hpBar.isHidden)
+        #expect(hpFill.path == nil)
 
         scene.setConquestReportFitFailedForTesting(false)
         scene.redrawForTesting(shouldLayout: false)
         #expect(!scene.feedbackSettingsGearHiddenForTesting)
+        #expect(!hpBar.isHidden)
     }
 
     @Test("Restored City 10 gets static milestone treatment without flourish replay")
@@ -3069,10 +3079,12 @@ struct BattleSceneTests {
     @Test func cityHPBarFillVisibleWhenCityHasPower() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
         let scene = makeScene(store: store)
+        let hpBar = try #require(scene.childNode(withName: "//cityHPBarBackground"))
 
         // Positive case: with power remaining the fill path is non-nil so the
         // green HP sliver renders. Paired with the zero-power test below to
         // isolate the power==0 branch from full conquest teardown.
+        #expect(!hpBar.isHidden)
         #expect(!scene.isCityHPBarFillHiddenForTesting)
     }
 

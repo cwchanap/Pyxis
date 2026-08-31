@@ -7,7 +7,11 @@ markers compile out of Release, the fixture smoke verifies the required routes
 and state transitions, and the parity board contains direct native captures,
 deterministic overlays, and discrepancy notes. The final-review evidence also
 recaptures Camp empty/occupied and Conquest live/idle after the route, count,
-gear, and fixture-state fixes. `progress.md` was not changed.
+gear, and fixture-state fixes. Round 2 persists the idle occupied-slot count
+in `BattleResult` (legacy results decode without it), clears both city HP-bar
+nodes whenever a Conquest report is visible or fit-failed, and re-arms the
+building clock only after a rejected nonlethal Map-to-Battle route. `progress.md`
+was not changed.
 
 ## Implementation
 
@@ -41,13 +45,17 @@ gear, and fixture-state fixes. `progress.md` was not changed.
   `selectedSlot=1;mode=inspector` against the six-building fixture.
 - Idle Conquest fixture data is now produced by the real building-driven idle
   settlement path: two Barracks create nonempty typed idle damage, conquer City
-  3, award the authoritative `+17`, and project the caller-owned occupied-slot
-  count as `2 BUILDINGS`. BattleResult coding/finalization remains unchanged.
+  3, award the authoritative `+17`, and finalize an optional persisted
+  occupied-slot count of `2 BUILDINGS` before the city grid is cleared. Live
+  results leave this field absent; legacy JSON without the field still decodes.
 - Country Map → Battle tab exit now settles the existing background clock before
-  the central pending/stage route, saves exactly once, redraws/applies idle
-  feedback, and restores lethal idle conquest reports. Conquest reports keep
-  the sole Settings gear hidden while visible or fit-failed, including restored
-  and resize paths.
+  the central pending/stage route, saves once on an accepted route, redraws and
+  applies idle feedback, and restores lethal idle conquest reports. If a
+  nonlethal route is rejected while the city remains active, it re-arms the
+  building timestamp at the same exit date and saves the retry state once more;
+  lethal pending state is not re-armed. Conquest reports keep the sole Settings
+  gear and both city HP-bar nodes hidden/cleared while visible or fit-failed,
+  including restored and resize paths.
 - Added only the accessibility-surface identifier/value needed to expose the
   existing gameplay route state and Settings preference transition to XCTest.
   Rendering, routing, persistence, and gameplay ownership remain unchanged.
@@ -77,45 +85,41 @@ gear, and fixture-state fixes. `progress.md` was not changed.
   only as result-bundle attachments and are explicitly not labeled as native
   board captures.
 - Passing dedicated smoke result bundle:
-  `test_sim_2026-08-30T22-40-11-991Z_pid19570_8c96f413.xcresult`
+  `test_sim_2026-08-30T23-42-46-973Z_pid19570_369eddfd.xcresult`
 - CI-shaped iPhone 17 smoke result bundle:
-  `test_sim_2026-08-30T22-41-55-222Z_pid19570_b2379340.xcresult`
+  `test_sim_2026-08-30T23-45-38-493Z_pid19570_5b490aa3.xcresult`
 - Full serial result bundle:
-  `test_sim_2026-08-30T22-43-57-522Z_pid19570_71a2c86d.xcresult`
+  `test_sim_2026-08-30T23-50-37-478Z_pid19570_ecb0f093.xcresult`
 
 ## Verification
 
 - Focused freeze test: passed.
 - Focused fixture-hook semantics: **12 passed, 0 failed, 0 skipped**.
 - Fixture UI smoke on the dedicated device: **1 passed, 0 failed, 0 skipped**
-  (66.5s test-case time; 85.6s result duration). The full serial run also
-  passed all non-skipped fixture assertions.
+  (102.2s result duration). The full serial run also passed all non-skipped
+  fixture assertions.
 - CI-shaped iPhone 17 capture smoke: **0 passed, 0 failed, 1 skipped**
-  (9.6s test-case time; 87.8s result duration), with the skip raised after the
-  baseline app frame was read and before the fixture loop.
+  (285.1s result duration), with the skip raised after the baseline app frame
+  was read and before the fixture loop.
 - Full serial unit + UI run with `-parallel-testing-enabled NO` and coverage:
-  **858 passed, 0 failed, 1 skipped** out of 859 tests in 392.3s. The one skip
+  **861 passed, 0 failed, 1 skipped** out of 862 tests in 168.4s. The one skip
   is the intentional iPhone 17 capture-smoke geometry gate.
 - Local coverage from the fresh full result bundle is **96.7% overall**
-  (35,136/36,348), with Pyxis.app **94.6%** (15,001/15,856) and PyxisTests
-  **98.7%** (20,073/20,330). The executable-added-line patch proxy is
-  **97.34% (256/263)**, above the requested 90% gate. The seven uncovered
-  lines are defensive BattleScene/DEBUG-probe fallbacks and UI expected-string
-  branches skipped by the iPhone 17 geometry gate. Remote Codecov remains an
-  external pending gate until CI publishes the report.
+  (35,292/36,501), with Pyxis.app **94.6%** (15,017/15,869) and PyxisTests
+  **98.7%** (20,213/20,470). The executable-added-line patch proxy is
+  **94.99% (3,978/4,188)** against the branch merge-base, above the requested
+  90% gate. Remote Codecov remains an external pending gate until CI publishes
+  the report.
 - SwiftLint `lint --no-cache`: completed with 70 pre-existing warnings and 0
   serious violations; no warning originates from the added lines. The only
   warnings in touched Swift files are existing BattleScene/UI-test template
   line-length warnings.
 - `git diff --check origin/main...HEAD` and working-tree `git diff --check`:
   passed.
-- Release build used fresh derived data:
-  `/private/tmp/PyxisForgedReleaseFinalFixRound1.escalated`
-  (`Release-iphonesimulator/Pyxis.app/Pyxis`). A confirming incremental
-  `xcodebuild` returned 0, and `strings` proved both `-pyxis-forged-fixture`
-  and `-pyxis-freeze-combat` absent. The first three attempts were blocked by
-  a host CoreSimulatorService crash; restarting only that user-scoped service
-  allowed the fresh build to complete.
+- Release build used fresh derived data via XcodeBuildMCP:
+  `/tmp/PyxisForgedReleaseFinalReviewRound2MCP/Build/Products/Release-iphonesimulator/Pyxis.app/Pyxis`.
+  The Release `build_sim` returned 0, and `strings` proved both
+  `-pyxis-forged-fixture` and `-pyxis-freeze-combat` absent.
 
 ## Evidence paths
 
@@ -144,3 +148,14 @@ headroom is the shipping geometry contract.
   `map-locked-50-overlay.png` was removed in favor of the shared attackable
   overlay)
 - `.superpowers/sdd/2026-08-29-forged-gameplay-ui-redesign-implementation/task-10-report.md`
+
+Round-2 final-review additions also touch `Pyxis/BattleResultModels.swift`,
+`Pyxis/ConquestReportContent.swift`, `Pyxis/CountryMapScene.swift`,
+`Pyxis/ForgedVisualFixture.swift`, `Pyxis/KingdomGameState.swift`,
+`PyxisTests/BattleResultModelsTests.swift`,
+`PyxisTests/ConquestReportContentTests.swift`,
+`PyxisTests/CountryMapSceneTests.swift`,
+`PyxisTests/ForgedVisualFixtureTests.swift`,
+`PyxisTests/GameViewControllerTests.swift`,
+`PyxisTests/KingdomGameStateTests.swift`, and the refreshed Conquest idle
+native/overlay pair.

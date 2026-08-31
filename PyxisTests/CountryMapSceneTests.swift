@@ -287,6 +287,35 @@ struct CountryMapSceneTests {
         #expect(countingStore.defaults.stateSaveCount == 1)
     }
 
+    @Test("Rejected Battle-tab route re-arms settled building progress")
+    func rejectedBattleTabRouteRearmsSettledBuildingProgress() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1_000,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let countingStore = try makeCountingStore(initialState: initialState)
+        let router = RouteSpy()
+        router.acceptsBattleRequest = false
+        let scene = makeScene(store: countingStore.store, router: router)
+
+        scene.requestGameplayTabForTesting(.battle)
+
+        let saved = countingStore.store.load()
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.lastBackgroundedAt != nil)
+        #expect(saved.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt
+            == saved.lastBackgroundedAt)
+        #expect(router.requestedTabs == [.battle])
+        #expect(countingStore.defaults.stateSaveCount == 2)
+        #expect(!scene.isRoutingToBattleForTesting)
+    }
+
     @Test("Battle-tab exit routes a lethal idle settlement with its pending report")
     func battleTabExitRoutesLethalIdleSettlementWithPendingReport() throws {
         let start = Date.distantPast
@@ -301,6 +330,7 @@ struct CountryMapSceneTests {
         _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
         let countingStore = try makeCountingStore(initialState: initialState)
         let router = RouteSpy()
+        router.acceptsBattleRequest = false
         let scene = makeScene(store: countingStore.store, router: router)
 
         scene.requestGameplayTabForTesting(.battle)
