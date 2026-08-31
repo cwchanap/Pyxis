@@ -134,7 +134,8 @@ struct BattleHUDNodeTests {
         let incomePlate = try #require(
             incomePanel.childNode(withName: "panelPlate") as? SKShapeNode
         )
-        #expect(rgba(incomePlate.fillColor) == [25, 17, 8, 255])
+        #expect(incomePlate.fillTexture != nil)
+        #expect(rgba(incomePlate.fillColor) == [255, 255, 255, 255])
         #expect(rgba(incomePlate.strokeColor) == [198, 150, 80, 153])
 
         let deployPanel = try #require(
@@ -143,7 +144,8 @@ struct BattleHUDNodeTests {
         let deployPlate = try #require(
             deployPanel.childNode(withName: "panelPlate") as? SKShapeNode
         )
-        #expect(rgba(deployPlate.fillColor) == [51, 31, 8, 255])
+        #expect(deployPlate.fillTexture != nil)
+        #expect(rgba(deployPlate.fillColor) == [255, 255, 255, 255])
         #expect(rgba(deployPlate.strokeColor) == [255, 180, 60, 191])
 
         let infantryPanel = try #require(
