@@ -469,8 +469,8 @@ extension GameViewController {
                     + "city=\(result.cityKey.storageKey);source=\(source);"
                     + "deployments=\(deploymentCount);losses=\(lossCount)"
                 if result.conquestMode == .idle {
-                    value += ";buildings=\(scene.conquestReportBuildingCountForTesting ?? 0)"
-                        + ";idleDamage=\(result.idleDamageByType.count)"
+                    let idleDamage = result.totalIdleDamage.map(String.init) ?? "unknown"
+                    value += ";idleDamage=\(idleDamage)"
                 }
                 return value
             }

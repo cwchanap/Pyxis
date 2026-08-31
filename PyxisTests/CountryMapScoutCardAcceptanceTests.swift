@@ -531,7 +531,11 @@ struct CountryMapScoutCardAcceptanceTests {
                     ? compactName(for: $0)
                     : $0.displayName
             }
-        return ([prefix] + names).joined(separator: " ")
+        let multiplier = types.isEmpty
+            ? nil
+            : (prefix == "+" ? "×1.25" : "×0.80")
+        return ([prefix] + names + [multiplier].compactMap { $0 })
+            .joined(separator: " ")
     }
 
     private func compactName(for type: SoldierType) -> String {

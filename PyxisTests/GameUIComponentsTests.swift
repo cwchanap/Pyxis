@@ -95,6 +95,31 @@ struct GameUIComponentsTests {
         #expect(panel.childNode(withName: "panelSheen") == nil)
     }
 
+    @Test func forgedPanelReusesItsFixedGradientTextureAcrossReapply() throws {
+        let panel = PanelNode(size: CGSize(width: 180, height: 58))
+        panel.apply(
+            size: CGSize(width: 180, height: 58),
+            style: .normal,
+            showsRivets: true,
+            appearance: .forged
+        )
+        let firstTexture = try #require(
+            (panel.childNode(withName: "panelPlate") as? SKShapeNode)?.fillTexture
+        )
+
+        panel.apply(
+            size: CGSize(width: 220, height: 64),
+            style: .normal,
+            showsRivets: true,
+            appearance: .forged
+        )
+        let secondTexture = try #require(
+            (panel.childNode(withName: "panelPlate") as? SKShapeNode)?.fillTexture
+        )
+
+        #expect(firstTexture === secondTexture)
+    }
+
     @Test func forgedTexturedPanelsUseWhiteTintAndKeepMaterialReadbacks() throws {
         for style in [PanelNode.Style.selected, .primaryAction] {
             let expectedStrokeAlpha: CGFloat = style == .selected ? 0.96 : 0.75

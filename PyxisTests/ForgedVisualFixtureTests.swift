@@ -109,7 +109,6 @@ struct ForgedVisualFixtureTests {
         #expect(liveResult.mvpSoldierType == .infantry)
         #expect(liveResult.totalDeploymentCount == 6)
         #expect(liveResult.totalLossCount == 1)
-        #expect(liveResult.idleBuildingCount == nil)
         #expect(liveResult.usedFavorableUnit)
         #expect(liveResult.usedExposedLane)
 
@@ -121,12 +120,12 @@ struct ForgedVisualFixtureTests {
         #expect(idleResult.totalDeploymentCount == 0)
         #expect(idleResult.totalLossCount == 0)
         #expect(!idleResult.idleDamageByType.isEmpty)
-        #expect(idleResult.idleBuildingCount == 2)
+        #expect(idleResult.totalIdleDamage == 1)
         let idleReport = ConquestReportContent.project(
             from: idleResult,
             title: "Falconridge Silenced"
         )
-        #expect(idleReport.tiles.contains(.buildings(count: 2)))
+        #expect(idleReport.tiles.contains(.idleDamage(damage: 1)))
         #expect(!idleResult.usedFavorableUnit)
         #expect(!idleResult.usedExposedLane)
     }
@@ -202,7 +201,7 @@ struct ForgedVisualFixtureTests {
         #expect(
             idleView.accessibilityValue ==
                 "Conquest;pending=true;mode=idle;city=1-3;source=idle;"
-                + "deployments=0;losses=0;buildings=2;idleDamage=1"
+                + "deployments=0;losses=0;idleDamage=1"
         )
     }
 

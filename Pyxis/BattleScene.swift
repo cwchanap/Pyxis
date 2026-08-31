@@ -114,6 +114,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         color: SKColor(red: 52 / 255, green: 26 / 255, blue: 6 / 255, alpha: 1),
         size: .zero
     )
+    private var forgedAtmosphereTextureSize: CGSize?
+    private var forgedAtmosphereTexture: SKTexture?
     private var battlefieldLayout = BattlefieldLayout(
         frame: .zero, structureHeight: 0,
         castleGatePoints: [:], enemyGatePoints: [:],
@@ -1040,7 +1042,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
             battlefieldBackdropNode.setScale(scale)
         }
-        forgedAtmosphereNode.texture = makeForgedAtmosphereTexture(size: size)
+        if forgedAtmosphereTextureSize != size {
+            forgedAtmosphereTextureSize = size
+            forgedAtmosphereTexture = makeForgedAtmosphereTexture(size: size)
+        }
+        forgedAtmosphereNode.texture = forgedAtmosphereTexture
         forgedAtmosphereNode.size = size
         forgedAtmosphereNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
 
@@ -3388,16 +3394,6 @@ extension BattleScene {
 
     var conquestReportTilesForTesting: [ConquestReportContent.StatTile] {
         lastAppliedConquestReportContent?.tiles ?? []
-    }
-
-    var conquestReportBuildingCountForTesting: Int? {
-        guard let tiles = lastAppliedConquestReportContent?.tiles else {
-            return nil
-        }
-        return tiles.compactMap { tile -> Int? in
-            guard case let .buildings(count) = tile else { return nil }
-            return count
-        }.first
     }
 
     var conquestReportRewardTextForTesting: String {

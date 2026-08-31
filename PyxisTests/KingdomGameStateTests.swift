@@ -1655,9 +1655,9 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.cityBattleState(for: CityKey(countryNumber: 1, cityNumber: 1)).occupiedSlotCount == 0)
         let pending = try #require(state.pendingBattleResult)
-        #expect(pending.idleBuildingCount == 2)
+        #expect(pending.totalIdleDamage == 2)
         let report = ConquestReportContent.project(from: pending, title: "Willowford Secured")
-        #expect(report.tiles.contains(.buildings(count: 2)))
+        #expect(report.tiles.contains(.idleDamage(damage: 2)))
     }
 
     @Test func activeBuildingSpawnsAdvanceTimersAndEmitSpawnEvents() {

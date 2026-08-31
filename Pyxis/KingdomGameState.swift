@@ -673,14 +673,10 @@ struct KingdomGameState: Codable, Equatable {
         let reward = currentGoldReward
         let cityKey = currentCityKey
         ensureSession()
-        let idleBuildingCount = conquestMode == .idle
-            ? cityBattleStateForCurrentCity.occupiedSlotCount
-            : nil
         let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: cityKey))
             .finalized(
                 conquestMode: conquestMode,
-                goldEarned: reward,
-                idleBuildingCount: idleBuildingCount
+                goldEarned: reward
             )
         let completion = completeCurrentCity(with: result)
         return (appliedTotal, completion.awarded, completion.goldEarned)

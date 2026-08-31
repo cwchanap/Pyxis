@@ -2711,7 +2711,7 @@ struct BattleSceneTests {
         #expect(scene.lastConquestReportOriginForTesting == "freshIdle")
         #expect(scene.conquestReportTilesForTesting == [
             .mvp(soldierType: .infantry, sharePercent: 100),
-            .buildings(count: 1),
+            .idleDamage(damage: 1),
             .sentLost(sent: 0, lost: 0)
         ])
         #expect(scene.isGoldBurstVisibleForTesting)
@@ -3407,6 +3407,11 @@ struct BattleSceneTests {
         #expect(atmosphere.colorBlendFactor == 0)
         #expect(abs(atmosphere.alpha - 1) < 0.001)
         #expect(atmosphere.zPosition == GameUITheme.Z.background + 1)
+
+        let firstTexture = try #require(atmosphere.texture)
+        scene.refreshLayoutForCurrentEnvironment()
+        let secondTexture = try #require(atmosphere.texture)
+        #expect(firstTexture === secondTexture)
     }
 
     private func pollUntil(
@@ -3964,6 +3969,27 @@ struct BattleSceneTests {
         #expect(router.didRequestCountryMap)
     }
 
+    @Test func touchesEndedBattleTabUsesAuthoritativeSafeHitFrame() throws {
+        let size = CGSize(width: 393, height: 852)
+        let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
+        let router = BattleRouterSpy()
+        let scene = BattleScene(size: size, store: store, router: router)
+        let view = SafeAreaOverridingSKView(
+            frame: CGRect(origin: .zero, size: size),
+            overrideInsets: UIEdgeInsets(top: 59, left: 0, bottom: 34, right: 0)
+        )
+        scene.didMove(to: view)
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        let mapHitFrame = layout.tabHitFrames[2]
+        let point = CGPoint(x: mapHitFrame.midX, y: mapHitFrame.maxY - 1)
+
+        #expect(mapHitFrame.contains(point))
+        #expect(layout.safeFrame.contains(mapHitFrame))
+        scene.touchesEnded([MockTouch(location: point)], with: nil)
+
+        #expect(router.didRequestCountryMap)
+    }
+
     @Test func touchesEndedContinueDisablesAndRoutes() throws {
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0))
         let router = BattleRouterSpy()
@@ -4385,5 +4411,22 @@ struct BattleSceneTests {
 private extension CGRect {
     var center: CGPoint {
         CGPoint(x: midX, y: midY)
+    }
+}
+
+private final class SafeAreaOverridingSKView: SKView {
+    private let overrideInsets: UIEdgeInsets
+
+    init(frame: CGRect, overrideInsets: UIEdgeInsets) {
+        self.overrideInsets = overrideInsets
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        overrideInsets
     }
 }
