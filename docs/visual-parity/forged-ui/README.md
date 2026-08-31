@@ -16,11 +16,11 @@ The exact five source PNGs above must be present in this directory before runtim
 
 ## Task 10 parity board
 
-Every minimum state has the canonical mock, a native simulator capture, a deterministic 50% overlay, and a deliberate-discrepancy note. The board's native files are direct `simctl io screenshot` framebuffer captures; they are not resized or cropped. The same serial UI smoke also retains XCTest screenshot attachments for test provenance. XCUITest reports its app image as 1178×2556, while the direct simulator framebuffer is 1179×2556 at 3×, which is the same logical 393×852 iPhone 15 Pro viewport.
+Every minimum state has the canonical mock, a simulator capture, a deterministic 50% overlay, and a deliberate-discrepancy note. Except for the round-5 Battle-normal transport artifact documented below, the board's native files are direct `simctl io screenshot` framebuffer captures and are not resized or cropped. The same serial UI smoke also retains XCTest screenshot attachments for test provenance. XCUITest reports its app image as 1178×2556, while the direct simulator framebuffer is 1179×2556 at 3×, which is the same logical 393×852 iPhone 15 Pro viewport.
 
 | Minimum state | Canonical | Native capture | 50% overlay | Deliberate discrepancy |
 | --- | --- | --- | --- | --- |
-| Battle normal | `battle.png` | `native/battle-normal-393x852@3x.png` | `overlays/battle-normal-50-overlay.png` | Frozen live combat keeps the authored HUD and lane geometry stable; soldier positions, counters, and terrain details are runtime state rather than mock pixels. |
+| Battle normal | `battle.png` | `native/battle-normal-393x852@3x.png` | `overlays/battle-normal-50-overlay.png` | The exact 393×852 fixture reads 4.2K / 20 / 0 soldiers while the prototype reads 7.4K / 320 / 6; active units and damage are deliberately runtime state, while layout/style bands are the comparison target. |
 | Battle blocked | `battle.png` | `native/battle-blocked-393x852@3x.png` | `overlays/battle-blocked-50-overlay.png` | The blocked fixture keeps the same shipping battle chrome while the action is disabled by the live-soldier rule; the mock does not encode that gameplay gate. |
 | Camp empty | `camp.png` | `native/camp-empty-393x852@3x.png` | `overlays/camp-empty-50-overlay.png` | The deterministic empty fixture mounts the five-option builder and selects slot 1 through the DEBUG scene seam (`selectedSlot=1; mode=builder`); the mock is a scenic reference and does not prescribe persisted prices or unlock copy. |
 | Camp occupied | `camp.png` | `native/camp-occupied-393x852@3x.png` | `overlays/camp-occupied-50-overlay.png` | The deterministic occupied fixture mounts the inspector on slot 1 (`selectedSlot=1; mode=inspector`); existing buildings and authored levels intentionally differ from the generic mock. |
@@ -36,6 +36,12 @@ Every minimum state has the canonical mock, a native simulator capture, a determ
 - Device: `Pyxis-Parity-393x852` (`iPhone 15 Pro`, type `com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro`)
 - Runtime: iOS 26.5 (`23F77`); UDID `771133AB-2A09-4C6E-85FD-9D7523E8D2C7`
 - Native framebuffer: 1179×2556 pixels, 3×, logical 393×852 points (`simctl io screenshot`, no resampling)
+- Round-5 Battle-normal capture: captured on the exact logical 393×852
+  `Pyxis-Parity-393x852` simulator; XcodeBuildMCP returned an optimized JPEG at
+  369×800 pixels.
+- Round-5 Battle-normal board artifact: the current transport content was
+  resampled with Lanczos to the established 1179×2556 `@3x` board dimension;
+  it is for visual parity only, not sharpness measurement.
 - XCTest attachment note: XCUITest's `XCUIScreenshot` export is 1178×2556 on this runner; those files remain in the result bundle and are not mislabeled as the board's native captures.
 - Dedicated result bundle: `test_sim_2026-08-30T23-42-46-973Z_pid19570_369eddfd.xcresult`
 - Smoke test: `PyxisUITests/testForgedFixtureParitySmoke393x852`, serial, 1 passed / 0 failed on this device
@@ -58,3 +64,9 @@ selection and Conquest report semantics were checked from the same
 DEBUG-derived probe used by the UI smoke.
 
 The Map implementation deliberately uses a computed 164pt card, not the taller presentation mock card. At 393pt width, the 164pt card leaves the authored 44pt node interactions and the required route spacing/headroom viable; this is a deliberate geometry-contract difference, not a capture defect. The overlays are evidence for human review only; there is no pixel-diff CI assertion.
+
+Round-5 Battle-normal comparison keeps both inputs at the same logical
+393×852 fixture: the current runtime is 369×800 optimized transport content,
+and the prototype's 7.4K / 320 / 6-soldier state is not expected to match the
+runtime's 4.2K / 20 / 0 state. Active units and damage are therefore excluded
+from the parity judgment; the layout and style bands remain the target.

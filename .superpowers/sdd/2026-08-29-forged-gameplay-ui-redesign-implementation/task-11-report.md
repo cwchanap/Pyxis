@@ -284,3 +284,43 @@ seven changed source/test files exited 0 with no warnings, and `git diff
 --check` exited 0. No screenshot or pixel-capture command was executed.
 
 Status: DONE pending controller-owned decisive visual capture.
+
+## Fix round 5/5: Battle-normal runtime evidence package
+
+No source or test code changed in this round. The exact current runtime capture
+was supplied by the `Pyxis-Parity-393x852` simulator at commit `4700f3e`:
+
+```text
+/var/folders/_k/lkrpcd8516s5x5szmkq1mbvc0000gn/T/screenshot_optimized_0944417b-f967-4425-ad1c-98c398ebcdba.jpg
+```
+
+The XcodeBuildMCP screenshot transport is an optimized 369×800 JPEG for the
+exact logical 393×852 fixture. The archived `@3x` board artifact is therefore
+resampled content, not recovered framebuffer detail.
+
+Exact artifact commands:
+
+```text
+ffmpeg -hide_banner -loglevel error -y -i /var/folders/_k/lkrpcd8516s5x5szmkq1mbvc0000gn/T/screenshot_optimized_0944417b-f967-4425-ad1c-98c398ebcdba.jpg -vf "scale=1179:2556:flags=lanczos,format=rgba" -frames:v 1 docs/visual-parity/forged-ui/native/battle-normal-393x852@3x.png
+
+ffmpeg -hide_banner -loglevel error -y -i docs/visual-parity/forged-ui/battle.png -i docs/visual-parity/forged-ui/native/battle-normal-393x852@3x.png -filter_complex "[0:v]scale=1179:2556:flags=lanczos,format=rgba[canonical];[1:v]format=rgba[runtime];[canonical][runtime]blend=all_mode=average,format=rgb24[overlay]" -map "[overlay]" -frames:v 1 docs/visual-parity/forged-ui/overlays/battle-normal-50-overlay.png
+
+ffmpeg -hide_banner -loglevel error -y -i docs/visual-parity/forged-ui/battle.png -i /var/folders/_k/lkrpcd8516s5x5szmkq1mbvc0000gn/T/screenshot_optimized_0944417b-f967-4425-ad1c-98c398ebcdba.jpg -filter_complex "[0:v]scale=369:800:flags=lanczos,format=rgb24[canonical];[1:v]scale=369:800:flags=lanczos,format=rgb24[runtime];[canonical][runtime]hstack=inputs=2,format=rgb24[side]" -map "[side]" -frames:v 1 docs/visual-parity/forged-ui/battle-style-side-by-side.png
+```
+
+Inspection with `file` and `sips -g pixelWidth -g pixelHeight` confirmed the
+native and overlay artifacts are 1179×2556 PNGs and the side-by-side is a
+738×800 PNG containing canonical-left/runtime-right 369×800 halves. Visual
+inspection confirmed the deliberate state/content difference: runtime is
+4.2K / 20 / 0 soldiers versus prototype 7.4K / 320 / 6 with active units and
+damage; layout/style bands are the comparison target. `git diff --check`
+exited 0. No image generation, source/test edits, or test runs were performed.
+
+Evidence paths:
+
+```text
+docs/visual-parity/forged-ui/native/battle-normal-393x852@3x.png
+docs/visual-parity/forged-ui/overlays/battle-normal-50-overlay.png
+docs/visual-parity/forged-ui/battle-style-side-by-side.png
+docs/visual-parity/forged-ui/README.md
+```
