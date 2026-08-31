@@ -169,3 +169,58 @@ Final targeted SwiftLint command:
 `rtk swiftlint lint --quiet --no-cache --force-exclude Pyxis/BattleHUDNode.swift PyxisTests/BattleHUDNodeTests.swift PyxisTests/BattleSceneTests.swift`.
 Result: exit 0, no warnings. Final `rtk git diff --check`: exit 0. No
 screenshot/capture command was executed.
+
+## Fix round 3/5: icon, marker, and cluster alignment correction
+
+The visual comparison found six remaining source-level mismatches. The city
+progress and 21pt uppercase title now form one centered label group over the
+centered 288x14 HP bar. Deploy now lays out the 46pt portrait, 18pt DEPLOY
+label, 1x22 divider, and 13pt count as one centered cluster; the count frame
+was moved into that cluster rather than reserving the far-right edge. Camp and
+Map tabs now use 25pt outline `SKShapeNode` glyphs alongside the existing
+crossed-swords outline. Settings uses a 21pt two-circle/eight-spoke outline
+gear while retaining its existing tile, owner, and hit frame. OPEN/HELD chips
+now include small shield paths, locked medallion pills use a small outline lock
+path beside their city number, and forged selected panels use a warmer amber
+surface plus visible glow through the existing `PanelNode` selected style.
+
+Focused red/green command (serial):
+
+```text
+XcodeBuildMCP test_sim --extraArgs "-parallel-testing-enabled NO \
+  -only-testing:PyxisTests/BattleHUDNodeTests \
+  -only-testing:PyxisTests/GameplayTabBarNodeTests \
+  -only-testing:PyxisTests/GameUIComponentsTests \
+  -only-testing:PyxisTests/FeedbackSettingsNodeTests"
+```
+
+The pre-implementation run failed in the intended focused assertions for
+left-biased city labels, the absent deploy divider, missing shield/lock vector
+nodes, raster Camp/Map icons, and dark forged selected styling. After the
+minimal owner-local implementation, the same command passed 32/32 tests.
+
+Affected-suite parity command (serial):
+
+```text
+XcodeBuildMCP test_sim --extraArgs "-parallel-testing-enabled NO \
+  -only-testing:PyxisTests/BattleChromeLayoutTests \
+  -only-testing:PyxisTests/BattleHUDNodeTests \
+  -only-testing:PyxisTests/BattleSceneTests \
+  -only-testing:PyxisTests/FeedbackSettingsNodeTests \
+  -only-testing:PyxisTests/GameUIComponentsTests \
+  -only-testing:PyxisTests/GameplayTabBarNodeTests"
+```
+
+Result: 227 tests passed, 0 failed, 0 skipped (36.3s) on simulator
+`771133AB-2A09-4C6E-85FD-9D7523E8D2C7`. XcodeBuildMCP reported one
+pre-existing main-actor warning at
+`PyxisTests/GameplayFeedbackTestDoubles.swift:19`; it did not affect the
+result.
+
+Targeted SwiftLint command:
+`rtk swiftlint lint --quiet --no-cache --force-exclude Pyxis/BattleChromeLayout.swift Pyxis/BattleHUDNode.swift Pyxis/GameplayTabBarNode.swift Pyxis/GameUIComponents.swift Pyxis/SettingsGearNode.swift PyxisTests/BattleChromeLayoutTests.swift PyxisTests/BattleHUDNodeTests.swift PyxisTests/GameplayTabBarNodeTests.swift PyxisTests/GameUIComponentsTests.swift PyxisTests/FeedbackSettingsNodeTests.swift`.
+Result: exit 0, no warnings. `rtk git diff --check`: exit 0.
+
+No screenshot or pixel-capture command was executed, per the round-3
+instruction; the controller-owned visual comparison remains the final visual
+gate.

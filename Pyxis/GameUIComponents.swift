@@ -185,13 +185,13 @@ final class PanelNode: SKNode {
                 highlightColor = SKColor(red: 255 / 255, green: 206 / 255, blue: 140 / 255, alpha: 0.45)
                 rivetColor = SKColor(red: 255 / 255, green: 220 / 255, blue: 160 / 255, alpha: 0.55)
             case .selected:
-                fillColor = SKColor(red: 74 / 255, green: 52 / 255, blue: 16 / 255, alpha: 1)
-                gradientTopColor = SKColor(red: 142 / 255, green: 94 / 255, blue: 24 / 255, alpha: 1)
-                strokeColor = SKColor(red: 255 / 255, green: 180 / 255, blue: 60 / 255, alpha: 0.88)
-                highlightColor = SKColor(red: 255 / 255, green: 214 / 255, blue: 140 / 255, alpha: 0.58)
-                rivetColor = SKColor(red: 255 / 255, green: 200 / 255, blue: 97 / 255, alpha: 1)
-                shadow.strokeColor = SKColor(red: 255 / 255, green: 150 / 255, blue: 30 / 255, alpha: 0.32)
-                shadow.lineWidth = 6
+                fillColor = SKColor(red: 112 / 255, green: 72 / 255, blue: 16 / 255, alpha: 1)
+                gradientTopColor = SKColor(red: 196 / 255, green: 132 / 255, blue: 36 / 255, alpha: 1)
+                strokeColor = SKColor(red: 255 / 255, green: 196 / 255, blue: 75 / 255, alpha: 0.96)
+                highlightColor = SKColor(red: 255 / 255, green: 224 / 255, blue: 150 / 255, alpha: 0.72)
+                rivetColor = SKColor(red: 255 / 255, green: 214 / 255, blue: 120 / 255, alpha: 1)
+                shadow.strokeColor = SKColor(red: 255 / 255, green: 166 / 255, blue: 34 / 255, alpha: 0.52)
+                shadow.lineWidth = 8
             case .primaryAction:
                 fillColor = SKColor(red: 51 / 255, green: 31 / 255, blue: 8 / 255, alpha: 1)
                 gradientTopColor = SKColor(red: 111 / 255, green: 69 / 255, blue: 21 / 255, alpha: 1)

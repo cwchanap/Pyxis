@@ -127,7 +127,7 @@ struct BattleChromeLayout: Equatable {
                 height: 56
             )
             manualCountFrame = CGRect(
-                x: deployFrame.maxX - 76,
+                x: deployFrame.midX + 34,
                 y: deployFrame.midY - 22,
                 width: 68,
                 height: 44
@@ -224,7 +224,7 @@ struct BattleChromeLayout: Equatable {
                 height: 58
             )
             manualCountFrame = CGRect(
-                x: deployFrame.maxX - 76,
+                x: deployFrame.midX + 34,
                 y: deployFrame.midY - 22,
                 width: 68,
                 height: 44

@@ -64,6 +64,57 @@ struct BattleHUDNodeTests {
         #expect(pill.isHidden == false)
     }
 
+    @Test func cityProgressAndTitleFormCenteredGroupOverTheHpBar() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        _ = node.apply(
+            content: .project(from: KingdomGameState(cityNumberInCountry: 3), manualCount: 0),
+            layout: layout
+        )
+
+        let progress = try #require(node.childNode(withName: "battleCityProgressLabel") as? SKLabelNode)
+        let title = try #require(node.childNode(withName: "battleCityTitleLabel") as? SKLabelNode)
+        let bar = try #require(node.childNode(withName: "battleCityProgressBar") as? ProgressBarNode)
+        let barShape = try #require(bar.children.compactMap { $0 as? SKShapeNode }.first)
+        let groupFrame = progress.frame.union(title.frame)
+
+        #expect(abs(groupFrame.midX - layout.cityProgressFrame.midX) < 0.5)
+        #expect(barShape.path?.boundingBox == CGRect(x: -144, y: -7, width: 288, height: 14))
+    }
+
+    @Test func deployClusterIsCenteredAndUsesTheAuthoredOrder() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        _ = node.apply(
+            content: .project(from: KingdomGameState(), manualCount: 6),
+            layout: layout
+        )
+
+        let portrait = try #require(node.childNode(withName: "battleDeployIcon") as? SKSpriteNode)
+        let label = try #require(node.childNode(withName: "battleDeployLabel") as? SKLabelNode)
+        let divider = try #require(node.childNode(withName: "battleDeployDivider") as? SKShapeNode)
+        let count = try #require(node.childNode(withName: "battleManualCountLabel") as? SKLabelNode)
+        let dividerFrame = divider.frame
+        let clusterFrame = portrait.frame
+            .union(label.frame)
+            .union(dividerFrame)
+            .union(count.frame)
+
+        #expect(portrait.position.x < label.position.x)
+        #expect(label.position.x < dividerFrame.midX)
+        #expect(dividerFrame.midX < count.position.x)
+        #expect(abs(clusterFrame.midX - layout.deployFrame.midX) < 0.5)
+        #expect(label.fontSize == 18)
+        #expect(count.fontSize == 13)
+        #expect(dividerFrame.height == 22)
+    }
+
     @Test func battleChromeUsesForgedMaterialAndHexCutUnitPlates() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),
@@ -299,6 +350,35 @@ struct BattleHUDNodeTests {
         #expect(exposedLabel.text == "OPEN")
         #expect(fortifiedLabel.isHidden == false)
         #expect(fortifiedLabel.text == "HELD")
+    }
+
+    @Test func openAndHeldLaneChipsAndLockedMedallionsUseVectorMarkers() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        _ = node.apply(
+            content: .project(
+                from: KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2),
+                manualCount: 0
+            ),
+            layout: layout
+        )
+
+        for lane in [BattleLane.center, .right] {
+            let shield = try #require(
+                node.childNode(withName: "battleLaneChipShield-\(lane.rawValue)") as? SKShapeNode
+            )
+            #expect(shield.path != nil)
+            #expect(!shield.isHidden)
+        }
+
+        let lock = try #require(
+            node.childNode(withName: "//battleMedallionLock-mage") as? SKShapeNode
+        )
+        #expect(lock.path != nil)
+        #expect(!lock.isHidden)
     }
 }
 

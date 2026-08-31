@@ -8,36 +8,16 @@ import SpriteKit
 import Testing
 @testable import Pyxis
 
-func brightestImageRGBSum(_ image: UIImage?) -> Int {
-    guard let image = image?.cgImage,
-          let data = image.dataProvider?.data,
-          let bytes = CFDataGetBytePtr(data) else {
-        return 0
-    }
-
-    let bytesPerPixel = image.bitsPerPixel / 8
-    guard bytesPerPixel >= 3 else { return 0 }
-    var brightest = 0
-    for yPosition in 0..<image.height {
-        for xPosition in 0..<image.width {
-            let offset = yPosition * image.bytesPerRow + xPosition * bytesPerPixel
-            brightest = max(
-                brightest,
-                Int(bytes[offset]) + Int(bytes[offset + 1]) + Int(bytes[offset + 2])
-            )
-        }
-    }
-    return brightest
-}
-
 @MainActor
 struct GameplayTabBarNodeTests {
     @Test func battleTabUsesRenderableGlyph() {
         let node = GameplayTabBarNode()
 
         #expect(node.iconIsVectorGlyphForTesting(for: .battle))
-        #expect(!node.iconIsVectorGlyphForTesting(for: .camp))
-        #expect(!node.iconIsVectorGlyphForTesting(for: .map))
+        #expect(node.iconIsVectorGlyphForTesting(for: .camp))
+        #expect(node.iconIsVectorGlyphForTesting(for: .map))
+        #expect(node.iconSizeForTesting(for: .camp) == CGSize(width: 25, height: 25))
+        #expect(node.iconSizeForTesting(for: .map) == CGSize(width: 25, height: 25))
     }
 
     @Test func disabledTabsRemainVisibleButHaveNoHitFrames() {
@@ -65,7 +45,7 @@ struct GameplayTabBarNodeTests {
         #expect(node.tab(at: CGPoint(x: frame.minX + frame.width / 2, y: frame.midY)) == nil)
     }
 
-    @Test func forgedSystemIconsUseSourceTintForDarkBackdropContrast() {
+    @Test func forgedTabsUseOutlineGlyphsForDarkBackdropContrast() {
         let node = GameplayTabBarNode(appearance: .forged)
 
         node.apply(
@@ -77,12 +57,9 @@ struct GameplayTabBarNodeTests {
             frame: CGRect(x: 0, y: 0, width: 300, height: 72)
         )
 
-        #expect(node.iconColorBlendFactorForTesting(for: .camp) == 0)
-        #expect(node.iconColorBlendFactorForTesting(for: .map) == 0)
-        #expect(brightestImageRGBSum(gameUISymbolImage(
-            named: "house.fill",
-            color: SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
-        )) > 600)
+        #expect(node.iconIsVectorGlyphForTesting(for: .battle))
+        #expect(node.iconIsVectorGlyphForTesting(for: .camp))
+        #expect(node.iconIsVectorGlyphForTesting(for: .map))
     }
 
     @Test func forgedSelectedTabUsesReferenceTileInsideTheEightyTwoPointShell() throws {
