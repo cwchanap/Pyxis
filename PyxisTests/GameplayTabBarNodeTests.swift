@@ -114,4 +114,36 @@ struct GameplayTabBarNodeTests {
         #expect(abs(campTitle.alpha - 0.45) < 0.001)
         #expect(selectedPlate.strokeColor.cgColor.alpha < 0.8)
     }
+
+    @Test func forgedTabsUseTheAuthoredSvgArtworkBoundsWithoutPerimeterOutlines() throws {
+        let node = GameplayTabBarNode(appearance: .forged)
+        node.apply(
+            content: .init(
+                selected: .battle,
+                enabledTabs: Set(GameplayTab.allCases),
+                showsCampAttention: true
+            ),
+            frame: CGRect(x: 16, y: 0, width: 361, height: 82)
+        )
+
+        let shell = try #require(
+            node.childNode(withName: "gameplayTabForgedBackdrop") as? SKShapeNode
+        )
+        let selected = try #require(
+            node.childNode(withName: "//gameplayTabPanel-battle") as? PanelNode
+        )
+        let selectedPlate = try #require(
+            selected.childNode(withName: "panelPlate") as? SKShapeNode
+        )
+        let selectedHighlight = try #require(
+            selected.childNode(withName: "panelHighlight") as? SKShapeNode
+        )
+
+        #expect(node.iconSizeForTesting(for: .battle) == CGSize(width: 16, height: 16))
+        #expect(node.iconSizeForTesting(for: .camp) == CGSize(width: 18, height: 14))
+        #expect(node.iconSizeForTesting(for: .map) == CGSize(width: 18, height: 16))
+        #expect(shell.strokeColor.cgColor.alpha < 0.05)
+        #expect(selectedPlate.strokeColor.cgColor.alpha < 0.05)
+        #expect(selectedHighlight.strokeColor.cgColor.alpha < 0.05)
+    }
 }

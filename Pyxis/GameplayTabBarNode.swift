@@ -80,49 +80,67 @@ final class GameplayTabBarNode: SKNode {
         switch tab {
         case .battle:
             let battlePath = CGMutablePath()
-            battlePath.move(to: CGPoint(x: -7, y: -7))
-            battlePath.addLine(to: CGPoint(x: 7, y: 7))
-            battlePath.move(to: CGPoint(x: -4, y: 0))
-            battlePath.addLine(to: CGPoint(x: 0, y: -4))
-            battlePath.move(to: CGPoint(x: 7, y: -7))
-            battlePath.addLine(to: CGPoint(x: -7, y: 7))
-            battlePath.move(to: CGPoint(x: 4, y: 0))
-            battlePath.addLine(to: CGPoint(x: 0, y: -4))
+            battlePath.move(to: CGPoint(x: -8, y: 8))
+            battlePath.addLine(to: CGPoint(x: -1, y: 1))
+            battlePath.move(to: CGPoint(x: -6, y: -8))
+            battlePath.addLine(to: CGPoint(x: 6, y: 4))
+            battlePath.move(to: CGPoint(x: 6, y: -8))
+            battlePath.addLine(to: CGPoint(x: -6, y: 4))
+            battlePath.move(to: CGPoint(x: 2, y: -8))
+            battlePath.addLine(to: CGPoint(x: 8, y: -8))
+            battlePath.addLine(to: CGPoint(x: 8, y: -2))
             path = battlePath
         case .camp:
             let campPath = CGMutablePath()
-            campPath.move(to: CGPoint(x: -12.5, y: -1))
-            campPath.addLine(to: CGPoint(x: 0, y: 12.5))
-            campPath.addLine(to: CGPoint(x: 12.5, y: -1))
-            campPath.addLine(to: CGPoint(x: 9.5, y: -1))
-            campPath.addLine(to: CGPoint(x: 9.5, y: -12.5))
-            campPath.addLine(to: CGPoint(x: -9.5, y: -12.5))
-            campPath.addLine(to: CGPoint(x: -9.5, y: -1))
-            campPath.closeSubpath()
-            campPath.move(to: CGPoint(x: 0, y: -12.5))
-            campPath.addLine(to: CGPoint(x: 0, y: -4))
-            campPath.addLine(to: CGPoint(x: 3, y: -4))
-            campPath.addLine(to: CGPoint(x: 3, y: -12.5))
+            campPath.move(to: CGPoint(x: -9, y: 8))
+            campPath.addLine(to: CGPoint(x: 9, y: 8))
+            campPath.move(to: CGPoint(x: -7, y: 8))
+            campPath.addLine(to: CGPoint(x: -7, y: -1))
+            campPath.addLine(to: CGPoint(x: 0, y: -6))
+            campPath.addLine(to: CGPoint(x: 7, y: -1))
+            campPath.addLine(to: CGPoint(x: 7, y: 8))
+            campPath.move(to: CGPoint(x: -2, y: 8))
+            campPath.addLine(to: CGPoint(x: -2, y: 3))
+            campPath.addLine(to: CGPoint(x: 2, y: 3))
+            campPath.addLine(to: CGPoint(x: 2, y: 8))
             path = campPath
         case .map:
             let mapPath = CGMutablePath()
-            mapPath.move(to: CGPoint(x: -12.5, y: -10.5))
-            mapPath.addLine(to: CGPoint(x: -4, y: -12.5))
-            mapPath.addLine(to: CGPoint(x: 4, y: -10.5))
-            mapPath.addLine(to: CGPoint(x: 12.5, y: -12.5))
-            mapPath.addLine(to: CGPoint(x: 12.5, y: 10.5))
-            mapPath.addLine(to: CGPoint(x: 4, y: 12.5))
-            mapPath.addLine(to: CGPoint(x: -4, y: 10.5))
-            mapPath.addLine(to: CGPoint(x: -12.5, y: 12.5))
+            mapPath.move(to: CGPoint(x: -3, y: -8))
+            mapPath.addLine(to: CGPoint(x: -9, y: -6))
+            mapPath.addLine(to: CGPoint(x: -9, y: 8))
+            mapPath.addLine(to: CGPoint(x: -3, y: 6))
+            mapPath.addLine(to: CGPoint(x: 3, y: 8))
+            mapPath.addLine(to: CGPoint(x: 9, y: 6))
+            mapPath.addLine(to: CGPoint(x: 9, y: -8))
+            mapPath.addLine(to: CGPoint(x: 3, y: -6))
+            mapPath.addLine(to: CGPoint(x: -3, y: -8))
             mapPath.closeSubpath()
-            mapPath.move(to: CGPoint(x: -4, y: -12.5))
-            mapPath.addLine(to: CGPoint(x: -4, y: 10))
-            mapPath.move(to: CGPoint(x: 4, y: -10.5))
-            mapPath.addLine(to: CGPoint(x: 4, y: 12))
+            mapPath.move(to: CGPoint(x: -3, y: -8))
+            mapPath.addLine(to: CGPoint(x: -3, y: 6))
+            mapPath.move(to: CGPoint(x: 3, y: -6))
+            mapPath.addLine(to: CGPoint(x: 3, y: 8))
             path = mapPath
         }
 
-        let glyph = SKShapeNode(path: path)
+        let iconPath: CGPath
+        if appearance == .standard {
+            let size: CGSize
+            switch tab {
+            case .battle: size = CGSize(width: 14, height: 14)
+            case .camp, .map: size = CGSize(width: 25, height: 25)
+            }
+            let bounds = path.boundingBox
+            var transform = CGAffineTransform(
+                scaleX: size.width / bounds.width,
+                y: size.height / bounds.height
+            )
+            iconPath = path.copy(using: &transform) ?? path
+        } else {
+            iconPath = path
+        }
+
+        let glyph = SKShapeNode(path: iconPath)
         glyph.name = "gameplayTabGlyph-\(tab.name)"
         glyph.strokeColor = appearance == .forged
             ? SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
@@ -155,6 +173,7 @@ final class GameplayTabBarNode: SKNode {
         fatalError("init(coder:) has not been implemented")
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     func apply(content: Content, frame: CGRect) {
         guard frame.origin.x.isFinite,
               frame.origin.y.isFinite,
@@ -185,12 +204,7 @@ final class GameplayTabBarNode: SKNode {
             )
             forgedBackdrop.fillColor = .white
             forgedBackdrop.fillTexture = Self.forgedBackdropTexture
-            forgedBackdrop.strokeColor = SKColor(
-                red: 255 / 255,
-                green: 206 / 255,
-                blue: 140 / 255,
-                alpha: 0.34
-            )
+            forgedBackdrop.strokeColor = .clear
         }
 
         for (index, tab) in GameplayTab.allCases.enumerated() {
