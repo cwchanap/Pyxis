@@ -16,7 +16,7 @@ The exact five source PNGs above must be present in this directory before runtim
 
 ## Task 10 parity board
 
-Every minimum state has the canonical mock, a simulator capture, a deterministic 50% overlay, and a deliberate-discrepancy note. Except for the round-5 Battle-normal transport artifact documented below, the board's native files are direct `simctl io screenshot` framebuffer captures and are not resized or cropped. The same serial UI smoke also retains XCTest screenshot attachments for test provenance. XCUITest reports its app image as 1178×2556, while the direct simulator framebuffer is 1179×2556 at 3×, which is the same logical 393×852 iPhone 15 Pro viewport.
+Every minimum state has the canonical mock, a simulator capture, a deterministic 50% overlay, and a deliberate-discrepancy note. The board's native files are direct `simctl io screenshot` framebuffer captures and are not resized or cropped. For the Battle-normal comparison board and overlay, that native frame is downsampled to 393×852 logical pixels before comparison with the 393×852 canonical mock. The same serial UI smoke also retains XCTest screenshot attachments for test provenance. XCUITest reports its app image as 1178×2556, while the direct simulator framebuffer is 1179×2556 at 3×, which is the same logical 393×852 iPhone 15 Pro viewport.
 
 | Minimum state | Canonical | Native capture | 50% overlay | Deliberate discrepancy |
 | --- | --- | --- | --- | --- |
@@ -36,12 +36,13 @@ Every minimum state has the canonical mock, a simulator capture, a deterministic
 - Device: `Pyxis-Parity-393x852` (`iPhone 15 Pro`, type `com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro`)
 - Runtime: iOS 26.5 (`23F77`); UDID `771133AB-2A09-4C6E-85FD-9D7523E8D2C7`
 - Native framebuffer: 1179×2556 pixels, 3×, logical 393×852 points (`simctl io screenshot`, no resampling)
-- Round-5 Battle-normal capture: captured on the exact logical 393×852
-  `Pyxis-Parity-393x852` simulator; XcodeBuildMCP returned an optimized JPEG at
-  369×800 pixels.
-- Round-5 Battle-normal board artifact: the current transport content was
-  resampled with Lanczos to the established 1179×2556 `@3x` board dimension;
-  it is for visual parity only, not sharpness measurement.
+- Battle-normal capture: direct `simctl io screenshot` framebuffer at
+  1179×2556 pixels (3×), corresponding to the logical 393×852 viewport.
+- Battle-normal comparison board and 50% overlay: the native framebuffer is
+  downsampled to 393×852 logical pixels before comparison with the canonical
+  mock.
+- The simulator's Dynamic Island/system mask is unavoidable in the native
+  framebuffer and is a capture difference, not a Forged styling defect.
 - XCTest attachment note: XCUITest's `XCUIScreenshot` export is 1178×2556 on this runner; those files remain in the result bundle and are not mislabeled as the board's native captures.
 - Dedicated result bundle: `test_sim_2026-08-30T23-42-46-973Z_pid19570_369eddfd.xcresult`
 - Smoke test: `PyxisUITests/testForgedFixtureParitySmoke393x852`, serial, 1 passed / 0 failed on this device
@@ -65,8 +66,10 @@ DEBUG-derived probe used by the UI smoke.
 
 The Map implementation deliberately uses a computed 164pt card, not the taller presentation mock card. At 393pt width, the 164pt card leaves the authored 44pt node interactions and the required route spacing/headroom viable; this is a deliberate geometry-contract difference, not a capture defect. The overlays are evidence for human review only; there is no pixel-diff CI assertion.
 
-Round-5 Battle-normal comparison keeps both inputs at the same logical
-393×852 fixture: the current runtime is 369×800 optimized transport content,
-and the prototype's 7.4K / 320 / 6-soldier state is not expected to match the
-runtime's 4.2K / 20 / 0 state. Active units and damage are therefore excluded
-from the parity judgment; the layout and style bands remain the target.
+Battle-normal comparison uses the direct 1179×2556 framebuffer (3×, logical
+393×852) and its downsampled 393×852 comparison artifacts. The simulator's
+Dynamic Island/system mask remains an unavoidable capture difference. The
+prototype's 7.4K / 320 / 6-soldier state is not expected to match the truthful
+fixture's 4.2K / 20 / 0 state; those combat totals remain deliberate fixture
+differences and are excluded from the parity judgment, while layout and style
+bands remain the target.
