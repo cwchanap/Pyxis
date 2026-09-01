@@ -115,10 +115,12 @@ Ruling: Exact idle building count is not representable from BattleResult without
 
 ## Task 12 — remaining Battle material parity
 
-Status: root-cause audit complete; implementation pending.
+Status: root-cause audit, implementation, and review complete.
 
 Ruling: Task 11's blanket external-pill interpretation is superseded for locked medallions by the exact canonical HTML: available multipliers remain external bottom pills, while locked city requirements sit inside the lower hex with no gray capsule. This is presentation-only and does not change unlock semantics or hit frames.
 
 Ruling: Prototype combat totals, costs, lane roles, and live soldier positions are fixture/game-state data, not style tokens. Task 12 must match material and hierarchy without falsifying those values; simulator Dynamic Island/system masking is also documented rather than hidden.
 
-Task 12: implementation complete, review pending — corrected forged panel/HP/tab materials, one-line recommendation hierarchy, selected/locked medallion states, filled lane-role markers, 70 pt rendered lane chips, and the field-edge vignette. Fresh direct 1179×2556 simulator evidence and deterministic side-by-side/overlay were regenerated; affected suites pass 219/219 plus the final lane-chip rerun 15/15.
+Task 12: implementation complete, review clean — corrected forged panel/HP/tab materials, one-line recommendation hierarchy, selected/locked medallion states, filled lane-role markers, 70 pt rendered lane chips, and the field-edge vignette. Fresh direct 1179×2556 simulator evidence and deterministic side-by-side/overlay were regenerated; affected suites pass 219/219 plus the final lane-chip rerun 15/15.
+Task 12: fix round 1/5 (1 addressed, 0 open — stale Battle-normal transport provenance replaced with direct 1179×2556 `simctl io screenshot` evidence, 393×852 comparison downsampling, the unavoidable Dynamic Island/system mask, and truthful fixture-state differences).
+Task 12: fix round 1/5 complete (review clean — documentation-only correction; production, tests, and images untouched).
