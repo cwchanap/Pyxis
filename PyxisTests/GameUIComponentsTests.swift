@@ -81,7 +81,7 @@ struct GameUIComponentsTests {
         #expect(frame.minY >= -panel.contentSizeForTesting.height / 2 - semanticBoundsPadding)
     }
 
-    @Test func forgedPanelUsesAContinuousGradientWithoutASeparateSheenPlate() throws {
+    @Test func forgedPanelUsesFixedProgressiveSurfaceLayersWithoutAnimatedSheen() throws {
         let panel = PanelNode(size: CGSize(width: 180, height: 58))
         panel.apply(
             size: CGSize(width: 180, height: 58),
@@ -91,8 +91,23 @@ struct GameUIComponentsTests {
         )
 
         let plate = try #require(panel.childNode(withName: "panelPlate") as? SKShapeNode)
+        let topLight = try #require(panel.childNode(withName: "panelTopLight") as? SKShapeNode)
+        let floorShade = try #require(panel.childNode(withName: "panelFloorShade") as? SKShapeNode)
         #expect(plate.fillTexture != nil)
+        #expect(topLight.fillTexture != nil)
+        #expect(floorShade.fillTexture != nil)
+        #expect(!topLight.isHidden)
+        #expect(!floorShade.isHidden)
         #expect(panel.childNode(withName: "panelSheen") == nil)
+    }
+
+    @Test func standardPanelHidesForgedSurfaceLayers() throws {
+        let panel = PanelNode(size: CGSize(width: 180, height: 58))
+
+        let topLight = try #require(panel.childNode(withName: "panelTopLight") as? SKShapeNode)
+        let floorShade = try #require(panel.childNode(withName: "panelFloorShade") as? SKShapeNode)
+        #expect(topLight.isHidden)
+        #expect(floorShade.isHidden)
     }
 
     @Test func forgedPanelReusesItsFixedGradientTextureAcrossReapply() throws {

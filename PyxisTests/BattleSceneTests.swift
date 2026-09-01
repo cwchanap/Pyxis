@@ -2182,7 +2182,8 @@ struct BattleSceneTests {
         let store = try makeStore(
             initialState: stateWithBarracks(
                 cityRemainingPower: 50,
-                completedCityCount: 0
+                cityNumberInCountry: 3,
+                completedCityCount: 2
             )
         )
         let scene = makeScene(store: store)
@@ -2191,6 +2192,33 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
         #expect(scene.floatingFeedbackCountForTesting > 0)
+        #expect(scene.feedbackTextForTesting.isEmpty)
+        #expect(!scene.isFeedbackTooltipVisibleForTesting)
+        let damageLabel = try #require(
+            scene.childNode(withName: "//floatingFeedback") as? SKLabelNode
+        )
+        #expect(damageLabel.fontSize == 22)
+        #expect(
+            damageLabel.attributedText?.attribute(
+                .shadow,
+                at: 0,
+                effectiveRange: nil
+            ) is NSShadow
+        )
+        let actionDuration = try #require(
+            damageLabel.action(forKey: "floatingFeedback")?.duration
+        )
+        #expect(abs(actionDuration - 1.1) < 0.001)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        let fontColor = try #require(damageLabel.fontColor)
+        fontColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #expect(abs(red - 142 / 255) < 0.01)
+        #expect(abs(green - 247 / 255) < 0.01)
+        #expect(abs(blue - 173 / 255) < 0.01)
+        #expect(alpha == 1)
     }
 
     @Test func cityDamageDoesNotCreateScalingImpactEffect() throws {
@@ -2602,17 +2630,14 @@ struct BattleSceneTests {
     }
 
     @Test func liveConquestClearsStaleFeedbackSoTooltipStaysHiddenBehindPopup() throws {
-        // Regression: the live-combat conquest path only avoided *setting*
-        // `feedbackText`. A stale message left by an earlier damage tick (tooltip
-        // since faded, dedupe token reset to "") would be re-presented behind the
-        // conquest popup during the conquest `redraw`. Mirrors the idle path:
-        // clear `feedbackText` on conquest.
+        // A stale action warning must not be re-presented behind the conquest
+        // popup during the conquest redraw.
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1))
         let scene = makeScene(store: store)
 
-        // Reproduce the post-fade stale state: a prior damage tick left a
-        // message in `feedbackText` while the dedupe token has since reset.
-        scene.setFeedbackTextForTesting("Soldiers dealt 5 damage.")
+        // Reproduce the post-fade stale state: an action warning remains in
+        // `feedbackText` while the dedupe token has since reset.
+        scene.setFeedbackTextForTesting("Manual squad is full.")
         #expect(!scene.feedbackTextForTesting.isEmpty)
         #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
 
@@ -3183,15 +3208,14 @@ struct BattleSceneTests {
 
     @Test func repeatedIdenticalFeedbackRetriggersTooltipAfterFadeOut() throws {
         // Regression: `lastPresentedTooltipText` was never reset after the
-        // tooltip faded out, so a repeated identical message (e.g. "Soldiers
-        // dealt 5 damage." tick after tick from a single infantry attacking a
-        // durable city) would show once then never again — making combat look
-        // stalled. The fix resets the dedupe token when the fade-out completes.
+        // tooltip faded out, so a repeated identical action warning would show
+        // once and then never again.
         let store = try makeStore(initialState: stateWithBarracks(cityRemainingPower: 2000))
         let scene = makeScene(store: store)
 
-        scene.spawnSoldierForTesting()
-        scene.advanceCombatForTesting(deltaTime: 3.0)
+        for _ in 0...KingdomGameState.manualSoldierCap {
+            scene.spawnSoldierForTesting()
+        }
 
         // First attack: tooltip presents and records the dedupe token.
         let firstToken = scene.lastPresentedTooltipTextForTesting
@@ -3202,9 +3226,8 @@ struct BattleSceneTests {
         scene.completeFeedbackTooltipFadeOutForTesting()
         #expect(scene.lastPresentedTooltipTextForTesting.isEmpty)
 
-        // Second attack with the same damage message: the tooltip must
-        // re-present, re-recording the dedupe token.
-        scene.advanceCombatForTesting(deltaTime: 3.0)
+        // Repeating the blocked deploy must re-present the same warning.
+        scene.spawnSoldierForTesting()
         #expect(scene.lastPresentedTooltipTextForTesting == firstToken)
     }
 

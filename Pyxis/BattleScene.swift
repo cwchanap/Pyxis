@@ -39,7 +39,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private enum EffectStyle {
-        static let floatingFeedbackFontSize: CGFloat = 16
+        static let floatingFeedbackFontSize: CGFloat = 22
         static let floatingFeedbackZ: CGFloat = 55
         static let goldBurstZ = GameUITheme.Z.modal + 0.5
         static let goldBurstSparkleZ: CGFloat = 0
@@ -1502,10 +1502,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let panelFade = SKAction.fadeOut(withDuration: 0.22)
         let labelWait = SKAction.wait(forDuration: EffectStyle.tooltipVisibleDuration)
         let labelFade = SKAction.fadeOut(withDuration: 0.22)
-        // Reset the dedupe token once the tooltip finishes fading out so that a
-        // repeated identical message (e.g. "Soldiers dealt 5 damage." tick after
-        // tick from a single infantry) can re-trigger the tooltip. Without this,
-        // `presentFeedbackTooltipIfNeeded` would suppress it forever.
+        // Reset the dedupe token once the tooltip finishes fading out so a
+        // repeated action warning can re-trigger the tooltip.
         let resetToken = SKAction.run { [weak self] in
             self?.resetFeedbackTooltipDedupeToken()
         }
@@ -1657,19 +1655,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         let conqueredCity = damageResult.conqueredCities > 0
         let damageText = CompactNumberFormatter.string(from: damageResult.damageDealt)
+        let damageColor = result.soldierAttacks.allSatisfy {
+            state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
+        }
+            ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
+            : .white
+        feedbackText = ""
 
         if conqueredCity {
             feedbackSettingsController?.setSettingsAccessibilityActionable(false)
             closeFeedbackSettings(focusTarget: .systemDefault)
             clearLiveCombat()
-            // The conquest popup communicates the result; clear any stale
-            // feedback so the tooltip doesn't present behind the overlay and
-            // linger after the popup closes. Clearing (rather than just not
-            // setting) also covers a stale message left over from an earlier
-            // damage tick whose tooltip has already faded (dedupe token reset).
-            feedbackText = ""
-        } else {
-            feedbackText = "Soldiers dealt \(damageText) damage."
         }
 
         persistLiveCombatStateAndEmitFreshOutcomeFeedback(
@@ -1680,11 +1676,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if conqueredCity {
             if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
-                playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint)
+                playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint, color: damageColor)
                 playCityConquestFeedback()
             }
         } else {
-            playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint)
+            playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint, color: damageColor)
             playCityHitFeedback()
         }
     }
@@ -2270,23 +2266,48 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private func playFloatingFeedback(text: String, at position: CGPoint, color: SKColor = GameUITheme.Color.gold) {
         let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        let shadow = NSShadow()
+        shadow.shadowColor = SKColor(white: 0, alpha: 0.85)
+        shadow.shadowOffset = CGSize(width: 0, height: 2)
+        shadow.shadowBlurRadius = 5
         label.name = EffectName.floatingFeedback
         label.text = text
         label.fontSize = EffectStyle.floatingFeedbackFontSize
         label.fontColor = color
+        label.attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont(name: GameUITheme.Font.bold, size: label.fontSize)
+                    ?? UIFont.boldSystemFont(ofSize: label.fontSize),
+                .foregroundColor: color,
+                .shadow: shadow
+            ]
+        )
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
         label.position = CGPoint(x: position.x, y: position.y + 26)
         label.zPosition = EffectStyle.floatingFeedbackZ
         label.alpha = 0
+        label.setScale(0.7)
         effectsLayer.addChild(label)
 
-        let appear = SKAction.fadeIn(withDuration: 0.05)
-        let rise = SKAction.moveBy(x: 0, y: 24, duration: 0.5)
-        rise.timingMode = .easeOut
-        let fade = SKAction.fadeOut(withDuration: 0.2)
+        let appear = SKAction.group([
+            SKAction.fadeIn(withDuration: 0.2),
+            SKAction.moveBy(x: 0, y: 14, duration: 0.2),
+            SKAction.scale(to: 1.12, duration: 0.2)
+        ])
+        appear.timingMode = .easeOut
+        let floatAway = SKAction.group([
+            SKAction.fadeOut(withDuration: 0.9),
+            SKAction.moveBy(x: 0, y: 50, duration: 0.9),
+            SKAction.scale(to: 0.94, duration: 0.9)
+        ])
+        floatAway.timingMode = .easeOut
         let remove = SKAction.removeFromParent()
-        label.run(SKAction.sequence([appear, SKAction.group([rise, fade]), remove]))
+        label.run(
+            SKAction.sequence([appear, floatAway, remove]),
+            withKey: EffectName.floatingFeedback
+        )
     }
 
     private func playTowerShot(at soldierID: BattleCombatState.SoldierID) {
