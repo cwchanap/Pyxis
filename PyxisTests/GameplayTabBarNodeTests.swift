@@ -80,4 +80,38 @@ struct GameplayTabBarNodeTests {
         #expect(node.hitFrameForTesting(for: .battle)?.width ?? 0 >= 44)
         #expect(node.hitFrameForTesting(for: .battle)?.height ?? 0 >= 44)
     }
+
+    @Test func forgedTabsUseGradientShellMutedUnselectedTabsAndDarkSelectedTile() throws {
+        let node = GameplayTabBarNode(appearance: .forged)
+        node.apply(
+            content: .init(
+                selected: .battle,
+                enabledTabs: Set(GameplayTab.allCases),
+                showsCampAttention: false
+            ),
+            frame: CGRect(x: 16, y: 0, width: 361, height: 82)
+        )
+
+        let shell = try #require(
+            node.childNode(withName: "gameplayTabForgedBackdrop") as? SKShapeNode
+        )
+        let selected = try #require(
+            node.childNode(withName: "//gameplayTabPanel-battle") as? PanelNode
+        )
+        let selectedPlate = try #require(
+            selected.childNode(withName: "panelPlate") as? SKShapeNode
+        )
+        let campIcon = try #require(
+            node.childNode(withName: "//gameplayTabIcon-camp") as? SKShapeNode
+        )
+        let campTitle = try #require(
+            node.childNode(withName: "//gameplayTabTitle-camp") as? SKLabelNode
+        )
+
+        #expect(shell.fillTexture != nil)
+        #expect(selectedPlate.fillTexture != nil)
+        #expect(abs(campIcon.alpha - 0.45) < 0.001)
+        #expect(abs(campTitle.alpha - 0.45) < 0.001)
+        #expect(selectedPlate.strokeColor.cgColor.alpha < 0.8)
+    }
 }

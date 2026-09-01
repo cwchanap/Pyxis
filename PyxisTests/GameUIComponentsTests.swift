@@ -151,4 +151,23 @@ struct GameUIComponentsTests {
             #expect(abs(shadow.strokeColor.cgColor.alpha - expectedGlowAlpha) < 0.001)
         }
     }
+
+    @Test func forgedProgressFillUsesAReferenceGradientTexture() throws {
+        let bar = ProgressBarNode(size: CGSize(width: 288, height: 14), appearance: .forged)
+        bar.update(progress: 0.71)
+
+        let fill = try #require(bar.children[1] as? SKShapeNode)
+
+        #expect(fill.fillTexture != nil)
+        #expect(rgba(fill.fillColor) == [255, 255, 255, 255])
+    }
+}
+
+private func rgba(_ color: SKColor) -> [Int] {
+    var red: CGFloat = 0
+    var green: CGFloat = 0
+    var blue: CGFloat = 0
+    var alpha: CGFloat = 0
+    color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
 }

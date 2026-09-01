@@ -441,3 +441,11 @@ Before runtime implementation starts, confirm this plan still states all of the 
 - [ ] **Step 5: GREEN focused tests and lint.** Run the affected layout/HUD/component/tab/Battle suites serially, targeted SwiftLint, and `git diff --check`.
 - [ ] **Step 6: Launch the deterministic Battle fixture at 393×852.** Capture a fresh native screenshot, rebuild the side-by-side and 50% overlay, and inspect the actual rendered pixels. Do not claim parity from source geometry alone.
 - [ ] **Step 7: Commit the correction as one reviewed slice.**
+
+## Task 12: Close the remaining Forged Battle material and hierarchy gap
+
+**User-approved correction:** The Task 11 runtime still visibly diverges from the exact `3b · FORGED` prototype. Keep its accepted outer-band geometry and correct the remaining context-specific material, internal alignment, medallion-state, verdict, progress, tab-opacity, and vignette differences without changing gameplay or fixture truth.
+
+- [ ] Follow the durable SDD brief at `.superpowers/sdd/2026-08-29-forged-gameplay-ui-redesign-implementation/task-12-brief.md`.
+- [ ] Require failing exact-reference readbacks before production edits.
+- [ ] Require a fresh 393×852 runtime capture, side-by-side, and overlay before review.

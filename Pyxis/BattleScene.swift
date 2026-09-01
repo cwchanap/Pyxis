@@ -1111,9 +1111,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 context.cgContext.drawRadialGradient(
                     vignette,
                     startCenter: CGPoint(x: size.width / 2, y: size.height / 2),
-                    startRadius: min(size.width, size.height) * 0.18,
+                    startRadius: min(size.width, size.height) * 0.42,
                     endCenter: CGPoint(x: size.width / 2, y: size.height / 2),
-                    endRadius: max(size.width, size.height) * 0.72,
+                    endRadius: min(size.width, size.height) * 0.68,
                     options: []
                 )
             }

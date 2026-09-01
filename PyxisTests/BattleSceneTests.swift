@@ -3414,6 +3414,23 @@ struct BattleSceneTests {
         #expect(firstTexture === secondTexture)
     }
 
+    @Test func forgedAtmosphereKeepsTheInsetVignetteAtThePhoneEdges() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
+        let scene = makeScene(store: store, size: CGSize(width: 393, height: 852))
+        let atmosphere = try #require(
+            scene.childNode(withName: "//battleForgedAtmosphere") as? SKSpriteNode
+        )
+        let texture = try #require(atmosphere.texture)
+        let center = try #require(pixel(in: texture, normalized: CGPoint(x: 0.5, y: 0.5)))
+        let nearEdge = try #require(pixel(in: texture, normalized: CGPoint(x: 0.25, y: 0.5)))
+        let edge = try #require(pixel(in: texture, normalized: CGPoint(x: 0.02, y: 0.5)))
+
+        #expect(nearEdge[3] <= center[3] + 5)
+        #expect(edge[3] > nearEdge[3] + 12)
+        #expect(edge[3] > center[3] + 24)
+        #expect(edge[0] < 70)
+    }
+
     private func pollUntil(
         timeout: Duration,
         interval: Duration = .milliseconds(50),
@@ -3867,6 +3884,38 @@ struct BattleSceneTests {
         var alpha: CGFloat = 0
         color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
+    }
+
+    private func pixel(in texture: SKTexture, normalized point: CGPoint) -> [Int]? {
+        let image = texture.cgImage()
+        guard image.width > 0, image.height > 0 else {
+            return nil
+        }
+
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: image.width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        guard drawn else {
+            return nil
+        }
+
+        let x = min(image.width - 1, max(0, Int(point.x * CGFloat(image.width))))
+        let y = min(image.height - 1, max(0, Int((1 - point.y) * CGFloat(image.height))))
+        let offset = (y * image.width + x) * 4
+        return Array(pixels[offset..<(offset + 4)]).map(Int.init)
     }
 
     private func opaquePixelBounds(in image: UIImage) -> PixelBounds? {
