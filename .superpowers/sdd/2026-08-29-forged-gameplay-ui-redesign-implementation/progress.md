@@ -112,3 +112,13 @@ Task 11: complete (commits eae222c..6dece6b, task review and five scoped fix re-
 
 Consolidated final-fix: fix round 1/5 (4 addressed — Battle interaction now consumes authoritative safe-area tab hit frames; Scout footer projects CityDefenseTrait multipliers; presentation-only idleBuildingCount removed and idle reports use durable total idle damage; fixed Forged gradient, atmosphere, and coin textures are reused; serial unit/UI checks green).
 Ruling: Exact idle building count is not representable from BattleResult without reintroducing the forbidden presentation-only persistence seam. Idle reports therefore show durable total IDLE DAMAGE, and legacy/current results with no durable idle rows show “—” rather than a false BUILDINGS 0.
+
+## Task 12 — remaining Battle material parity
+
+Status: root-cause audit complete; implementation pending.
+
+Ruling: Task 11's blanket external-pill interpretation is superseded for locked medallions by the exact canonical HTML: available multipliers remain external bottom pills, while locked city requirements sit inside the lower hex with no gray capsule. This is presentation-only and does not change unlock semantics or hit frames.
+
+Ruling: Prototype combat totals, costs, lane roles, and live soldier positions are fixture/game-state data, not style tokens. Task 12 must match material and hierarchy without falsifying those values; simulator Dynamic Island/system masking is also documented rather than hidden.
+
+Task 12: implementation complete, review pending — corrected forged panel/HP/tab materials, one-line recommendation hierarchy, selected/locked medallion states, filled lane-role markers, 70 pt rendered lane chips, and the field-edge vignette. Fresh direct 1179×2556 simulator evidence and deterministic side-by-side/overlay were regenerated; affected suites pass 219/219 plus the final lane-chip rerun 15/15.

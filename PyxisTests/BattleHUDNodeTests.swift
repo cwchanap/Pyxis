@@ -36,6 +36,9 @@ struct BattleHUDNodeTests {
         let detail = try #require(
             node.childNode(withName: "battleRecommendationDetailLabel") as? SKLabelNode
         )
+        let recommendationLevel = try #require(
+            node.childNode(withName: "battleRecommendationLevelLabel") as? SKLabelNode
+        )
         let typeLabel = try #require(
             node.childNode(withName: "//battleMedallionType-infantry") as? SKLabelNode
         )
@@ -56,7 +59,8 @@ struct BattleHUDNodeTests {
         #expect(title.fontSize == 21)
         #expect(hp.isHidden)
         #expect(bar.children.compactMap { $0 as? SKShapeNode }.first?.path?.boundingBox.height == 14)
-        #expect(detail.text?.contains("Lv2→3") == true)
+        #expect(detail.text == "Barracks")
+        #expect(recommendationLevel.text == "Lv2→3")
         #expect(typeLabel.isHidden)
         #expect(status.isHidden)
         #expect(multiplier.text == "1.25")
@@ -164,7 +168,8 @@ struct BattleHUDNodeTests {
         let tabBackdrop = try #require(
             node.childNode(withName: "//gameplayTabForgedBackdrop") as? SKShapeNode
         )
-        #expect(rgba(tabBackdrop.fillColor) == [16, 9, 3, 250])
+        #expect(tabBackdrop.fillTexture != nil)
+        #expect(rgba(tabBackdrop.fillColor) == [255, 255, 255, 255])
 
         let cityProgressBar = try #require(
             node.childNode(withName: "battleCityProgressBar") as? ProgressBarNode
@@ -405,6 +410,121 @@ struct BattleHUDNodeTests {
         )
         #expect(lock.path != nil)
         #expect(!lock.isHidden)
+    }
+
+    @Test func referenceBattleKeepsCityLineHighAndRecommendationOnOneRow() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let state = KingdomGameState(
+            cityLevel: 3,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 3).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: 2)]
+                )
+            ]
+        )
+        let node = BattleHUDNode()
+        _ = node.apply(content: .project(from: state, manualCount: 0), layout: layout)
+
+        let title = try #require(node.childNode(withName: "battleCityTitleLabel") as? SKLabelNode)
+        let objective = try #require(
+            node.childNode(withName: "battleRecommendationLabel") as? SKLabelNode
+        )
+        let detail = try #require(
+            node.childNode(withName: "battleRecommendationDetailLabel") as? SKLabelNode
+        )
+        let level = try #require(
+            node.childNode(withName: "battleRecommendationLevelLabel") as? SKLabelNode
+        )
+        let cost = try #require(
+            node.childNode(withName: "battleRecommendationCostLabel") as? SKLabelNode
+        )
+
+        #expect(abs(layout.sceneFrame.maxY - title.position.y - 122.5) < 0.5)
+        #expect(objective.position.y == layout.recommendationFrame.midY)
+        #expect(detail.position.y == layout.recommendationFrame.midY)
+        #expect(level.position.y == layout.recommendationFrame.midY)
+        #expect(cost.position.y == layout.recommendationFrame.midY)
+        #expect(detail.text == "Barracks")
+        #expect(level.text == "Lv2→3")
+    }
+
+    @Test func referenceBattleUsesContextMaterialsAndStateSpecificMedallions() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let state = KingdomGameState(
+            cityLevel: 5,
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 5).storageKey: CityBattleState(
+                    slots: [
+                        1: CityBuilding(type: .barracks, level: 2),
+                        2: CityBuilding(type: .archeryRange, level: 1),
+                        3: CityBuilding(type: .stable, level: 1)
+                    ]
+                )
+            ]
+        )
+        let node = BattleHUDNode()
+        _ = node.apply(content: .project(from: state, manualCount: 0), layout: layout)
+
+        let recommendation = try #require(
+            node.childNode(withName: "battleRecommendationPanel") as? PanelNode
+        )
+        let recommendationPlate = try #require(
+            recommendation.childNode(withName: "panelPlate") as? SKShapeNode
+        )
+        let deploy = try #require(node.childNode(withName: "battleDeployPanel") as? PanelNode)
+        let deployPlate = try #require(
+            deploy.childNode(withName: "panelPlate") as? SKShapeNode
+        )
+        let heldBackground = try #require(
+            node.childNode(withName: "battleLaneChip-1") as? SKShapeNode
+        )
+        let heldShield = try #require(
+            node.childNode(withName: "battleLaneChipShield-1") as? SKShapeNode
+        )
+        let openBackground = try #require(
+            node.childNode(withName: "battleLaneChip-2") as? SKShapeNode
+        )
+        let selectedRoot = try #require(node.childNode(withName: "battleMedallion-infantry"))
+        let selectedIcon = try #require(
+            node.childNode(withName: "//battleMedallionIcon-infantry") as? SKSpriteNode
+        )
+        let otherIcon = try #require(
+            node.childNode(withName: "//battleMedallionIcon-archer") as? SKSpriteNode
+        )
+        let lockedIcon = try #require(
+            node.childNode(withName: "//battleMedallionIcon-mage") as? SKSpriteNode
+        )
+        let lockedPill = try #require(
+            node.childNode(withName: "//battleMedallionPill-mage") as? SKShapeNode
+        )
+        let lockedLock = try #require(
+            node.childNode(withName: "//battleMedallionLock-mage") as? SKShapeNode
+        )
+
+        #expect(recommendationPlate.fillTexture != nil)
+        #expect(recommendationPlate.strokeColor.cgColor.alpha > 0.65)
+        #expect(deployPlate.fillTexture != nil)
+        #expect(deployPlate.strokeColor.cgColor.alpha > 0.7)
+        #expect(heldBackground.fillTexture != nil)
+        #expect(heldBackground.path?.boundingBox.width == 70)
+        #expect(openBackground.path?.boundingBox.width == 70)
+        #expect(heldShield.fillColor != .clear)
+        #expect(selectedRoot.position.y == layout.medallionFrames[0].midY + 5)
+        #expect(abs(selectedIcon.alpha - 1) < 0.001)
+        #expect(abs(otherIcon.alpha - 0.66) < 0.001)
+        #expect(abs(lockedIcon.alpha - 0.22) < 0.001)
+        #expect(lockedPill.isHidden)
+        #expect(lockedLock.fillColor != .clear)
     }
 }
 

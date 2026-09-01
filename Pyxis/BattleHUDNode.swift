@@ -187,6 +187,7 @@ final class BattleHUDNode: SKNode {
     private let cityProgressLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let cityHPLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let recommendationDetailLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let recommendationLevelLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let cityProgressBar = ProgressBarNode(size: .zero, appearance: .forged)
     private let deployPanel = PanelNode(size: .zero)
     private let deployIcon = SKSpriteNode()
@@ -295,6 +296,7 @@ final class BattleHUDNode: SKNode {
         recommendationCoinIcon.name = "battleRecommendationCoinIcon"
         recommendationCostLabel.name = "battleRecommendationCostLabel"
         recommendationArrowLabel.name = "battleRecommendationArrowLabel"
+        recommendationLevelLabel.name = "battleRecommendationLevelLabel"
         cityTitleLabel.name = "battleCityTitleLabel"
         statusLabel.name = "battleGoldLabel"
         objectiveLabel.name = "battleRecommendationLabel"
@@ -317,6 +319,7 @@ final class BattleHUDNode: SKNode {
             cityTitleLabel,
             cityHPLabel,
             recommendationDetailLabel,
+            recommendationLevelLabel,
             recommendationCostLabel,
             recommendationArrowLabel,
             deployLabel,
@@ -338,6 +341,8 @@ final class BattleHUDNode: SKNode {
         cityHPLabel.fontColor = GameUITheme.Color.textSecondary
         recommendationDetailLabel.fontSize = 8
         recommendationDetailLabel.fontColor = GameUITheme.Color.textSecondary
+        recommendationLevelLabel.fontSize = 10
+        recommendationLevelLabel.fontColor = GameUITheme.Color.textSecondary
         recommendationCostLabel.fontSize = 15
         recommendationCostLabel.fontColor = SKColor(
             red: 1,
@@ -366,6 +371,7 @@ final class BattleHUDNode: SKNode {
         addChild(cityProgressLabel)
         addChild(cityHPLabel)
         addChild(recommendationDetailLabel)
+        addChild(recommendationLevelLabel)
         addChild(cityProgressBar)
         for bundle in medallions {
             addChild(bundle.root)
@@ -450,7 +456,8 @@ final class BattleHUDNode: SKNode {
             size: layout.recommendationFrame.size,
             style: .normal,
             showsRivets: true,
-            appearance: .forged
+            appearance: .forged,
+            forgedTreatment: .objective
         )
         recommendationPanel.position = CGPoint(
             x: layout.recommendationFrame.midX,
@@ -501,7 +508,9 @@ final class BattleHUDNode: SKNode {
             + cityGroupGap
             + cityTitleLabel.frame.width
         let cityGroupMinX = layout.cityProgressFrame.midX - cityGroupWidth / 2
-        let cityGroupY = layout.cityProgressFrame.maxY - 21
+        let cityGroupY = layout.isCompact
+            ? layout.cityProgressFrame.maxY - 21
+            : layout.sceneFrame.maxY - 122.5
         cityProgressLabel.position = CGPoint(
             x: cityGroupMinX,
             y: cityGroupY
@@ -528,18 +537,25 @@ final class BattleHUDNode: SKNode {
         objectiveLabel.horizontalAlignmentMode = .left
         objectiveLabel.position = CGPoint(
             x: layout.recommendationFrame.minX + 51,
-            y: layout.recommendationFrame.midY + 9
+            y: layout.recommendationFrame.midY
         )
         recommendationDetailLabel.text = Self.objectiveText(
-            for: content.recommendation,
-            levelText: content.recommendationLevelText
+            for: content.recommendation
         )
         recommendationDetailLabel.horizontalAlignmentMode = .left
         recommendationDetailLabel.fontSize = 15
         recommendationDetailLabel.fontColor = GameUITheme.Color.textPrimary
         recommendationDetailLabel.position = CGPoint(
             x: layout.recommendationFrame.minX + 83,
-            y: layout.recommendationFrame.midY - 7
+            y: layout.recommendationFrame.midY
+        )
+        recommendationLevelLabel.text = content.recommendationLevelText
+        recommendationLevelLabel.horizontalAlignmentMode = .left
+        recommendationLevelLabel.fontSize = 10
+        recommendationLevelLabel.fontColor = GameUITheme.Color.textSecondary
+        recommendationLevelLabel.position = CGPoint(
+            x: recommendationDetailLabel.position.x + recommendationDetailLabel.frame.width + 7,
+            y: layout.recommendationFrame.midY
         )
         recommendationIcon.texture = Self.recommendationTexture(for: content.recommendation)
         recommendationIcon.size = CGSize(width: 36, height: 36)
@@ -558,14 +574,14 @@ final class BattleHUDNode: SKNode {
         recommendationCostLabel.horizontalAlignmentMode = .left
         recommendationCostLabel.position = CGPoint(
             x: layout.recommendationFrame.maxX - 44,
-            y: layout.recommendationFrame.midY - 7
+            y: layout.recommendationFrame.midY
         )
         recommendationArrowLabel.text = "›"
         recommendationArrowLabel.fontSize = 17
         recommendationArrowLabel.horizontalAlignmentMode = .left
         recommendationArrowLabel.position = CGPoint(
             x: layout.recommendationFrame.maxX - 15,
-            y: layout.recommendationFrame.midY - 7
+            y: layout.recommendationFrame.midY
         )
         let recommendationHasAction: Bool
         switch content.recommendation {
@@ -577,33 +593,49 @@ final class BattleHUDNode: SKNode {
         recommendationCoinIcon.isHidden = !recommendationHasAction
         recommendationCostLabel.isHidden = !recommendationHasAction
         recommendationArrowLabel.isHidden = !recommendationHasAction
+        recommendationLevelLabel.isHidden = !recommendationHasAction
 
         for (index, bundle) in medallions.enumerated() {
             let medallion = content.medallions[index]
             let frame = layout.medallionFrames[index]
-            let style: PanelNode.Style
-            if medallion.soldierType == content.selectedSoldierType,
-               case .available = medallion.availability {
-                style = .selected
-            } else {
-                style = Self.panelStyle(for: medallion.availability)
+            let isAvailable: Bool
+            switch medallion.availability {
+            case .available:
+                isAvailable = true
+            case .unbuilt, .locked:
+                isAvailable = false
+            }
+            let isSelected = medallion.soldierType == content.selectedSoldierType && isAvailable
+            let style = isSelected ? PanelNode.Style.selected : Self.panelStyle(for: medallion.availability)
+            let treatment: PanelNode.ForgedTreatment
+            switch medallion.availability {
+            case .locked:
+                treatment = .medallionLocked
+            case .available, .unbuilt:
+                treatment = isSelected ? .medallionSelected : .medallionAvailable
             }
             bundle.panel.apply(
                 size: frame.size,
                 style: style,
                 showsRivets: false,
                 appearance: .forged,
-                shape: .hexagon
+                shape: .hexagon,
+                forgedTreatment: treatment
             )
-            bundle.root.position = CGPoint(x: frame.midX, y: frame.midY)
+            bundle.root.position = CGPoint(
+                x: frame.midX,
+                y: frame.midY + (isSelected ? 5 : 0)
+            )
             bundle.icon.size = CGSize(width: 44, height: 44)
             bundle.icon.position = CGPoint(x: 0, y: 7)
             bundle.icon.alpha = {
                 switch medallion.availability {
                 case .locked:
-                    return 0.28
-                case .available, .unbuilt:
-                    return 1
+                    return 0.22
+                case .available:
+                    return isSelected ? 1 : 0.66
+                case .unbuilt:
+                    return 0.66
                 }
             }()
             bundle.typeLabel.text = nil
@@ -644,14 +676,30 @@ final class BattleHUDNode: SKNode {
             )
             bundle.pill.fillColor = pillColor
             bundle.pill.strokeColor = .clear
-            bundle.pill.isHidden = false
+            bundle.pill.fillTexture = isLocked
+                ? nil
+                : medallion.damageMultiplier > 1
+                    ? Self.favorableMultiplierTexture
+                    : Self.disadvantagedMultiplierTexture
+            bundle.pill.fillColor = isLocked ? pillColor : .white
+            bundle.pill.strokeColor = isLocked
+                ? .clear
+                : SKColor(red: 30 / 255, green: 20 / 255, blue: 10 / 255, alpha: 0.60)
+            bundle.pill.glowWidth = isLocked ? 0 : 1.5
+            bundle.pill.isHidden = isLocked
             bundle.multiplierLabel.fontSize = 9
             bundle.multiplierLabel.fontColor = pillTextColor
             bundle.multiplierLabel.position = CGPoint(
                 x: isLocked ? 4 : 0,
-                y: -23.5
+                y: isLocked ? -18 : -23.5
             )
-            bundle.lockIcon.position = CGPoint(x: -7, y: -23.5)
+            bundle.lockIcon.fillColor = isLocked
+                ? SKColor(red: 255 / 255, green: 220 / 255, blue: 170 / 255, alpha: 0.85)
+                : .clear
+            bundle.lockIcon.strokeColor = isLocked
+                ? .clear
+                : SKColor(red: 1, green: 220 / 255, blue: 170 / 255, alpha: 1)
+            bundle.lockIcon.position = CGPoint(x: -7, y: isLocked ? -18 : -23.5)
             bundle.lockIcon.isHidden = !isLocked
         }
 
@@ -659,7 +707,8 @@ final class BattleHUDNode: SKNode {
             size: layout.deployFrame.size,
             style: .primaryAction,
             showsRivets: true,
-            appearance: .forged
+            appearance: .forged,
+            forgedTreatment: .deploy
         )
         deployPanel.position = CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY)
         deployIcon.texture = Self.texture(for: content.selectedSoldierType)
@@ -717,6 +766,12 @@ final class BattleHUDNode: SKNode {
         )
         for lane in BattleLane.allCases {
             let frame = layout.laneChipFrames[lane]!
+            let chipFrame = CGRect(
+                x: frame.midX - 35,
+                y: frame.minY,
+                width: 70,
+                height: frame.height
+            )
             let bundle = laneChips[lane]!
             let role = content.laneDefenseProfile.role(for: lane)
             let chipText: String?
@@ -725,48 +780,43 @@ final class BattleHUDNode: SKNode {
             case .exposed:
                 chipText = "OPEN"
                 chipColor = GameUITheme.Color.hpFill
-                bundle.background.fillColor = SKColor(
-                    red: 20 / 255,
-                    green: 26 / 255,
-                    blue: 16 / 255,
-                    alpha: 0.96
-                )
+                bundle.background.fillTexture = Self.openLaneTexture
             case .fortified:
                 chipText = "HELD"
                 chipColor = GameUITheme.Color.danger
-                bundle.background.fillColor = SKColor(
-                    red: 34 / 255,
-                    green: 14 / 255,
-                    blue: 8 / 255,
-                    alpha: 0.96
-                )
+                bundle.background.fillTexture = Self.heldLaneTexture
             case .standard:
                 chipText = nil
                 chipColor = GameUITheme.Color.textPrimary
+                bundle.background.fillTexture = nil
             }
             bundle.background.path = CGPath(
                 roundedRect: CGRect(
-                    x: frame.minX,
-                    y: frame.minY,
-                    width: frame.width,
-                    height: frame.height
+                    x: chipFrame.minX,
+                    y: chipFrame.minY,
+                    width: chipFrame.width,
+                    height: chipFrame.height
                 ),
                 cornerWidth: 4,
                 cornerHeight: 4,
                 transform: nil
             )
+            bundle.background.fillColor = chipText == nil ? .clear : .white
             bundle.background.strokeColor = chipColor.withAlphaComponent(0.75)
             bundle.background.lineWidth = 1.5
             bundle.background.isHidden = chipText == nil
+            bundle.shield.fillColor = role == .fortified
+                ? chipColor.withAlphaComponent(0.9)
+                : .clear
             bundle.shield.strokeColor = chipColor
             bundle.shield.position = CGPoint(
-                x: frame.minX + 11,
-                y: frame.midY
+                x: chipFrame.minX + 11,
+                y: chipFrame.midY
             )
             bundle.shield.isHidden = chipText == nil
             bundle.label.text = chipText
             bundle.label.fontColor = chipColor
-            bundle.label.position = CGPoint(x: frame.midX + 5, y: frame.midY)
+            bundle.label.position = CGPoint(x: chipFrame.midX + 5, y: chipFrame.midY)
             bundle.label.isHidden = chipText == nil
         }
         tabBar.apply(
@@ -863,13 +913,11 @@ final class BattleHUDNode: SKNode {
     }
 
     private static func objectiveText(
-        for recommendation: RecommendedCampRecommendation,
-        levelText: String?
+        for recommendation: RecommendedCampRecommendation
     ) -> String {
-        let level = levelText.map { " \($0)" } ?? ""
         switch recommendation {
         case .ready(let action, _), .saveFor(let action, _, _):
-            return "\(action.buildingType.shortDisplayName)\(level)"
+            return action.buildingType.shortDisplayName
         case .noAction(let message):
             return message
         }
@@ -905,6 +953,22 @@ final class BattleHUDNode: SKNode {
         return type == .infantry ? "normal-soldier" : "\(type.rawValue)-soldier"
     }
 
+    private static let favorableMultiplierTexture = PanelNode.gradientTexture(
+        top: SKColor(red: 95 / 255, green: 240 / 255, blue: 154 / 255, alpha: 1),
+        bottom: SKColor(red: 18 / 255, green: 160 / 255, blue: 82 / 255, alpha: 1)
+    )
+    private static let disadvantagedMultiplierTexture = PanelNode.gradientTexture(
+        top: SKColor(red: 255 / 255, green: 138 / 255, blue: 114 / 255, alpha: 1),
+        bottom: SKColor(red: 192 / 255, green: 42 / 255, blue: 26 / 255, alpha: 1)
+    )
+    private static let openLaneTexture = PanelNode.gradientTexture(
+        top: SKColor(red: 44 / 255, green: 58 / 255, blue: 34 / 255, alpha: 1),
+        bottom: SKColor(red: 20 / 255, green: 26 / 255, blue: 16 / 255, alpha: 1)
+    )
+    private static let heldLaneTexture = PanelNode.gradientTexture(
+        top: SKColor(red: 74 / 255, green: 31 / 255, blue: 20 / 255, alpha: 1),
+        bottom: SKColor(red: 34 / 255, green: 14 / 255, blue: 8 / 255, alpha: 1)
+    )
     private static let cachedGoldTexture = makeGoldTexture()
 
     private static func makeGoldTexture() -> SKTexture? {

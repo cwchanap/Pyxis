@@ -69,6 +69,10 @@ final class GameplayTabBarNode: SKNode {
     private let tabBundles: [GameplayTab: TabBundle]
     private let appearance: Appearance
     private let forgedBackdrop = SKShapeNode()
+    private static let forgedBackdropTexture = PanelNode.gradientTexture(
+        top: SKColor(red: 34 / 255, green: 20 / 255, blue: 8 / 255, alpha: 0.60),
+        bottom: SKColor(red: 16 / 255, green: 9 / 255, blue: 3 / 255, alpha: 0.98)
+    )
     private var hitFrames = [GameplayTab: CGRect]()
 
     private static func makeIcon(for tab: GameplayTab, appearance: Appearance) -> SKNode {
@@ -179,12 +183,8 @@ final class GameplayTabBarNode: SKNode {
                 cornerHeight: 10,
                 transform: nil
             )
-            forgedBackdrop.fillColor = SKColor(
-                red: 16 / 255,
-                green: 9 / 255,
-                blue: 3 / 255,
-                alpha: 0.98
-            )
+            forgedBackdrop.fillColor = .white
+            forgedBackdrop.fillTexture = Self.forgedBackdropTexture
             forgedBackdrop.strokeColor = SKColor(
                 red: 255 / 255,
                 green: 206 / 255,
@@ -226,7 +226,10 @@ final class GameplayTabBarNode: SKNode {
                 size: panelSize,
                 style: style,
                 showsRivets: false,
-                appearance: appearance == .forged ? .forged : .standard
+                appearance: appearance == .forged ? .forged : .standard,
+                forgedTreatment: appearance == .forged && tab == content.selected
+                    ? .selectedTab
+                    : .standard
             )
             bundle.panel.alpha = appearance == .forged && tab != content.selected ? 0 : 1
             bundle.panel.position = CGPoint(x: cellFrame.midX, y: tileCenterY)
@@ -244,9 +247,12 @@ final class GameplayTabBarNode: SKNode {
                 }
                 bundle.title.fontColor = color
             }
-            let iconAlpha: CGFloat = content.enabledTabs.contains(tab) || tab == content.selected
-                ? 1
-                : (appearance == .forged ? 0.45 : 0.4)
+            let iconAlpha: CGFloat
+            if appearance == .forged {
+                iconAlpha = tab == content.selected ? 1 : 0.45
+            } else {
+                iconAlpha = content.enabledTabs.contains(tab) || tab == content.selected ? 1 : 0.4
+            }
             bundle.icon.alpha = iconAlpha
             bundle.title.alpha = iconAlpha
 
