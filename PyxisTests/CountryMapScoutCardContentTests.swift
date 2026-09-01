@@ -155,7 +155,7 @@ struct CountryMapScoutCardContentTests {
         let expected: [ExpectedScoutDetails] = [
             .init(1, .standardWatch, [], [], .right),
             .init(2, .standardWatch, [], [], .left),
-            .init(3, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .center),
+            .init(3, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .left),
             .init(4, .spikedGate, [.archer, .mage], [.infantry, .cavalry], .right),
             .init(5, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .left),
             .init(6, .stoneWall, [.mage, .siege], [.archer], .center),

@@ -73,8 +73,8 @@ struct BattleHUDContentTests {
         let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
         let content = BattleHUDContent.project(from: state, manualCount: 0)
 
-        #expect(content.laneDefenseProfile.exposedLane == .center)
+        #expect(content.laneDefenseProfile.exposedLane == .left)
         #expect(content.laneDefenseProfile.fortifiedLane == .right)
-        #expect(content.laneDefenseProfile.role(for: .left) == .standard)
+        #expect(content.laneDefenseProfile.role(for: .center) == .standard)
     }
 }

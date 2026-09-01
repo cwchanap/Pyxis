@@ -52,7 +52,7 @@ struct Country1CityCatalogTests {
     private static let expectedDefinitions: [ExpectedDefinition] = [
         .init(1, name: "Willowford", flavorText: "A quiet crossing where the campaign begins.", conquestTitle: "Willowford Secured", .standardWatch, .left, .right),
         .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left),
-        .init(3, name: "Falconridge", flavorText: "Arrow towers command the high ridge road.", conquestTitle: "Falconridge Silenced", .arrowTower, .right, .center),
+        .init(3, name: "Falconridge", flavorText: "Arrow towers command the high ridge road.", conquestTitle: "Falconridge Silenced", .arrowTower, .right, .left),
         .init(4, name: "Bramblegate", flavorText: "Iron spikes guard a narrow frontier gate.", conquestTitle: "Bramblegate Broken", .spikedGate, .left, .right),
         .init(5, name: "Highcrest", flavorText: "A proud hill fortress crowns the frontier.", conquestTitle: "Highcrest Falls", .arrowTower, .center, .left),
         .init(6, name: "Granite Pass", flavorText: "Stone walls seal the mountain road ahead.", conquestTitle: "Granite Pass Open", .stoneWall, .right, .center),
