@@ -38,6 +38,8 @@ Every minimum state has the canonical mock, a simulator capture, a deterministic
 - Native framebuffer: 1179×2556 pixels, 3×, logical 393×852 points (`simctl io screenshot`, no resampling)
 - Battle-normal capture: direct `simctl io screenshot` framebuffer at
   1179×2556 pixels (3×), corresponding to the logical 393×852 viewport.
+- Live-damage capture: `native/battle-live-damage-393x852@3x.png` is an
+  unfrozen battle fixture frame showing real combat damage feedback.
 - Battle-normal comparison board and 50% overlay: the native framebuffer is
   downsampled to 393×852 logical pixels before comparison with the canonical
   mock.

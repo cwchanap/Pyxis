@@ -32,7 +32,7 @@ enum Country1CityCatalog {
             flavorText: "Arrow towers command the high ridge road.",
             conquestTitle: "Falconridge Silenced",
             defenseTrait: .arrowTower,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .left)
         ),
         CityDefinition(
             cityNumber: 4,

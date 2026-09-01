@@ -358,7 +358,7 @@ struct BattleHUDNodeTests {
         )) == .tab(.battle))
     }
 
-    @Test func rendersOnlyAuthoredNonStandardLaneChips() throws {
+    @Test func falconridgeRendersOpenLeftAndHeldRightWithoutObscuringTheCity() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),
             safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
@@ -368,17 +368,19 @@ struct BattleHUDNodeTests {
         let node = BattleHUDNode()
         _ = node.apply(content: content, layout: layout)
 
-        let leftChip = try #require(node.childNode(withName: "battleLaneChip-0"))
         let exposedLabel = try #require(
-            node.childNode(withName: "battleLaneChipLabel-1") as? SKLabelNode
+            node.childNode(withName: "battleLaneChipLabel-0") as? SKLabelNode
+        )
+        let centerChip = try #require(
+            node.childNode(withName: "battleLaneChip-1")
         )
         let fortifiedLabel = try #require(
             node.childNode(withName: "battleLaneChipLabel-2") as? SKLabelNode
         )
 
-        #expect(leftChip.isHidden)
         #expect(exposedLabel.isHidden == false)
         #expect(exposedLabel.text == "OPEN")
+        #expect(centerChip.isHidden)
         #expect(fortifiedLabel.isHidden == false)
         #expect(fortifiedLabel.text == "HELD")
     }
@@ -397,7 +399,7 @@ struct BattleHUDNodeTests {
             layout: layout
         )
 
-        for lane in [BattleLane.center, .right] {
+        for lane in [BattleLane.left, .right] {
             let shield = try #require(
                 node.childNode(withName: "battleLaneChipShield-\(lane.rawValue)") as? SKShapeNode
             )
