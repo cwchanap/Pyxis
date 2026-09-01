@@ -176,6 +176,8 @@ final class BattleHUDNode: SKNode {
     private let recommendationPanel = PanelNode(size: .zero)
     private let goldIcon = SKSpriteNode()
     private let incomeDivider = SKShapeNode()
+    private let incomeArrow = SKShapeNode()
+    private let recommendationIconWell = SKShapeNode()
     private let recommendationIcon = SKSpriteNode()
     private let recommendationCoinIcon = SKSpriteNode()
     private let recommendationCostLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
@@ -292,6 +294,8 @@ final class BattleHUDNode: SKNode {
         recommendationPanel.name = "battleRecommendationPanel"
         goldIcon.name = "battleGoldIcon"
         incomeDivider.name = "battleIncomeDivider"
+        incomeArrow.name = "battleIncomeArrow"
+        recommendationIconWell.name = "battleRecommendationIconWell"
         recommendationIcon.name = "battleRecommendationIcon"
         recommendationCoinIcon.name = "battleRecommendationCoinIcon"
         recommendationCostLabel.name = "battleRecommendationCostLabel"
@@ -355,11 +359,36 @@ final class BattleHUDNode: SKNode {
         deployLabel.fontSize = 18
         manualCountLabel.fontSize = 13
 
+        let incomeArrowPath = CGMutablePath()
+        incomeArrowPath.move(to: CGPoint(x: 0, y: -4))
+        incomeArrowPath.addLine(to: CGPoint(x: 0, y: 4))
+        incomeArrowPath.move(to: CGPoint(x: -3, y: 1))
+        incomeArrowPath.addLine(to: CGPoint(x: 0, y: 4))
+        incomeArrowPath.addLine(to: CGPoint(x: 3, y: 1))
+        incomeArrow.path = incomeArrowPath
+        incomeArrow.fillColor = .clear
+        incomeArrow.strokeColor = SKColor(red: 124 / 255, green: 240 / 255, blue: 160 / 255, alpha: 1)
+        incomeArrow.lineWidth = 1.2
+        incomeArrow.lineCap = .round
+        incomeArrow.lineJoin = .round
+
+        recommendationIconWell.path = CGPath(
+            roundedRect: CGRect(x: -20, y: -20, width: 40, height: 40),
+            cornerWidth: 8,
+            cornerHeight: 8,
+            transform: nil
+        )
+        recommendationIconWell.fillColor = SKColor(red: 17 / 255, green: 10 / 255, blue: 3 / 255, alpha: 0.82)
+        recommendationIconWell.strokeColor = SKColor(red: 255 / 255, green: 180 / 255, blue: 60 / 255, alpha: 0.28)
+        recommendationIconWell.lineWidth = 1
+
         addChild(incomePanel)
         addChild(cityProgressPanel)
         addChild(recommendationPanel)
         addChild(goldIcon)
         addChild(incomeDivider)
+        addChild(incomeArrow)
+        addChild(recommendationIconWell)
         addChild(recommendationIcon)
         addChild(recommendationCoinIcon)
         addChild(recommendationCostLabel)
@@ -485,6 +514,10 @@ final class BattleHUDNode: SKNode {
             x: layout.incomeFrame.minX + 112,
             y: layout.incomeFrame.midY
         )
+        incomeArrow.position = CGPoint(
+            x: rewardLabel.position.x + rewardLabel.frame.width + 7,
+            y: layout.incomeFrame.midY
+        )
         incomeDivider.path = CGPath(
             rect: CGRect(
                 x: layout.incomeFrame.minX + 101,
@@ -563,6 +596,7 @@ final class BattleHUDNode: SKNode {
             x: layout.recommendationFrame.minX + 26,
             y: layout.recommendationFrame.midY
         )
+        recommendationIconWell.position = recommendationIcon.position
         recommendationCoinIcon.texture = Self.cachedGoldTexture
         recommendationCoinIcon.size = CGSize(width: 16, height: 16)
         recommendationCoinIcon.position = CGPoint(
@@ -937,10 +971,7 @@ final class BattleHUDNode: SKNode {
     private static func texture(for type: SoldierType) -> SKTexture? {
         let assetName = assetName(for: type)
         if UIImage(named: assetName) != nil {
-            let source = SKTexture(imageNamed: assetName)
-            return assetName.contains("-walk-")
-                ? SKTexture(rect: SoldierAnimationGeometry(type: type).bodyRegion, in: source)
-                : source
+            return SKTexture(imageNamed: assetName)
         }
         return UIImage(systemName: symbolName(for: type)).map(SKTexture.init(image:))
     }

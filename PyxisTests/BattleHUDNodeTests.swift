@@ -510,6 +510,15 @@ struct BattleHUDNodeTests {
         let lockedLock = try #require(
             node.childNode(withName: "//battleMedallionLock-mage") as? SKShapeNode
         )
+        let selectedPanel = try #require(
+            node.childNode(withName: "//battleMedallionPanel-infantry") as? PanelNode
+        )
+        let selectedPlate = try #require(
+            selectedPanel.childNode(withName: "panelPlate") as? SKShapeNode
+        )
+        let selectedHighlight = try #require(
+            selectedPanel.childNode(withName: "panelHighlight") as? SKShapeNode
+        )
 
         #expect(recommendationPlate.fillTexture != nil)
         #expect(recommendationPlate.strokeColor.cgColor.alpha > 0.65)
@@ -525,6 +534,47 @@ struct BattleHUDNodeTests {
         #expect(abs(lockedIcon.alpha - 0.22) < 0.001)
         #expect(lockedPill.isHidden)
         #expect(lockedLock.fillColor != .clear)
+        #expect(selectedPlate.strokeColor.cgColor.alpha <= 0.65)
+        #expect(selectedHighlight.strokeColor.cgColor.alpha <= 0.30)
+    }
+
+    @Test func referenceBattleUsesFullCanvasPortraitsAndAuthoredIncomeObjectiveDetails() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let state = KingdomGameState(
+            cityLevel: 3,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 3).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: 2)]
+                )
+            ]
+        )
+        let node = BattleHUDNode()
+        _ = node.apply(content: .project(from: state, manualCount: 0), layout: layout)
+
+        let portrait = try #require(
+            node.childNode(withName: "//battleMedallionIcon-infantry") as? SKSpriteNode
+        )
+        let deployPortrait = try #require(
+            node.childNode(withName: "battleDeployIcon") as? SKSpriteNode
+        )
+
+        #expect(portrait.texture?.size() == CGSize(width: 128, height: 128))
+        #expect(deployPortrait.texture?.size() == CGSize(width: 128, height: 128))
+
+        let incomeArrow = try #require(
+            node.childNode(withName: "battleIncomeArrow") as? SKShapeNode
+        )
+        let objectiveWell = try #require(
+            node.childNode(withName: "battleRecommendationIconWell") as? SKShapeNode
+        )
+
+        #expect(incomeArrow.path?.boundingBox == CGRect(x: -3, y: -4, width: 6, height: 8))
+        #expect(objectiveWell.path?.boundingBox == CGRect(x: -20, y: -20, width: 40, height: 40))
     }
 }
 

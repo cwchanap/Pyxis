@@ -173,6 +173,7 @@ final class PanelNode: SKNode {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func applyStyle() {
         shadow.position = appearance == .forged ? CGPoint(x: 0, y: -3) : .zero
         shadow.fillColor = appearance == .forged
@@ -248,8 +249,8 @@ final class PanelNode: SKNode {
             case .selectedTab:
                 fillColor = SKColor(red: 150 / 255, green: 80 / 255, blue: 10 / 255, alpha: 0.24)
                 gradientTopColor = SKColor(red: 255 / 255, green: 170 / 255, blue: 40 / 255, alpha: 0.34)
-                strokeColor = SKColor(red: 255 / 255, green: 225 / 255, blue: 170 / 255, alpha: 0.45)
-                highlightColor = SKColor(red: 255 / 255, green: 225 / 255, blue: 170 / 255, alpha: 0.45)
+                strokeColor = .clear
+                highlightColor = .clear
                 rivetColor = SKColor(red: 255 / 255, green: 214 / 255, blue: 120 / 255, alpha: 0.65)
                 shadow.strokeColor = SKColor(red: 255 / 255, green: 150 / 255, blue: 30 / 255, alpha: 0.30)
                 shadow.lineWidth = 4
@@ -266,8 +267,8 @@ final class PanelNode: SKNode {
             case .medallionSelected:
                 fillColor = SKColor(red: 23 / 255, green: 16 / 255, blue: 8 / 255, alpha: 1)
                 gradientTopColor = SKColor(red: 63 / 255, green: 51 / 255, blue: 32 / 255, alpha: 1)
-                strokeColor = SKColor(red: 255 / 255, green: 196 / 255, blue: 75 / 255, alpha: 0.96)
-                highlightColor = SKColor(red: 255 / 255, green: 224 / 255, blue: 150 / 255, alpha: 0.72)
+                strokeColor = SKColor(red: 198 / 255, green: 150 / 255, blue: 80 / 255, alpha: 0.60)
+                highlightColor = SKColor(red: 255 / 255, green: 225 / 255, blue: 170 / 255, alpha: 0.26)
                 rivetColor = .clear
                 shadow.strokeColor = SKColor(red: 255 / 255, green: 166 / 255, blue: 34 / 255, alpha: 0.52)
                 shadow.lineWidth = 6

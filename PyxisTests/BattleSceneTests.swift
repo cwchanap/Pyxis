@@ -2647,33 +2647,23 @@ struct BattleSceneTests {
         let scene = makeScene(
             store: try makeStore(initialState: pendingConqueredState(city: 3, mode: .live))
         )
-        let hpBar = try #require(scene.childNode(withName: "//cityHPBarBackground"))
-        let hpFill = try #require(scene.childNode(withName: "//cityHPBarFill") as? SKShapeNode)
 
         #expect(scene.feedbackSettingsGearHiddenForTesting)
-        #expect(hpBar.isHidden)
-        #expect(hpFill.path == nil)
 
         scene.forceDismissConquestOverlayForTesting()
         #expect(!scene.feedbackSettingsGearHiddenForTesting)
-        #expect(!hpBar.isHidden)
 
         scene.presentConquestPopupForTesting()
         #expect(scene.feedbackSettingsGearHiddenForTesting)
-        #expect(hpBar.isHidden)
-        #expect(hpFill.path == nil)
 
         scene.forceDismissConquestOverlayForTesting()
         scene.setConquestReportFitFailedForTesting(true)
         scene.redrawForTesting(shouldLayout: false)
         #expect(scene.feedbackSettingsGearHiddenForTesting)
-        #expect(hpBar.isHidden)
-        #expect(hpFill.path == nil)
 
         scene.setConquestReportFitFailedForTesting(false)
         scene.redrawForTesting(shouldLayout: false)
         #expect(!scene.feedbackSettingsGearHiddenForTesting)
-        #expect(!hpBar.isHidden)
     }
 
     @Test("Restored City 10 gets static milestone treatment without flourish replay")
@@ -3073,28 +3063,28 @@ struct BattleSceneTests {
         #expect(enemyFrame.maxY < battlefield.maxY)
         #expect(enemyFrame.minY >= battlefield.minY)
         #expect(enemyFrame.maxY <= battlefield.maxY)
-        #expect(abs(castleFrame.minY - battlefield.minY) <= 1)
+        #expect(abs(castleFrame.minY - battlefield.minY) <= 6)
     }
 
-    @Test func cityHPBarUsesBattlefieldArtAboveEnemyCity() throws {
+    @Test func forgedReferencePhoneUsesAuthoredStructureBoxes() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
-        let scene = makeScene(store: store)
+        let scene = makeScene(store: store, size: CGSize(width: 393, height: 852))
 
-        let frames = try #require(scene.battleChromeLayoutForTesting)
         let enemyFrame = try #require(scene.enemyCityFrameForTesting)
+        let castleFrame = try #require(scene.playerCastleFrameForTesting)
 
-        let hpBar = try #require(scene.cityHPBarFrameForTesting)
-        #expect(hpBar.minY >= enemyFrame.maxY + 2)
-        #expect(hpBar.maxY <= frames.battlefieldFrame.maxY + 1)
-        #expect(abs(hpBar.midX - enemyFrame.midX) <= 1)
-        #expect(hpBar.width >= 96)
-        #expect(hpBar.height >= 5)
-        #expect(!hpBar.intersects(frames.topBandFrame))
+        #expect(abs(enemyFrame.width - 125.5) < 0.6)
+        #expect(abs(enemyFrame.height - 132) < 0.1)
+        #expect(abs(enemyFrame.minY - 502) < 0.1)
+        #expect(abs(castleFrame.width - 98.8) < 0.6)
+        #expect(abs(castleFrame.height - 104) < 0.1)
+        #expect(abs(castleFrame.minY - 216) < 0.1)
+        #expect(scene.childNode(withName: "//cityHPBarBackground")?.isHidden == true)
     }
 
     @Test func cityHPBarFillVisibleWhenCityHasPower() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 30, cityRemainingPower: 20))
-        let scene = makeScene(store: store)
+        let scene = makeScene(store: store, size: CGSize(width: 393, height: 700))
         let hpBar = try #require(scene.childNode(withName: "//cityHPBarBackground"))
 
         // Positive case: with power remaining the fill path is non-nil so the
@@ -3108,7 +3098,7 @@ struct BattleSceneTests {
         let store = try makeStore(
             initialState: stateWithBarracks(cityRemainingPower: 1, completedCityCount: 0)
         )
-        let scene = makeScene(store: store)
+        let scene = makeScene(store: store, size: CGSize(width: 393, height: 700))
 
         scene.spawnSoldierForTesting()
         scene.spawnSoldierForTesting()
@@ -3425,7 +3415,7 @@ struct BattleSceneTests {
         let nearEdge = try #require(pixel(in: texture, normalized: CGPoint(x: 0.25, y: 0.5)))
         let edge = try #require(pixel(in: texture, normalized: CGPoint(x: 0.02, y: 0.5)))
 
-        #expect(nearEdge[3] <= center[3] + 5)
+        #expect(nearEdge[3] > center[3] + 8)
         #expect(edge[3] > nearEdge[3] + 12)
         #expect(edge[3] > center[3] + 24)
         #expect(edge[0] < 70)

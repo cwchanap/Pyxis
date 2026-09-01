@@ -1050,23 +1050,34 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         forgedAtmosphereNode.size = size
         forgedAtmosphereNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
 
+        let playerCastleHeight = battleChromeLayout?.isCompact == false
+            ? 104
+            : battlefieldLayout.structureHeight
+        let enemyCityHeight = battleChromeLayout?.isCompact == false
+            ? 132
+            : battlefieldLayout.enemyCityTargetHeight
         if let playerCastleNode {
-            fitBattleNode(playerCastleNode, targetHeight: battlefieldLayout.structureHeight)
+            fitBattleNode(playerCastleNode, targetHeight: playerCastleHeight)
         }
         if let enemyCityNode {
-            fitBattleNode(enemyCityNode, targetHeight: battlefieldLayout.enemyCityTargetHeight)
+            fitBattleNode(enemyCityNode, targetHeight: enemyCityHeight)
         }
 
         let centerX = size.width / 2
-        playerCastleNode?.position = CGPoint(x: centerX, y: battlefieldLayout.frame.minY)
+        playerCastleNode?.position = CGPoint(
+            x: centerX,
+            y: battlefieldLayout.frame.minY + (battleChromeLayout?.isCompact == false ? 6 : 0)
+        )
         // The city sprite uses a bottom anchor; the layout's enemy gate is the
         // city base after reserving room for the HP bar above the body.
         enemyCityNode?.position = CGPoint(
             x: centerX,
-            y: battlefieldLayout.enemyGatePoints[.center]?.y ?? (
+            y: battleChromeLayout?.isCompact == false
+                ? battlefieldLayout.frame.maxY - enemyCityHeight - 2
+                : battlefieldLayout.enemyGatePoints[.center]?.y ?? (
                 battlefieldLayout.frame.maxY
                     - BattlefieldLayout.enemyCityHPBarClearance
-                    - battlefieldLayout.enemyCityTargetHeight
+                    - enemyCityHeight
             )
         )
 
@@ -1108,14 +1119,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 colors: vignetteColors,
                 locations: [0, 1]
             ) {
+                context.cgContext.saveGState()
+                context.cgContext.translateBy(x: size.width / 2, y: size.height / 2)
+                context.cgContext.scaleBy(x: 1, y: size.height / size.width)
                 context.cgContext.drawRadialGradient(
                     vignette,
-                    startCenter: CGPoint(x: size.width / 2, y: size.height / 2),
-                    startRadius: min(size.width, size.height) * 0.42,
-                    endCenter: CGPoint(x: size.width / 2, y: size.height / 2),
-                    endRadius: min(size.width, size.height) * 0.68,
-                    options: []
+                    startCenter: .zero,
+                    startRadius: size.width * 0.20,
+                    endCenter: .zero,
+                    endRadius: size.width * 0.68,
+                    options: .drawsAfterEndLocation
                 )
+                context.cgContext.restoreGState()
             }
         }
         return SKTexture(image: image)
@@ -1188,6 +1203,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         #if DEBUG
         layoutCityHPBarCallCount &+= 1
         #endif
+        guard battleChromeLayout?.isCompact != false else {
+            hideCityHPBar()
+            return
+        }
         guard !isConquestReportVisible, !isConquestReportFitFailed else {
             hideCityHPBar()
             return
@@ -1765,7 +1784,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func showCityInfoTooltip() {
         showTooltip(
             "\(state.displayCityTitle) | \(state.currentCityDefenseTrait.displayName) | HP "
-                + "\(CompactNumberFormatter.string(from: state.cityRemainingPower))/\(CompactNumberFormatter.string(from: state.cityMaxPower))"
+                + "\(CompactNumberFormatter.string(from: state.cityRemainingPower))/"
+                + CompactNumberFormatter.string(from: state.cityMaxPower)
         )
     }
 
