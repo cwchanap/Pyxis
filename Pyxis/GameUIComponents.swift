@@ -11,6 +11,18 @@ final class PanelNode: SKNode {
     private static let shadowColor = SKColor(white: 0, alpha: 0.42)
     private static let primaryActionFillColor = SKColor(red: 0.42, green: 0.25, blue: 0.08, alpha: 0.98)
     private static var forgedGradientTextures = [GradientKey: SKTexture]()
+    private static let forgedTopLightTexture = gradientTexture(
+        colors: [.clear, SKColor(red: 1, green: 235 / 255, blue: 200 / 255, alpha: 0.24)],
+        locations: [0, 1]
+    )
+    private static let forgedFloorShadeTexture = gradientTexture(
+        colors: [SKColor(white: 0, alpha: 0.70), .clear],
+        locations: [0, 1]
+    )
+    private static let forgedDeployFloorTexture = gradientTexture(
+        colors: [SKColor(red: 1, green: 120 / 255, blue: 20 / 255, alpha: 0.40), .clear],
+        locations: [0, 1]
+    )
 
     enum Appearance: Equatable {
         case standard
@@ -46,6 +58,8 @@ final class PanelNode: SKNode {
 
     private let shadow = SKShapeNode()
     private let plate = SKShapeNode()
+    private let topLight = SKShapeNode()
+    private let floorShade = SKShapeNode()
     private let highlight = SKShapeNode()
     private let rivets: [SKShapeNode]
     private(set) var contentSize: CGSize
@@ -95,6 +109,20 @@ final class PanelNode: SKNode {
         shadow.path = panelPath(in: rect, cornerRadius: cornerRadius)
         plate.path = panelPath(in: rect, cornerRadius: cornerRadius)
         let highlightRect = rect.insetBy(dx: 2, dy: 2)
+        let topLightRect = CGRect(
+            x: highlightRect.minX,
+            y: highlightRect.maxY - highlightRect.height * 0.44,
+            width: highlightRect.width,
+            height: highlightRect.height * 0.44
+        )
+        let floorShadeRect = CGRect(
+            x: highlightRect.minX,
+            y: highlightRect.minY,
+            width: highlightRect.width,
+            height: highlightRect.height * 0.36
+        )
+        topLight.path = panelPath(in: topLightRect, cornerRadius: max(0, cornerRadius - 2))
+        floorShade.path = panelPath(in: floorShadeRect, cornerRadius: max(0, cornerRadius - 2))
         highlight.path = panelPath(
             in: highlightRect,
             cornerRadius: max(0, cornerRadius - 2)
@@ -160,6 +188,19 @@ final class PanelNode: SKNode {
         plate.zPosition = -1
         plate.lineWidth = 1.5
         addChild(plate)
+
+        topLight.name = "panelTopLight"
+        topLight.zPosition = -0.8
+        topLight.fillColor = .white
+        topLight.strokeColor = .clear
+        topLight.fillTexture = Self.forgedTopLightTexture
+        addChild(topLight)
+
+        floorShade.name = "panelFloorShade"
+        floorShade.zPosition = -0.7
+        floorShade.fillColor = .white
+        floorShade.strokeColor = .clear
+        addChild(floorShade)
 
         highlight.name = "panelHighlight"
         highlight.fillColor = .clear
@@ -323,6 +364,11 @@ final class PanelNode: SKNode {
             )
             : nil
         plate.strokeColor = strokeColor
+        topLight.isHidden = appearance != .forged
+        floorShade.isHidden = appearance != .forged
+        floorShade.fillTexture = forgedTreatment == .deploy
+            ? Self.forgedDeployFloorTexture
+            : Self.forgedFloorShadeTexture
         highlight.strokeColor = highlightColor
         rivets.forEach {
             $0.fillColor = rivetColor
