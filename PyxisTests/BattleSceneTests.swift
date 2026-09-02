@@ -2197,6 +2197,8 @@ struct BattleSceneTests {
         let damageLabel = try #require(
             scene.childNode(withName: "//floatingFeedback") as? SKLabelNode
         )
+        let enemyFrame = try #require(scene.enemyCityFrameForTesting)
+        #expect(damageLabel.frame.maxY <= enemyFrame.minY - 4)
         #expect(damageLabel.fontSize == 22)
         #expect(
             damageLabel.attributedText?.attribute(
