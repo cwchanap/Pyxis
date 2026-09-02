@@ -2285,7 +2285,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
-        label.position = CGPoint(x: position.x, y: position.y + 26)
+        label.position = CGPoint(x: position.x, y: position.y - 20)
         label.zPosition = EffectStyle.floatingFeedbackZ
         label.alpha = 0
         label.setScale(0.7)
