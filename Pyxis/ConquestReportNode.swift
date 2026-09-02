@@ -16,6 +16,12 @@ final class ConquestReportNode: SKNode {
     private static let exposedLaneSymbol = "shield.slash.fill"
     private static let tileCount = 3
     private static let chipCount = 2
+    private static let rewardCoinTextureRect = CGRect(
+        x: 0.244,
+        y: 0.7445,
+        width: 0.098,
+        height: 0.082
+    )
 
     private struct StatTileBundle {
         let root: SKNode
@@ -37,11 +43,11 @@ final class ConquestReportNode: SKNode {
     private let takenMedallion: SKNode
     private let takenMedallionOuter: SKShapeNode
     private let takenMedallionInner: SKShapeNode
-    private let takenMedallionIcon: SKShapeNode
+    private let takenMedallionIcon: SKSpriteNode
     private let takenMedallionLabel: SKLabelNode
     private let cityNumberLabel: SKLabelNode
     private let titleLabel: SKLabelNode
-    private let rewardIcon: SKShapeNode
+    private let rewardIcon: SKSpriteNode
     private let rewardLabel: SKLabelNode
     private let tileBundles: [StatTileBundle]
     private let chipBundles: [ChipBundle]
@@ -63,11 +69,14 @@ final class ConquestReportNode: SKNode {
         self.takenMedallion = SKNode()
         self.takenMedallionOuter = SKShapeNode()
         self.takenMedallionInner = SKShapeNode()
-        self.takenMedallionIcon = SKShapeNode()
+        self.takenMedallionIcon = SKSpriteNode(imageNamed: "conquered-marker")
         self.takenMedallionLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         self.cityNumberLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         self.titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
-        self.rewardIcon = SKShapeNode(circleOfRadius: 18)
+        self.rewardIcon = SKSpriteNode(texture: SKTexture(
+            rect: Self.rewardCoinTextureRect,
+            in: SKTexture(imageNamed: "gold-burst")
+        ))
         self.rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         self.tileBundles = (0..<Self.tileCount).map { index in
             let root = SKNode()
@@ -244,24 +253,19 @@ final class ConquestReportNode: SKNode {
             height: innerRadius * 2
         )
         takenMedallionOuter.path = CGPath(ellipseIn: outerRect, transform: nil)
-        takenMedallionOuter.fillColor = GameUITheme.Color.panelFill.withAlphaComponent(1)
+        takenMedallionOuter.fillColor = SKColor(
+            red: 25 / 255,
+            green: 17 / 255,
+            blue: 8 / 255,
+            alpha: 1
+        )
         takenMedallionOuter.strokeColor = GameUITheme.Color.gold
         takenMedallionOuter.lineWidth = 2.5
         takenMedallionInner.path = CGPath(ellipseIn: innerRect, transform: nil)
         takenMedallionInner.fillColor = .clear
         takenMedallionInner.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.52)
         takenMedallionInner.lineWidth = 1
-        let flagPath = CGMutablePath()
-        flagPath.move(to: CGPoint(x: -3, y: -10))
-        flagPath.addLine(to: CGPoint(x: -3, y: 10))
-        flagPath.move(to: CGPoint(x: -2, y: 8))
-        flagPath.addLine(to: CGPoint(x: 9, y: 4))
-        flagPath.addLine(to: CGPoint(x: -2, y: 0))
-        flagPath.closeSubpath()
-        takenMedallionIcon.path = flagPath
-        takenMedallionIcon.fillColor = GameUITheme.Color.gold
-        takenMedallionIcon.strokeColor = GameUITheme.Color.gold
-        takenMedallionIcon.lineWidth = 1
+        takenMedallionIcon.size = CGSize(width: 32, height: 32)
         takenMedallionIcon.position = CGPoint(x: 0, y: frame.height * 0.10)
         takenMedallionLabel.text = "TAKEN"
         takenMedallionLabel.fontSize = min(10, max(8, frame.width / 12))
@@ -300,7 +304,8 @@ final class ConquestReportNode: SKNode {
     private func renderReward(_ text: String, size: CGFloat, frame: CGRect) {
         rewardIcon.isHidden = false
         rewardIcon.position = CGPoint(x: frame.midX - min(52, frame.width / 4), y: frame.midY)
-        rewardIcon.setScale(min(1, frame.height / 48))
+        let width = min(58, frame.height)
+        rewardIcon.size = CGSize(width: width, height: width * 0.84)
         rewardLabel.isHidden = false
         rewardLabel.text = text
         rewardLabel.fontSize = size
@@ -321,11 +326,20 @@ final class ConquestReportNode: SKNode {
             let frame = frames[index]
             bundle.root.isHidden = false
             bundle.root.position = .zero
-            bundle.panel.apply(size: frame.size, style: .normal, showsRivets: false)
+            bundle.panel.apply(
+                size: frame.size,
+                style: .normal,
+                showsRivets: false,
+                appearance: .forged
+            )
             bundle.panel.position = CGPoint(x: frame.midX, y: frame.midY)
             bundle.icon.texture = texture(for: tile)
             bundle.icon.color = GameUITheme.Color.textPrimary
-            bundle.icon.colorBlendFactor = 1
+            if case .mvp = tile {
+                bundle.icon.colorBlendFactor = 0
+            } else {
+                bundle.icon.colorBlendFactor = 1
+            }
             bundle.icon.size = CGSize(width: 28, height: 28)
             bundle.icon.position = CGPoint(x: frame.midX, y: frame.midY + 18)
             bundle.valueLabel.text = tile.valueText
@@ -385,7 +399,13 @@ final class ConquestReportNode: SKNode {
         continueContainer.isHidden = false
         continuePanel.isHidden = false
         continueLabel.isHidden = false
-        continuePanel.apply(size: layout.continueFrame.size, style: .primaryAction, showsRivets: false)
+        continuePanel.apply(
+            size: layout.continueFrame.size,
+            style: .primaryAction,
+            showsRivets: false,
+            appearance: .forged,
+            forgedTreatment: .deploy
+        )
         continuePanel.position = CGPoint(x: layout.continueFrame.midX, y: layout.continueFrame.midY)
         continueLabel.text = "MARCH ON"
         continueLabel.fontSize = layout.continueStartingFontSize
@@ -427,7 +447,11 @@ final class ConquestReportNode: SKNode {
     }
 
     private func configureTree() {
-        panel.fillColor = GameUITheme.Color.panelFill
+        panel.fillColor = .white
+        panel.fillTexture = PanelNode.gradientTexture(
+            top: SKColor(red: 59 / 255, green: 44 / 255, blue: 28 / 255, alpha: 0.96),
+            bottom: SKColor(red: 25 / 255, green: 17 / 255, blue: 8 / 255, alpha: 0.98)
+        )
         panel.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.72)
         panel.lineWidth = 1.5
         panel.zPosition = 0
@@ -468,9 +492,7 @@ final class ConquestReportNode: SKNode {
         titleLabel.isHidden = true
         addChild(titleLabel)
 
-        rewardIcon.fillColor = GameUITheme.Color.gold
-        rewardIcon.strokeColor = GameUITheme.Color.textPrimary.withAlphaComponent(0.75)
-        rewardIcon.lineWidth = 1.5
+        rewardIcon.name = "conquestRewardIcon"
         rewardIcon.zPosition = 1
         rewardIcon.isHidden = true
         addChild(rewardIcon)
@@ -522,7 +544,14 @@ final class ConquestReportNode: SKNode {
     }
 
     private func texture(for tile: ConquestReportContent.StatTile) -> SKTexture? {
-        UIImage(systemName: tile.symbolName).map {
+        if case let .mvp(soldierType, _) = tile,
+           let image = UIImage(named: "\(soldierType.rawValue)-walk-01") {
+            return SKTexture(
+                rect: SoldierAnimationGeometry(type: soldierType).bodyRegion,
+                in: SKTexture(image: image)
+            )
+        }
+        return UIImage(systemName: tile.symbolName).map {
             SKTexture(image: $0)
         }
     }
@@ -584,7 +613,32 @@ extension ConquestReportNode {
     var tileValueFontSizesForTesting: [CGFloat] { renderedTileValueFontSizes }
     var continueBackgroundAlphaForTesting: CGFloat { continuePanel.alpha }
     var continuePanelStyleForTesting: PanelNode.Style { continuePanel.style }
+    var continueUsesForgedAppearanceForTesting: Bool {
+        continuePanel.usesForgedAppearanceForTesting
+    }
+    var statTilesUseForgedAppearanceForTesting: Bool {
+        tileBundles.filter { !$0.root.isHidden }.allSatisfy {
+            $0.panel.usesForgedAppearanceForTesting
+        }
+    }
     var renderedTakenStatusTextForTesting: String? { takenMedallionLabel.text }
+    var rewardUsesAuthoredCoinForTesting: Bool {
+        guard let sprite = children.first(where: { $0.name == "conquestRewardIcon" }) as? SKSpriteNode else {
+            return false
+        }
+        return sprite.texture?.textureRect() == Self.rewardCoinTextureRect
+    }
+    var takenMedallionUsesAuthoredIconForTesting: Bool {
+        takenMedallion.children.contains {
+            $0.name == "conquestTakenMedallionIcon" && $0 is SKSpriteNode
+        }
+    }
+    var tileIconColorBlendFactorsForTesting: [CGFloat] {
+        tileBundles.filter { !$0.root.isHidden }.map { $0.icon.colorBlendFactor }
+    }
+    var tileIconTextureRectsForTesting: [CGRect?] {
+        tileBundles.filter { !$0.root.isHidden }.map { $0.icon.texture?.textureRect() }
+    }
     var renderedCityNumberTextForTesting: String? { cityNumberLabel.text }
     var renderedCityTitleForTesting: String? { titleLabel.text }
     var renderedContinueTextForTesting: String? { continueLabel.text }

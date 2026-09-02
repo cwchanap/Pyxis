@@ -25,8 +25,10 @@ struct CampChromeLayoutTests {
         #expect(empty.builderOptionFrames.values.allSatisfy { empty.safeFrame.contains($0) })
         #expect(occupied.inspectorFrame != nil)
         #expect(occupied.inspectorFrame.map { occupied.safeFrame.contains($0) } == true)
-        #expect(occupied.tabBarFrame.height == 72)
+        #expect(occupied.tabBarFrame == CGRect(x: 16, y: 0, width: 361, height: 82))
+        #expect(occupied.inspectorFrame == CGRect(x: 16, y: 92, width: 361, height: 114))
         #expect(occupied.tabHitFrames.values.allSatisfy { $0.width >= 44 && $0.height >= 44 })
+        #expect(occupied.tabHitFrames.values.allSatisfy { occupied.safeFrame.contains($0) })
     }
 
     @Test func edgeLotsKeepBuilderOptionsInsideSafeContentAndAwayFromTabs() throws {

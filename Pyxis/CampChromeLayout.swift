@@ -105,6 +105,8 @@ struct CampChromeLayout: Equatable {
         builderFrame ?? inspectorFrame
     }
 
+    // Layout validation intentionally keeps the fail-closed geometry contract in one place.
+    // swiftlint:disable:next cyclomatic_complexity
     static func compute(_ input: Input) -> CampChromeLayout? {
         let size = input.sceneSize
         let insets = input.safeAreaInsets
@@ -139,17 +141,23 @@ struct CampChromeLayout: Equatable {
 
         let tabBarFrame = CGRect(
             x: safeFrame.midX - contentWidth / 2,
-            y: safeFrame.minY,
+            y: 0,
             width: contentWidth,
+            height: 82
+        )
+        let tabHitShell = CGRect(
+            x: tabBarFrame.minX,
+            y: safeFrame.minY,
+            width: tabBarFrame.width,
             height: tabBarHeight
         )
-        let tabCellWidth = tabBarFrame.width / CGFloat(GameplayTab.allCases.count)
+        let tabCellWidth = tabHitShell.width / CGFloat(GameplayTab.allCases.count)
         let tabHitFrames = Dictionary(uniqueKeysWithValues: GameplayTab.allCases.enumerated().map { index, tab in
             let cell = CGRect(
-                x: tabBarFrame.minX + CGFloat(index) * tabCellWidth,
-                y: tabBarFrame.minY,
+                x: tabHitShell.minX + CGFloat(index) * tabCellWidth,
+                y: tabHitShell.minY,
                 width: tabCellWidth,
-                height: tabBarFrame.height
+                height: tabHitShell.height
             )
             let hitWidth = max(minimumInteractiveSize, cell.width - 8)
             let hitHeight = max(minimumInteractiveSize, cell.height - 8)

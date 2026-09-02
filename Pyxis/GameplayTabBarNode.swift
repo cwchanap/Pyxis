@@ -325,6 +325,10 @@ extension GameplayTabBarNode {
         tabBundles.values.filter { !$0.root.isHidden }.count
     }
 
+    var usesForgedAppearanceForTesting: Bool {
+        appearance == .forged
+    }
+
     func iconIsVectorGlyphForTesting(for tab: GameplayTab) -> Bool {
         guard let icon = tabBundles[tab]?.icon as? SKShapeNode else {
             return false

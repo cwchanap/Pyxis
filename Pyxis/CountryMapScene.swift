@@ -96,8 +96,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private var scoutCardLayout: CountryMapScoutCardLayout?
     private var transientFeedback: CountryMapTransientFeedback?
     private var previousUpdateTime: TimeInterval?
-    private let gameplayTabBar = GameplayTabBarNode()
+    private let gameplayTabBar = GameplayTabBarNode(appearance: .forged)
     private var gameplayTabBarFrame = CGRect.zero
+    private var gameplayTabHitFrames = [CGRect]()
     private var gameplayTabContent = GameplayTabBarNode.Content(
         selected: .map,
         enabledTabs: [],
@@ -627,6 +628,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         scoutCardNode.clearLayout()
         feedbackSettingsController?.applyGearFrame(.zero)
         gameplayTabBarFrame = .zero
+        gameplayTabHitFrames = []
         gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
 
         cityBaseScales.removeAll()
@@ -662,7 +664,12 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             )
         }
 
-        titlePanel.update(size: layout.titleControlRegionFrame.size)
+        titlePanel.apply(
+            size: layout.titleControlRegionFrame.size,
+            style: .normal,
+            showsRivets: false,
+            appearance: .forged
+        )
         titlePanel.isHidden = false
         titlePanel.position = CGPoint(
             x: layout.titleControlRegionFrame.midX,
@@ -672,7 +679,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             scene: layout.sceneFrame,
             titlePanel: layout.titleControlRegionFrame,
             illustratedRegion: layout.illustratedMapRegionFrame,
-            scoutCard: layout.informationRegionFrame
+            scoutCard: scoutCardLayout?.cardFrame ?? layout.informationRegionFrame
         )
         layoutGameplayTabBar(informationRegionFrame: layout.informationRegionFrame)
 
@@ -714,14 +721,35 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     }
 
     private func layoutGameplayTabBar(informationRegionFrame: CGRect) {
-        let horizontalMargin = max(16, min(22, size.width * 0.05))
+        let horizontalMargin = size.width <= 440
+            ? 16
+            : max(16, min(22, size.width * 0.05))
         gameplayTabBarFrame = CGRect(
             x: horizontalMargin,
-            y: informationRegionFrame.minY - CountryMapLayout.tabBarHeight - 8,
+            y: 0,
             width: max(0, size.width - horizontalMargin * 2),
+            height: 82
+        )
+        let safeHitShell = CGRect(
+            x: gameplayTabBarFrame.minX,
+            y: informationRegionFrame.minY - CountryMapLayout.tabBarHeight - 8,
+            width: gameplayTabBarFrame.width,
             height: CountryMapLayout.tabBarHeight
         )
-        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
+        let cellWidth = safeHitShell.width / CGFloat(GameplayTab.allCases.count)
+        gameplayTabHitFrames = GameplayTab.allCases.indices.map { index in
+            CGRect(
+                x: safeHitShell.minX + CGFloat(index) * cellWidth + 4,
+                y: safeHitShell.minY + 4,
+                width: cellWidth - 8,
+                height: safeHitShell.height - 8
+            )
+        }
+        gameplayTabBar.apply(
+            content: gameplayTabContent,
+            frame: gameplayTabBarFrame,
+            hitFrames: gameplayTabHitFrames
+        )
     }
 
     private func fitLabel(_ label: SKLabelNode, maxWidth: CGFloat) {
@@ -752,7 +780,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         resourcePanel.apply(
             size: resourceFrame.size,
             style: .normal,
-            showsRivets: true
+            showsRivets: true,
+            appearance: .forged
         )
         resourcePanel.position = CGPoint(x: resourceFrame.midX, y: resourceFrame.midY)
         resourcePanel.isHidden = false
@@ -849,7 +878,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return
         }
 
-        feedbackSettingsController.applyGearFrame(layout.settingsControlFrame)
+        feedbackSettingsController.applyGearFrame(
+            layout.settingsControlFrame,
+            appearance: .forged
+        )
         feedbackSettingsController.reapply(layout: FeedbackSettingsLayout.compute(
             sceneSize: size,
             safeAreaInsets: .init(
@@ -951,7 +983,11 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             enabledTabs: enabledTabs,
             showsCampAttention: showsCampAttention
         )
-        gameplayTabBar.apply(content: gameplayTabContent, frame: gameplayTabBarFrame)
+        gameplayTabBar.apply(
+            content: gameplayTabContent,
+            frame: gameplayTabBarFrame,
+            hitFrames: gameplayTabHitFrames
+        )
     }
 
     private func visualState(for cityNumber: Int) -> CountryMapCityVisualState {

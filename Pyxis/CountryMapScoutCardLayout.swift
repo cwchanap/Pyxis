@@ -92,80 +92,83 @@ struct CountryMapScoutCardLayout: Equatable {
     }
 
     private static func phone(in informationRegionFrame: CGRect) -> Self {
-        let contentFrame = informationRegionFrame.insetBy(dx: 6, dy: 2)
-        let attackFrame = CGRect(
-            x: contentFrame.maxX - 70,
-            y: informationRegionFrame.midY - 22,
-            width: 70,
-            height: 44
+        let cardFrame = CGRect(
+            x: informationRegionFrame.minX,
+            y: max(0, informationRegionFrame.minY - 24),
+            width: informationRegionFrame.width,
+            height: informationRegionFrame.height + 72
         )
-        let informationalMaxX = attackFrame.minX - 6
-        let headerFrame = CGRect(
+        let contentFrame = cardFrame.insetBy(dx: 14, dy: 10)
+        let attackFrame = CGRect(
             x: contentFrame.minX,
-            y: contentFrame.maxY - 22,
-            width: informationalMaxX - contentFrame.minX,
-            height: 22
+            y: cardFrame.minY + 20,
+            width: contentFrame.width,
+            height: 46
         )
         let topTraitLine = CGRect(
-            x: contentFrame.minX,
-            y: headerFrame.minY - 1 - 12,
-            width: headerFrame.width,
-            height: 12
+            x: cardFrame.minX + 96,
+            y: cardFrame.maxY - 73,
+            width: cardFrame.width - 110,
+            height: 14
         )
         let bottomTraitLine = CGRect(
-            x: contentFrame.minX,
-            y: topTraitLine.minY - 12,
-            width: headerFrame.width,
+            x: topTraitLine.minX,
+            y: topTraitLine.minY - 14,
+            width: topTraitLine.width,
+            height: 14
+        )
+        let badgeFrame = CGRect(
+            x: cardFrame.minX + 96,
+            y: cardFrame.maxY - 20,
+            width: 80,
             height: 12
         )
-        let footerFrame = CGRect(
-            x: contentFrame.minX,
-            y: contentFrame.minY,
-            width: headerFrame.width,
-            height: 12
-        )
-        let badgeFrame = CGRect(x: headerFrame.minX, y: headerFrame.minY, width: 22, height: 22)
         let goldIconFrame = CGRect(
-            x: headerFrame.maxX - 48,
-            y: headerFrame.midY - 6,
-            width: 12,
-            height: 12
+            x: cardFrame.maxX - 73,
+            y: cardFrame.maxY - 27,
+            width: 15,
+            height: 15
         )
         let rewardFrame = CGRect(
-            x: goldIconFrame.maxX + 2,
-            y: headerFrame.minY,
-            width: 34,
-            height: 22
+            x: goldIconFrame.maxX + 5,
+            y: cardFrame.maxY - 34,
+            width: 39,
+            height: 28
         )
         let titleFrame = CGRect(
-            x: badgeFrame.maxX + 4,
-            y: headerFrame.minY + 2,
-            width: max(0, goldIconFrame.minX - 4 - (badgeFrame.maxX + 4)),
-            height: 22
+            x: badgeFrame.minX,
+            y: cardFrame.maxY - 52,
+            width: 128,
+            height: 24
         )
-        let favorableFrame = CGRect(x: footerFrame.minX, y: footerFrame.minY, width: 106, height: 12)
+        let favorableFrame = CGRect(
+            x: contentFrame.minX,
+            y: cardFrame.minY + 108,
+            width: contentFrame.width,
+            height: 30
+        )
         let disadvantagedFrame = CGRect(
-            x: favorableFrame.maxX + 6,
-            y: footerFrame.minY,
-            width: 70,
-            height: 12
+            x: contentFrame.minX,
+            y: cardFrame.minY + 70,
+            width: contentFrame.width,
+            height: 30
         )
         let exposedLaneFrame = CGRect(
-            x: disadvantagedFrame.maxX + 6,
-            y: footerFrame.minY,
-            width: max(0, footerFrame.maxX - (disadvantagedFrame.maxX + 6)),
-            height: 12
+            x: cardFrame.maxX - 129,
+            y: titleFrame.minY,
+            width: 115,
+            height: titleFrame.height
         )
         let nonBlockingOverlayFrame = CGRect(
-            x: informationRegionFrame.minX,
-            y: informationRegionFrame.minY,
-            width: attackFrame.minX - informationRegionFrame.minX,
-            height: informationRegionFrame.height
+            x: cardFrame.minX,
+            y: attackFrame.maxY,
+            width: cardFrame.width,
+            height: cardFrame.maxY - attackFrame.maxY
         )
 
         return Self(
             layoutClass: .phone,
-            cardFrame: informationRegionFrame,
+            cardFrame: cardFrame,
             badgeFrame: badgeFrame,
             titleFrame: titleFrame,
             goldIconFrame: goldIconFrame,
@@ -175,7 +178,7 @@ struct CountryMapScoutCardLayout: Equatable {
             disadvantagedFrame: disadvantagedFrame,
             exposedLaneFrame: exposedLaneFrame,
             attackFrame: attackFrame,
-            overlayFrame: informationRegionFrame,
+            overlayFrame: cardFrame,
             nonBlockingOverlayFrame: nonBlockingOverlayFrame
         )
     }

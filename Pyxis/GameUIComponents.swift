@@ -546,6 +546,10 @@ extension PanelNode {
         style
     }
 
+    var usesForgedAppearanceForTesting: Bool {
+        appearance == .forged
+    }
+
     var visibleRivetCountForTesting: Int {
         rivets.filter { !$0.isHidden }.count
     }

@@ -46,6 +46,7 @@ final class CountryMapScoutCardNode: SKNode {
     private struct PreparedScout {
         let scout: CountryMapScoutCardContent.Scout
         let metrics: Metrics
+        let titleText: String
         let titleFontSize: CGFloat
         let traitLines: [String]
         let favorableItems: [PreparedFooterItem]
@@ -299,7 +300,7 @@ final class CountryMapScoutCardNode: SKNode {
         content: CountryMapScoutCardContent,
         layout: CountryMapScoutCardLayout
     ) -> PreparedPresentation? {
-        let metrics = metrics(for: layout.layoutClass)
+        let metrics = metrics(for: layout)
         switch content {
         case .countryComplete(let countryNumber, let finalCityName):
             let text = "Country \(countryNumber) conquered · \(finalCityName)"
@@ -335,6 +336,7 @@ final class CountryMapScoutCardNode: SKNode {
             return PreparedScout(
                 scout: scout,
                 metrics: metrics,
+                titleText: scout.displayTitle,
                 titleFontSize: titleFontSize,
                 traitLines: [],
                 favorableItems: [],
@@ -349,6 +351,16 @@ final class CountryMapScoutCardNode: SKNode {
             )
         }
 
+        let usesForgedPhonePresentation = layout.layoutClass == .phone && !layout.isCompact
+        let titleText = usesForgedPhonePresentation
+            ? scout.displayTitle.split(separator: "·").last.map {
+                $0.trimmingCharacters(in: .whitespaces)
+            } ?? scout.displayTitle
+            : scout.displayTitle
+        let traitText = usesForgedPhonePresentation
+            ? scout.defenseTrait.displayName.uppercased()
+            : "\(scout.defenseTrait.displayName) · \(scout.defenseTrait.shortDescription)"
+
         guard let traitWidth = layout.traitLineFrames.map(\.width).min(),
               let traitMeasure = measure(fontName: GameUITheme.Font.medium, size: metrics.traitSize),
               let footerMeasure = measure(fontName: GameUITheme.Font.medium, size: metrics.footerSize),
@@ -358,7 +370,7 @@ final class CountryMapScoutCardNode: SKNode {
                   size: metrics.fallbackRewardSize
               ),
               let titleFontSize = fittedFontSize(
-                  scout.displayTitle,
+                  titleText,
                   startingAt: metrics.titleSize,
                   frameWidth: layout.titleFrame.width
               )
@@ -366,8 +378,6 @@ final class CountryMapScoutCardNode: SKNode {
             return nil
         }
 
-        let traitText =
-            "\(scout.defenseTrait.displayName) · \(scout.defenseTrait.shortDescription)"
         guard let traitLines = CountryMapScoutCardTextLayout.wrapIntoTwoLines(
             traitText,
             maximumWidth: traitWidth,
@@ -435,6 +445,7 @@ final class CountryMapScoutCardNode: SKNode {
         return PreparedScout(
             scout: scout,
             metrics: metrics,
+            titleText: titleText,
             titleFontSize: titleFontSize,
             traitLines: traitLines,
             favorableItems: favorableItems,
@@ -471,12 +482,15 @@ final class CountryMapScoutCardNode: SKNode {
         )
         return types.map { type in
             let frameName = "\(type.rawValue)-walk-01"
+            let image = imageLoader(frameName)
             return PreparedFooterItem(
                 type: type,
-                label: layoutClass == .phone ? compactName(for: type) : type.displayName,
+                label: layoutClass == .phone && image != nil
+                    ? ""
+                    : (layoutClass == .phone ? compactName(for: type) : type.displayName),
                 multiplierText: multiplierText,
                 requestedImageName: frameName,
-                image: imageLoader(frameName)
+                image: image
             )
         }
     }
@@ -493,22 +507,28 @@ final class CountryMapScoutCardNode: SKNode {
         metrics: Metrics,
         measure: (String) -> CGFloat
     ) -> CGFloat {
-        CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
+        let usesPhoneFallback = metrics.iconSize == 30 && items.contains {
+            $0.type != nil && $0.image == nil
+        }
+        let fallbackMeasure = usesPhoneFallback
+            ? self.measure(fontName: GameUITheme.Font.medium, size: 8)
+            : nil
+        return CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
             prefix: prefix,
             items: items.map {
                 .init(label: $0.label, showsIcon: $0.image != nil)
             },
             spacing: .init(
                 iconWidth: metrics.iconSize,
-                prefixGap: metrics.prefixGap,
-                iconLabelGap: metrics.iconLabelGap,
-                itemGap: metrics.itemGap
+                prefixGap: usesPhoneFallback ? 2 : metrics.prefixGap,
+                iconLabelGap: usesPhoneFallback ? 2 : metrics.iconLabelGap,
+                itemGap: usesPhoneFallback ? 4 : metrics.itemGap
             ),
             labelWidth: { label in
                 if let fixedWidth = metrics.fixedPadLabelWidth, label != "None" {
                     return fixedWidth
                 }
-                return measure(label)
+                return fallbackMeasure?(label) ?? measure(label)
             }
         )
     }
@@ -531,7 +551,12 @@ final class CountryMapScoutCardNode: SKNode {
         overlayLayer.alpha = 1
         overlayHitFrame = nil
 
-        cardPanel.apply(size: layout.cardFrame.size, style: .normal, showsRivets: true)
+        cardPanel.apply(
+            size: layout.cardFrame.size,
+            style: .normal,
+            showsRivets: true,
+            appearance: .forged
+        )
         cardPanel.position = CGPoint(x: layout.cardFrame.midX, y: layout.cardFrame.midY)
         cardPanel.isHidden = false
         contentLayer.isHidden = false
@@ -540,7 +565,7 @@ final class CountryMapScoutCardNode: SKNode {
         switch presentation {
         case .countryComplete(let text, let fontSize):
             currentPresentationIsScout = false
-            currentMetrics = metrics(for: layout.layoutClass)
+            currentMetrics = metrics(for: layout)
             titleLabel.text = text
             titleLabel.fontSize = fontSize
             titleLabel.horizontalAlignmentMode = .center
@@ -561,16 +586,19 @@ final class CountryMapScoutCardNode: SKNode {
         layout: CountryMapScoutCardLayout,
         isEntryEnabled: Bool
     ) {
+        let usesForgedPhonePresentation = layout.layoutClass == .phone && !layout.isCompact
         badgePanel.update(size: layout.badgeFrame.size)
         badgePanel.position = CGPoint(x: layout.badgeFrame.midX, y: layout.badgeFrame.midY)
-        badgePanel.isHidden = false
-        badgeLabel.text = "\(prepared.scout.cityNumber)"
+        badgePanel.isHidden = usesForgedPhonePresentation
+        badgeLabel.text = usesForgedPhonePresentation
+            ? "CITY \(prepared.scout.cityNumber)"
+            : "\(prepared.scout.cityNumber)"
         badgeLabel.fontSize = prepared.metrics.badgeSize
         badgeLabel.position = CGPoint(x: layout.badgeFrame.midX, y: layout.badgeFrame.midY)
         renderCityArt(prepared, layout: layout)
 
         titleLabel.horizontalAlignmentMode = .left
-        titleLabel.text = prepared.scout.displayTitle
+        titleLabel.text = prepared.titleText
         titleLabel.fontSize = prepared.titleFontSize
         titleLabel.position = CGPoint(x: layout.titleFrame.minX, y: layout.titleFrame.midY)
 
@@ -649,7 +677,9 @@ final class CountryMapScoutCardNode: SKNode {
         attackPanel.apply(
             size: frame.size,
             style: isEnabled ? .primaryAction : .disabled,
-            showsRivets: true
+            showsRivets: true,
+            appearance: .forged,
+            forgedTreatment: .deploy
         )
         attackPanel.position = .zero
         attackLabel.text = title
@@ -674,17 +704,27 @@ final class CountryMapScoutCardNode: SKNode {
             return
         }
 
-        let targetFrame = CGRect(
-            x: layout.cardFrame.minX + 8,
-            y: layout.cardFrame.midY - min(44, layout.cardFrame.height / 2 - 10),
-            width: min(80, layout.cardFrame.width * 0.24),
-            height: min(88, layout.cardFrame.height - 20)
-        )
+        let targetFrame: CGRect
+        if case .phone = layout.layoutClass {
+            targetFrame = CGRect(
+                x: layout.cardFrame.minX + 8,
+                y: layout.cardFrame.maxY - 98,
+                width: 80,
+                height: 88
+            )
+        } else {
+            targetFrame = CGRect(
+                x: layout.cardFrame.minX + 8,
+                y: layout.cardFrame.midY - min(44, layout.cardFrame.height / 2 - 10),
+                width: min(80, layout.cardFrame.width * 0.24),
+                height: min(88, layout.cardFrame.height - 20)
+            )
+        }
         let texture = SKTexture(image: image)
         cityArt.texture = texture
         cityArt.size = aspectFit(texture.size(), in: targetFrame.size)
         cityArt.position = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
-        cityArt.alpha = 0.78
+        cityArt.alpha = 1
         cityArt.isHidden = false
         currentCityArtTargetFrame = targetFrame
         currentCityArtAssetName = assetName
@@ -742,22 +782,29 @@ final class CountryMapScoutCardNode: SKNode {
         container: SKNode
     ) -> [RenderedFooterItem] {
         container.removeAllChildren()
+        let usesPhoneFallback = metrics.iconSize == 30 && items.contains {
+            $0.type != nil && $0.image == nil
+        }
+        let fontSize: CGFloat = usesPhoneFallback ? 8 : metrics.footerSize
+        let prefixGap: CGFloat = usesPhoneFallback ? 2 : metrics.prefixGap
+        let iconLabelGap: CGFloat = usesPhoneFallback ? 2 : metrics.iconLabelGap
+        let itemGap: CGFloat = usesPhoneFallback ? 4 : metrics.itemGap
         let prefixLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
         configureLabel(prefixLabel, horizontal: .left)
         prefixLabel.fontColor = GameUITheme.Color.textSecondary
-        prefixLabel.fontSize = metrics.footerSize
+        prefixLabel.fontSize = fontSize
         prefixLabel.text = prefix
         prefixLabel.position = CGPoint(x: frame.minX, y: frame.midY)
         container.addChild(prefixLabel)
 
-        guard let measure = measure(fontName: GameUITheme.Font.medium, size: metrics.footerSize) else {
+        guard let measure = measure(fontName: GameUITheme.Font.medium, size: fontSize) else {
             return []
         }
-        var cursorX = frame.minX + measure(prefix) + metrics.prefixGap
+        var cursorX = frame.minX + measure(prefix) + prefixGap
         var renderedItems = [RenderedFooterItem]()
         for (index, item) in items.enumerated() {
             if index > 0 {
-                cursorX += metrics.itemGap
+                cursorX += itemGap
             }
 
             var targetFrame = CGRect.zero
@@ -779,13 +826,13 @@ final class CountryMapScoutCardNode: SKNode {
                 icon.position = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
                 container.addChild(icon)
                 iconNode = icon
-                cursorX = targetFrame.maxX + metrics.iconLabelGap
+                cursorX = targetFrame.maxX + iconLabelGap
             }
 
             let label = SKLabelNode(fontNamed: GameUITheme.Font.medium)
             configureLabel(label, horizontal: .left)
             label.fontColor = GameUITheme.Color.textSecondary
-            label.fontSize = metrics.footerSize
+            label.fontSize = fontSize
             label.text = item.label
             label.position = CGPoint(x: cursorX, y: frame.midY)
             container.addChild(label)
@@ -807,7 +854,7 @@ final class CountryMapScoutCardNode: SKNode {
             multiplierLabel.name = "footerMultiplier"
             configureLabel(multiplierLabel, horizontal: .right)
             multiplierLabel.fontColor = GameUITheme.Color.textSecondary
-            multiplierLabel.fontSize = max(7, metrics.footerSize - 1)
+            multiplierLabel.fontSize = max(7, fontSize - 1)
             multiplierLabel.text = multiplierText
             multiplierLabel.position = CGPoint(x: frame.maxX, y: frame.midY)
             container.addChild(multiplierLabel)
@@ -946,9 +993,8 @@ final class CountryMapScoutCardNode: SKNode {
         }
     }
 
-    private func metrics(for layoutClass: CountryMapLayoutClass) -> Metrics {
-        switch layoutClass {
-        case .phone:
+    private func metrics(for layout: CountryMapScoutCardLayout) -> Metrics {
+        if layout.isCompact {
             return Metrics(
                 titleSize: 11,
                 badgeSize: 11,
@@ -963,6 +1009,26 @@ final class CountryMapScoutCardNode: SKNode {
                 prefixGap: 2,
                 iconLabelGap: 2,
                 itemGap: 4,
+                fixedPadLabelWidth: nil
+            )
+        }
+
+        switch layout.layoutClass {
+        case .phone:
+            return Metrics(
+                titleSize: 19,
+                badgeSize: 10,
+                rewardSize: 14,
+                fallbackRewardSize: 10,
+                traitSize: 11,
+                footerSize: 13,
+                attackSize: 16,
+                feedbackSize: 13,
+                feedbackHorizontalInset: 6,
+                iconSize: 30,
+                prefixGap: 9,
+                iconLabelGap: 3,
+                itemGap: 8,
                 fixedPadLabelWidth: nil
             )
         case .pad:
@@ -1118,6 +1184,14 @@ extension CountryMapScoutCardNode {
         currentCityArtTargetFrame
     }
 
+    var cardUsesForgedAppearanceForTesting: Bool {
+        cardPanel.usesForgedAppearanceForTesting
+    }
+
+    var attackUsesForgedAppearanceForTesting: Bool {
+        attackPanel.usesForgedAppearanceForTesting
+    }
+
     var rewardFontSizeForTesting: CGFloat {
         rewardLabel.fontSize
     }
@@ -1173,7 +1247,7 @@ extension CountryMapScoutCardNode {
             return nil
         }
         let multiplier = items.compactMap(\.multiplierText).first
-        return ([prefix] + items.map(\.label) + [multiplier].compactMap { $0 })
+        return ([prefix] + items.map(\.label).filter { !$0.isEmpty } + [multiplier].compactMap { $0 })
             .joined(separator: " ")
     }
 }

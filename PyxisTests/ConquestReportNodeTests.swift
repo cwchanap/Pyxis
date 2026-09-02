@@ -134,8 +134,15 @@ struct ConquestReportNodeTests {
             cityName: "Falconridge"
         ) == .presented)
         #expect(node.renderedTakenStatusTextForTesting == "TAKEN")
+        #expect(node.takenMedallionUsesAuthoredIconForTesting)
+        #expect(node.rewardUsesAuthoredCoinForTesting)
+        #expect(node.tileIconColorBlendFactorsForTesting.first == 0)
+        #expect(node.tileIconTextureRectsForTesting.first
+            == SoldierAnimationGeometry(type: .cavalry).bodyRegion)
         #expect(node.renderedCityNumberTextForTesting == "CITY 3")
         #expect(node.renderedCityTitleForTesting == "Falconridge")
         #expect(node.continuePanelStyleForTesting == .primaryAction)
+        #expect(node.continueUsesForgedAppearanceForTesting)
+        #expect(node.statTilesUseForgedAppearanceForTesting)
     }
 }

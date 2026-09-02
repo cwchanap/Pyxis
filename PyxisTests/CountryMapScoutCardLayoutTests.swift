@@ -3,6 +3,17 @@ import Testing
 @testable import Pyxis
 
 struct CountryMapScoutCardLayoutTests {
+    @Test func referencePhoneMatchesAuthoredForgedCardGeometry() throws {
+        let fixture = try #require(CountryMapLayoutTestFixtures.supported.first {
+            $0.name == "modern phone"
+        })
+        let (_, layout) = try scoutCardLayout(for: fixture)
+
+        #expect(layout.cardFrame == CGRect(x: 16, y: 90, width: 361, height: 236))
+        #expect(layout.attackFrame == CGRect(x: 30, y: 110, width: 333, height: 46))
+        #expect(!layout.nonBlockingOverlayFrame.intersects(layout.attackFrame))
+    }
+
     @Test func compactPhoneCardKeepsIdentityAndPrimaryActionHorizontal() {
         let region = CGRect(x: 16, y: 34, width: 343, height: 48)
         let layout = CountryMapScoutCardLayout.compute(in: region, layoutClass: .phone)
@@ -20,23 +31,28 @@ struct CountryMapScoutCardLayoutTests {
     }
 
     @Test(arguments: CountryMapLayoutTestFixtures.supported)
-    func supportedLayoutsKeepScoutCardFramesInsideInformationRegion(
+    func supportedLayoutsKeepScoutCardFramesInsideCardAndScene(
         fixture: CountryMapLayoutTestFixture
     ) throws {
         let (outerLayout, cardLayout) = try scoutCardLayout(for: fixture)
-        let informationRegion = outerLayout.informationRegionFrame
 
-        #expect(cardLayout.cardFrame == informationRegion)
-        #expect(cardLayout.overlayFrame == informationRegion)
+        #expect(cardLayout.overlayFrame == cardLayout.cardFrame)
+        #expect(outerLayout.sceneFrame.contains(cardLayout.cardFrame))
 
         // The non-blocking flavor overlay spans the informational area plus
         // the Attack gap but stops at the Attack frame's leading edge, so it
         // never intersects the Attack target (edge-touching rects report
         // `intersects == false` in Core Graphics).
         #expect(cardLayout.nonBlockingOverlayFrame.minX == cardLayout.cardFrame.minX)
-        #expect(cardLayout.nonBlockingOverlayFrame.maxX == cardLayout.attackFrame.minX)
-        #expect(cardLayout.nonBlockingOverlayFrame.minY == cardLayout.cardFrame.minY)
-        #expect(cardLayout.nonBlockingOverlayFrame.height == cardLayout.cardFrame.height)
+        if case .phone = cardLayout.layoutClass, !cardLayout.isCompact {
+            #expect(cardLayout.nonBlockingOverlayFrame.maxX == cardLayout.cardFrame.maxX)
+            #expect(cardLayout.nonBlockingOverlayFrame.minY == cardLayout.attackFrame.maxY)
+            #expect(cardLayout.nonBlockingOverlayFrame.maxY == cardLayout.cardFrame.maxY)
+        } else {
+            #expect(cardLayout.nonBlockingOverlayFrame.maxX == cardLayout.attackFrame.minX)
+            #expect(cardLayout.nonBlockingOverlayFrame.minY == cardLayout.cardFrame.minY)
+            #expect(cardLayout.nonBlockingOverlayFrame.height == cardLayout.cardFrame.height)
+        }
         #expect(cardLayout.overlayFrame.contains(cardLayout.nonBlockingOverlayFrame))
         #expect(!cardLayout.nonBlockingOverlayFrame.intersects(cardLayout.attackFrame))
 
@@ -53,7 +69,7 @@ struct CountryMapScoutCardLayoutTests {
             cardLayout.overlayFrame
         ] + cardLayout.traitLineFrames
         for frame in allFrames {
-            #expect(informationRegion.contains(frame))
+            #expect(cardLayout.cardFrame.contains(frame))
         }
 
         #expect(cardLayout.attackFrame.width >= 44)
@@ -71,17 +87,6 @@ struct CountryMapScoutCardLayoutTests {
         for frame in informationalFrames {
             #expect(!frame.intersects(cardLayout.attackFrame))
         }
-        for (index, frame) in informationalFrames.enumerated() {
-            guard !frame.isEmpty else {
-                continue
-            }
-            for otherFrame in informationalFrames.dropFirst(index + 1) {
-                guard !otherFrame.isEmpty else {
-                    continue
-                }
-                #expect(!frame.intersects(otherFrame))
-            }
-        }
     }
 
     @Test(arguments: CountryMapLayoutTestFixtures.supported.filter {
@@ -90,37 +95,31 @@ struct CountryMapScoutCardLayoutTests {
     func phoneLayoutsUseLockedRowsFooterGroupsAndTitleGaps(
         fixture: CountryMapLayoutTestFixture
     ) throws {
-        let (outerLayout, cardLayout) = try scoutCardLayout(for: fixture)
-        let contentFrame = outerLayout.informationRegionFrame.insetBy(dx: 6, dy: 2)
+        let (_, cardLayout) = try scoutCardLayout(for: fixture)
+        let contentFrame = cardLayout.cardFrame.insetBy(dx: 14, dy: 10)
         #expect(cardLayout.traitLineFrames.count == 2)
         let topTraitLine = try #require(cardLayout.traitLineFrames.first)
         let bottomTraitLine = try #require(cardLayout.traitLineFrames.last)
 
-        #expect(cardLayout.badgeFrame.size == CGSize(width: 22, height: 22))
-        #expect(cardLayout.goldIconFrame.size == CGSize(width: 12, height: 12))
-        #expect(cardLayout.rewardFrame.size == CGSize(width: 34, height: 22))
-        #expect(cardLayout.rewardFrame.minX - cardLayout.goldIconFrame.maxX == 2)
-        #expect(topTraitLine.height == 12)
-        #expect(bottomTraitLine.height == 12)
-        #expect(cardLayout.favorableFrame.height == 12)
-        #expect(cardLayout.badgeFrame.maxY == contentFrame.maxY)
-        #expect(topTraitLine.maxY == cardLayout.badgeFrame.minY - 1)
+        #expect(cardLayout.badgeFrame.size == CGSize(width: 80, height: 12))
+        #expect(cardLayout.goldIconFrame.size == CGSize(width: 15, height: 15))
+        #expect(cardLayout.rewardFrame.size == CGSize(width: 39, height: 28))
+        #expect(cardLayout.rewardFrame.minX - cardLayout.goldIconFrame.maxX == 5)
+        #expect(topTraitLine.height == 14)
+        #expect(bottomTraitLine.height == 14)
         #expect(bottomTraitLine.maxY == topTraitLine.minY)
-        // The variable-height phone card preserves its footer at the lower
-        // edge while the authored trait rows stay locked below the header.
-        #expect(cardLayout.favorableFrame.maxY <= bottomTraitLine.minY - 1)
-        #expect(cardLayout.favorableFrame.minY == contentFrame.minY)
-        #expect(cardLayout.favorableFrame.width == 106)
-        #expect(cardLayout.disadvantagedFrame.width == 70)
-        #expect(cardLayout.exposedLaneFrame.maxX == topTraitLine.maxX)
-        #expect(cardLayout.attackFrame.size == CGSize(width: 70, height: 44))
-        #expect(cardLayout.attackFrame.maxX == contentFrame.maxX)
-        #expect(cardLayout.attackFrame.midY == outerLayout.informationRegionFrame.midY)
-        #expect(cardLayout.favorableFrame.minY == outerLayout.informationRegionFrame.minY + 2)
-        #expect(cardLayout.disadvantagedFrame.minX - cardLayout.favorableFrame.maxX == 6)
-        #expect(cardLayout.exposedLaneFrame.minX - cardLayout.disadvantagedFrame.maxX == 6)
-        #expect(cardLayout.titleFrame.minX == cardLayout.badgeFrame.maxX + 4)
-        #expect(cardLayout.titleFrame.maxX == cardLayout.goldIconFrame.minX - 4)
+        #expect(cardLayout.favorableFrame.size == CGSize(width: contentFrame.width, height: 30))
+        #expect(cardLayout.disadvantagedFrame.size == CGSize(width: contentFrame.width, height: 30))
+        #expect(cardLayout.favorableFrame.minY - cardLayout.disadvantagedFrame.maxY == 8)
+        #expect(cardLayout.attackFrame == CGRect(
+            x: contentFrame.minX,
+            y: cardLayout.cardFrame.minY + 20,
+            width: contentFrame.width,
+            height: 46
+        ))
+        #expect(cardLayout.badgeFrame.minX == cardLayout.titleFrame.minX)
+        #expect(cardLayout.exposedLaneFrame.maxX == contentFrame.maxX)
+        #expect(cardLayout.nonBlockingOverlayFrame.minY == cardLayout.attackFrame.maxY)
     }
 
     @Test(arguments: CountryMapLayoutTestFixtures.supported.filter(isPadFixture))
@@ -171,10 +170,10 @@ struct CountryMapScoutCardLayoutTests {
         let (_, phoneLayout) = try scoutCardLayout(for: phoneFixture)
         let (_, narrowPadLayout) = try scoutCardLayout(for: narrowPadFixture)
 
-        #expect(phoneLayout.favorableFrame.width == 106)
-        #expect(phoneLayout.disadvantagedFrame.width == 70)
-        #expect(phoneLayout.exposedLaneFrame.width == 67)
-        #expect(phoneLayout.attackFrame.size == CGSize(width: 70, height: 44))
+        #expect(phoneLayout.favorableFrame.width == 315)
+        #expect(phoneLayout.disadvantagedFrame.width == 315)
+        #expect(phoneLayout.exposedLaneFrame.width == 115)
+        #expect(phoneLayout.attackFrame.size == CGSize(width: 315, height: 46))
 
         #expect(narrowPadLayout.exposedLaneFrame.width == 82)
         #expect(narrowPadLayout.attackFrame.size == CGSize(width: 96, height: 52))

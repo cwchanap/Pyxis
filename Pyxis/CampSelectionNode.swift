@@ -188,7 +188,7 @@ final class CampSelectionNode: SKNode {
     private let inspectorActionLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let inspectorLevelPips: [SKShapeNode]
     private let optionBundles: [BuildingType: OptionBundle]
-    private let tabBar = GameplayTabBarNode()
+    private let tabBar = GameplayTabBarNode(appearance: .forged)
 
     private var currentContent: CampSelectionContent?
     private var currentLayout: CampChromeLayout?
@@ -304,7 +304,8 @@ final class CampSelectionNode: SKNode {
               layout.lotHitFrames.count == CityBattleState.slotRange.count,
               layout.tabHitFrames.count == GameplayTab.allCases.count,
               layout.tabBarFrame.height >= CampChromeLayout.tabBarHeight,
-              layout.safeFrame.contains(layout.tabBarFrame),
+              layout.sceneFrame.contains(layout.tabBarFrame),
+              layout.tabHitFrames.values.allSatisfy({ layout.safeFrame.contains($0) }),
               layout.lotHitFrames.values.allSatisfy({
                   layout.safeFrame.contains($0)
                       && $0.width >= CampChromeLayout.minimumInteractiveSize
@@ -348,7 +349,12 @@ final class CampSelectionNode: SKNode {
         inspectorLevelPips.forEach { $0.isHidden = inspectorPanel.isHidden }
 
         if let builderFrame = layout.builderFrame {
-            builderPanel.apply(size: builderFrame.size, style: .normal, showsRivets: true)
+            builderPanel.apply(
+                size: builderFrame.size,
+                style: .normal,
+                showsRivets: true,
+                appearance: .forged
+            )
             builderPanel.position = CGPoint(x: builderFrame.midX, y: builderFrame.midY)
             for option in content.options {
                 guard let frame = layout.builderOptionFrames[option.buildingType],
@@ -361,7 +367,8 @@ final class CampSelectionNode: SKNode {
                     style: option.isRecommended
                         ? .selected
                         : Self.panelStyle(for: option.state),
-                    showsRivets: false
+                    showsRivets: false,
+                    appearance: .forged
                 )
                 bundle.icon.size = Self.aspectFitSize(
                     for: bundle.icon.texture,
@@ -387,7 +394,12 @@ final class CampSelectionNode: SKNode {
         if let inspectorFrame = layout.inspectorFrame,
            let actionFrame = layout.inspectorActionFrame,
            let inspector = content.inspector {
-            inspectorPanel.apply(size: inspectorFrame.size, style: .normal, showsRivets: true)
+            inspectorPanel.apply(
+                size: inspectorFrame.size,
+                style: .normal,
+                showsRivets: true,
+                appearance: .forged
+            )
             inspectorPanel.position = CGPoint(x: inspectorFrame.midX, y: inspectorFrame.midY)
             inspectorIcon.texture = SKTexture(imageNamed: inspector.buildingAssetName)
             inspectorIcon.size = Self.aspectFitSize(
@@ -429,7 +441,8 @@ final class CampSelectionNode: SKNode {
                 style: inspector.isRecommended
                     ? .selected
                     : inspector.canUpgrade ? .primaryAction : .disabled,
-                showsRivets: true
+                showsRivets: true,
+                appearance: .forged
             )
             inspectorActionPanel.position = CGPoint(x: actionFrame.midX, y: actionFrame.midY)
             inspectorActionLabel.text = "↑\n\(CompactNumberFormatter.string(from: inspector.upgradeCost))"
@@ -442,7 +455,8 @@ final class CampSelectionNode: SKNode {
 
         tabBar.apply(
             content: content.tabContent,
-            frame: layout.tabBarFrame
+            frame: layout.tabBarFrame,
+            hitFrames: GameplayTab.allCases.compactMap { layout.tabHitFrames[$0] }
         )
         return .presented
     }
@@ -536,6 +550,14 @@ extension CampSelectionNode {
 
     var tabBarForTesting: GameplayTabBarNode {
         tabBar
+    }
+
+    var builderPanelUsesForgedAppearanceForTesting: Bool {
+        builderPanel.usesForgedAppearanceForTesting
+    }
+
+    var inspectorPanelUsesForgedAppearanceForTesting: Bool {
+        inspectorPanel.usesForgedAppearanceForTesting
     }
 
     func optionPanelStyleForTesting(_ type: BuildingType) -> PanelNode.Style? {

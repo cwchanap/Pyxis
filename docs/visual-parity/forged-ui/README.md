@@ -26,7 +26,7 @@ Every minimum state has the canonical mock, a simulator capture, a deterministic
 | Camp occupied | `camp.png` | `native/camp-occupied-393x852@3x.png` | `overlays/camp-occupied-50-overlay.png` | The deterministic occupied fixture mounts the inspector on slot 1 (`selectedSlot=1; mode=inspector`); existing buildings and authored levels intentionally differ from the generic mock. |
 | Map attackable | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-attackable-50-overlay.png` | The native route shows the current attackable City 4 and locked later cities together; shipping unlock colors and authored labels are state-driven. |
 | Map locked | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-attackable-50-overlay.png` | Attackable and locked are intentionally one route fixture/capture: the locked nodes are the later cities visible beside City 4, not a second fabricated screen. |
-| Map Country 1 complete | `map.png` | `native/map-complete-393x852@3x.png` | `overlays/map-complete-50-overlay.png` | The complete campaign uses the shipping completion treatment and route state; the map mock's taller card is not a geometry contract. |
+| Map Country 1 complete | `map.png` | `native/map-complete-393x852@3x.png` | `overlays/map-complete-50-overlay.png` | The complete campaign uses the shipping completion treatment and truthful route state while retaining the authored card and tab geometry. |
 | Conquest live | `conquest.png` | `native/conquest-live-393x852@3x.png` | `overlays/conquest-live-50-overlay.png` | The report's title, gold, and rows are resolved from the live battle result and fixture catalog; the sole Settings gear is hidden while the report is visible, and the mock intentionally omits runtime values. |
 | Conquest idle | `conquest.png` | `native/conquest-idle-393x852@3x.png` | `overlays/conquest-idle-50-overlay.png` | The fixture contains two Barracks and nonempty building-driven idle damage, so the report truthfully shows `+17`, `2 BUILDINGS`, `100% MVP`, and `0/0 SENT/LOST`; the sole Settings gear is hidden while the report is visible. |
 | Settings one-off toggle | `settings.png` | `native/settings-toggle-393x852@3x.png` | `overlays/settings-toggle-50-overlay.png` | The one-off toggle capture preserves the underlying battle scene and persisted preference transition; no additional settings are introduced. |
@@ -66,7 +66,11 @@ the native files nor the canonical files were resized or cropped. Camp
 selection and Conquest report semantics were checked from the same
 DEBUG-derived probe used by the UI smoke.
 
-The Map implementation deliberately uses a computed 164pt card, not the taller presentation mock card. At 393pt width, the 164pt card leaves the authored 44pt node interactions and the required route spacing/headroom viable; this is a deliberate geometry-contract difference, not a capture defect. The overlays are evidence for human review only; there is no pixel-diff CI assertion.
+The Map reference-phone implementation now uses the authored 236pt card and
+82pt full-bleed tab shell while maintaining separate safe-area hit frames.
+Camp uses the same visual-shell/safe-hit split. The Map, Camp, and Conquest
+captures were refreshed after the final forged-style parity pass. The overlays
+remain evidence for human review only; there is no pixel-diff CI assertion.
 
 Battle-normal comparison uses the direct 1179×2556 framebuffer (3×, logical
 393×852) and its downsampled 393×852 comparison artifacts. The simulator's
