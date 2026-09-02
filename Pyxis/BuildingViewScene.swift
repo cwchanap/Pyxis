@@ -444,7 +444,12 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         backdropNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
         backdropNode.setScale(backdropScale)
 
-        goldPanel.apply(size: layout.goldFrame.size, style: .normal, showsRivets: true)
+        goldPanel.apply(
+            size: layout.goldFrame.size,
+            style: .normal,
+            showsRivets: true,
+            appearance: .forged
+        )
         goldPanel.position = CGPoint(x: layout.goldFrame.midX, y: layout.goldFrame.midY)
         titleLabel.text = "Camp"
         titleLabel.position = CGPoint(x: layout.titleFrame.minX, y: layout.titleFrame.midY)
@@ -520,7 +525,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         }
 
         if let feedbackSettingsController {
-            feedbackSettingsController.applyGearFrame(layout.settingsFrame)
+            feedbackSettingsController.applyGearFrame(
+                layout.settingsFrame,
+                appearance: .forged
+            )
             feedbackSettingsController.reapply(layout: feedbackSettingsLayoutForCurrentEnvironment())
         }
 

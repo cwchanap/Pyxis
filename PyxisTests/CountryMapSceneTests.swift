@@ -1130,7 +1130,7 @@ struct CountryMapSceneTests {
             return
         }
         #expect(scout.cityNumber == 4)
-        #expect(scene.scoutCardBaseContentForTesting?.badge == "4")
+        #expect(scene.scoutCardBaseContentForTesting?.badge == "CITY 4")
         #expect(scene.cityVisualStateForTesting(3) == .completed)
         #expect(scene.cityVisualStateForTesting(4) == .unlocked)
         #expect(scene.scoutCardAttackHitFrameForTesting == nil)
@@ -1256,16 +1256,19 @@ struct CountryMapSceneTests {
         #expect(scene.mapLayoutFramesForTesting.sceneFrame == layout.sceneFrame)
         #expect(scene.mapLayoutFramesForTesting.titlePanelFrame == layout.titleControlRegionFrame)
         #expect(scene.mapLayoutFramesForTesting.illustratedRegionFrame == layout.illustratedMapRegionFrame)
-        #expect(scene.mapLayoutFramesForTesting.scoutCardFrame == layout.informationRegionFrame)
-        #expect(scene.scoutCardFrameForTesting == layout.informationRegionFrame)
-        #expect(scene.scoutCardHitFrameForTesting == layout.informationRegionFrame)
+        let scoutCardFrame = CGRect(x: 16, y: 90, width: 361, height: 236)
+        #expect(scene.mapLayoutFramesForTesting.scoutCardFrame == scoutCardFrame)
+        #expect(scene.scoutCardFrameForTesting == scoutCardFrame)
+        #expect(scene.scoutCardHitFrameForTesting == scoutCardFrame)
         #expect(scene.scoutCardAttackHitFrameForTesting != nil)
         #expect(scene.scoutCardOverlayHitFrameForTesting == nil)
 
         let tabBarFrame = scene.gameplayTabBarFrameForTesting
-        #expect(tabBarFrame.minY >= layout.sceneFrame.minY + 34)
-        #expect(layout.informationRegionFrame.minY >= tabBarFrame.maxY)
-        #expect(layout.illustratedMapRegionFrame.minY >= layout.informationRegionFrame.maxY)
+        #expect(tabBarFrame == CGRect(x: 16, y: 0, width: 361, height: 82))
+        #expect(scene.gameplayTabBarForTesting.usesForgedAppearanceForTesting)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map)?.minY ?? 0 >= 34)
+        #expect(scoutCardFrame.minY == tabBarFrame.maxY + 8)
+        #expect(scoutCardFrame.intersects(layout.illustratedMapRegionFrame))
     }
 
     @Test func mapLayoutKeepsTitleScoutCardAndAllCitiesVisible() throws {
@@ -1283,9 +1286,9 @@ struct CountryMapSceneTests {
         #expect(frames.sceneFrame == layout.sceneFrame)
         #expect(frames.titlePanelFrame == layout.titleControlRegionFrame)
         #expect(frames.illustratedRegionFrame == layout.illustratedMapRegionFrame)
-        #expect(frames.scoutCardFrame == layout.informationRegionFrame)
+        #expect(frames.scoutCardFrame == scene.scoutCardFrameForTesting)
         #expect(frames.titlePanelFrame.minY > frames.illustratedRegionFrame.maxY)
-        #expect(frames.scoutCardFrame.maxY <= frames.illustratedRegionFrame.minY)
+        #expect(frames.scoutCardFrame.intersects(frames.illustratedRegionFrame))
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             let position = try #require(scene.cityNodePositionForTesting(cityNumber))
@@ -1293,7 +1296,6 @@ struct CountryMapSceneTests {
 
             #expect(frames.sceneFrame.contains(frame))
             #expect(!frames.titlePanelFrame.intersects(frame))
-            #expect(!frames.scoutCardFrame.intersects(frame))
         }
     }
 

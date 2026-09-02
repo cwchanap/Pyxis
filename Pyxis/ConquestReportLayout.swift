@@ -73,20 +73,20 @@ struct ConquestReportLayout: Equatable {
         init(compactHeight: Bool) {
             let compact = compactHeight
             horizontalPadding = compact ? 18 : 22
-            verticalPadding = compact ? 14 : 18
-            titleLine = compact ? 24 : 30
-            titleRewardGap = compact ? 6 : 8
-            rewardHeight = compact ? 54 : 64
-            rewardTilesGap = compact ? 8 : 10
-            tileHeight = compact ? 76 : 98
+            verticalPadding = compact ? 14 : 22
+            titleLine = compact ? 24 : 44
+            titleRewardGap = compact ? 6 : 12
+            rewardHeight = compact ? 54 : 72
+            rewardTilesGap = compact ? 8 : 16
+            tileHeight = compact ? 76 : 108
             tileGap = 8
-            tileChipGap = compact ? 10 : 14
+            tileChipGap = compact ? 10 : 18
             chipWidth = 104
             chipHeight = compact ? 28 : 30
             chipGap = 8
-            chipsContinueGap = compact ? 12 : 16
+            chipsContinueGap = compact ? 12 : 21
             continueInset = 22
-            continueHeight = compact ? 44 : 52
+            continueHeight = compact ? 44 : 54
             cornerRadius = 14
             titleStartingFontSize = compact ? 19 : 22
             titleMinimumFontSize = 14
@@ -102,8 +102,8 @@ struct ConquestReportLayout: Equatable {
             continueMinimumFontSize = 15
             countryCompletionLine = compact ? 22 : 26
             countryCompletionGap = 8
-            takenMedallionDiameter = compact ? 96 : 124
-            takenMedallionOverlap = compact ? 28 : 50
+            takenMedallionDiameter = compact ? 96 : 118
+            takenMedallionOverlap = compact ? 28 : 39
         }
     }
 
@@ -148,7 +148,7 @@ struct ConquestReportLayout: Equatable {
             height: safeHeight
         )
         let metrics = Metrics(compactHeight: input.compactHeight)
-        let panelWidth = min(input.battleContentWidth, safeWidth - 32)
+        let panelWidth = min(input.battleContentWidth, safeWidth - 48, 345)
         let innerWidth = panelWidth - metrics.horizontalPadding * 2
         let continueWidth = panelWidth - metrics.continueInset * 2
         guard panelWidth > metrics.horizontalPadding * 2,
@@ -183,7 +183,10 @@ struct ConquestReportLayout: Equatable {
         guard groupHeight <= safeHeight else { return nil }
 
         let panelX = safeFrame.midX - panelWidth / 2
-        let groupMinY = safeFrame.midY - groupHeight / 2
+        let phoneForgedOffset: CGFloat = !input.compactHeight && input.sceneSize.width <= 440
+            ? 19
+            : 0
+        let groupMinY = safeFrame.midY - groupHeight / 2 - phoneForgedOffset
         let panelFrame = CGRect(x: panelX, y: groupMinY, width: panelWidth, height: panelHeight)
         let countryCompleteFrame = input.includesCountryCompletion
             ? CGRect(

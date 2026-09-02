@@ -27,7 +27,11 @@ struct CampSelectionNodeTests {
         node.apply(content: content, layout: layout)
         #expect(node.children.count == childCount)
         #expect(node.visualOptionCountForTesting == 5)
+        #expect(node.builderPanelUsesForgedAppearanceForTesting)
+        #expect(node.tabBarForTesting.usesForgedAppearanceForTesting)
         #expect(node.action(at: center(of: layout.builderOptionFrames[.barracks]!)) == .build(.barracks))
+        #expect(node.action(at: center(of: layout.tabHitFrames[.map]!)) == .tab(.map))
+        #expect(node.action(at: CGPoint(x: layout.tabBarFrame.midX, y: 10)) == nil)
 
         let occupiedLayout = try #require(CampChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),
@@ -38,6 +42,7 @@ struct CampSelectionNodeTests {
         _ = occupiedState.buildBuilding(.barracks, inSlot: 1)
         let occupiedContent = CampSelectionContent.project(from: occupiedState, selectedSlot: 1)
         #expect(node.apply(content: occupiedContent, layout: occupiedLayout) == .presented)
+        #expect(node.inspectorPanelUsesForgedAppearanceForTesting)
         #expect(node.action(at: center(of: occupiedLayout.inspectorActionFrame!)) == .upgrade)
     }
 

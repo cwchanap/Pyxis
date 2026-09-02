@@ -49,12 +49,13 @@ struct CountryMapScoutCardNodeTests {
         )
 
         #expect(node.apply(content: .scout(scout), layout: layout, isEntryEnabled: true) == .presented)
-        #expect(node.badgeTextForTesting == "3")
-        #expect(node.titleTextForTesting == "City 3 · Falconridge")
-        #expect(node.traitLineTextsForTesting.joined(separator: " ")
-            == "Arrow Tower · Durable and fast melee troops perform better.")
-        #expect(node.favorableTextForTesting == "+ Inf Cav ×1.25")
-        #expect(node.disadvantagedTextForTesting == "- Arc Mag ×0.80")
+        #expect(node.badgeTextForTesting == "CITY 3")
+        #expect(node.cardUsesForgedAppearanceForTesting)
+        #expect(node.attackUsesForgedAppearanceForTesting)
+        #expect(node.titleTextForTesting == "Falconridge")
+        #expect(node.traitLineTextsForTesting == ["ARROW TOWER"])
+        #expect(node.favorableTextForTesting == "+ ×1.25")
+        #expect(node.disadvantagedTextForTesting == "- ×0.80")
         #expect(node.laneTextForTesting == "Open: Center")
         #expect(node.rewardTextForTesting == "27")
         #expect(node.attackTextForTesting == "MARCH")
@@ -73,8 +74,8 @@ struct CountryMapScoutCardNodeTests {
             layout: layout,
             isEntryEnabled: true
         ) == .presented)
-        #expect(node.favorableTextForTesting == "+ Inf Cav ×1.25")
-        #expect(node.disadvantagedTextForTesting == "- Arc Mag ×0.80")
+        #expect(node.favorableTextForTesting == "+ ×1.25")
+        #expect(node.disadvantagedTextForTesting == "- ×0.80")
         #expect(node.favorableItemsForTesting.allSatisfy { $0.multiplierText == "×1.25" })
         #expect(node.disadvantagedItemsForTesting.allSatisfy { $0.multiplierText == "×0.80" })
     }
@@ -93,8 +94,13 @@ struct CountryMapScoutCardNodeTests {
         ) == .presented)
         #expect(node.cityArtAssetNameForTesting == "enemy-city")
         #expect(node.cityArtIsVisibleForTesting)
-        #expect(node.cityArtTargetFrameForTesting != nil)
-        #expect(node.titleTextForTesting == "City 3 · Falconridge")
+        #expect(node.cityArtTargetFrameForTesting == CGRect(
+            x: layout.cardFrame.minX + 8,
+            y: layout.cardFrame.maxY - 98,
+            width: 80,
+            height: 88
+        ))
+        #expect(node.titleTextForTesting == "Falconridge")
         #expect(node.attackTextForTesting == "MARCH")
         #expect(node.attackHitFrame == layout.attackFrame)
     }
@@ -205,8 +211,8 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.goldIconTargetFrameForTesting == layout.goldIconFrame)
         #expect(node.rewardTargetFrameForTesting == layout.rewardFrame)
         #expect(node.rewardTextForTesting == "81")
-        #expect(node.rewardFontSizeForTesting == 10)
-        #expect(node.goldIconSizeForTesting == CGSize(width: 12, height: 6))
+        #expect(node.rewardFontSizeForTesting == 14)
+        #expect(node.goldIconSizeForTesting == CGSize(width: 15, height: 7.5))
 
         let padLayout = try scoutCardLayout(named: "narrow iPad")
         #expect(node.apply(
@@ -233,7 +239,7 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.rewardTextForTesting == "Gold 81")
         #expect(node.rewardTargetFrameForTesting
             == phoneLayout.goldIconFrame.union(phoneLayout.rewardFrame))
-        #expect(node.rewardFontSizeForTesting == 9)
+        #expect(node.rewardFontSizeForTesting == 10)
 
         #expect(node.apply(
             content: .scout(testScout(goldReward: 81)),
@@ -686,12 +692,12 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.fontsForTesting == .init(
             boldName: GameUITheme.Font.bold,
             mediumName: GameUITheme.Font.medium,
-            title: 11,
-            badge: 11,
-            reward: 9,
-            trait: 9,
-            footer: 9,
-            attack: 13,
+            title: 19,
+            badge: 10,
+            reward: 10,
+            trait: 11,
+            footer: 8,
+            attack: 16,
             titleIsInstalled: true,
             badgeIsInstalled: true,
             rewardIsInstalled: true,
@@ -732,16 +738,17 @@ struct CountryMapScoutCardNodeTests {
             layout: layout,
             isEntryEnabled: true
         ) == .presented)
-        #expect(node.traitLineTextsForTesting.count == 2)
-        #expect(node.traitLinePositionsForTesting
-            == layout.traitLineFrames.map { CGPoint(x: $0.minX, y: $0.midY) })
+        #expect(node.traitLineTextsForTesting == ["ARCANE WARD"])
+        #expect(node.traitLinePositionsForTesting == [
+            CGPoint(x: layout.traitLineFrames[0].minX, y: layout.traitLineFrames[0].midY)
+        ])
 
         #expect(node.apply(
             content: .scout(testScout(trait: .arrowTower)),
             layout: layout,
             isEntryEnabled: true
         ) == .presented)
-        #expect(node.traitLineTextsForTesting.count == 1)
+        #expect(node.traitLineTextsForTesting == ["ARROW TOWER"])
         #expect(node.traitLinePositionsForTesting == [
             CGPoint(
                 x: layout.traitLineFrames[0].minX,

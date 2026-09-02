@@ -41,6 +41,19 @@ private func makeLayout(
 }
 
 struct ConquestReportLayoutTests {
+    @Test func referencePhoneMatchesAuthoredForgedReportGeometry() throws {
+        let layout = try #require(makeLayout(
+            size: CGSize(width: 393, height: 852),
+            insets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            tiles: 3,
+            chips: 2
+        ))
+
+        #expect(layout.panelFrame == CGRect(x: 24, y: 185, width: 345, height: 419))
+        #expect(layout.takenMedallionFrame == CGRect(x: 137.5, y: 584, width: 118, height: 118))
+        #expect(layout.continueFrame == CGRect(x: 46, y: 207, width: 301, height: 54))
+    }
+
     @Test func tileAndChipCountsAreAcceptedAtTheContractBoundaries() throws {
         let two = try #require(makeLayout(tiles: 2, chips: 0))
         let three = try #require(makeLayout(tiles: 3, chips: 2))

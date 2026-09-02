@@ -59,13 +59,17 @@ struct CountryMapScoutCardAcceptanceTests {
                 layoutClass: fixture.layoutClass,
                 usesGoldFallback: false
             )
-            #expect(freshLayout.informationRegionFrame.contains(cardFrame))
-            #expect(freshLayout.informationRegionFrame.contains(attackFrame))
+            #expect(freshLayout.sceneFrame.contains(cardFrame))
+            #expect(cardFrame.contains(attackFrame))
+            if fixture.layoutClass == .pad
+                || cardFrame.height <= freshLayout.informationRegionFrame.height {
+                #expect(freshLayout.informationRegionFrame.contains(cardFrame))
+            }
             for cityNumber in Country1CityCatalog.cityRange {
                 let cityFrame = try #require(
                     fresh.scene.cityHitFrameForTesting(cityNumber)
                 )
-                #expect(!cardFrame.intersects(cityFrame))
+                #expect(!attackFrame.intersects(cityFrame))
             }
             #expect(
                 fresh.scene.visibleScoutCardTextsForTesting
@@ -172,9 +176,13 @@ struct CountryMapScoutCardAcceptanceTests {
             let lockedBase = try #require(
                 feedback.scene.scoutCardBaseContentForTesting
             )
-            #expect(lockedBase.badge == "4")
-            #expect(lockedBase.title == "City 4 · Bramblegate")
-            #expect(lockedBase.attack == nil)
+            let lockedScout = try projectedScout(from: feedback.scene)
+            assertRequiredScoutContent(
+                lockedBase,
+                scout: lockedScout,
+                layoutClass: fixture.layoutClass,
+                usesGoldFallback: false
+            )
 
             feedback.scene.advanceFeedbackForTesting(by: 1.5)
             let completedPoint = try #require(
@@ -191,9 +199,13 @@ struct CountryMapScoutCardAcceptanceTests {
             let completedBase = try #require(
                 feedback.scene.scoutCardBaseContentForTesting
             )
-            #expect(completedBase.badge == "2")
-            #expect(completedBase.title == "City 2 · Pinewatch")
-            #expect(completedBase.attack == nil)
+            let completedScout = try projectedScout(from: feedback.scene)
+            assertRequiredScoutContent(
+                completedBase,
+                scout: completedScout,
+                layoutClass: fixture.layoutClass,
+                usesGoldFallback: false
+            )
         }
 
         let completeState = KingdomGameState(
@@ -316,10 +328,8 @@ struct CountryMapScoutCardAcceptanceTests {
                     )
 
                     #expect(!harness.scene.isMapUnavailableForTesting)
-                    // Matrix carries the authored identity for the city it
-                    // projects (city 7): the projected Scout must carry city 7's
-                    // authored title + flavor, and the node must render that
-                    // authored title verbatim.
+                    // The projection retains authored identity while the forged
+                    // phone card presents the concise city-name treatment.
                     #expect(scout.cityNumber == definition.cityNumber)
                     #expect(scout.displayTitle == definition.displayTitle)
                     #expect(scout.displayTitle == "City 7 · Emberford")
@@ -332,7 +342,13 @@ struct CountryMapScoutCardAcceptanceTests {
                         usesGoldFallback:
                             scenario.missingNames.contains("gold-burst")
                     )
-                    #expect(base.title == definition.displayTitle)
+                    #expect(
+                        base.title == presentedTitle(
+                            for: scout,
+                            base: base,
+                            layoutClass: fixture.layoutClass
+                        )
+                    )
                     #expect(
                         harness.scene.visibleScoutCardTextsForTesting
                             == expectedVisibleLabelTexts(from: base)
@@ -501,11 +517,27 @@ struct CountryMapScoutCardAcceptanceTests {
             ? "Gold \(scout.goldReward)"
             : "\(scout.goldReward)"
 
-        #expect(base.badge == "\(scout.cityNumber)")
-        #expect(base.title == scout.displayTitle)
-        #expect(base.traitLines.joined(separator: " ") == traitText)
-        #expect(base.favorable == favorable)
-        #expect(base.disadvantaged == disadvantaged)
+        if layoutClass == .phone {
+            #expect(base.badge == "CITY \(scout.cityNumber)")
+            #expect(base.title == presentedTitle(for: scout, base: base, layoutClass: layoutClass))
+            #expect(base.traitLines.joined(separator: " ") == scout.defenseTrait.displayName.uppercased())
+            assertForgedFooter(
+                base.favorable,
+                prefix: "+",
+                types: scout.defenseTrait.favorableSoldierTypes
+            )
+            assertForgedFooter(
+                base.disadvantaged,
+                prefix: "-",
+                types: scout.defenseTrait.disadvantagedSoldierTypes
+            )
+        } else {
+            #expect(base.badge == "\(scout.cityNumber)")
+            #expect(base.title == scout.displayTitle)
+            #expect(base.traitLines.joined(separator: " ") == traitText)
+            #expect(base.favorable == favorable)
+            #expect(base.disadvantaged == disadvantaged)
+        }
         #expect(base.lane == "Open: \(scout.exposedLane.displayName)")
         #expect(base.reward == reward)
         #expect(base.attack == scout.actionTitle)
@@ -517,6 +549,37 @@ struct CountryMapScoutCardAcceptanceTests {
             + base.traitLines
         #expect(!requiredStrings.isEmpty)
         #expect(requiredStrings.allSatisfy { !$0.isEmpty })
+    }
+
+    private func presentedTitle(
+        for scout: CountryMapScoutCardContent.Scout,
+        base: CountryMapScoutCardNode.BaseContentReadback,
+        layoutClass: CountryMapLayoutClass
+    ) -> String {
+        guard layoutClass == .phone, !base.traitLines.isEmpty else {
+            return scout.displayTitle
+        }
+        return scout.displayTitle.split(separator: "·").last.map {
+            $0.trimmingCharacters(in: .whitespaces)
+        } ?? scout.displayTitle
+    }
+
+    private func assertForgedFooter(
+        _ text: String?,
+        prefix: String,
+        types: [SoldierType]
+    ) {
+        if types.isEmpty {
+            #expect(text == "\(prefix) None")
+            return
+        }
+
+        let tokens = text?.split(separator: " ").map(String.init) ?? []
+        let expectedNames = Set(types.map(compactName(for:)))
+        let visibleNames = Set(tokens.dropFirst().dropLast())
+        #expect(tokens.first == prefix)
+        #expect(tokens.last == (prefix == "+" ? "×1.25" : "×0.80"))
+        #expect(visibleNames.isSubset(of: expectedNames))
     }
 
     private func expectedFooterText(

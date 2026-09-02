@@ -251,7 +251,12 @@ struct CountryMapScoutCardTextLayoutTests {
         let fallbackWidth = cardLayout.rewardFrame.maxX - cardLayout.goldIconFrame.minX
 
         for cityNumber in Country1CityCatalog.cityRange {
-            let title = Country1CityCatalog.definition(for: cityNumber).displayTitle
+            let displayTitle = Country1CityCatalog.definition(for: cityNumber).displayTitle
+            let title = isPhone
+                ? displayTitle.split(separator: "·").last.map {
+                    $0.trimmingCharacters(in: .whitespaces)
+                } ?? displayTitle
+                : displayTitle
             let reward = KingdomGameState.goldReward(for: cityNumber)
 
             #expect(CountryMapScoutCardTextLayout.fittedFontSize(
@@ -277,7 +282,10 @@ struct CountryMapScoutCardTextLayoutTests {
         let footerMeasure = try productionMeasure(fontName: GameUITheme.Font.medium, size: 9)
         let rewardMeasure = try productionMeasure(fontName: GameUITheme.Font.bold, size: 10)
         let overflowItems: [CountryMapScoutCardTextLayout.FooterItem] = [
-            .init(label: "UnreasonablyLongSoldierName", showsIcon: true)
+            .init(
+                label: "UnreasonablyLongSoldierNameUnreasonablyLongSoldierNameUnreasonablyLongSoldierName",
+                showsIcon: true
+            )
         ]
         let footerWidth = CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
             prefix: "+",
