@@ -26,10 +26,17 @@ The closest authored center distance resolves to 45pt or greater in the referenc
 
 ## Runtime captures
 
-Both fixtures were launched at the 393x852 iPhone 17 simulator through XcodeBuildMCP and inspected against `docs/visual-parity/forged-ui/map.png`:
+Both fixtures targeted the 393x852 logical viewport on the iPhone 17 simulator
+through XcodeBuildMCP and were inspected against
+`docs/visual-parity/forged-ui/map.png`. The transient captures below are the
+optimized ~368x800 runtime output, not native 393x852 framebuffer evidence
+(local-only paths, not committed); the committed native-viewport evidence for
+the same fixtures is
+`docs/visual-parity/forged-ui/native/map-attackable-locked-393x852@3x.png` and
+`docs/visual-parity/forged-ui/native/map-complete-393x852@3x.png`:
 
-- [map fixture PNG](/private/tmp/pyxis-task7-map.png)
-- [country-complete fixture PNG](/private/tmp/pyxis-task7-map-country-complete.png)
+- [map fixture PNG (local-only, optimized ~368x800)](/private/tmp/pyxis-task7-map.png)
+- [country-complete fixture PNG (local-only, optimized ~368x800)](/private/tmp/pyxis-task7-map-country-complete.png)
 
 The map fixture shows the authored route and compact identity/status card with MARCH. The country-complete fixture preserves the map/tabs and shows the completion feedback card. The computed 164pt reference card is intentionally shallower than the taller canonical mock card; this is the planned geometry discrepancy required to preserve the 431pt map and 45pt/8pt/27pt geometry contract.
 
@@ -44,14 +51,14 @@ The map fixture shows the authored route and compact identity/status card with M
 
 ## Review fix round
 
-- Current-city RETURN now uses the existing `requestEntry(for:)` path. It settles and saves idle progress before routing, leaves lethal idle conquest pending on the map, and preserves the active city instead of restarting it. Added nonlethal and lethal action-path coverage.
+- Current-city RETURN now uses the existing `requestEntry(for:)` path. It settles and saves idle progress while keeping the Map mounted; a lethal idle conquest stays pending there, and the later routing to Battle (pending-first) resolves the pending result before `preferredTab` is applied. The active city is preserved instead of restarted. Covered by `selectedCurrentCityReturnLeavesLethalIdleConquestPending` and `campMapExitSettlesBeforePendingFirstRouting`.
 - The vertical stack is bottom-up: the 72pt tabs sit at the bottom safe area, the scout card is above them, and the illustrated map is above the card. The reference arithmetic remains tabs `y=34...106`, card `y=114...278` at 164pt, and map `y=278...709` at 431pt for 393x852 with 59/34 insets.
 - Map chrome now has a separate gold/resource tile, a 15-segment Country 1 progress row, and the one existing framed Settings gear at top-right. Rich selected-city cards use the existing `enemy-city` art while retaining authored identity, defense details, reward, flavor, and the 44pt+ MARCH/RETURN action.
 
 Review-round captures (XcodeBuildMCP, iPhone 17 DEBUG fixtures, optimized 368x800 output):
 
-- [map fixture PNG](/private/tmp/pyxis-task7-map-fix.png)
-- [country-complete fixture PNG](/private/tmp/pyxis-task7-map-country-complete-fix.png)
+- [map fixture PNG (local-only, optimized 368x800)](/private/tmp/pyxis-task7-map-fix.png)
+- [country-complete fixture PNG (local-only, optimized 368x800)](/private/tmp/pyxis-task7-map-country-complete-fix.png)
 
 The 164pt selected-city card remains intentionally shallower than the canonical mock; all other observed stack/chrome/card gaps were addressed.
 
@@ -67,8 +74,8 @@ Review-round verification:
 
 - Re-laid out the existing title allocation into a 44pt upper row for the resource tile and framed Settings gear, plus a 22pt lower row for the Country title/progress treatment. At the 393x852 reference fixture the resource/treatment/gear rows are contained and visually separated; map/card budgets are unchanged.
 - Added exact reference frame and pairwise separation assertions, then verified the mounted map and country-complete fixtures after the fix:
-  - [map fixture PNG](/private/tmp/pyxis-task7-map-round2.png)
-  - [country-complete fixture PNG](/private/tmp/pyxis-task7-map-country-complete-round2.png)
+  - [map fixture PNG (local-only, optimized 368x800)](/private/tmp/pyxis-task7-map-round2.png)
+  - [country-complete fixture PNG (local-only, optimized 368x800)](/private/tmp/pyxis-task7-map-country-complete-round2.png)
 
 The available iPhone 17 simulator does not expose the requested 393x852 logical surface. XcodeBuildMCP's screenshot endpoint returns an optimized 368x800 image, and direct `simctl io screenshot` cannot connect to CoreSimulatorService in this environment. These captures are therefore honest optimized runtime evidence, not native-size proof; exact 393x852 capture remains an open Task 10 runtime-evidence gate. No substantive header overlap remains in the mounted screens.
 

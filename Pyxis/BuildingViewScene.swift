@@ -475,6 +475,9 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         feedbackLabel.text = feedbackText
         feedbackLabel.position = CGPoint(x: feedbackFrame.midX, y: feedbackFrame.midY)
         feedbackLabel.isHidden = feedbackText == "Select a city lot."
+        // fitLabel only ever shrinks the font; short messages must restart
+        // from the authored size instead of inheriting the previous fit.
+        feedbackLabel.fontSize = 14
         fitLabel(feedbackLabel, maxWidth: layout.safeFrame.width - 32)
 
         for slot in CityBattleState.slotRange {

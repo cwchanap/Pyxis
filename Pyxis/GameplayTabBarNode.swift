@@ -173,7 +173,6 @@ final class GameplayTabBarNode: SKNode {
         fatalError("init(coder:) has not been implemented")
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
     func apply(content: Content, frame: CGRect) {
         guard frame.origin.x.isFinite,
               frame.origin.y.isFinite,
@@ -224,51 +223,12 @@ final class GameplayTabBarNode: SKNode {
                 style = .disabled
             }
 
-            let panelSize: CGSize
-            if appearance == .forged {
-                panelSize = CGSize(
-                    width: min(96, max(44, cellFrame.width - 8)),
-                    height: min(52, max(44, cellFrame.height - 8))
-                )
-            } else {
-                panelSize = cellFrame.size
+            switch appearance {
+            case .forged:
+                applyForgedCell(bundle, for: tab, content: content, style: style, cellFrame: cellFrame)
+            case .standard:
+                applyStandardCell(bundle, for: tab, content: content, style: style, cellFrame: cellFrame)
             }
-            let tileCenterY = appearance == .forged
-                ? cellFrame.midY + 11
-                : cellFrame.midY
-            bundle.panel.apply(
-                size: panelSize,
-                style: style,
-                showsRivets: false,
-                appearance: appearance == .forged ? .forged : .standard,
-                forgedTreatment: appearance == .forged && tab == content.selected
-                    ? .selectedTab
-                    : .standard
-            )
-            bundle.panel.alpha = appearance == .forged && tab != content.selected ? 0 : 1
-            bundle.panel.position = CGPoint(x: cellFrame.midX, y: tileCenterY)
-            bundle.icon.position = CGPoint(x: cellFrame.midX, y: tileCenterY + 10)
-            bundle.title.position = CGPoint(x: cellFrame.midX, y: tileCenterY - 16)
-            bundle.attention.position = CGPoint(x: cellFrame.maxX - 18, y: cellFrame.maxY - 15)
-            bundle.attention.isHidden = !(tab == .camp && content.showsCampAttention)
-
-            if appearance == .forged {
-                let color = tab == content.selected
-                    ? SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
-                    : SKColor(red: 1, green: 225 / 255, blue: 180 / 255, alpha: 1)
-                if let shape = bundle.icon as? SKShapeNode {
-                    shape.strokeColor = color
-                }
-                bundle.title.fontColor = color
-            }
-            let iconAlpha: CGFloat
-            if appearance == .forged {
-                iconAlpha = tab == content.selected ? 1 : 0.45
-            } else {
-                iconAlpha = content.enabledTabs.contains(tab) || tab == content.selected ? 1 : 0.4
-            }
-            bundle.icon.alpha = iconAlpha
-            bundle.title.alpha = iconAlpha
 
             guard content.enabledTabs.contains(tab) else {
                 continue
@@ -282,6 +242,75 @@ final class GameplayTabBarNode: SKNode {
                 height: hitHeight
             )
         }
+    }
+
+    private func applyForgedCell(
+        _ bundle: TabBundle,
+        for tab: GameplayTab,
+        content: Content,
+        style: PanelNode.Style,
+        cellFrame: CGRect
+    ) {
+        let panelSize = CGSize(
+            width: min(96, max(44, cellFrame.width - 8)),
+            height: min(52, max(44, cellFrame.height - 8))
+        )
+        let tileCenterY = cellFrame.midY + 11
+        bundle.panel.apply(
+            size: panelSize,
+            style: style,
+            showsRivets: false,
+            appearance: .forged,
+            forgedTreatment: tab == content.selected ? .selectedTab : .standard
+        )
+        bundle.panel.alpha = tab == content.selected ? 0 : 1
+        bundle.panel.position = CGPoint(x: cellFrame.midX, y: tileCenterY)
+        bundle.icon.position = CGPoint(x: cellFrame.midX, y: tileCenterY + 10)
+        bundle.title.position = CGPoint(x: cellFrame.midX, y: tileCenterY - 16)
+        bundle.attention.position = CGPoint(x: cellFrame.maxX - 18, y: cellFrame.maxY - 15)
+        bundle.attention.isHidden = !(tab == .camp && content.showsCampAttention)
+
+        let color = tab == content.selected
+            ? SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+            : SKColor(red: 1, green: 225 / 255, blue: 180 / 255, alpha: 1)
+        if let shape = bundle.icon as? SKShapeNode {
+            shape.strokeColor = color
+        }
+        bundle.title.fontColor = color
+        let iconAlpha: CGFloat = tab == content.selected ? 1 : 0.45
+        bundle.icon.alpha = iconAlpha
+        bundle.title.alpha = iconAlpha
+    }
+
+    private func applyStandardCell(
+        _ bundle: TabBundle,
+        for tab: GameplayTab,
+        content: Content,
+        style: PanelNode.Style,
+        cellFrame: CGRect
+    ) {
+        let tileCenterY = cellFrame.midY
+        bundle.panel.apply(
+            size: cellFrame.size,
+            style: style,
+            showsRivets: false,
+            appearance: .standard
+        )
+        bundle.panel.alpha = 1
+        bundle.panel.position = CGPoint(x: cellFrame.midX, y: tileCenterY)
+        bundle.icon.position = CGPoint(x: cellFrame.midX, y: tileCenterY + 10)
+        bundle.title.position = CGPoint(x: cellFrame.midX, y: tileCenterY - 16)
+        bundle.attention.position = CGPoint(x: cellFrame.maxX - 18, y: cellFrame.maxY - 15)
+        bundle.attention.isHidden = !(tab == .camp && content.showsCampAttention)
+
+        let iconAlpha: CGFloat
+        if content.enabledTabs.contains(tab) || tab == content.selected {
+            iconAlpha = 1
+        } else {
+            iconAlpha = 0.4
+        }
+        bundle.icon.alpha = iconAlpha
+        bundle.title.alpha = iconAlpha
     }
 
     func apply(content: Content, frame: CGRect, hitFrames authoritativeHitFrames: [CGRect]) {

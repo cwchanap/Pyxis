@@ -4033,7 +4033,7 @@ struct BattleSceneTests {
         #expect(router.didRequestCountryMap)
     }
 
-    @Test func touchesEndedBattleTabUsesAuthoritativeSafeHitFrame() throws {
+    @Test func touchesEndedMapTabUsesAuthoritativeSafeHitFrame() throws {
         let size = CGSize(width: 393, height: 852)
         let store = try makeStore(initialState: KingdomGameState(gold: 100, cityRemainingPower: 20))
         let router = BattleRouterSpy()

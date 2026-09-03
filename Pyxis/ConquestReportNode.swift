@@ -155,6 +155,7 @@ final class ConquestReportNode: SKNode {
         }
 
         var tileValueSizes = [CGFloat]()
+        var tileLabelSizes = [CGFloat]()
         for (tile, frame) in zip(content.tiles, layout.tileFrames) {
             guard let valueSize = fitSize(
                 tile.valueText,
@@ -163,29 +164,32 @@ final class ConquestReportNode: SKNode {
                 minimum: layout.tileValueMinimumFontSize,
                 width: frame.width - 10
             ),
-            fitSize(
+            let labelSize = fitSize(
                 tile.labelText,
                 fontName: GameUITheme.Font.bold,
                 start: layout.tileLabelStartingFontSize,
                 minimum: layout.tileLabelMinimumFontSize,
                 width: frame.width - 10
-            ) != nil else {
+            ) else {
                 return failApply()
             }
             tileValueSizes.append(valueSize)
+            tileLabelSizes.append(labelSize)
         }
 
+        var chipLabelSizes = [CGFloat]()
         for (achievement, frame) in zip(content.achievements, layout.chipFrames) {
             let label = Self.label(for: achievement)
-            guard fitSize(
+            guard let chipLabelSize = fitSize(
                 label,
                 fontName: GameUITheme.Font.bold,
                 start: layout.chipStartingFontSize,
                 minimum: layout.chipMinimumFontSize,
                 width: frame.width - 26
-            ) != nil else {
+            ) else {
                 return failApply()
             }
+            chipLabelSizes.append(chipLabelSize)
         }
 
         renderPanel(layout)
@@ -198,8 +202,8 @@ final class ConquestReportNode: SKNode {
         )
         renderCityNumber(cityNumber, frame: layout.titleFrame)
         renderReward(content.rewardText, size: rewardSize, frame: layout.rewardFrame)
-        renderTiles(content.tiles, sizes: tileValueSizes, frames: layout.tileFrames)
-        renderChips(content.achievements, frames: layout.chipFrames)
+        renderTiles(content.tiles, valueSizes: tileValueSizes, labelSizes: tileLabelSizes, frames: layout.tileFrames)
+        renderChips(content.achievements, labelSizes: chipLabelSizes, frames: layout.chipFrames)
         renderContinue(layout, enabled: isContinueEnabled)
 
         isHidden = false
@@ -314,7 +318,8 @@ final class ConquestReportNode: SKNode {
 
     private func renderTiles(
         _ tiles: [ConquestReportContent.StatTile],
-        sizes: [CGFloat],
+        valueSizes: [CGFloat],
+        labelSizes: [CGFloat],
         frames: [CGRect]
     ) {
         for (index, bundle) in tileBundles.enumerated() {
@@ -343,16 +348,17 @@ final class ConquestReportNode: SKNode {
             bundle.icon.size = CGSize(width: 28, height: 28)
             bundle.icon.position = CGPoint(x: frame.midX, y: frame.midY + 18)
             bundle.valueLabel.text = tile.valueText
-            bundle.valueLabel.fontSize = sizes[index]
+            bundle.valueLabel.fontSize = valueSizes[index]
             bundle.valueLabel.position = CGPoint(x: frame.midX, y: frame.midY - 5)
             bundle.titleLabel.text = tile.labelText
-            bundle.titleLabel.fontSize = 9
+            bundle.titleLabel.fontSize = labelSizes[index]
             bundle.titleLabel.position = CGPoint(x: frame.midX, y: frame.minY + 13)
         }
     }
 
     private func renderChips(
         _ achievements: [ConquestReportContent.Achievement],
+        labelSizes: [CGFloat],
         frames: [CGRect]
     ) {
         renderedChipSymbols = []
@@ -388,7 +394,7 @@ final class ConquestReportNode: SKNode {
             bundle.icon.size = CGSize(width: 13, height: 13)
             bundle.icon.position = CGPoint(x: frame.minX + 18, y: frame.midY)
             bundle.label.text = Self.label(for: achievement)
-            bundle.label.fontSize = 10
+            bundle.label.fontSize = labelSizes[index]
             bundle.label.fontColor = color
             bundle.label.position = CGPoint(x: frame.midX + 8, y: frame.midY)
             renderedChipSymbols.append(Self.symbol(for: achievement))

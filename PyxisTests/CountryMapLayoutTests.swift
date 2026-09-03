@@ -55,8 +55,9 @@ struct CountryMapLayoutTests {
         )
 
         var minimumCenterDistance = CGFloat.greatestFiniteMagnitude
-        let positions = CountryMapLayoutDefinition.country1.cityAnchors.indices.map {
-            layout.cityPositions[$0 + 1]!
+        var positions = [CGPoint]()
+        for index in CountryMapLayoutDefinition.country1.cityAnchors.indices {
+            positions.append(try #require(layout.cityPositions[index + 1]))
         }
         for index in positions.indices {
             for otherIndex in positions.indices.dropFirst(index + 1) {
@@ -116,7 +117,18 @@ struct CountryMapLayoutTests {
         #expect(!layout.resourceFrame.intersects(layout.titleTextFrame))
         #expect(!layout.resourceFrame.intersects(layout.settingsControlFrame))
         #expect(!layout.progressFrame.intersects(layout.settingsControlFrame))
-        #expect(layout.titleTextFrame.maxX == layout.settingsControlFrame.minX - 8)
+        // The title ends before the progress segments where space permits;
+        // otherwise it keeps the authored minimum width (which wins).
+        #expect(
+            layout.titleTextFrame.maxX
+                == max(
+                    min(
+                        layout.settingsControlFrame.minX - 8,
+                        layout.progressFrame.minX
+                    ),
+                    layout.titleTextFrame.minX + CountryMapLayout.minimumTitleTextWidth
+                )
+        )
     }
 
     @Test func referenceHeaderChromeDoesNotOverlap() throws {
@@ -127,7 +139,7 @@ struct CountryMapLayoutTests {
         )
 
         #expect(layout.resourceFrame == CGRect(x: 28, y: 739, width: 106, height: 44))
-        #expect(layout.titleTextFrame == CGRect(x: 30, y: 717, width: 281, height: 22))
+        #expect(layout.titleTextFrame == CGRect(x: 30, y: 717, width: 160, height: 22))
         #expect(layout.progressFrame == CGRect(x: 160, y: 717, width: 149, height: 22))
         #expect(layout.settingsControlFrame == CGRect(x: 319, y: 739, width: 44, height: 44))
         #expect(!layout.resourceFrame.intersects(layout.titleTextFrame))
@@ -148,7 +160,7 @@ struct CountryMapLayoutTests {
         )
 
         #expect(layout.settingsControlFrame == CGRect(x: 301, y: 589, width: 44, height: 44))
-        #expect(layout.titleTextFrame == CGRect(x: 30, y: 567, width: 263, height: 22))
+        #expect(layout.titleTextFrame == CGRect(x: 30, y: 567, width: 160, height: 22))
     }
 
     @Test func country1DefinitionMatchesCampaignAndRouteContract() {
@@ -290,7 +302,11 @@ struct CountryMapLayoutTests {
             size: .init(width: 375, height: 1194),
             insets: insets,
             layoutClass: .pad
-        ), case .supported = result(
+        ) else {
+            Issue.record("375×1194 must satisfy the complete invariant set")
+            return
+        }
+        guard case .supported = result(
             size: .init(width: 480, height: 1194),
             insets: insets,
             layoutClass: .pad

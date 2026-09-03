@@ -1418,6 +1418,14 @@ extension CountryMapScene {
         return scoutCardNode.baseContentReadbackForTesting
     }
 
+    var scoutCardFavorableItemsForTesting: [CountryMapScoutCardNode.FooterItemReadback] {
+        scoutCardNode.favorableItemsForTesting
+    }
+
+    var scoutCardDisadvantagedItemsForTesting: [CountryMapScoutCardNode.FooterItemReadback] {
+        scoutCardNode.disadvantagedItemsForTesting
+    }
+
     var visibleScoutCardTextsForTesting: [String] {
         var texts = [String]()
 

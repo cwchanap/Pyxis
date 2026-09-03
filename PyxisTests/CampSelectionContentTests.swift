@@ -6,6 +6,7 @@
 import Testing
 @testable import Pyxis
 
+@Suite(.serialized)
 struct CampSelectionContentTests {
     @Test func emptyLotProjectsAllBuildingTypesInEnumOrder() {
         let content = CampSelectionContent.project(

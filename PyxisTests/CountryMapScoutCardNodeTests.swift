@@ -317,12 +317,14 @@ struct CountryMapScoutCardNodeTests {
 
     @Test func missingIconsReduceFooterWidthAtTheBoundaryWithoutHidingText() throws {
         let layout = try scoutCardLayout(named: "small phone")
+        // 72pt admits the fallback label group plus its reserved trailing
+        // multiplier (69pt measured) while the icon group still cannot fit.
         let boundaryLayout = replacing(
             layout,
             favorableFrame: CGRect(
                 x: layout.favorableFrame.minX,
                 y: layout.favorableFrame.minY,
-                width: 50,
+                width: 72,
                 height: layout.favorableFrame.height
             )
         )

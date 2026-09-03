@@ -167,6 +167,9 @@ struct BattleResultModelsTests {
             of: "  \"idleBuildingCount\": 2,\n",
             with: ""
         )
+        // A formatting mismatch in the needle would silently leave the JSON
+        // unchanged and make the legacy assertions below vacuous.
+        #expect(legacyJSON != currentJSONString)
         let legacy = try JSONDecoder().decode(
             BattleResult.self,
             from: Data(legacyJSON.utf8)

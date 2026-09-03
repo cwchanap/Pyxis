@@ -922,8 +922,14 @@ struct GameViewControllerTests {
             cityNumberInCountry: 3,
             completedCityCount: 2
         )
-        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
-        _ = initialState.buildBuilding(.barracks, inSlot: 2, at: start)
+        #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
+            cost: 15,
+            remainingGold: 85
+        ))
+        #expect(initialState.buildBuilding(.barracks, inSlot: 2, at: start) == .built(
+            cost: 15,
+            remainingGold: 70
+        ))
         _ = initialState.returnFromBackground(at: start.addingTimeInterval(30_000))
 
         let store = try makeStore(initialState: initialState)

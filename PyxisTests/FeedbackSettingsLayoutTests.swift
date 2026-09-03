@@ -131,5 +131,11 @@ struct FeedbackSettingsLayoutTests {
             sceneSize: .init(width: 375, height: 238),
             safeAreaInsets: .zero
         ) == nil)
+        // A short scene with a nonzero top safe-area inset fails closed even
+        // though the raw scene height alone would fit the bottom sheet.
+        #expect(FeedbackSettingsLayout.compute(
+            sceneSize: .init(width: 375, height: 260),
+            safeAreaInsets: .init(top: 30, left: 0, bottom: 0, right: 0)
+        ) == nil)
     }
 }
