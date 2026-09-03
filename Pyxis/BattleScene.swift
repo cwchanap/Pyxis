@@ -3728,13 +3728,25 @@ extension BattleScene {
         guard let layout = battleChromeLayout else {
             return []
         }
-        return [
-            CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY),
-            CGPoint(x: layout.tabHitFrames[2].midX, y: layout.tabHitFrames[2].midY),
-            CGPoint(x: layout.tabHitFrames[1].midX, y: layout.tabHitFrames[1].midY),
-            CGPoint(x: layout.incomeFrame.midX, y: layout.incomeFrame.midY),
-            CGPoint(x: layout.cityProgressFrame.midX, y: layout.cityProgressFrame.midY)
+        func tabCenter(_ tab: GameplayTab) -> CGPoint? {
+            guard let index = GameplayTab.allCases.firstIndex(of: tab),
+                  layout.tabHitFrames.indices.contains(index) else {
+                return nil
+            }
+            return CGPoint(x: layout.tabHitFrames[index].midX, y: layout.tabHitFrames[index].midY)
+        }
+        var centers = [
+            CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY)
         ]
+        if let mapCenter = tabCenter(.map) {
+            centers.append(mapCenter)
+        }
+        if let campCenter = tabCenter(.camp) {
+            centers.append(campCenter)
+        }
+        centers.append(CGPoint(x: layout.incomeFrame.midX, y: layout.incomeFrame.midY))
+        centers.append(CGPoint(x: layout.cityProgressFrame.midX, y: layout.cityProgressFrame.midY))
+        return centers
     }
 
     private func sceneFrame(for node: SKNode) -> CGRect? {

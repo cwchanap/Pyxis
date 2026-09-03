@@ -69,7 +69,9 @@ struct FeedbackSettingsLayout: Equatable {
         let panelHeight = Metrics.panelHeight(bottomPadding: bottomPadding)
         guard safeWidth.isFinite,
               safeWidth >= Metrics.horizontalPadding * 2 + Metrics.minimumInteractiveSize,
-              sceneSize.height >= panelHeight else {
+              // The bottom-anchored panel must fit below the top safe-area
+              // inset, not merely inside the raw scene height.
+              sceneSize.height - safeAreaInsets.top >= panelHeight else {
             return nil
         }
 

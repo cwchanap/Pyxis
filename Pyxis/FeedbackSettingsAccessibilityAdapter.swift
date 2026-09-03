@@ -104,6 +104,12 @@ final class FeedbackSettingsAccessibilityAdapter {
         isSceneGearActionable && !isModalVisible
     }
 
+    /// Whether the Settings sheet is currently presented. Hosts read this to
+    /// keep their own semantic descriptions coherent with the sheet state.
+    var isSettingsModalVisible: Bool {
+        isModalVisible
+    }
+
     /// Rebinds the shared adapter to a newly mounted scene. The previous
     /// scene's modal elements and geometry must never remain exposed while
     /// the new scene is laying out its own Settings gear.
@@ -232,7 +238,7 @@ final class FeedbackSettingsAccessibilityAdapter {
         closeElement.accessibilityFrame = convertedFrame(from: layout.closeFrame) ?? .zero
     }
 
-    private static func settingsAccessibilityValue(for preferences: FeedbackPreferences) -> String {
+    static func settingsAccessibilityValue(for preferences: FeedbackPreferences) -> String {
         "Settings; Sound Effects \(preferences.soundEffectsEnabled ? "On" : "Off"); "
             + "Haptics \(preferences.hapticsEnabled ? "On" : "Off")"
     }

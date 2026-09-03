@@ -689,12 +689,10 @@ final class BattleHUDNode: SKNode {
             case .available, .unbuilt:
                 isLocked = false
                 bundle.multiplierLabel.text = Self.multiplierText(medallion.damageMultiplier)
-                pillColor = medallion.damageMultiplier > 1
-                    ? SKColor(red: 95 / 255, green: 240 / 255, blue: 154 / 255, alpha: 1)
-                    : SKColor(red: 255 / 255, green: 138 / 255, blue: 114 / 255, alpha: 1)
                 pillTextColor = medallion.damageMultiplier > 1
                     ? SKColor(red: 4 / 255, green: 37 / 255, blue: 15 / 255, alpha: 1)
                     : GameUITheme.Color.textPrimary
+                pillColor = .white
             }
             let pillWidth: CGFloat = isLocked ? 26 : 42
             bundle.pill.path = CGPath(
@@ -708,14 +706,12 @@ final class BattleHUDNode: SKNode {
                 cornerHeight: 8.5,
                 transform: nil
             )
-            bundle.pill.fillColor = pillColor
-            bundle.pill.strokeColor = .clear
             bundle.pill.fillTexture = isLocked
                 ? nil
                 : medallion.damageMultiplier > 1
                     ? Self.favorableMultiplierTexture
                     : Self.disadvantagedMultiplierTexture
-            bundle.pill.fillColor = isLocked ? pillColor : .white
+            bundle.pill.fillColor = pillColor
             bundle.pill.strokeColor = isLocked
                 ? .clear
                 : SKColor(red: 30 / 255, green: 20 / 255, blue: 10 / 255, alpha: 0.60)

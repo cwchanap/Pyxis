@@ -396,18 +396,23 @@ final class CountryMapScoutCardNode: SKNode {
             trait: scout.defenseTrait,
             layoutClass: layout.layoutClass
         )
-        guard footerRequiredWidth(
+        let reservesTrailingMultiplier = layout.layoutClass == .phone && !layout.isCompact
+        let favorableRequired = footerRequiredWidth(
             items: favorableItems,
             prefix: "+",
             metrics: metrics,
-            measure: footerMeasure
-        ) <= layout.favorableFrame.width,
-        footerRequiredWidth(
+            measure: footerMeasure,
+            reservesTrailingMultiplier: reservesTrailingMultiplier
+        )
+        let disadvantagedRequired = footerRequiredWidth(
             items: disadvantagedItems,
             prefix: "-",
             metrics: metrics,
-            measure: footerMeasure
-        ) <= layout.disadvantagedFrame.width
+            measure: footerMeasure,
+            reservesTrailingMultiplier: reservesTrailingMultiplier
+        )
+        guard favorableRequired <= layout.favorableFrame.width,
+              disadvantagedRequired <= layout.disadvantagedFrame.width
         else {
             return nil
         }
@@ -496,8 +501,13 @@ final class CountryMapScoutCardNode: SKNode {
     }
 
     private func footerMultiplierText(_ multiplier: Double) -> String? {
-        if multiplier == 1.25 { return "×1.25" }
-        if multiplier == 0.80 { return "×0.80" }
+        // Derived multipliers may carry floating-point error; compare with a
+        // tolerance instead of exact Double equality.
+        func isApproximately(_ expected: Double) -> Bool {
+            abs(multiplier - expected) < 0.000_001
+        }
+        if isApproximately(1.25) { return "×1.25" }
+        if isApproximately(0.80) { return "×0.80" }
         return nil
     }
 
@@ -505,15 +515,17 @@ final class CountryMapScoutCardNode: SKNode {
         items: [PreparedFooterItem],
         prefix: String,
         metrics: Metrics,
-        measure: (String) -> CGFloat
+        measure: (String) -> CGFloat,
+        reservesTrailingMultiplier: Bool
     ) -> CGFloat {
         let usesPhoneFallback = metrics.iconSize == 30 && items.contains {
             $0.type != nil && $0.image == nil
         }
+        let itemGap = usesPhoneFallback ? 4 : metrics.itemGap
         let fallbackMeasure = usesPhoneFallback
             ? self.measure(fontName: GameUITheme.Font.medium, size: 8)
             : nil
-        return CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
+        let groupWidth = CountryMapScoutCardTextLayout.footerGroupRequiredWidth(
             prefix: prefix,
             items: items.map {
                 .init(label: $0.label, showsIcon: $0.image != nil)
@@ -522,7 +534,7 @@ final class CountryMapScoutCardNode: SKNode {
                 iconWidth: metrics.iconSize,
                 prefixGap: usesPhoneFallback ? 2 : metrics.prefixGap,
                 iconLabelGap: usesPhoneFallback ? 2 : metrics.iconLabelGap,
-                itemGap: usesPhoneFallback ? 4 : metrics.itemGap
+                itemGap: itemGap
             ),
             labelWidth: { label in
                 if let fixedWidth = metrics.fixedPadLabelWidth, label != "None" {
@@ -531,6 +543,28 @@ final class CountryMapScoutCardNode: SKNode {
                 return fallbackMeasure?(label) ?? measure(label)
             }
         )
+        // renderFooter appends the right-aligned multiplier label after the
+        // last item; the forged phone fit check must reserve its width using
+        // the same font and size configuration as the rendered label.
+        // ponytail: the pad footer is excluded — its authored second line
+        // already shares the row with the 82pt lane label (disadvantaged
+        // frame 222pt at 480×1194 vs a 204pt two-item group plus a 28pt
+        // multiplier), so reserving there would un-support the reviewed
+        // 480×1194 fixture; give the pad row its own authored budget before
+        // extending the reservation.
+        let footerFontSize = usesPhoneFallback ? 8 : metrics.footerSize
+        let multiplierReservation: CGFloat
+        if reservesTrailingMultiplier,
+           let multiplierText = items.first?.multiplierText,
+           let multiplierMeasure = self.measure(
+               fontName: GameUITheme.Font.medium,
+               size: max(7, footerFontSize - 1)
+           ) {
+            multiplierReservation = multiplierMeasure(multiplierText)
+        } else {
+            multiplierReservation = 0
+        }
+        return groupWidth + multiplierReservation
     }
 
     private func render(
@@ -706,11 +740,14 @@ final class CountryMapScoutCardNode: SKNode {
 
         let targetFrame: CGRect
         if case .phone = layout.layoutClass {
+            // Clamp the art inside the card exactly like the generic branch:
+            // a short (compact) card must not push the art below cardFrame.
+            let artHeight = min(88, layout.cardFrame.height - 20)
             targetFrame = CGRect(
                 x: layout.cardFrame.minX + 8,
-                y: layout.cardFrame.maxY - 98,
+                y: layout.cardFrame.maxY - 10 - artHeight,
                 width: 80,
-                height: 88
+                height: artHeight
             )
         } else {
             targetFrame = CGRect(

@@ -28,7 +28,7 @@ Every minimum state has the canonical mock, a simulator capture, a deterministic
 | Map locked | `map.png` | `native/map-attackable-locked-393x852@3x.png` | `overlays/map-attackable-50-overlay.png` | Attackable and locked are intentionally one route fixture/capture: the locked nodes are the later cities visible beside City 4, not a second fabricated screen. |
 | Map Country 1 complete | `map.png` | `native/map-complete-393x852@3x.png` | `overlays/map-complete-50-overlay.png` | The complete campaign uses the shipping completion treatment and truthful route state while retaining the authored card and tab geometry. |
 | Conquest live | `conquest.png` | `native/conquest-live-393x852@3x.png` | `overlays/conquest-live-50-overlay.png` | The report's title, gold, and rows are resolved from the live battle result and fixture catalog; the sole Settings gear is hidden while the report is visible, and the mock intentionally omits runtime values. |
-| Conquest idle | `conquest.png` | `native/conquest-idle-393x852@3x.png` | `overlays/conquest-idle-50-overlay.png` | The fixture contains two Barracks and nonempty building-driven idle damage, so the report truthfully shows `+17`, `2 BUILDINGS`, `100% MVP`, and `0/0 SENT/LOST`; the sole Settings gear is hidden while the report is visible. |
+| Conquest idle | `conquest.png` | `native/conquest-idle-393x852@3x.png` | `overlays/conquest-idle-50-overlay.png` | The fixture contains two Barracks and nonempty building-driven idle damage, so the report truthfully shows `+17`, the durable idle-damage tile, `100% MVP`, and `0/0 SENT/LOST`; the sole Settings gear is hidden while the report is visible. |
 | Settings one-off toggle | `settings.png` | `native/settings-toggle-393x852@3x.png` | `overlays/settings-toggle-50-overlay.png` | The one-off toggle capture preserves the underlying battle scene and persisted preference transition; no additional settings are introduced. |
 
 ### Capture provenance
@@ -58,19 +58,22 @@ The Camp empty/occupied and Conquest live/idle files were recaptured after the
 final-review fixes from the four exact DEBUG fixture launches on this device,
 then written directly with `simctl io screenshot`. The Conquest live/idle
 captures and matching overlays were refreshed again after the round-2 durable
-idle-count and HP-chrome fixes; the idle report now survives relaunch with
-`2 BUILDINGS`, and neither report has a Settings gear or orphan HP bar. The
+idle-damage and HP-chrome fixes; the idle report now survives relaunch with
+its durable idle-damage tile intact, and neither report has a Settings gear or
+orphan HP bar. The
 matching overlays were regenerated from those native framebuffers and the
 canonical 393x852 mock using the existing deterministic 50% blend; neither
 the native files nor the canonical files were resized or cropped. Camp
 selection and Conquest report semantics were checked from the same
 DEBUG-derived probe used by the UI smoke.
 
-The Map reference-phone implementation now uses the authored 236pt card and
-82pt full-bleed tab shell while maintaining separate safe-area hit frames.
-Camp uses the same visual-shell/safe-hit split. The Map, Camp, and Conquest
-captures were refreshed after the final forged-style parity pass. The overlays
-remain evidence for human review only; there is no pixel-diff CI assertion.
+The Map reference-phone implementation sizes the scout card from the computed
+information-region budget (48pt compact floor, 133pt, or 164pt; the 393×852
+layout uses 164pt) and the 82pt full-bleed tab shell while maintaining separate
+safe-area hit frames. Camp uses the same visual-shell/safe-hit split. The Map,
+Camp, and Conquest captures were refreshed after the final forged-style parity
+pass. The overlays remain evidence for human review only; there is no
+pixel-diff CI assertion.
 
 Battle-normal comparison uses the direct 1179×2556 framebuffer (3×, logical
 393×852) and its downsampled 393×852 comparison artifacts. The simulator's

@@ -9,6 +9,7 @@ import Testing
 @testable import Pyxis
 
 @MainActor
+@Suite(.serialized)
 struct CampSelectionNodeTests {
     @Test func nodeKeepsFixedTreeAndExposesBuilderAndInspectorActions() throws {
         let layout = try #require(CampChromeLayout.compute(.init(

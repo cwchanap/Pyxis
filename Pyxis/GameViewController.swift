@@ -216,6 +216,9 @@ final class GameViewController: UIViewController {
 
         if state.pendingBattleResult != nil {
             presentBattleScene(in: view)
+            #if DEBUG
+            republishForgedFixtureAccessibilityValue(in: view)
+            #endif
             return
         }
 
@@ -232,6 +235,9 @@ final class GameViewController: UIViewController {
         case .cityConqueredPendingMap, .countryComplete:
             presentCountryMapScene(in: view)
         }
+        #if DEBUG
+        republishForgedFixtureAccessibilityValue(in: view)
+        #endif
     }
 
     private func presentBattleScene(in view: SKView) {
@@ -453,7 +459,19 @@ extension GameViewController {
         return true
     }
 
+    private func republishForgedFixtureAccessibilityValue(in view: SKView) {
+        view.accessibilityValue = forgedFixtureAccessibilityValue(for: view)
+    }
+
     private func forgedFixtureAccessibilityValue(for view: SKView) -> String {
+        // While the Settings sheet is presented, the adapter owns the surface's
+        // semantics; republishing must never clobber that with scene state.
+        if let adapter = feedbackRuntime.accessibilityAdapter,
+           adapter.isSettingsModalVisible {
+            return FeedbackSettingsAccessibilityAdapter
+                .settingsAccessibilityValue(for: feedbackRuntime.preferences.current)
+        }
+
         let state = store.load()
 
         switch view.scene {

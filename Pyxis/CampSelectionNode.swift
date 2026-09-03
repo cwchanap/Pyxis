@@ -407,6 +407,12 @@ final class CampSelectionNode: SKNode {
                 maximumSize: CGSize(width: 72, height: inspectorFrame.height - 18)
             )
             inspectorIcon.position = CGPoint(x: inspectorFrame.minX + 46, y: inspectorFrame.midY + 3)
+            // The pip strip below the level label indexes the authored pip
+            // flags positionally; a mismatched projection fails closed like
+            // the other required-content guards instead of trapping.
+            guard inspector.levelPips.count == inspectorLevelPips.count else {
+                return .requiredContentDoesNotFit
+            }
             inspectorNameLabel.text = inspector.buildingName
             inspectorNameLabel.horizontalAlignmentMode = .left
             inspectorNameLabel.position = CGPoint(x: inspectorFrame.minX + 86, y: inspectorFrame.midY + 24)
@@ -421,21 +427,11 @@ final class CampSelectionNode: SKNode {
             inspectorProducedLabel.position = CGPoint(x: inspectorFrame.minX + 86, y: inspectorFrame.midY - 10)
 
             let pipStartX = inspectorFrame.minX + 86
-            for (index, pip) in inspectorLevelPips.enumerated() {
-                pip.path = CGPath(
-                    roundedRect: CGRect(x: -8, y: -3, width: 16, height: 6),
-                    cornerWidth: 3,
-                    cornerHeight: 3,
-                    transform: nil
-                )
-                pip.position = CGPoint(
-                    x: pipStartX + CGFloat(index) * 19,
-                    y: inspectorFrame.midY - 39
-                )
-                pip.fillColor = inspector.levelPips[index]
-                    ? GameUITheme.Color.gold
-                    : GameUITheme.Color.panelStroke
-            }
+            applyInspectorLevelPips(
+                flags: inspector.levelPips,
+                pipStartX: pipStartX,
+                pipY: inspectorFrame.midY - 39
+            )
             inspectorActionPanel.apply(
                 size: actionFrame.size,
                 style: inspector.isRecommended
@@ -531,6 +527,26 @@ final class CampSelectionNode: SKNode {
         }
         let scale = min(maximumSize.width / sourceSize.width, maximumSize.height / sourceSize.height)
         return CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+    }
+
+    /// Renders the inspector's five level pips. Callers must have validated
+    /// `flags.count == inspectorLevelPips.count` (apply fails closed first).
+    private func applyInspectorLevelPips(flags: [Bool], pipStartX: CGFloat, pipY: CGFloat) {
+        for (index, pip) in inspectorLevelPips.enumerated() {
+            pip.path = CGPath(
+                roundedRect: CGRect(x: -8, y: -3, width: 16, height: 6),
+                cornerWidth: 3,
+                cornerHeight: 3,
+                transform: nil
+            )
+            pip.position = CGPoint(
+                x: pipStartX + CGFloat(index) * 19,
+                y: pipY
+            )
+            pip.fillColor = flags[index]
+                ? GameUITheme.Color.gold
+                : GameUITheme.Color.panelStroke
+        }
     }
 }
 

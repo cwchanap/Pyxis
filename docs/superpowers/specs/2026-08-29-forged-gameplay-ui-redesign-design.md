@@ -306,10 +306,15 @@ Tile shapes remain:
 
 - live + MVP → MVP, battle time, sent/lost;
 - live without MVP → battle time, sent/lost;
-- idle + MVP → MVP, Buildings, sent/lost;
-- idle without MVP → Buildings, sent/lost.
+- idle + MVP → MVP, idle damage, sent/lost;
+- idle without MVP → idle damage, sent/lost.
 
-No filler tile/achievement is invented. Gold feedback anchors to `rewardFrame` rather than a positional summary-row index. Conquest has no tab bar.
+The idle tile reports durable per-type damage from `BattleResult.idleDamageByType`
+(via `totalIdleDamage`): the summed damage the buildings dealt offline. When the
+result carries no idle-damage evidence, the tile shows the no-evidence state
+"—" rather than a count. No filler tile/achievement is invented. Gold feedback
+anchors to `rewardFrame` rather than a positional summary-row index. Conquest
+has no tab bar.
 
 ## Settings redesign — no rename churn
 

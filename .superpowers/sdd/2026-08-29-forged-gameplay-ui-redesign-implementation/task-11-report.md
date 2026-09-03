@@ -314,7 +314,16 @@ native and overlay artifacts are 1179×2556 PNGs and the side-by-side is a
 inspection confirmed the deliberate state/content difference: runtime is
 4.2K / 20 / 0 soldiers versus prototype 7.4K / 320 / 6 with active units and
 damage; layout/style bands are the comparison target. `git diff --check`
-exited 0. No image generation, source/test edits, or test runs were performed.
+exited 0.
+
+Provenance: the ffmpeg commands listed above DID run during this round and
+produced the task-11 artifacts — the 1179×2556 native framebuffer (committed
+unchanged), plus the then-current 1179×2556 overlay and 738×800 side-by-side.
+No source edits, test edits, or test runs were performed in this round. The
+committed overlay (now 393×852) and side-by-side (now 786×852) were refreshed
+by later capture rounds documented in `docs/visual-parity/forged-ui/README.md`
+and supersede the task-11 outputs; the native file's 1179×2556 dimensions
+remain the committed verification evidence.
 
 Evidence paths:
 

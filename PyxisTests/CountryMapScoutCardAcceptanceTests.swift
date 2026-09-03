@@ -55,15 +55,19 @@ struct CountryMapScoutCardAcceptanceTests {
             #expect(freshScout.cityNumber == 1)
             assertRequiredScoutContent(
                 freshBase,
+                scene: fresh.scene,
                 scout: freshScout,
                 layoutClass: fixture.layoutClass,
                 usesGoldFallback: false
             )
             #expect(freshLayout.sceneFrame.contains(cardFrame))
             #expect(cardFrame.contains(attackFrame))
-            if fixture.layoutClass == .pad
-                || cardFrame.height <= freshLayout.informationRegionFrame.height {
+            if fixture.layoutClass == .pad {
                 #expect(freshLayout.informationRegionFrame.contains(cardFrame))
+            } else {
+                // Phone cards may exceed the compact region budget, but they
+                // must stay inside the scene and never run under the header.
+                #expect(!cardFrame.intersects(freshLayout.titleControlRegionFrame))
             }
             for cityNumber in Country1CityCatalog.cityRange {
                 let cityFrame = try #require(
@@ -114,6 +118,7 @@ struct CountryMapScoutCardAcceptanceTests {
             #expect(pendingScout.cityNumber == 5)
             assertRequiredScoutContent(
                 pendingBase,
+                scene: pending.scene,
                 scout: pendingScout,
                 layoutClass: fixture.layoutClass,
                 usesGoldFallback: false
@@ -179,6 +184,7 @@ struct CountryMapScoutCardAcceptanceTests {
             let lockedScout = try projectedScout(from: feedback.scene)
             assertRequiredScoutContent(
                 lockedBase,
+                scene: feedback.scene,
                 scout: lockedScout,
                 layoutClass: fixture.layoutClass,
                 usesGoldFallback: false
@@ -202,6 +208,7 @@ struct CountryMapScoutCardAcceptanceTests {
             let completedScout = try projectedScout(from: feedback.scene)
             assertRequiredScoutContent(
                 completedBase,
+                scene: feedback.scene,
                 scout: completedScout,
                 layoutClass: fixture.layoutClass,
                 usesGoldFallback: false
@@ -268,6 +275,7 @@ struct CountryMapScoutCardAcceptanceTests {
                 exposedLanes.insert(scout.exposedLane)
                 assertRequiredScoutContent(
                     base,
+                    scene: harness.scene,
                     scout: scout,
                     layoutClass: fixture.layoutClass,
                     usesGoldFallback: false
@@ -337,6 +345,7 @@ struct CountryMapScoutCardAcceptanceTests {
                     #expect(scout.flavorText == "Burning oil guards the bridge inland.")
                     assertRequiredScoutContent(
                         base,
+                        scene: harness.scene,
                         scout: scout,
                         layoutClass: fixture.layoutClass,
                         usesGoldFallback:
@@ -484,6 +493,7 @@ struct CountryMapScoutCardAcceptanceTests {
 
     private func assertRequiredScoutContent(
         _ base: CountryMapScoutCardNode.BaseContentReadback,
+        scene: CountryMapScene,
         scout: CountryMapScoutCardContent.Scout,
         layoutClass: CountryMapLayoutClass,
         usesGoldFallback: Bool
@@ -524,11 +534,13 @@ struct CountryMapScoutCardAcceptanceTests {
             assertForgedFooter(
                 base.favorable,
                 prefix: "+",
+                items: scene.scoutCardFavorableItemsForTesting,
                 types: scout.defenseTrait.favorableSoldierTypes
             )
             assertForgedFooter(
                 base.disadvantaged,
                 prefix: "-",
+                items: scene.scoutCardDisadvantagedItemsForTesting,
                 types: scout.defenseTrait.disadvantagedSoldierTypes
             )
         } else {
@@ -567,10 +579,15 @@ struct CountryMapScoutCardAcceptanceTests {
     private func assertForgedFooter(
         _ text: String?,
         prefix: String,
+        items: [CountryMapScoutCardNode.FooterItemReadback],
         types: [SoldierType]
     ) {
         if types.isEmpty {
             #expect(text == "\(prefix) None")
+            // The empty footer renders a single untyped "None" placeholder.
+            #expect(items.count == 1)
+            #expect(items.first?.type == nil)
+            #expect(items.first?.label == "None")
             return
         }
 
@@ -580,6 +597,10 @@ struct CountryMapScoutCardAcceptanceTests {
         #expect(tokens.first == prefix)
         #expect(tokens.last == (prefix == "+" ? "×1.25" : "×0.80"))
         #expect(visibleNames.isSubset(of: expectedNames))
+        // The rendered items themselves must carry exactly the trait's types;
+        // the text above cannot detect a silently missing soldier type.
+        #expect(items.count == types.count)
+        #expect(items.map(\.type) == types.map { Optional($0) })
     }
 
     private func expectedFooterText(

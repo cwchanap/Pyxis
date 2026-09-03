@@ -34,8 +34,20 @@ final class FeedbackSettingsNode: SKNode {
     private static let switchOnColor = GameUITheme.Color.hpFill
     private static let switchKnobColor = SKColor(white: 0.98, alpha: 1.0)
 
-    private let soundIconSymbolName = "speaker.wave.2.fill"
-    private let hapticsIconSymbolName = "iphone.radiowaves.left.and.right"
+    /// Typed artwork discriminator for the toggle icons. Every supported
+    /// artwork maps explicitly; unrelated SF Symbol strings can never fall
+    /// through to the wrong drawing path.
+    private enum IconKind {
+        case soundEffects
+        case haptics
+
+        var accessibilitySymbolName: String {
+            switch self {
+            case .soundEffects: return "speaker.wave.2.fill"
+            case .haptics: return "iphone.radiowaves.left.and.right"
+            }
+        }
+    }
 
     private let scrim = SKShapeNode()
     private let panel = SKShapeNode()
@@ -72,14 +84,14 @@ final class FeedbackSettingsNode: SKNode {
             soundToggle,
             frame: layout.soundRowFrame,
             text: "Sound Effects",
-            iconSymbolName: soundIconSymbolName,
+            iconKind: .soundEffects,
             isEnabled: preferences.soundEffectsEnabled
         )
         renderToggle(
             hapticsToggle,
             frame: layout.hapticsRowFrame,
             text: "Haptics",
-            iconSymbolName: hapticsIconSymbolName,
+            iconKind: .haptics,
             isEnabled: preferences.hapticsEnabled
         )
         renderClose(layout.closeFrame)
@@ -259,7 +271,7 @@ final class FeedbackSettingsNode: SKNode {
         _ toggle: ToggleNodes,
         frame: CGRect,
         text: String,
-        iconSymbolName: String,
+        iconKind: IconKind,
         isEnabled: Bool
     ) {
         toggle.background.path = CGPath(rect: frame, transform: nil)
@@ -278,7 +290,7 @@ final class FeedbackSettingsNode: SKNode {
         )
         renderIcon(
             toggle.icon,
-            symbolName: iconSymbolName,
+            kind: iconKind,
             center: CGPoint(x: iconTileFrame.midX, y: iconTileFrame.midY)
         )
 
@@ -318,9 +330,9 @@ final class FeedbackSettingsNode: SKNode {
         toggle.state.fontColor = isEnabled ? GameUITheme.Color.hpFill : GameUITheme.Color.textSecondary
     }
 
-    private func renderIcon(_ icon: SKShapeNode, symbolName: String, center: CGPoint) {
+    private func renderIcon(_ icon: SKShapeNode, kind: IconKind, center: CGPoint) {
         let path = CGMutablePath()
-        if symbolName == soundIconSymbolName {
+        if kind == .soundEffects {
             path.move(to: CGPoint(x: center.x - 8, y: center.y - 4))
             path.addLine(to: CGPoint(x: center.x - 3, y: center.y - 4))
             path.addLine(to: CGPoint(x: center.x + 3, y: center.y - 9))
@@ -386,7 +398,9 @@ extension FeedbackSettingsNode {
     var soundRowHitFrameForTesting: CGRect? { soundRowHitFrame }
     var hapticsRowHitFrameForTesting: CGRect? { hapticsRowHitFrame }
     var closeHitFrameForTesting: CGRect? { closeHitFrame }
-    var iconSymbolNamesForTesting: [String] { [soundIconSymbolName, hapticsIconSymbolName] }
+    var iconSymbolNamesForTesting: [String] {
+        [IconKind.soundEffects.accessibilitySymbolName, IconKind.haptics.accessibilitySymbolName]
+    }
     var visibleToggleRowNamesForTesting: [String] {
         [soundToggle.background.name, hapticsToggle.background.name].compactMap { $0 }
     }

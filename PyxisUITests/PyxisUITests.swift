@@ -72,6 +72,20 @@ final class PyxisUITests: XCTestCase {
             add(self.screenshotAttachment(for: app, name: "forged-" + fixture + "-native-393x852"))
             app.terminate()
         }
+    }
+
+    @MainActor
+    func testForgedSettingsToggleUpdatesSemanticValue393x852() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.waitForExistence(timeout: 5), "Baseline app did not launch.")
+        guard app.frame.size == CGSize(width: 393, height: 852) else {
+            throw XCTSkip(
+                "Settings evidence requires logical 393x852; got "
+                    + "\(Int(app.frame.width))x\(Int(app.frame.height))."
+            )
+        }
+        app.terminate()
 
         app.launchArguments = [fixtureArgument, "battle", freezeCombatArgument]
         app.launch()
@@ -88,6 +102,10 @@ final class PyxisUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.84)).tap()
         let after = gameplaySurface.value as? String
         XCTAssertNotEqual(before, after, "Settings toggle did not update its semantic value.")
+        XCTAssertTrue(
+            after?.hasPrefix("Settings;") == true,
+            "Settings did not stay presented across the toggle."
+        )
         add(self.screenshotAttachment(for: app, name: "forged-settings-toggle-native-393x852"))
     }
 
