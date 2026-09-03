@@ -1266,7 +1266,9 @@ struct CountryMapSceneTests {
         let tabBarFrame = scene.gameplayTabBarFrameForTesting
         #expect(tabBarFrame == CGRect(x: 16, y: 0, width: 361, height: 82))
         #expect(scene.gameplayTabBarForTesting.usesForgedAppearanceForTesting)
-        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map)?.minY ?? 0 >= 34)
+        let mapHitFrame = try #require(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map))
+        #expect(tabBarFrame.contains(mapHitFrame))
+        #expect(mapHitFrame.minY < 34)
         #expect(scoutCardFrame.minY == tabBarFrame.maxY + 8)
         #expect(scoutCardFrame.intersects(layout.illustratedMapRegionFrame))
     }
@@ -1736,7 +1738,7 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardAttackHitFrameForTesting != nil)
     }
 
-    @Test func rejectedRouterRetainsSavedBattleAndRestoresRetry() throws {
+    @Test func rejectedRouterRestoresPreEntryStateAndAllowsRetry() throws {
         let countingStore = try makeCountingStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
             cityNumberInCountry: 1,
@@ -1755,9 +1757,9 @@ struct CountryMapSceneTests {
         scene.touchesEnded([MockTouch(location: attackPoint)], with: nil)
 
         let saved = store.load()
-        #expect(saved.stageStatus == .battleActive)
-        #expect(saved.cityNumberInCountry == 2)
-        #expect(countingStore.defaults.stateSaveCount == 1)
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.cityNumberInCountry == 1)
+        #expect(countingStore.defaults.stateSaveCount == 2)
         #expect(router.battleRequestCount == 1)
         #expect(!scene.isRoutingToBattleForTesting)
         #expect(scene.visibleFeedbackTextForTesting == "Cannot enter city yet.")
@@ -1771,7 +1773,7 @@ struct CountryMapSceneTests {
         )
 
         #expect(router.battleRequestCount == 2)
-        #expect(countingStore.defaults.stateSaveCount == 2)
+        #expect(countingStore.defaults.stateSaveCount == 4)
         #expect(store.load() == saved)
         #expect(!scene.isRoutingToBattleForTesting)
     }
