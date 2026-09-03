@@ -78,20 +78,51 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Verify simulator availability
+        run: |
+          # Warm up CoreSimulator so the iOS runtime is registered before
+          # xcodebuild queries destinations. On fresh macos-26 runners the
+          # runtime is occasionally not registered yet, which makes xcodebuild
+          # fail with "Unable to find a device matching the provided
+          # destination specifier" even though the runtime is installed.
+          xcrun simctl list devices available
+          if ! xcrun simctl list devices available | grep -q "iPhone 17"; then
+            echo "::warning::iPhone 17 simulator is not registered yet; tests will retry if needed."
+          fi
+
       - name: Run unit tests with coverage
         run: |
           set -o pipefail
-          xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -destination "$DESTINATION" \
-            -parallel-testing-enabled NO \
-            -enableCodeCoverage YES \
-            -resultBundlePath build/TestResults/Unit.xcresult \
-            -derivedDataPath build/DerivedData \
-            test \
-            -only-testing:PyxisTests \
-            -skip-testing:PyxisUITests
+          attempt=0
+          max_attempts=3
+          while [ $attempt -lt $max_attempts ]; do
+            attempt=$((attempt + 1))
+            echo "::group::Unit test attempt $attempt/$max_attempts"
+            rm -rf build/TestResults/Unit.xcresult
+            status=0
+            xcodebuild \
+              -project "$PROJECT" \
+              -scheme "$SCHEME" \
+              -destination "$DESTINATION" \
+              -parallel-testing-enabled NO \
+              -enableCodeCoverage YES \
+              -resultBundlePath build/TestResults/Unit.xcresult \
+              -derivedDataPath build/DerivedData \
+              test \
+              -only-testing:PyxisTests \
+              -skip-testing:PyxisUITests || status=$?
+            echo "::endgroup::"
+            if [ $status -eq 0 ]; then
+              break
+            fi
+            if [ $attempt -ge $max_attempts ]; then
+              echo "::error::Unit tests failed after $max_attempts attempts (last exit $status)."
+              exit $status
+            fi
+            echo "Unit test attempt $attempt failed (exit $status). Re-warming simulator and retrying in 30s..."
+            xcrun simctl list devices available
+            sleep 30
+          done
 
       - name: Export coverage report
         run: |
@@ -138,18 +169,49 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Verify simulator availability
+        run: |
+          # Warm up CoreSimulator so the iOS runtime is registered before
+          # xcodebuild queries destinations. On fresh macos-26 runners the
+          # runtime is occasionally not registered yet, which makes xcodebuild
+          # fail with "Unable to find a device matching the provided
+          # destination specifier" even though the runtime is installed.
+          xcrun simctl list devices available
+          if ! xcrun simctl list devices available | grep -q "iPhone 17"; then
+            echo "::warning::iPhone 17 simulator is not registered yet; tests will retry if needed."
+          fi
+
       - name: Run UI tests
         run: |
           set -o pipefail
-          xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -destination "$DESTINATION" \
-            -parallel-testing-enabled NO \
-            -resultBundlePath build/TestResults/UI.xcresult \
-            -derivedDataPath build/DerivedData \
-            test \
-            -only-testing:PyxisUITests
+          attempt=0
+          max_attempts=3
+          while [ $attempt -lt $max_attempts ]; do
+            attempt=$((attempt + 1))
+            echo "::group::UI test attempt $attempt/$max_attempts"
+            rm -rf build/TestResults/UI.xcresult
+            status=0
+            xcodebuild \
+              -project "$PROJECT" \
+              -scheme "$SCHEME" \
+              -destination "$DESTINATION" \
+              -parallel-testing-enabled NO \
+              -resultBundlePath build/TestResults/UI.xcresult \
+              -derivedDataPath build/DerivedData \
+              test \
+              -only-testing:PyxisUITests || status=$?
+            echo "::endgroup::"
+            if [ $status -eq 0 ]; then
+              break
+            fi
+            if [ $attempt -ge $max_attempts ]; then
+              echo "::error::UI tests failed after $max_attempts attempts (last exit $status)."
+              exit $status
+            fi
+            echo "UI test attempt $attempt failed (exit $status). Re-warming simulator and retrying in 30s..."
+            xcrun simctl list devices available
+            sleep 30
+          done
 
       - name: Upload UI test artifacts
         if: always()
