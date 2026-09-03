@@ -64,6 +64,39 @@ struct CountryMapSceneTests {
         #expect(scout.status == .locked)
     }
 
+    @Test("Tapping a city under the expanded Scout card body selects the city, not flavor")
+    func tappingCityUnderScoutCardBodySelectsCityNotFlavor() throws {
+        let initialState = KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 0,
+            stageStatus: .battleActive
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // On load the Scout card shows City 1 (current), so its expanded body
+        // is present and overlaps the lowest city hit targets on the 393x852
+        // fixture. City 2 (Pinewatch) is locked and sits under the card body.
+        let cardHitFrame = try #require(scene.scoutCardHitFrameForTesting)
+        let city2Position = try #require(scene.cityNodePositionForTesting(2))
+        let city2Target = CGRect(
+            x: city2Position.x - 22,
+            y: city2Position.y - 22,
+            width: 44,
+            height: 44
+        )
+        let overlap = city2Target.intersection(cardHitFrame)
+        #expect(overlap.width > 0 && overlap.height > 0)
+
+        scene.handleTouchForTesting(at: overlap.center)
+
+        // The city is selected (not consumed by the card-body flavor tap), and
+        // the locked city shows its own feedback with no Attack button.
+        #expect(scene.selectedCityNumberForTesting == 2)
+        #expect(scene.visibleFeedbackTextForTesting == "Pinewatch is locked")
+        #expect(scene.scoutCardAttackHitFrameForTesting == nil)
+    }
+
     @Test func selectedCurrentCityReturnRoutesToBattleWithoutRestarting() throws {
         let initialState = KingdomGameState(
             cityLevel: 3,
@@ -111,6 +144,45 @@ struct CountryMapSceneTests {
         #expect(saved.lastBackgroundedAt == nil)
         #expect(saved.cityRemainingPower < initialState.cityRemainingPower)
         #expect(router.requestedTabs == [.battle])
+    }
+
+    @Test("Rejected current-city RETURN preserves the settled idle progress and re-arms")
+    func rejectedCurrentCityReturnPreservesSettledIdleProgress() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1_000,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let countingStore = try makeCountingStore(initialState: initialState)
+        let router = RouteSpy()
+        router.acceptsBattleRequest = false
+        let scene = makeScene(store: countingStore.store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(3))
+
+        // Select the current city, then tap its RETURN (Attack) action. The
+        // route is rejected, but the idle settlement must survive and building
+        // progress must be re-armed — mirroring `requestGameplayTab`'s
+        // rejection branch instead of restoring the pre-entry snapshot.
+        scene.handleTouchForTesting(at: cityPoint)
+        scene.handleTouchForTesting(at: try #require(scene.scoutCardAttackHitFrameForTesting).center)
+
+        let saved = countingStore.store.load()
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.cityNumberInCountry == 3)
+        // The idle damage is preserved (not rolled back to the pre-entry state).
+        #expect(saved.cityRemainingPower < initialState.cityRemainingPower)
+        // Building progress is re-armed for the next backgrounding.
+        #expect(saved.lastBackgroundedAt != nil)
+        #expect(saved.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt
+            == saved.lastBackgroundedAt)
+        #expect(router.requestedTabs == [.battle])
+        #expect(countingStore.defaults.stateSaveCount == 2)
+        #expect(!scene.isRoutingToBattleForTesting)
     }
 
     @Test("Selected current city RETURN leaves a lethal idle conquest pending on the map")
@@ -1268,7 +1340,10 @@ struct CountryMapSceneTests {
         #expect(scene.gameplayTabBarForTesting.usesForgedAppearanceForTesting)
         let mapHitFrame = try #require(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map))
         #expect(tabBarFrame.contains(mapHitFrame))
-        #expect(mapHitFrame.minY < 34)
+        // The visible tab bar is full-bleed (y=0), but hit targets stay above
+        // the 34pt bottom home-indicator inset.
+        #expect(mapHitFrame.minY >= 34)
+        #expect(mapHitFrame.minY < tabBarFrame.maxY)
         #expect(scoutCardFrame.minY == tabBarFrame.maxY + 8)
         #expect(scoutCardFrame.intersects(layout.illustratedMapRegionFrame))
     }

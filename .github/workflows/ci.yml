@@ -93,13 +93,19 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           set -o pipefail
+          mkdir -p build/TestResults
+          # Retry only on the known CoreSimulator/destination startup failure
+          # (the runtime is installed but not registered yet on fresh runners).
+          # Build/test failures fail immediately so a flaky assertion cannot
+          # pass on a later attempt and turn CI green.
+          destination_error_pattern='Unable to find a device matching|device matching the provided destination|Simulator runtime.*not (available|found|registered)|Failed to (boot|create).*[Ss]imulator|CoreSimulator.*not available'
           attempt=0
           max_attempts=3
           while [ $attempt -lt $max_attempts ]; do
             attempt=$((attempt + 1))
             echo "::group::Unit test attempt $attempt/$max_attempts"
             rm -rf build/TestResults/Unit.xcresult
-            status=0
+            log="build/TestResults/unit-attempt-${attempt}.log"
             xcodebuild \
               -project "$PROJECT" \
               -scheme "$SCHEME" \
@@ -110,7 +116,8 @@ jobs:
               -derivedDataPath build/DerivedData \
               test \
               -only-testing:PyxisTests \
-              -skip-testing:PyxisUITests || status=$?
+              -skip-testing:PyxisUITests 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
             echo "::endgroup::"
             if [ $status -eq 0 ]; then
               break
@@ -119,9 +126,14 @@ jobs:
               echo "::error::Unit tests failed after $max_attempts attempts (last exit $status)."
               exit $status
             fi
-            echo "Unit test attempt $attempt failed (exit $status). Re-warming simulator and retrying in 30s..."
-            xcrun simctl list devices available
-            sleep 30
+            if grep -qE "$destination_error_pattern" "$log"; then
+              echo "Destination/CoreSimulator startup failure detected (exit $status). Re-warming simulator and retrying in 30s..."
+              xcrun simctl list devices available
+              sleep 30
+              continue
+            fi
+            echo "::error::Unit tests failed (exit $status); not a destination/CoreSimulator startup error, failing immediately."
+            exit $status
           done
 
       - name: Export coverage report
@@ -184,13 +196,18 @@ jobs:
       - name: Run UI tests
         run: |
           set -o pipefail
+          mkdir -p build/TestResults
+          # Retry only on the known CoreSimulator/destination startup failure
+          # (see the unit-test step for rationale). Build/test failures fail
+          # immediately so a flaky UI assertion cannot turn CI green.
+          destination_error_pattern='Unable to find a device matching|device matching the provided destination|Simulator runtime.*not (available|found|registered)|Failed to (boot|create).*[Ss]imulator|CoreSimulator.*not available'
           attempt=0
           max_attempts=3
           while [ $attempt -lt $max_attempts ]; do
             attempt=$((attempt + 1))
             echo "::group::UI test attempt $attempt/$max_attempts"
             rm -rf build/TestResults/UI.xcresult
-            status=0
+            log="build/TestResults/ui-attempt-${attempt}.log"
             xcodebuild \
               -project "$PROJECT" \
               -scheme "$SCHEME" \
@@ -199,7 +216,8 @@ jobs:
               -resultBundlePath build/TestResults/UI.xcresult \
               -derivedDataPath build/DerivedData \
               test \
-              -only-testing:PyxisUITests || status=$?
+              -only-testing:PyxisUITests 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
             echo "::endgroup::"
             if [ $status -eq 0 ]; then
               break
@@ -208,9 +226,14 @@ jobs:
               echo "::error::UI tests failed after $max_attempts attempts (last exit $status)."
               exit $status
             fi
-            echo "UI test attempt $attempt failed (exit $status). Re-warming simulator and retrying in 30s..."
-            xcrun simctl list devices available
-            sleep 30
+            if grep -qE "$destination_error_pattern" "$log"; then
+              echo "Destination/CoreSimulator startup failure detected (exit $status). Re-warming simulator and retrying in 30s..."
+              xcrun simctl list devices available
+              sleep 30
+              continue
+            fi
+            echo "::error::UI tests failed (exit $status); not a destination/CoreSimulator startup error, failing immediately."
+            exit $status
           done
 
       - name: Upload UI test artifacts

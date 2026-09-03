@@ -241,6 +241,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return true
         }
         if scoutCardNode.cardHitFrame?.contains(point) == true {
+            // The expanded phone card body can overlap the lowest city hit
+            // targets (e.g. City 1/2 on the 393x852 fixture). Yield to city
+            // selection there so those cities keep their full 44pt selectable
+            // area; the visual overlap is preserved and flavor only fires on
+            // empty card area. Attack/overlay stay prioritized above cities
+            // because their frames do not overlap city hit targets.
+            if cityNumber(at: point) != nil {
+                return false
+            }
             // Tapping the Scout card body shows the current scout's flavor
             // text as a non-blocking overlay. It never mutates state, routes,
             // or emits gameplay feedback, and only fires when a real scout is
@@ -681,7 +690,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             illustratedRegion: layout.illustratedMapRegionFrame,
             scoutCard: scoutCardLayout?.cardFrame ?? layout.informationRegionFrame
         )
-        layoutGameplayTabBar()
+        layoutGameplayTabBar(bottomSafeInset: environment.safeAreaInsets.bottom)
 
         titleLabel.text = "Country \(state.countryNumber)"
         titleLabel.fontSize = 20
@@ -720,7 +729,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         return true
     }
 
-    private func layoutGameplayTabBar() {
+    private func layoutGameplayTabBar(bottomSafeInset: CGFloat) {
         let horizontalMargin = size.width <= 440
             ? 16
             : max(16, min(22, size.width * 0.05))
@@ -730,19 +739,21 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             width: max(0, size.width - horizontalMargin * 2),
             height: 82
         )
-        let safeHitShell = CGRect(
-            x: gameplayTabBarFrame.minX,
-            y: gameplayTabBarFrame.minY,
-            width: gameplayTabBarFrame.width,
-            height: gameplayTabBarFrame.height
-        )
-        let cellWidth = safeHitShell.width / CGFloat(GameplayTab.allCases.count)
+        // The visible tab bar is full-bleed (y=0), but hit targets stay above
+        // the bottom home-indicator inset and keep a >=44pt touch height. This
+        // mirrors BattleChromeLayout.tabHitFramesInSafeArea and
+        // CampChromeLayout's safeFrame-derived tabHitShell so all three
+        // gameplay scenes keep taps out of the home-indicator region.
+        let safeMinY = max(gameplayTabBarFrame.minY, bottomSafeInset)
+        let hitHeight = min(44, max(0, gameplayTabBarFrame.maxY - safeMinY))
+        let hitY = max(safeMinY, gameplayTabBarFrame.maxY - hitHeight)
+        let cellWidth = gameplayTabBarFrame.width / CGFloat(GameplayTab.allCases.count)
         gameplayTabHitFrames = GameplayTab.allCases.indices.map { index in
             CGRect(
-                x: safeHitShell.minX + CGFloat(index) * cellWidth + 4,
-                y: safeHitShell.minY + 4,
-                width: cellWidth - 8,
-                height: safeHitShell.height - 8
+                x: gameplayTabBarFrame.minX + CGFloat(index) * cellWidth + 4,
+                y: hitY,
+                width: max(0, cellWidth - 8),
+                height: hitHeight
             )
         }
         gameplayTabBar.apply(
@@ -1277,7 +1288,16 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                 return
             }
 
-            let idleResult = latestState.returnFromBackground(at: Date())
+            // `startCityFromMap` is a no-op for the current city (it returns
+            // `.entered` without mutating). For a genuinely new city it clears
+            // `lastBackgroundedAt`, so the settlement below is `.none`. Track
+            // which case this is so a rejected route rolls back only the
+            // newly-entered-city mutation and never the current-city idle
+            // settlement that `returnFromBackground` already applied/saved.
+            let enteredNewCity = latestState.cityNumberInCountry != preEntryState.cityNumberInCountry
+
+            let exitDate = Date()
+            let idleResult = latestState.returnFromBackground(at: exitDate)
             state = latestState
             store.save(state)
 
@@ -1293,12 +1313,12 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             redraw()
 
             guard router.countryMapSceneDidRequestGameplayTab(self, tab: .battle) else {
-                state = preEntryState
-                store.save(state)
-                isRoutingToBattle = false
-                feedback.emit(.invalidAction)
-                showFeedback(.cannotEnterCityYet())
-                redraw()
+                handleEntryRouteRejection(
+                    enteredNewCity: enteredNewCity,
+                    preEntryState: preEntryState,
+                    idleResult: idleResult,
+                    exitDate: exitDate
+                )
                 return
             }
         case .locked:
@@ -1319,6 +1339,32 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             state = latestState
             redraw()
         }
+    }
+
+    /// Handles a rejected Battle-tab route after `requestEntry` settled idle
+    /// progress. A new-city entry rolls back the entry (the settlement was
+    /// `.none` because `startCityFromMap` cleared `lastBackgroundedAt`). A
+    /// current-city RETURN preserves the already-applied/saved idle settlement
+    /// and re-arms building progress, mirroring `requestGameplayTab`'s
+    /// rejection branch so the idle damage/gold is not discarded.
+    private func handleEntryRouteRejection(
+        enteredNewCity: Bool,
+        preEntryState: KingdomGameState,
+        idleResult: KingdomGameState.IdleProgressResult,
+        exitDate: Date
+    ) {
+        if enteredNewCity {
+            state = preEntryState
+            store.save(state)
+        } else if idleResult.conqueredCities == 0,
+                  state.stageStatus == .battleActive {
+            state.markCurrentCityBuildingProgressInactive(at: exitDate)
+            store.save(state)
+        }
+        isRoutingToBattle = false
+        feedback.emit(.invalidAction)
+        showFeedback(.cannotEnterCityYet())
+        redraw()
     }
 }
 
