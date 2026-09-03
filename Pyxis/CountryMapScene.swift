@@ -681,7 +681,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             illustratedRegion: layout.illustratedMapRegionFrame,
             scoutCard: scoutCardLayout?.cardFrame ?? layout.informationRegionFrame
         )
-        layoutGameplayTabBar(informationRegionFrame: layout.informationRegionFrame)
+        layoutGameplayTabBar()
 
         titleLabel.text = "Country \(state.countryNumber)"
         titleLabel.fontSize = 20
@@ -720,7 +720,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         return true
     }
 
-    private func layoutGameplayTabBar(informationRegionFrame: CGRect) {
+    private func layoutGameplayTabBar() {
         let horizontalMargin = size.width <= 440
             ? 16
             : max(16, min(22, size.width * 0.05))
@@ -732,9 +732,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         )
         let safeHitShell = CGRect(
             x: gameplayTabBarFrame.minX,
-            y: informationRegionFrame.minY - CountryMapLayout.tabBarHeight - 8,
+            y: gameplayTabBarFrame.minY,
             width: gameplayTabBarFrame.width,
-            height: CountryMapLayout.tabBarHeight
+            height: gameplayTabBarFrame.height
         )
         let cellWidth = safeHitShell.width / CGFloat(GameplayTab.allCases.count)
         gameplayTabHitFrames = GameplayTab.allCases.indices.map { index in
@@ -1265,6 +1265,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
 
         var latestState = store.load()
+        let preEntryState = latestState
 
         switch latestState.startCityFromMap(cityNumber) {
         case .entered:
@@ -1292,6 +1293,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             redraw()
 
             guard router.countryMapSceneDidRequestGameplayTab(self, tab: .battle) else {
+                state = preEntryState
+                store.save(state)
                 isRoutingToBattle = false
                 feedback.emit(.invalidAction)
                 showFeedback(.cannotEnterCityYet())

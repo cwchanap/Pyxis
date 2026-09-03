@@ -40,9 +40,13 @@ struct CountryMapLayoutTests {
     }
 
     @Test func budgetBelowCompactFloorFailsClosed() {
+        // Height 667 passes isValidSceneSize (>= 667, portrait). A 50pt top
+        // inset drives topMargin to 60, so headerRegionMinY = 667 - 60 - 66 =
+        // 541 and informationHeightBudget = 541 - 8 - 431 - 72 - 8 - 0 = 22,
+        // which is below (not at) the 48pt minimumCompactInformationHeight.
         #expect(result(
-            size: CGSize(width: 375, height: 650),
-            insets: .zero,
+            size: CGSize(width: 375, height: 667),
+            insets: .init(top: 50, left: 0, bottom: 0, right: 0),
             layoutClass: .phone
         ) == .unsupported(.unsupportedGeometry))
     }
