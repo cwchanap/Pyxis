@@ -234,6 +234,17 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func handleScoutCardTouch(at point: CGPoint) -> Bool {
         if scoutCardNode.overlayHitFrame?.contains(point) == true {
+            // The flavor overlay (`.flavor`, the only non-blocking kind) is
+            // confined to `nonBlockingOverlayFrame`, which can overlap the
+            // lowest city hit targets on the 393x852 fixture. Yield to city
+            // selection there so overlapped cities stay tappable during the
+            // 2.5s flavor lifetime. Blocking kinds (locked/completed/status/
+            // recoverableError) intentionally block scout entry per the
+            // AGENTS.md contract, so they keep swallowing overlapping taps.
+            if transientFeedback?.kind.blocksScoutEntry == false,
+               cityNumber(at: point) != nil {
+                return false
+            }
             return true
         }
         if scoutCardNode.attackHitFrame?.contains(point) == true {
@@ -1526,6 +1537,12 @@ extension CountryMapScene {
 
     func advanceFeedbackForTesting(by deltaTime: TimeInterval) {
         advanceFeedback(by: deltaTime)
+    }
+
+    /// Presents a non-blocking flavor overlay for testing the city-yield path
+    /// in `handleScoutCardTouch`. Mirrors `showFeedback(.flavor(...))`.
+    func presentFlavorFeedbackForTesting(_ text: String) {
+        showFeedback(.flavor(text))
     }
 
     func enterCityForTesting(_ cityNumber: Int) {

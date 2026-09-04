@@ -97,6 +97,43 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardAttackHitFrameForTesting == nil)
     }
 
+    @Test("Tapping a city under the flavor overlay selects the city, not the overlay")
+    func tappingCityUnderFlavorOverlaySelectsCityNotOverlay() throws {
+        let initialState = KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 0,
+            stageStatus: .battleActive
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // Present a non-blocking flavor overlay. Its `overlayHitFrame` is
+        // `nonBlockingOverlayFrame`, which overlaps the lowest city hit
+        // targets on the 393x852 fixture. City 2 (Pinewatch) is locked and
+        // sits under that overlay region.
+        scene.presentFlavorFeedbackForTesting("Arrow towers command the ridge.")
+        let overlayHitFrame = try #require(scene.scoutCardOverlayHitFrameForTesting)
+        let city2Position = try #require(scene.cityNodePositionForTesting(2))
+        let city2Target = CGRect(
+            x: city2Position.x - 22,
+            y: city2Position.y - 22,
+            width: 44,
+            height: 44
+        )
+        let overlap = city2Target.intersection(overlayHitFrame)
+        #expect(overlap.width > 0 && overlap.height > 0,
+                "Flavor overlay must overlap City 2 on the 393x852 fixture for this regression to be meaningful")
+
+        scene.handleTouchForTesting(at: overlap.center)
+
+        // The flavor overlay yields to city selection, so City 2 is selected
+        // and shows its own locked feedback (no Attack button). The flavor
+        // text is replaced by the city's locked feedback.
+        #expect(scene.selectedCityNumberForTesting == 2)
+        #expect(scene.visibleFeedbackTextForTesting == "Pinewatch is locked")
+        #expect(scene.scoutCardAttackHitFrameForTesting == nil)
+    }
+
     @Test func selectedCurrentCityReturnRoutesToBattleWithoutRestarting() throws {
         let initialState = KingdomGameState(
             cityLevel: 3,
