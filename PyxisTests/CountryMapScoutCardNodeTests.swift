@@ -80,6 +80,30 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.disadvantagedItemsForTesting.allSatisfy { $0.multiplierText == "×0.80" })
     }
 
+    @Test("Phone renders the trailing multiplier label; pad does not until it has an authored budget")
+    func phoneRendersFooterMultiplierButPadDoesNotWithoutAuthoredBudget() throws {
+        let spy = ScoutCardImageLoaderSpy(images: completeImageSet())
+        let node = CountryMapScoutCardNode(imageLoader: spy.load)
+        let phoneLayout = try scoutCardLayout(named: "small phone")
+        let padLayout = try scoutCardLayout(named: "narrow iPad")
+
+        #expect(node.apply(
+            content: .scout(testScout(trait: .arrowTower)),
+            layout: phoneLayout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.hasFavorableFooterMultiplierForTesting)
+        #expect(node.hasDisadvantagedFooterMultiplierForTesting)
+
+        #expect(node.apply(
+            content: .scout(testScout(trait: .arrowTower)),
+            layout: padLayout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(!node.hasFavorableFooterMultiplierForTesting)
+        #expect(!node.hasDisadvantagedFooterMultiplierForTesting)
+    }
+
     @Test("Selected scout cards use the authored city art without replacing content")
     func richScoutCardRendersCityArtAlongsideRealContentAndAction() throws {
         let image = testImage(width: 160, height: 120)

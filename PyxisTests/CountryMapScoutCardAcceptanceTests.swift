@@ -77,7 +77,7 @@ struct CountryMapScoutCardAcceptanceTests {
             }
             #expect(
                 fresh.scene.visibleScoutCardTextsForTesting
-                    == expectedVisibleLabelTexts(from: freshBase)
+                    == expectedVisibleLabelTexts(from: freshBase, layoutClass: fixture.layoutClass)
             )
 
             let projectedBeforeRelayout =
@@ -125,7 +125,7 @@ struct CountryMapScoutCardAcceptanceTests {
             )
             #expect(
                 pending.scene.visibleScoutCardTextsForTesting
-                    == expectedVisibleLabelTexts(from: pendingBase)
+                    == expectedVisibleLabelTexts(from: pendingBase, layoutClass: fixture.layoutClass)
             )
         }
 
@@ -282,7 +282,7 @@ struct CountryMapScoutCardAcceptanceTests {
                 )
                 #expect(
                     harness.scene.visibleScoutCardTextsForTesting
-                        == expectedVisibleLabelTexts(from: base)
+                        == expectedVisibleLabelTexts(from: base, layoutClass: fixture.layoutClass)
                 )
             }
         }
@@ -360,7 +360,7 @@ struct CountryMapScoutCardAcceptanceTests {
                     )
                     #expect(
                         harness.scene.visibleScoutCardTextsForTesting
-                            == expectedVisibleLabelTexts(from: base)
+                            == expectedVisibleLabelTexts(from: base, layoutClass: fixture.layoutClass)
                     )
                 }
             )
@@ -633,13 +633,25 @@ struct CountryMapScoutCardAcceptanceTests {
     }
 
     private func expectedVisibleLabelTexts(
-        from base: CountryMapScoutCardNode.BaseContentReadback
+        from base: CountryMapScoutCardNode.BaseContentReadback,
+        layoutClass: CountryMapLayoutClass
     ) -> [String] {
         var values = [base.badge, base.title]
             .compactMap { $0 }
         values += base.traitLines
-        values += base.favorable?.split(separator: " ").map(String.init) ?? []
-        values += base.disadvantaged?.split(separator: " ").map(String.init) ?? []
+        // The multiplier label ("×1.25"/"×0.80") is only rendered on phone
+        // non-compact layouts. The readback text always includes it, so
+        // filter it out for pad when comparing against rendered label nodes.
+        let multiplierTokens: Set<String> = ["×1.25", "×0.80"]
+        let favorableTokens = base.favorable?.split(separator: " ").map(String.init) ?? []
+        let disadvantagedTokens = base.disadvantaged?.split(separator: " ").map(String.init) ?? []
+        if layoutClass == .pad {
+            values += favorableTokens.filter { !multiplierTokens.contains($0) }
+            values += disadvantagedTokens.filter { !multiplierTokens.contains($0) }
+        } else {
+            values += favorableTokens
+            values += disadvantagedTokens
+        }
         values += [base.lane, base.reward, base.attack].compactMap { $0 }
         return values.sorted()
     }

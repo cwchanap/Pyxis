@@ -134,6 +134,44 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardAttackHitFrameForTesting == nil)
     }
 
+    @Test("Tapping a city under a blocking overlay selects the city, not the overlay")
+    func tappingCityUnderBlockingOverlaySelectsCityNotOverlay() throws {
+        let initialState = KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 0,
+            stageStatus: .battleActive
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        // Present a blocking locked overlay. Its `overlayHitFrame` is the
+        // whole card (`overlayFrame`), which overlaps the lowest city hit
+        // targets on the 393x852 fixture. City 2 (Pinewatch) is locked and
+        // sits under that overlay region.
+        scene.presentLockedFeedbackForTesting(cityNumber: 1)
+        let overlayHitFrame = try #require(scene.scoutCardOverlayHitFrameForTesting)
+        let city2Position = try #require(scene.cityNodePositionForTesting(2))
+        let city2Target = CGRect(
+            x: city2Position.x - 22,
+            y: city2Position.y - 22,
+            width: 44,
+            height: 44
+        )
+        let overlap = city2Target.intersection(overlayHitFrame)
+        #expect(overlap.width > 0 && overlap.height > 0,
+                "Blocking overlay must overlap City 2 on the 393x852 fixture for this regression to be meaningful")
+
+        scene.handleTouchForTesting(at: overlap.center)
+
+        // The blocking overlay yields to city selection, so City 2 is
+        // selected. Attack stays disabled (attackHitFrame is nil for blocking
+        // feedback) and scout entry stays blocked (the card-body flavor tap
+        // is gated by blocksScoutEntry), but city selection itself is
+        // neither of those and must remain available.
+        #expect(scene.selectedCityNumberForTesting == 2)
+        #expect(scene.scoutCardAttackHitFrameForTesting == nil)
+    }
+
     @Test func selectedCurrentCityReturnRoutesToBattleWithoutRestarting() throws {
         let initialState = KingdomGameState(
             cityLevel: 3,

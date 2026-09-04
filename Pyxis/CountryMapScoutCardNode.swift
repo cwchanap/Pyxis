@@ -92,6 +92,7 @@ final class CountryMapScoutCardNode: SKNode {
     private var currentMetrics: Metrics?
     private var currentPresentationIsScout = false
     private var currentEntryIsEnabled = false
+    private var currentReservesTrailingMultiplier = false
     private var feedbackIsVisible = false
     private var currentGoldIconTargetFrame: CGRect?
     private var currentRewardTargetFrame: CGRect?
@@ -178,6 +179,7 @@ final class CountryMapScoutCardNode: SKNode {
             currentLayout = nil
             currentPresentationIsScout = false
             currentEntryIsEnabled = false
+            currentReservesTrailingMultiplier = false
             clearHitFrames()
             return .requiredContentDoesNotFit
         }
@@ -231,6 +233,7 @@ final class CountryMapScoutCardNode: SKNode {
         currentLayout = nil
         currentPresentationIsScout = false
         currentEntryIsEnabled = false
+        currentReservesTrailingMultiplier = false
         currentCityArtTargetFrame = nil
         currentCityArtAssetName = nil
         feedbackIsVisible = false
@@ -544,14 +547,14 @@ final class CountryMapScoutCardNode: SKNode {
             }
         )
         // renderFooter appends the right-aligned multiplier label after the
-        // last item; the forged phone fit check must reserve its width using
-        // the same font and size configuration as the rendered label.
-        // ponytail: the pad footer is excluded — its authored second line
-        // already shares the row with the 82pt lane label (disadvantaged
-        // frame 222pt at 480×1194 vs a 204pt two-item group plus a 28pt
-        // multiplier), so reserving there would un-support the reviewed
-        // 480×1194 fixture; give the pad row its own authored budget before
-        // extending the reservation.
+        // last item, but only when `reservesTrailingMultiplier` is true. The
+        // forged phone fit check reserves its width using the same font and
+        // size configuration as the rendered label. The pad footer is
+        // excluded — its authored second line already shares the row with
+        // the 82pt lane label (disadvantaged frame 222pt at 480×1194 vs a
+        // 204pt two-item group plus a 28pt multiplier), so the multiplier
+        // is not rendered there until the pad row gets its own authored
+        // budget that can accommodate it.
         let footerFontSize = usesPhoneFallback ? 8 : metrics.footerSize
         let multiplierReservation: CGFloat
         if reservesTrailingMultiplier,
@@ -599,6 +602,7 @@ final class CountryMapScoutCardNode: SKNode {
         switch presentation {
         case .countryComplete(let text, let fontSize):
             currentPresentationIsScout = false
+            currentReservesTrailingMultiplier = false
             currentMetrics = metrics(for: layout)
             titleLabel.text = text
             titleLabel.fontSize = fontSize
@@ -659,6 +663,7 @@ final class CountryMapScoutCardNode: SKNode {
             metrics: prepared.metrics
         )
 
+        currentReservesTrailingMultiplier = usesForgedPhonePresentation
         let favorableRendered = renderFooter(
             items: prepared.favorableItems,
             prefix: "+",
@@ -886,7 +891,8 @@ final class CountryMapScoutCardNode: SKNode {
                 targetFrame: targetFrame
             ))
         }
-        if let multiplierText = items.first?.multiplierText {
+        if currentReservesTrailingMultiplier,
+           let multiplierText = items.first?.multiplierText {
             let multiplierLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
             multiplierLabel.name = "footerMultiplier"
             configureLabel(multiplierLabel, horizontal: .right)
@@ -1139,6 +1145,14 @@ extension CountryMapScoutCardNode {
 
     var disadvantagedPrefixIsInstalledForTesting: Bool {
         disadvantagedPrefixLabel?.parent === disadvantagedContainer
+    }
+
+    var hasFavorableFooterMultiplierForTesting: Bool {
+        favorableContainer.children.contains { $0.name == "footerMultiplier" }
+    }
+
+    var hasDisadvantagedFooterMultiplierForTesting: Bool {
+        disadvantagedContainer.children.contains { $0.name == "footerMultiplier" }
     }
 
     var laneTextForTesting: String? {

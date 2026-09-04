@@ -121,18 +121,11 @@ struct CountryMapLayoutTests {
         #expect(!layout.resourceFrame.intersects(layout.titleTextFrame))
         #expect(!layout.resourceFrame.intersects(layout.settingsControlFrame))
         #expect(!layout.progressFrame.intersects(layout.settingsControlFrame))
-        // The title ends before the progress segments where space permits;
-        // otherwise it keeps the authored minimum width (which wins).
-        #expect(
-            layout.titleTextFrame.maxX
-                == max(
-                    min(
-                        layout.settingsControlFrame.minX - 8,
-                        layout.progressFrame.minX
-                    ),
-                    layout.titleTextFrame.minX + CountryMapLayout.minimumTitleTextWidth
-                )
-        )
+        // The title ends exactly where progress begins — no frame overlap.
+        // Progress starts after the title's authored minimum width plus a
+        // gap, so the title always fits without overlapping progress.
+        #expect(!layout.titleTextFrame.intersects(layout.progressFrame))
+        #expect(layout.titleTextFrame.maxX == layout.progressFrame.minX)
     }
 
     @Test func referenceHeaderChromeDoesNotOverlap() throws {
@@ -143,13 +136,14 @@ struct CountryMapLayoutTests {
         )
 
         #expect(layout.resourceFrame == CGRect(x: 28, y: 739, width: 106, height: 44))
-        #expect(layout.titleTextFrame == CGRect(x: 30, y: 717, width: 160, height: 22))
-        #expect(layout.progressFrame == CGRect(x: 160, y: 717, width: 149, height: 22))
+        #expect(layout.titleTextFrame == CGRect(x: 30, y: 717, width: 168, height: 22))
+        #expect(layout.progressFrame == CGRect(x: 198, y: 717, width: 111, height: 22))
         #expect(layout.settingsControlFrame == CGRect(x: 319, y: 739, width: 44, height: 44))
         #expect(!layout.resourceFrame.intersects(layout.titleTextFrame))
         #expect(!layout.resourceFrame.intersects(layout.progressFrame))
         #expect(!layout.resourceFrame.intersects(layout.settingsControlFrame))
         #expect(!layout.titleTextFrame.intersects(layout.settingsControlFrame))
+        #expect(!layout.titleTextFrame.intersects(layout.progressFrame))
         #expect(!layout.progressFrame.intersects(layout.settingsControlFrame))
         #expect(layout.titleControlRegionFrame.contains(layout.resourceFrame))
         #expect(layout.titleControlRegionFrame.contains(layout.progressFrame))
@@ -164,7 +158,7 @@ struct CountryMapLayoutTests {
         )
 
         #expect(layout.settingsControlFrame == CGRect(x: 301, y: 589, width: 44, height: 44))
-        #expect(layout.titleTextFrame == CGRect(x: 30, y: 567, width: 160, height: 22))
+        #expect(layout.titleTextFrame == CGRect(x: 30, y: 567, width: 168, height: 22))
     }
 
     @Test func country1DefinitionMatchesCampaignAndRouteContract() {
