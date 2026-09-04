@@ -256,22 +256,26 @@ struct CountryMapLayout: Equatable {
             width: TitleControlMetrics.gearHitSize,
             height: TitleControlMetrics.gearHitSize
         )
-        let progressStartX = region.minX + 140
         let titleTextX = region.minX + TitleControlMetrics.sideInset
+        // Progress starts after the title's authored minimum width plus a
+        // gap, so the title frame can never overlap the progress frame.
+        // The title gets at least `minimumTitleTextWidth` (enforced by
+        // `isHeaderSupported`); progress gets the remaining space up to
+        // the settings gear.
+        let progressStartX = titleTextX
+            + TitleControlMetrics.minimumTitleTextWidth
+            + TitleControlMetrics.gearToTitleGap
         let unclampedTitleTextWidth = region.width
             - TitleControlMetrics.sideInset * 2
             - TitleControlMetrics.gearHitSize
             - TitleControlMetrics.gearToTitleGap
         // The title shares the lower header row with the progress segments:
-        // end it before they start, but never below the authored minimum
-        // title width (which wins when space does not permit both).
+        // end it before they start. Since `progressStartX` is derived from
+        // the title minimum, the title always fits without overlapping.
         let titleText = CGRect(
             x: titleTextX,
             y: region.minY,
-            width: max(
-                TitleControlMetrics.minimumTitleTextWidth,
-                min(unclampedTitleTextWidth, progressStartX - titleTextX)
-            ),
+            width: min(unclampedTitleTextWidth, progressStartX - titleTextX),
             height: TitleControlMetrics.progressHeight
         )
         // Reserve the lower row for the Country title/progress treatment and

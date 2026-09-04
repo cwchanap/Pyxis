@@ -234,15 +234,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func handleScoutCardTouch(at point: CGPoint) -> Bool {
         if scoutCardNode.overlayHitFrame?.contains(point) == true {
-            // The flavor overlay (`.flavor`, the only non-blocking kind) is
-            // confined to `nonBlockingOverlayFrame`, which can overlap the
-            // lowest city hit targets on the 393x852 fixture. Yield to city
-            // selection there so overlapped cities stay tappable during the
-            // 2.5s flavor lifetime. Blocking kinds (locked/completed/status/
-            // recoverableError) intentionally block scout entry per the
-            // AGENTS.md contract, so they keep swallowing overlapping taps.
-            if transientFeedback?.kind.blocksScoutEntry == false,
-               cityNumber(at: point) != nil {
+            // The Scout-card overlay (flavor or blocking) can overlap the
+            // lowest city hit targets on the 393x852 fixture. City selection
+            // is neither Attack nor scout entry, so yield to it for ALL
+            // overlay kinds — the city stays tappable for the overlay's
+            // lifetime. Blocking kinds still disable Attack (via
+            // `attackHitFrame = nil` in `applyFeedback`) and block scout
+            // entry (via the `blocksScoutEntry` gate on the card-body tap
+            // below), so yielding here does not re-enable either.
+            if cityNumber(at: point) != nil {
                 return false
             }
             return true
@@ -1543,6 +1543,12 @@ extension CountryMapScene {
     /// in `handleScoutCardTouch`. Mirrors `showFeedback(.flavor(...))`.
     func presentFlavorFeedbackForTesting(_ text: String) {
         showFeedback(.flavor(text))
+    }
+
+    /// Presents a blocking locked overlay for testing the city-yield path in
+    /// `handleScoutCardTouch`. Mirrors `showFeedback(.locked(cityNumber:))`.
+    func presentLockedFeedbackForTesting(cityNumber: Int) {
+        showFeedback(.locked(cityNumber: cityNumber))
     }
 
     func enterCityForTesting(_ cityNumber: Int) {
