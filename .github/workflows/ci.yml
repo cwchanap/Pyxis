@@ -106,6 +106,12 @@ jobs:
             echo "::group::Unit test attempt $attempt/$max_attempts"
             rm -rf build/TestResults/Unit.xcresult
             log="build/TestResults/unit-attempt-${attempt}.log"
+            # GitHub Actions' default shell runs with `bash -e`, and this
+            # step re-enables `pipefail`. A failing `xcodebuild | tee` would
+            # abort the step before PIPESTATUS[0] is captured, so disable
+            # errexit only around the pipeline, capture the status, then
+            # restore it so the retry classifier below can run.
+            set +e
             xcodebuild \
               -project "$PROJECT" \
               -scheme "$SCHEME" \
@@ -118,6 +124,7 @@ jobs:
               -only-testing:PyxisTests \
               -skip-testing:PyxisUITests 2>&1 | tee "$log"
             status=${PIPESTATUS[0]}
+            set -e
             echo "::endgroup::"
             if [ $status -eq 0 ]; then
               break
@@ -208,6 +215,10 @@ jobs:
             echo "::group::UI test attempt $attempt/$max_attempts"
             rm -rf build/TestResults/UI.xcresult
             log="build/TestResults/ui-attempt-${attempt}.log"
+            # Disable errexit only around the pipeline so a failing
+            # `xcodebuild | tee` does not abort the step before PIPESTATUS[0]
+            # is captured (see the unit-test step for rationale).
+            set +e
             xcodebuild \
               -project "$PROJECT" \
               -scheme "$SCHEME" \
@@ -218,6 +229,7 @@ jobs:
               test \
               -only-testing:PyxisUITests 2>&1 | tee "$log"
             status=${PIPESTATUS[0]}
+            set -e
             echo "::endgroup::"
             if [ $status -eq 0 ]; then
               break
