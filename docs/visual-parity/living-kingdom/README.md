@@ -1,10 +1,10 @@
 # Living Kingdom art → code handoff
 
-## Purpose
+## Purpose and gate
 
-This directory is the single human-readable handoff for **HPA-479** production art and the later **HPA-478** runtime integration.
+This directory is the single human-readable handoff for **HPA-479** production art and later **HPA-478** runtime integration. It is documentation, not a runtime manifest/parser.
 
-The HPA-479 draft PR is opened with this contract before bulk image/animation authoring. Production metadata is added to this same README atomically with the corresponding final exports; there is no runtime JSON manifest or parser.
+The HPA-479 draft PR starts with this planning contract. **Bulk art generation remains blocked until the exact four `Pyxis_Living_Kingdom_Concept_References.zip` boards are copied unchanged into `source/`, SHA-256 hashed, and reviewed against the written exclusions.** Until that happens, this is a production-ready geometry/naming plan, not an approved source-reference pack.
 
 ## Planning baseline
 
@@ -12,30 +12,36 @@ The HPA-479 draft PR is opened with this contract before bulk image/animation au
 - Existing visual baseline: `docs/visual-parity/forged-ui/`
 - Corrected-reference viewport: logical **393×852**
 - Country 1 map source space: **1024×1536**
-- Runtime fortress anchor: **bottom center**
+- Shipping `enemy-city.png`: **1223×1286 px**
+- Shipping `battlefield-backdrop.png`: **864×1821 px**; Task 1 mechanically confirms this immutable-baseline expectation before production
+- Runtime fortress anchor: **bottom center `(0.5, 0)`**
 - Regular Forged enemy-city display height: **132 pt**
-- Compact-layout maximum target is approximately **150 pt**
 - Art direction: **anime-inspired painted fantasy environments**, subordinate to Forged HUD/gameplay readability
 
-The original mood boards come from `Pyxis_Living_Kingdom_Concept_References.zip` in the planning conversation. The four exact source boards are copied into `source/` and hashed before bulk generation begins. They remain mood/composition references only; this written contract wins when the boards depict mechanics Pyxis does not have.
+The four source boards remain mood/composition references only. This written contract wins whenever a board depicts mechanics Pyxis does not have.
 
-## Game contract that art must not change
+## Game contract art must not change
 
-Keep the current fixed-camera layered 2D/SpriteKit presentation, three marching lanes, Battle/Camp/Map tabs, five existing troop types, gold-only economy, authored city identities, current HP/reward/unlock behavior, 8-hour idle cap, and existing report/feedback surfaces.
+Keep the current fixed-camera layered 2D/SpriteKit presentation, three marching lanes, Battle/Camp/Map tabs, five troop types, gold-only economy, authored city identities, HP/reward/unlock behavior, 8-hour idle cap, and existing report/feedback surfaces.
 
 Do not bake UI, text, counters, resources, objectives, touch targets, phone frames, claim buttons, invented city/level data, or new mechanics into scene textures.
 
 ## Fortress asset contract
 
-All 16 city sprites:
+`BattleScene.fitBattleNode` scales an image-backed fortress from its **full sprite canvas height**. Alpha bounds are not a runtime sizing API.
 
-- are transparent **768×512 px** PNGs;
-- share one bottom-center anchor, ground baseline, horizontal gate center, camera, and lighting direction;
-- keep the main gate centered and visually meeting the lower baseline so the existing center-lane impact reads correctly;
-- remain clean at 132 pt regular and roughly 150 pt maximum displayed height;
-- may change damage detail/rubble between stages but must not require per-stage layout or anchor changes.
+All 16 city sprites therefore:
 
-Runtime stage thresholds used later by HPA-478:
+- are transparent **512×540 px** PNGs;
+- render at about **125 pt wide × 132 pt high** on the regular Forged phone, closely matching the shipping city envelope;
+- share bottom-center anchor `(0.5, 0)`, bottom-edge ground baseline, horizontal gate center, camera, and lighting direction;
+- keep the main gate centered on the canvas midpoint so the existing center-lane impact still reads as a gate hit;
+- do not add transparent padding below the visual ground or use padding to manipulate displayed scale;
+- keep the intact structural silhouette occupying most of the canvas height; damage/rubble may change measured alpha bounds but must not require a different runtime size or anchor.
+
+Measured alpha bounds are recorded for art review/provenance only. HPA-478 must not add a fortress body-region geometry type just to compensate for inconsistent exports.
+
+### Stage thresholds
 
 | Remaining HP | Stage |
 | --- | --- |
@@ -44,33 +50,38 @@ Runtime stage thresholds used later by HPA-478:
 | `> 0% ... 25%` | breached |
 | `0%` / pending conquest | conquered |
 
-### Required fortress image sets
+### Authoritative city → family mapping
+
+The table is authoritative by **city number**. Never infer it from `CityDefenseTrait`.
 
 | Family | City use | Required names |
 | --- | --- | --- |
-| Frontier | Cities 1–6, 8, 10, 11, 14 | `lk-city-frontier-{intact,damaged,breached,conquered}` |
-| Ember | City 7 Emberford, City 12 Ashbridge | `lk-city-ember-{intact,damaged,breached,conquered}` |
-| Arcane | City 9 Runewatch, City 13 Starveil Citadel | `lk-city-arcane-{intact,damaged,breached,conquered}` |
-| Royal | City 15 Crownspire Keep | `lk-city-royal-{intact,damaged,breached,conquered}` |
+| Frontier | Cities 1–6, 8, 10, **11**, 14 | `lk-city-frontier-{intact,damaged,breached,conquered}` |
+| Ember | 7 Emberford, 12 Ashbridge | `lk-city-ember-{intact,damaged,breached,conquered}` |
+| Arcane | 9 Runewatch, 13 Starveil Citadel | `lk-city-arcane-{intact,damaged,breached,conquered}` |
+| Royal | 15 Crownspire Keep | `lk-city-royal-{intact,damaged,breached,conquered}` |
 
-For each final PNG, the production commit records its measured alpha bounds `(minX, minY, maxX, maxY)` and generation provenance in the inventory section below. Bounds are measured from the actual export, not guessed in this planning-only draft.
+City 11 Kingshield Keep intentionally remains Frontier even though it shares `.reinforcedKeep` with City 15.
 
 ## Battlefield treatment contract
 
-The existing `battlefield-backdrop` remains the frontier environment. Landmark identity layers are transparent overlays:
+The frontier environment remains the shipping `battlefield-backdrop`. Add three transparent overlays:
 
 - `lk-battlefield-ember`
 - `lk-battlefield-arcane`
 - `lk-battlefield-royal`
 
-Each overlay uses **exactly the same pixel canvas and aspect ratio as the current `Pyxis/Assets.xcassets/battlefield-backdrop.imageset/battlefield-backdrop.png`**. The image worker records the numeric source dimensions from local `sips` inspection before producing these overlays.
+Each overlay:
 
-Rules:
+- is **864×1821 px**, transparent;
+- uses the same aspect-fill transform as the shipping backdrop;
+- is intended for `GameUITheme.Z.background`, **under** `forgedAtmosphereNode` (`background + 1`) and under lane terrain (`z = -1`);
+- paints no second fortress;
+- leaves all three lane corridors readable;
+- keeps important detail in the 393×852 crop;
+- uses fire/wards/banners as identity only, not as new attacks/shields/resources.
 
-- no second fortress painted into the treatment;
-- all three lanes remain readable;
-- primary accents stay visible in the 393×852 aspect-filled crop;
-- ember fire/oil, arcane wards, and royal banners/materials are identity only and must not imply new attacks, shields, or interactable systems.
+HPA-479 supplies only the art and this z-order contract. HPA-478 performs the node insertion.
 
 ## Shared transition effects
 
@@ -78,35 +89,39 @@ Rules:
 
 - names: `lk-fx-breach-01` ... `lk-fx-breach-06`
 - canvas: **512×512**, transparent
-- registration: shared bottom-center impact convention
+- SpriteKit anchor: **`(0.5, 0)`**
+- impact: **canvas bottom center**
 - duration: **0.30 s total**, `0.05 s/frame`
 - loop: no
-- terminal state: fade to transparent; `*-breached` static city art owns the result
+- final frame: **fully transparent**
+- terminal appearance: `*-breached` static fortress
 
 ### Final collapse
 
 - names: `lk-fx-collapse-01` ... `lk-fx-collapse-06`
 - canvas: **512×512**, transparent
-- registration: same shared bottom-center impact convention
+- SpriteKit anchor: **`(0.5, 0)`**
+- impact: **canvas bottom center**
 - duration: **0.42 s total**, `0.07 s/frame`
 - loop: no
-- terminal state: fade to transparent; `*-conquered` static city art owns the result
+- final frame: **fully transparent**
+- terminal appearance: `*-conquered` static fortress
+
+Both sequences remain positioned at the same impact point throughout playback and animate only dust/debris/atmosphere, not a second fortress silhouette.
 
 ### Ambient textures
 
 | Asset | Canvas | Intended use |
 | --- | ---: | --- |
 | `lk-fx-smoke-soft` | 256×256 transparent | simple drift/fade near damaged/breached city |
-| `lk-fx-ember-specks` | 256×256 transparent | subtle Ember family atmosphere |
+| `lk-fx-ember-specks` | 256×256 transparent | subtle Ember atmosphere |
 | `lk-fx-ward-glow` | 512×512 transparent | subtle Arcane pulse/fade |
 
-These textures are intentionally simple enough for SpriteKit actions; no shader/VFX framework or authored full-screen video is required.
+## Living-map registration and scale
 
-## Living-map registration
+Country 1 stays in the shipping **1024×1536 canonical source space**. Overlay canvas sizes below are canonical pixels, **not display points**.
 
-The Country 1 authored map stays unchanged at **1024×1536** with its existing 15 anchors and 14 sequential routes.
-
-The repair story uses the existing **Granite Pass (City 6) → Emberford (City 7)** segment:
+The repair story uses **Granite Pass (6) → Emberford (7)**:
 
 | Registration | Canonical source coordinate |
 | --- | ---: |
@@ -116,33 +131,51 @@ The repair story uses the existing **Granite Pass (City 6) → Emberford (City 7
 | Segment length | `137.8760 px` |
 | Segment direction | `60.9888°` from +X |
 
+Runtime sizing contract for HPA-478:
+
+```text
+mapScale = displayedBackdropFrame.width / 1024
+runtimeOverlaySize = canonicalPixelSize × mapScale
+```
+
+Do not render a 96 px overlay as 96 pt or a 192 px patch as 192 pt.
+
 Required map assets:
 
-| Asset | Canvas / anchor | Contract |
+| Asset | Canonical canvas | Contract |
 | --- | --- | --- |
-| `lk-map-secured-city` | 96×96 transparent, center | combined warm-light + small secured-banner treatment centered on an existing city anchor |
-| `lk-map-caravan` | 128×64 transparent, center, faces +X | small decorative caravan; HPA-478 may rotate it along eligible existing routes |
-| `lk-map-route-6-7-worn` | 192×192 transparent, center | pre-composed to the canonical 6→7 orientation, registered at the midpoint above |
-| `lk-map-route-6-7-repaired` | 192×192 transparent, center | identical canvas/registration; changes bridge/road condition only |
+| `lk-map-secured-city` | 96×96 transparent, center | low-alpha warm halo + small banner; keep the center number readable and keep the upper-right area clear for the existing conquered marker |
+| `lk-map-caravan` | 128×64 transparent, center, faces +X | quiet decorative caravan; HPA-478 rotates/scales it along existing routes |
+| `lk-map-route-6-7-worn` | 192×192 transparent, center | pre-composed to the canonical 6→7 orientation at the midpoint above |
+| `lk-map-route-6-7-repaired` | 192×192 transparent, center | identical canvas/registration; bridge/road condition only |
 
-All map decorations are noninteractive. They do not move anchors, alter route topology, add income/production, or cover city targets/Scout/Attack UI.
+Map decorations are noninteractive. They do not move anchors, change route topology, add economy/production, or alter the existing 44×44 hit targets.
 
 ## Anime-fantasy generation brief
 
-Use this shared direction for production prompts:
-
-> Anime-inspired painted fantasy environment art for a mobile strategy game; clean readable silhouette, controlled shape language, restrained detail, stylized stone/fire/magical light, fixed camera, strong value separation, no characters, no UI, no text, transparent scene asset where requested. Preserve the exact supplied canvas, common ground baseline, horizontal gate center, camera, scale, and lighting direction across variants. Keep decoration subordinate to the existing Forged dark-iron/gold HUD and three gameplay lanes.
+> Anime-inspired painted fantasy environment art for a mobile strategy game; clean readable silhouette, restrained detail, stylized stone/fire/magical light, fixed camera, strong value separation, no characters, no UI, no text, transparent scene asset where requested. Preserve the exact supplied canvas, common ground baseline, horizontal gate center, camera, scale, and lighting direction across variants. Keep decoration subordinate to the Forged dark-iron/gold HUD and three gameplay lanes.
 
 Family emphasis:
 
 - **Frontier:** practical gray/brown stone and timber, muted banners.
 - **Ember:** bridge/gate cues, oil braziers, orange ember light; no gameplay fire system.
-- **Arcane:** cool cyan/blue ward motifs; no shield UI or second HP concept.
-- **Royal:** refined stone/metal, royal banners, grander but still bounded silhouette.
+- **Arcane:** cool cyan/blue ward motifs; no shield UI/second HP concept.
+- **Royal:** refined stone/metal, royal banners, grander but inside the same 512×540 envelope.
 
-## Corrected reference inventory
+## Corrected references use real shipping plates
 
-The final asset PR builds these 393×852 composition references from the production assets themselves:
+HPA-479 does not have Living Kingdom Swift integration, so it must not draw replacement Forged chrome. Only the new scene-art pixels are composited onto shipping screenshots.
+
+Baseline plates from `docs/visual-parity/forged-ui/native/`:
+
+- Battle and landmark references: `battle-normal-393x852@3x.png`, downsampled to 393×852 before compositing;
+- early map: `map-attackable-locked-393x852@3x.png`;
+- complete map: `map-complete-393x852@3x.png`;
+- offline conquest: `conquest-idle-393x852@3x.png`.
+
+For `map-partial.png`, first capture an untouched shipping-only plate with **no code changes**: use the existing DEBUG jump-to-city tool to jump to City 8, switch to Map, and take a native 393×852 framebuffer screenshot. Store the untouched source plate and capture provenance under `source/`. This gives a truthful state where Cities 6 and 7 are already complete and the repaired crossing is eligible.
+
+Required final reference files:
 
 ### Destruction
 
@@ -151,13 +184,13 @@ The final asset PR builds these 393×852 composition references from the product
 - `references/battle-frontier-breached.png`
 - `references/battle-frontier-conquered.png`
 
-### Landmark cities
+### Landmarks
 
 - `references/battle-emberford.png`
 - `references/battle-runewatch.png`
 - `references/battle-crownspire.png`
 
-### Living map
+### Map
 
 - `references/map-early.png`
 - `references/map-partial.png`
@@ -168,42 +201,66 @@ The final asset PR builds these 393×852 composition references from the product
 - `references/offline-damage.png`
 - `references/offline-conquest.png`
 
-Reference frames retain real Forged chrome and truthful game state. Offline damage does not fabricate a reward/claim; offline conquest reuses the conquered fortress behind the existing pending conquest report.
+`offline-damage.png` replaces only the fortress/art layer on the real Battle plate. **Do not fabricate an elapsed-time line or redraw the feedback UI.** The shipping transient copy is `Buildings dealt N idle damage.` and HPA-478's native runtime acceptance owns proof of that live text.
 
-## Production inventory and provenance rule
+`offline-conquest.png` uses the real `conquest-idle` plate and changes only underlying scene-art pixels. Preserve the shipping report/values/one Continue action.
 
-Every final asset export is documented in this README in the same commit that adds it. Each entry records:
+No reference may generate or modify gold totals, troop counts, timers, tabs, buttons, or other HUD copy.
 
-1. exact asset name or frame range;
+## Asset-catalog convention
+
+New runtime art lives in `Pyxis/Assets.xcassets/` as unique `lk-*` image sets.
+
+- fortress, battlefield, ambient, and map assets: **one universal 1x entry only**;
+- breach/collapse frame sets: universal 1x filename plus empty 2x/3x entries, mirroring existing soldier-animation frame sets;
+- no multi-resolution generation pipeline;
+- no replacement of existing assets;
+- no `project.pbxproj` change.
+
+## Production inventory and provenance
+
+Every final export is documented here in the same commit that adds it. Record:
+
+1. exact asset name/frame range;
 2. pixel dimensions;
 3. alpha/opaque treatment;
 4. measured nontransparent bounds;
 5. anchor/baseline or canonical-map registration;
-6. intended displayed size/use;
-7. frame timing/loop behavior where applicable;
-8. generator/tool and version when known;
+6. intended use and map scale rule where relevant;
+7. timing/loop behavior where applicable;
+8. generator/tool/version when known;
 9. prompt revision/reference-board source;
 10. manual edit/compositing note.
 
-The initial planning commit intentionally contains only the fixed contract above. The inventory grows with real production exports so it never claims measured metadata for files that do not yet exist.
+Alpha bounds are review/provenance metadata; they are not an HPA-478 layout API.
 
-## Asset-catalog convention
+## Repeatable validation
 
-New runtime art lives in `Pyxis/Assets.xcassets/` as uniquely named `lk-*` `.imageset` directories. Follow the repository convention of one universal source PNG in the `1x` slot and unassigned `2x`/`3x` entries. SpriteKit sets the displayed size explicitly.
+When production assets land, add `tools/tests/test_living_kingdom_asset_pack.py`. It validates the **38** `lk-*` sets, exact dimensions, alpha presence, transparent final FX frames, and image-set entry conventions with Pillow/`unittest`.
 
-Do not replace any existing asset consumed by `main`, and do not edit `project.pbxproj`.
+Run manually:
+
+```bash
+python3 -m unittest discover -s tools/tests
+```
+
+The current GitHub Actions workflow does **not** invoke `tools/tests`; HPA-479 does not modify CI merely to add this asset gate.
+
+Also run an Xcode build so the asset catalog accepts every `Contents.json`.
 
 ## Acceptance
 
-Before this asset PR leaves Draft:
+Before this PR leaves Draft:
 
+- the four exact concept boards are present, hashed, and exclusion-reviewed;
 - all **38** `lk-*` image sets exist: 16 fortress + 3 battlefield + 15 FX + 4 map;
-- all fortress families have four aligned stages;
-- all required corrected references/contact sheets/animation previews exist;
-- actual dimensions/alpha/bounds/registration/timing/provenance are recorded here;
-- Emberford, Runewatch, and Crownspire are visually distinct at phone scale;
-- map overlays align to existing anchors/routes and leave interaction surfaces readable;
-- references contain no invented game mechanics or false offline rewards;
+- every fortress uses the **512×540** full-canvas scaling contract;
+- battlefield overlays are 864×1821 and authored for backdrop-level z-order under the Forged atmosphere;
+- FX use `(0.5, 0)`, bottom-center impact, and fully transparent final frames;
+- map overlays use canonical-pixel sizing plus `displayedBackdropFrame.width / 1024` runtime scale;
+- City 11 remains Frontier via the explicit city-number mapping;
+- corrected references/contact sheets/previews use real shipping chrome plates and contain no invented idle elapsed-time copy;
+- `python3 -m unittest discover -s tools/tests` passes;
 - Xcode builds the asset catalog successfully;
 - the PR contains no Swift/runtime, persistence, balance, project-file, CI, or Codecov changes.
 
