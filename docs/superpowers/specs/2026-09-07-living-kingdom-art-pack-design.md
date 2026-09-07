@@ -2,7 +2,9 @@
 
 ## Status
 
-Approved planning contract for **HPA-479**. This draft PR is the single asset PR for the ticket: planning and handoff documentation land first, then the image/animation agent adds production assets to the same branch and PR.
+Planning contract for **HPA-479**. The draft PR is the single asset-production PR for this ticket: planning/handoff documentation lands first, then the image/animation agent adds production assets to the same branch and PR.
+
+**Source-reference gate:** the four original concept boards are not yet in the repository. Bulk image generation is blocked until Task 1 recovers the exact `Pyxis_Living_Kingdom_Concept_References.zip` boards, copies them unchanged into the PR, records SHA-256 hashes, and completes the exclusion review. Do not describe the production contract as source-approved before that gate passes.
 
 Runtime playback and gameplay integration belong to **HPA-478** and its separate single PR. HPA-479 must not add Swift runtime behavior.
 
@@ -17,45 +19,29 @@ Make Pyxis's existing Country 1 campaign feel more alive and memorable through p
 
 The art must fit the shipping Forged UI and current SpriteKit geometry rather than turning the concept boards into a new game design.
 
-## Decision summary
+## Selected shape
 
-Use a compact reusable art system rather than bespoke content for all 15 cities:
+Use a compact reusable art pack rather than bespoke content for all 15 cities:
 
 - **4 fortress families** — frontier, ember, arcane, royal;
 - **4 static stages per family** — intact, damaged, breached, conquered;
 - **3 transparent battlefield treatment overlays** — ember, arcane, royal; the existing battlefield remains the frontier treatment;
 - **2 short shared one-shot FX sequences** — breach and final collapse;
 - **3 small ambient textures** — smoke, embers, ward glow;
-- **4 map overlays** — secured-city treatment, caravan, worn bridge/road patch, repaired patch;
+- **4 map overlays** — secured-city treatment, caravan, worn 6→7 crossing, repaired 6→7 crossing;
 - **no separate offline-return illustration set** — offline presentation reuses the same damage/conquered assets plus the existing report/feedback UI.
 
-This is intentionally smaller than fifteen bespoke city environments and richer than recoloring the current city sprite. It keeps runtime mapping static and cheap while giving Cities 7, 9, and 15 a strong visual identity.
-
-## Alternatives considered
-
-### A. Fifteen bespoke city sets
-
-Highest variety, but it multiplies authoring, review, file size, and future maintenance while providing no new gameplay value. Rejected for HPA-479.
-
-### B. Four reusable families plus three landmark overlays — selected
-
-Enough variety to make the route feel authored, while every city still fits the same battle geometry and the runtime only needs a small static city-to-family mapping. This is the best balance for a hobby project.
-
-### C. Keep one city sprite and add color grading only
-
-Cheapest, but it does not make siege destruction or the three landmark cities visually legible enough. Rejected because it misses the approved visual direction.
+No runtime manifest, VFX manager, generated-asset framework, new renderer, or per-city asset system is needed.
 
 ## Authoritative inputs
 
-### Shipping game contract
-
-`main` at planning time is `41aeb806f8c4b6cdad6dede5855f90ad5a3614cd`, after the Forged UI work.
+Planning baseline: `main` at `41aeb806f8c4b6cdad6dede5855f90ad5a3614cd`, after the Forged UI work.
 
 The following remain authoritative over any concept art:
 
 - `Country1CityCatalog` for city names and identity;
 - `BattlefieldLayout` and `BattleScene` for city/gate/lane geometry;
-- `CountryMapLayoutDefinition.country1` and `CountryMapLayout` for map coordinates;
+- `CountryMapLayoutDefinition.country1` and `CountryMapLayout` for map coordinates and scale;
 - `KingdomGameState`, `BattleResult`, and `IdleProgressResult` for progression and outcomes;
 - `docs/visual-parity/forged-ui/` for the existing 393×852 visual composition and chrome.
 
@@ -63,104 +49,122 @@ No mock value becomes game data.
 
 ### Concept references
 
-The original four boards remain mood/composition references:
+The original four boards remain mood/composition references only:
 
 1. Siege Destruction
 2. Landmark Cities
 3. Living Kingdom Map
 4. Offline Return Reveal
 
-The source package is named `Pyxis_Living_Kingdom_Concept_References.zip` in the planning conversation. The exact source boards must be available to the image/animation agent before bulk production begins; do not substitute unrelated images.
-
-The written game contract in this spec and HPA-479 overrides invented cities, currencies, counters, objectives, or other mechanics shown in those boards.
+The exact four files from `Pyxis_Living_Kingdom_Concept_References.zip` must be copied without resampling/recompression into `docs/visual-parity/living-kingdom/source/` and hashed before bulk production. The written game contract overrides invented cities, currencies, counters, objectives, or mechanics shown on those boards.
 
 ### Visual direction: anime fantasy
 
-Use an **anime-inspired painted fantasy environment style** rather than photorealism or western dark-fantasy concept art:
+Use **anime-inspired painted fantasy environment art**, not photorealism or western dark-fantasy concept art:
 
-- clean, readable silhouettes and deliberate shape language;
+- clean readable silhouettes and deliberate shape language;
 - stylized painted stone, fire, magical light, banners, and atmosphere;
-- restrained line/detail density at phone scale;
-- cinematic color separation without turning the screen into a poster illustration;
+- restrained detail at phone scale;
+- cinematic color separation without turning the screen into poster art;
 - no character redesign, chibi reinterpretation, or new troop art;
 - no text, HUD, counters, buttons, phone frames, or interaction hints baked into scene textures.
 
-The art should sit naturally below the existing dark-iron/gold Forged chrome. Foreground lanes, soldiers, HP feedback, Scout content, city targets, and tabs must remain easier to read than the decoration.
+Foreground lanes, soldiers, HP feedback, Scout content, city targets, and tabs stay more readable than decoration.
 
 ## Runtime geometry the art must respect
 
-### Enemy fortress
+### Fortress canvas is the scaling contract
 
-`BattleScene` anchors image-backed battle structures at **bottom center** (`anchorPoint = (0.5, 0)`) and aspect-fits them by height.
+`BattleScene.makeBattleSprite` gives image-backed structures `anchorPoint = (0.5, 0)`. `BattleScene.fitBattleNode` then scales an `SKSpriteNode` from its **full sprite canvas height**, including transparent pixels. HPA-478 will keep that existing path; it will not add a second fortress-body geometry type merely to compensate for HPA-479 exports.
 
-On the regular Forged phone layout, the enemy city is rendered at **132 pt high**. Compact layouts derive the target from `BattlefieldLayout`; its structure cap is 144 pt and the enemy target is `structureHeight × 1.04`, so the art must remain clean at roughly **150 pt maximum displayed height**.
+At the baseline commit:
 
-All 16 fortress sprites therefore use one common production envelope:
+- shipping `enemy-city.png` is **1223×1286 px**, width:height ≈ **0.951**;
+- the regular Forged enemy city is rendered at **132 pt high**, making the shipping sprite roughly **126 pt wide**;
+- compact layouts derive the target height from `BattlefieldLayout`, up to roughly 150 pt.
 
-- canvas: **768×512 px**;
-- transparent background;
-- bottom-center runtime anchor;
-- same ground baseline and city center across every family/stage;
-- main gate centered on the horizontal midpoint and visually meeting the bottom baseline so the existing center-lane impact point still reads as the gate impact;
-- no family may need a different SpriteKit anchor or a different battlefield layout;
-- damage may change internal detail and rubble, but not move the whole silhouette, ground plane, or gate center.
+Therefore all 16 Living Kingdom fortress sprites use one fixed, near-square production canvas:
 
-Each exported image set records its measured nontransparent bounds in the handoff README. Bounds are measured from the final PNG rather than guessed in advance.
+- canvas: **512×540 px** transparent PNG;
+- width:height ≈ **0.948**, so a 132 pt height render is ≈ **125 pt wide**;
+- runtime anchor: bottom center `(0.5, 0)`;
+- visual ground meets the bottom edge; do not add transparent padding below the baseline;
+- main gate is centered on the horizontal midpoint and remains aligned with the center-lane impact;
+- same canvas, baseline, horizontal gate center, camera, and lighting direction for every family/stage;
+- intact structural silhouette should occupy most of the canvas height, comparable to the shipping city; damage/rubble may change alpha bounds but must not use padding to control runtime scale.
+
+Measured nontransparent bounds remain useful **documentation only**. HPA-478 does not use them to resize or position the fortress. Do not add `FortressAnimationGeometry`/body-region runtime APIs for this ticket.
 
 ### Battlefield treatment overlays
 
-The current `battlefield-backdrop` remains the frontier background. Ember, arcane, and royal identity comes from transparent overlays named below, layered over that same background.
+The existing frontier `battlefield-backdrop.png` is **864×1821 px**, opaque, and aspect-filled by `BattleScene`. Task 1 mechanically confirms those baseline dimensions before authoring.
 
-Each treatment overlay must:
+Each of `lk-battlefield-{ember,arcane,royal}`:
 
-- use the **exact pixel canvas and aspect ratio of the current `battlefield-backdrop.png`**;
-- remain transparent outside its treatment art;
-- keep all three lane corridors readable;
-- avoid painting a second enemy fortress into the background;
-- keep important detail inside the reference phone's visible crop when the source is aspect-filled;
-- contain no gameplay-significant objects that could be mistaken for additional towers, shields, attacks, or resources.
+- is transparent **864×1821 px**;
+- uses the same aspect-fill transform as `battlefieldBackdropNode`;
+- is intended to sit with the backdrop at `GameUITheme.Z.background`, **below** `forgedAtmosphereNode` (`background + 1`) and below lane terrain (`z = -1`);
+- paints no second fortress;
+- leaves all three lane corridors readable through contrast/value control;
+- keeps important accents inside the reference-phone visible crop;
+- contains no gameplay-significant object that looks like another tower, shield, attack, or resource.
 
-Matching the existing backdrop canvas avoids a second camera/transform contract.
+This is a handoff z-order contract for HPA-478, not new runtime code in HPA-479.
 
-### Country map
+### Country-map canonical space and display scale
 
-Country 1 uses a canonical **1024×1536** authored map with 15 city anchors and 14 primary sequential route segments. Living-map art must overlay this coordinate system; it must not repaint or move the route.
+Country 1 stays in the existing **1024×1536** authored source space with 15 city anchors and 14 sequential primary routes.
 
-The selected repair story is the existing **City 6 Granite Pass → City 7 Emberford** segment because Emberford is already authored as the burning-oil bridge crossing.
-
-Canonical registration:
+The repair story uses **City 6 Granite Pass → City 7 Emberford**:
 
 - City 6: `(360.2432, 520.0896)`
 - City 7: `(427.1104, 640.6656)`
 - segment midpoint: `(393.6768, 580.3776)`
 - segment length: `137.8760 px`
-- segment direction: `60.9888°` from +X in the authored map coordinate system
+- segment direction: `60.9888°` from +X in authored map coordinates
 
-The worn/repaired patch is pre-composed in that orientation on a **192×192 transparent canvas** centered on the segment midpoint. HPA-478 only needs to transform that canonical midpoint with the same map transform used by the route; it does not need a generic overlay manifest or a second route model.
+The worn/repaired patch is pre-composed to that orientation on a **192×192 canonical-pixel transparent canvas** centered on the segment midpoint.
 
-Map decorations are always noninteractive and must not enlarge or cover the existing 44×44 city hit targets.
+Map overlay dimensions are **canonical source pixels, not SpriteKit points**. HPA-478 uses the same backdrop scale already computed by `CountryMapLayout`:
 
-## Fortress families
+```text
+mapScale = displayedBackdropFrame.width / 1024
+runtimeOverlaySize = canonicalPixelSize × mapScale
+```
 
-### Frontier
+On a 393-point-wide phone where width drives the scale, a 96 px secured-city canvas is about 37 pt wide and a 192 px route patch about 74 pt wide. HPA-478 must not display them as 96 pt / 192 pt nodes.
 
-Used by every Country 1 city not mapped below. Gray/brown stone, timber, muted flags, practical frontier construction. This is the baseline family and should be authored first.
+`lk-map-secured-city` shares the completed-city area with the current ~30 pt city circle, centered number label, and the existing conquered marker offset up-right. Author it as a low-alpha warm halo plus a small banner biased away from the upper-right marker; do not place opaque art across the number label or marker.
 
-### Ember
+All map decorations are noninteractive and do not change hit targets, anchors, route topology, or Scout/Attack behavior.
 
-Used by **City 7 Emberford** and **City 12 Ashbridge**. Warm orange light, bridge/gate cues, oil braziers and restrained ember atmosphere. Fire is visual identity only; it must not look like a new damage system.
+### FX attachment contract
 
-### Arcane
+Breach/collapse frames use **512×512 transparent canvases** with one explicit SpriteKit convention:
 
-Used by **City 9 Runewatch** and **City 13 Starveil Citadel**. Cool cyan/blue ward motifs and magical highlights. Wards must read as atmosphere/identity, not as a second HP shield or interactable barrier.
+- `anchorPoint = (0.5, 0)` for every FX frame;
+- impact origin = canvas bottom center;
+- frame position does not move during playback;
+- visual debris/dust expands around that origin; it does not animate/replace the fortress silhouette;
+- the **last frame is fully transparent**;
+- static `breached` / `conquered` fortress art owns the terminal state.
 
-### Royal
+README alpha bounds are recorded in PNG coordinates; runtime attachment remains the bottom-center SpriteKit anchor so HPA-478 does not need to infer Y-axis orientation from the image.
 
-Used by **City 15 Crownspire Keep** only. Stronger vertical silhouette, royal banners and refined stone/metal accents. It may feel grander but must still fit the same 768×512 canvas and the same runtime anchor/height budget.
+## Authoritative city → family table
+
+This table is presentation content. It is authoritative by **city number** and must not be inferred from `CityDefenseTrait`:
+
+| Family | Cities |
+| --- | --- |
+| Frontier | 1–6, 8, 10, **11**, 14 |
+| Ember | 7 Emberford, 12 Ashbridge |
+| Arcane | 9 Runewatch, 13 Starveil Citadel |
+| Royal | 15 Crownspire Keep |
+
+City 11 Kingshield Keep remains **Frontier** even though it shares `.reinforcedKeep` with City 15. HPA-478 may encode this as a small static projection beside `Country1CityCatalog`; it must not create a mapping service or derive family from defense trait.
 
 ## Destruction stages
-
-The runtime integration ticket uses these exact appearance boundaries:
 
 | Remaining city HP | Static asset stage |
 | --- | --- |
@@ -172,50 +176,39 @@ The runtime integration ticket uses these exact appearance boundaries:
 Art semantics:
 
 - **intact:** fully readable family silhouette;
-- **damaged:** cracks/chipped masonry/local smoke, without opening the gate;
-- **breached:** visibly broken gate and rubble, but still the same fortress footprint;
-- **conquered:** a stable ruined/secured aftermath, not an empty battlefield and not a different camera shot.
+- **damaged:** cracks/chipped masonry/local smoke, gate not yet open;
+- **breached:** visibly broken gate and rubble within the same footprint;
+- **conquered:** stable ruined/secured aftermath, not an empty battlefield or different camera shot.
 
-A large hit may skip stages at runtime, so every static stage must make sense when shown directly with no preceding animation.
+Every static stage must read correctly if runtime damage skips directly to it.
 
 ## Asset naming contract
 
 ### Fortress image sets — 16
 
-`lk-city-{family}-{stage}` where:
+`lk-city-{frontier|ember|arcane|royal}-{intact|damaged|breached|conquered}`
 
-- family: `frontier`, `ember`, `arcane`, `royal`
-- stage: `intact`, `damaged`, `breached`, `conquered`
-
-Examples:
-
-- `lk-city-frontier-intact`
-- `lk-city-ember-breached`
-- `lk-city-royal-conquered`
-
-### Battlefield treatment image sets — 3
+### Battlefield treatments — 3
 
 - `lk-battlefield-ember`
 - `lk-battlefield-arcane`
 - `lk-battlefield-royal`
 
-### Shared one-shot FX image sets — 12 frames
+### Shared one-shot FX — 12 frames
 
-Breach dust/debris, 6 frames:
+Breach:
 
 - `lk-fx-breach-01` ... `lk-fx-breach-06`
-- transparent **512×512 px** frames
-- one shot, **0.30 s total** (`0.05 s/frame`)
-- final frame fades to transparent; the static breached fortress owns the terminal appearance
+- 512×512 transparent
+- 0.30 s total, 0.05 s/frame
+- last frame fully transparent
 
-Final collapse, 6 frames:
+Collapse:
 
 - `lk-fx-collapse-01` ... `lk-fx-collapse-06`
-- transparent **512×512 px** frames
-- one shot, **0.42 s total** (`0.07 s/frame`)
-- final frame fades to transparent; the static conquered fortress owns the terminal appearance
-
-Both sequences share one bottom-center impact convention and must remain usable across all four fortress families.
+- 512×512 transparent
+- 0.42 s total, 0.07 s/frame
+- last frame fully transparent
 
 ### Ambient textures — 3
 
@@ -223,106 +216,106 @@ Both sequences share one bottom-center impact convention and must remain usable 
 - `lk-fx-ember-specks` — 256×256 transparent
 - `lk-fx-ward-glow` — 512×512 transparent
 
-These are simple reusable fade/drift textures, not authored videos or a VFX framework.
-
 ### Living-map image sets — 4
 
-- `lk-map-secured-city` — 96×96 transparent; combined warm-light/banner treatment centered on an existing city anchor
-- `lk-map-caravan` — 128×64 transparent; center anchor, visually faces +X so HPA-478 can rotate it along a route
-- `lk-map-route-6-7-worn` — 192×192 transparent; pre-registered to the selected canonical segment
-- `lk-map-route-6-7-repaired` — 192×192 transparent; same canvas/registration as the worn state
-
-No additional map geography, settlement simulation, production marker, collectable icon, or management affordance is added.
+- `lk-map-secured-city` — 96×96 canonical-pixel transparent canvas
+- `lk-map-caravan` — 128×64 canonical-pixel transparent canvas, faces +X
+- `lk-map-route-6-7-worn` — 192×192 canonical-pixel transparent canvas
+- `lk-map-route-6-7-repaired` — 192×192 canonical-pixel transparent canvas
 
 ## Asset-catalog convention
 
-New runtime art lives under `Pyxis/Assets.xcassets/` and uses unique new image-set names. Do not replace `enemy-city`, `battlefield-backdrop`, `country-map-backdrop`, `conquered-marker`, soldier art, or any other asset already consumed by `main`.
+Use new uniquely named image sets under `Pyxis/Assets.xcassets/`; never replace assets consumed by `main`.
 
-Follow the repository's existing simple image-set convention: one universal source PNG in the `1x` slot with the `2x`/`3x` entries present but unassigned. SpriteKit controls displayed size explicitly, so no generated multi-resolution pipeline is needed for this ticket.
+Match the repository's actual conventions instead of forcing one shape everywhere:
 
-Do not edit `project.pbxproj`; the project uses synchronized groups.
+- fortress, battlefield, ambient, and map image sets: **one universal 1x entry only**, like `enemy-city`;
+- breach/collapse animation-frame image sets: universal 1x filename plus empty 2x/3x entries is allowed/preferred to mirror existing soldier-frame sets;
+- no generated multi-resolution pipeline;
+- no `project.pbxproj` edit.
 
 ## Handoff metadata
 
-`docs/visual-parity/living-kingdom/README.md` is the single human-readable art-to-code contract. It is not parsed at runtime.
+`docs/visual-parity/living-kingdom/README.md` is the single human-readable art→code contract. It is not parsed at runtime.
 
-For each produced family/sequence/overlay, record:
+For each final asset/family/sequence, record:
 
 - exact asset name(s);
 - pixel dimensions;
 - alpha/opaque treatment;
 - measured nontransparent bounds;
-- common anchor/baseline;
-- gate/impact attachment convention where relevant;
-- intended displayed size or canonical-map registration;
+- bottom-center anchor/baseline or canonical-map registration;
+- map canonical size and runtime scale rule where relevant;
 - sequence timing/loop behavior where relevant;
-- source/generation provenance, including generator/tool, prompt revision, concept-reference board(s), and manual edits.
+- source/generation provenance, including tool, prompt revision, source board(s), and manual edits.
 
-Metadata is written when the corresponding final export is added; no separate JSON manifest is introduced.
+## Corrected reference strategy: real plates, art-only compositing
 
-## Corrected 393×852 reference set
+HPA-479 cannot produce a native screenshot of Living Kingdom runtime because HPA-478 owns the Swift integration. Therefore HPA-479 references must **not redraw Forged chrome**. They composite only new scene art onto real shipping screenshots/plates.
 
-The asset PR must include game-composition references made from the same production assets, not separate poster art.
+Use these baseline plates from `docs/visual-parity/forged-ui/native/`:
 
-Required reference frames:
+- Battle/landmarks: `battle-normal-393x852@3x.png`, downsampled to logical 393×852 before compositing;
+- Map early: `map-attackable-locked-393x852@3x.png`;
+- Map complete: `map-complete-393x852@3x.png`;
+- Offline conquest: `conquest-idle-393x852@3x.png`.
 
-### Destruction
+For the repaired 6→7 partial-map showcase, capture one additional **shipping-only pre-art plate** without code changes: use the existing DEBUG jump-to-city tool to jump to City 8, switch to Map, and take a native 393×852 framebuffer screenshot. Store that untouched plate under `docs/visual-parity/living-kingdom/source/` with capture provenance, then composite the HPA-479 map overlays onto it. Do not fabricate map completion chrome.
 
-- frontier intact
-- frontier damaged
-- frontier breached
-- frontier conquered
+Required corrected references:
 
-### Landmarks
+- `battle-frontier-{intact,damaged,breached,conquered}.png`
+- `battle-emberford.png`
+- `battle-runewatch.png`
+- `battle-crownspire.png`
+- `map-early.png`
+- `map-partial.png` (shipping City-8 pre-art plate; 6→7 repair eligible)
+- `map-complete.png`
+- `offline-damage.png`
+- `offline-conquest.png`
 
-- Emberford / City 7
-- Runewatch / City 9
-- Crownspire Keep / City 15
+`offline-damage.png` may replace only the fortress/art layer on the Battle plate. **Do not draw new idle chrome or elapsed-time copy.** The shipping transient copy is `Buildings dealt N idle damage.`; HPA-478's native runtime acceptance will prove the real text/feedback surface.
 
-### Living map
+`offline-conquest.png` uses the real `conquest-idle` plate and replaces only the underlying fortress/art pixels; retain the existing report, values, and one Continue action unchanged.
 
-- early campaign
-- partially secured campaign, including the repaired 6→7 crossing when eligible
-- Country 1 complete
-
-### Offline return
-
-- positive offline damage without conquest
-- offline conquest with the existing pending conquest report over the conquered aftermath
-
-All references use logical **393×852** composition and retain the Forged chrome. Runtime-derived values are represented truthfully; no wood, stone, gems, invented troop stock, claim button, fake elapsed time, or reward appears.
-
-Store source frames/contact sheets and lightweight animation previews under `docs/visual-parity/living-kingdom/`. These files are review evidence, not a pixel-diff CI framework.
+Do not generate gold totals, troop counts, timers, buttons, or other HUD text in HPA-479 reference images.
 
 ## Validation strategy
 
-HPA-479 changes assets and documentation only, so validation stays simple:
+HPA-479 remains runtime-free, but asset validation is repeatable:
 
 1. inspect every PNG at actual phone-scale composition for lane/HUD/card clearance;
-2. verify alpha, dimensions, stage alignment, shared baseline, and animation-frame registration;
-3. verify the map patch against the canonical 1024×1536 map and selected 6→7 segment;
-4. build the app so every new `.imageset/Contents.json` is accepted by the asset catalog;
-5. confirm existing screens/gameplay remain unchanged because no runtime code references the new assets yet;
-6. confirm the PR diff contains no Swift, persistence, balance, routing, project-file, or runtime-manifest changes.
-
-Existing CI/Codecov gates stay intact; there is no reason to lower or exclude anything for an asset-only PR.
+2. verify alpha, exact dimensions, fortress/FX registration, stage alignment, and map canonical sizing;
+3. add `tools/tests/test_living_kingdom_asset_pack.py` when the production assets land; it validates the 38 image-set inventory, dimensions, alpha, and image-set entry conventions using Pillow/`unittest`;
+4. run `python3 -m unittest discover -s tools/tests` as a **manual repository gate** (current GitHub Actions does not invoke this suite); do not modify CI for HPA-479;
+5. build the app so every new `Contents.json` is accepted by the asset catalog;
+6. confirm the PR diff contains no Swift/runtime, persistence, balance, routing, project-file, CI, or Codecov changes.
 
 ## Non-goals
 
 HPA-479 does not include:
 
 - Swift scene playback or stage-selection code;
-- HP thresholds in persisted state;
+- HP thresholds persisted in save data;
 - new city/troop/building mechanics;
-- Rally, direct-lane deployment, Chronicle, Country 2, prestige, production chains, rebuild timers, collectibles, or extra currencies;
+- Rally, direct-lane deployment, Chronicle, Country 2, prestige, production chains, rebuild timers, collectibles, extra currencies;
 - 15 unique battle environments;
 - soldier re-authoring;
 - audio production;
-- 3D, skeletal animation, a new renderer, a VFX manager, a runtime asset manifest/parser, or an asset-generation framework;
-- a second UI redesign or a custom font.
+- 3D, skeletal animation, a new renderer, VFX manager, runtime asset manifest/parser, or asset-generation framework;
+- a second UI redesign or custom font.
 
 ## Done definition
 
-HPA-479 is ready to merge only when the same draft PR contains the finalized handoff README, all production asset image sets, corrected 393×852 references/contact sheets/previews, and provenance; the app builds; visual review confirms the real game geometry and anime-fantasy direction; and the diff remains asset/documentation-only.
+HPA-479 is ready to merge only when this same draft PR contains:
 
-After merge, HPA-478 consumes this fixed naming/anchor/timing contract. Any later runtime mismatch is solved in HPA-478 unless the production asset itself violates this contract.
+- the four exact source concept boards with hashes and completed exclusion review;
+- all **38** `lk-*` runtime image sets;
+- corrected references/contact sheets/previews built from production art and real shipping plates;
+- complete handoff/provenance metadata;
+- passing `python3 -m unittest discover -s tools/tests` asset validation;
+- successful Xcode asset-catalog build;
+- visual review confirming the 512×540 fortress envelope, backdrop z-order intent, map source-scale contract, and anime-fantasy direction;
+- no Swift/runtime, project-file, CI, or Codecov changes.
+
+After merge, HPA-478 consumes the fixed names/anchors/timings/scale rules and implements static city→family selection, HP-stage projection, one-shot live transition effects, and map overlay sizing through the existing layout scale. No second art pass should be required for geometry mistakes already covered by this contract.
