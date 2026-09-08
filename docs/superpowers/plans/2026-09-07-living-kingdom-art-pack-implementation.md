@@ -2,82 +2,78 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Produce the HPA-479 Living Kingdom anime-fantasy fortress, battlefield-treatment, shared-FX, living-map, and corrected-reference pack without changing shipping gameplay/runtime code.
+**Goal:** Produce the HPA-479 Living Kingdom anime-fantasy fortress, battlefield-treatment, transition-FX, living-map, and corrected-reference pack with CI-protected asset geometry and reproducible DEBUG capture tooling, without changing shipping gameplay/runtime behavior.
 
-**Architecture:** Keep art as a static human-readable contract. Four fortress families use one near-square full-canvas scaling envelope, landmark treatments reuse the shipping backdrop transform/z-order, shared FX use one explicit bottom-center anchor, and map overlays live in the existing 1024×1536 canonical source space. `docs/visual-parity/living-kingdom/README.md` is the handoff; HPA-478 later consumes the fixed names/anchors/timings/scale rules.
+**Architecture:** Keep the art contract static and concrete. Four fortress families share one canvas plus alpha-envelope gate; three battlefield overlays reuse the shipping backdrop transform at a fixed fractional z-position; two short transition sequences share the fortress pixel scale; four map overlays use the existing 1024×1536 source space. Reuse existing asset-catalog writing, Swift asset tests, and `ForgedVisualFixture` instead of adding parallel infrastructure.
 
-**Tech Stack:** Xcode asset catalogs, PNG/RGBA, existing SpriteKit geometry, image-generation/animation tooling, Pillow + Python `unittest`, macOS `sips`/`shasum`, Xcode/iOS Simulator.
+**Tech Stack:** Xcode asset catalogs, PNG/RGBA, Swift 5, SpriteKit/UIKit test tooling, Swift Testing, XCTest UI tests, existing `tools/slice_soldier_animation_strips.py` catalog writer, Xcode/iOS Simulator.
 
 **Spec:** `docs/superpowers/specs/2026-09-07-living-kingdom-art-pack-design.md`
 
 ## Global Constraints
 
-- This is **one HPA-479 PR**. Tasks below are commits/review checkpoints in the same draft PR, not separate PRs.
-- In shipping terms this remains asset-only: no Swift/runtime behavior, save data, balance, routing, project-file, CI, or Codecov changes.
-- The one allowed non-doc/non-asset source addition is `tools/tests/test_living_kingdom_asset_pack.py`, a repository-side asset validator that is run manually; do not wire it into GitHub Actions in this ticket.
-- Keep the PR Draft until all production assets, references, provenance, validation, and build checks are complete.
-- Visual style: anime-inspired painted fantasy environment art compatible with the existing Forged UI; no troop/character redesign.
-- The exact four `Pyxis_Living_Kingdom_Concept_References.zip` boards must be present and hashed before **any bulk generation**.
-- New runtime art lives only in uniquely named `lk-*` image sets under `Pyxis/Assets.xcassets/`.
-- Fortress sprites are transparent **512×540** PNGs. The full canvas is the runtime scaling envelope; alpha bounds are documentation only.
-- Regular Forged enemy-city target height is 132 pt, yielding ≈125 pt width for 512×540. Do not reintroduce 768×512.
-- Battlefield treatments are transparent **864×1821** overlays, same aspect-fill as the shipping backdrop, intended below `forgedAtmosphereNode` and lane terrain.
-- FX frames are 512×512, `anchorPoint = (0.5, 0)`, impact at canvas bottom center, with fully transparent final frames.
-- Country-map overlay sizes are canonical pixels. Runtime display scale is `displayedBackdropFrame.width / 1024`.
-- The City 6 → City 7 repair patch stays centered at `(393.6768, 580.3776)` in canonical map space.
-- City→family mapping is by city number. City 11 stays Frontier; do not derive family from `CityDefenseTrait`.
-- Corrected references composite **only new art** onto real shipping/native plates. Never redraw Forged chrome or invent runtime text.
-- Offline return creates no second illustration set. Positive idle damage uses the resulting fortress stage; runtime text remains `Buildings dealt N idle damage.` with no fabricated elapsed-time line.
-- HPA-478 owns runtime selection/playback after this PR merges.
+- One HPA-479 PR. Tasks below are commits/checkpoints, never separate PRs.
+- Final runtime inventory: **35 image sets** = 16 fortress + 3 battlefield + 12 transition frames + 4 map.
+- Do not author the three ambient smoke/ember/ward textures; HPA-478 has no concrete consumer.
+- The four original concept boards are optional documentation inputs, not a blocker. The written anime-fantasy/geometry contract is sufficient to proceed.
+- Keep the four-family city-number mapping exact; City 11 stays Frontier.
+- Fortress canvas is 512×540; alpha-envelope checks are acceptance, not runtime layout metadata.
+- Battlefield treatment z-position for HPA-478 is `GameUITheme.Z.background + 0.5`.
+- FX display size uses the fortress pixel scale; never render 512 source pixels as 512 points.
+- Map art uses canonical source pixels and `displayedBackdropFrame.width / 1024`.
+- Use the existing `write_contents_json` helper for **all** new image sets.
+- Validation lives in the existing CI-run Swift test suite; do not add a manual Python validator or change CI.
+- HPA-479 may modify only DEBUG capture tooling and test files in Swift. No non-DEBUG shipping scene/model/save/routing/balance behavior changes.
+- Do not edit `project.pbxproj`, existing production assets, `.github/`, or `codecov.yml`.
+- Keep PR Draft until all production assets/references and final gates pass.
+
+## Risks
+
+1. **Apparent fortress width drift.** Matching canvas aspect ratio alone is insufficient because `fitBattleNode` scales the full transparent canvas. Mitigation: alpha-envelope test lands with Frontier before the other 12 fortress assets.
+2. **Unavailable concept ZIP.** Mood boards are not authoritative and may never surface. Mitigation: production continues from the written anime/Forged contract; recovered boards are hashed documentation only.
+3. **Overlay ordering ambiguity.** Same-z sibling order is not a contract. Mitigation: HPA-478 handoff pins treatment z to `background + 0.5`.
+4. **Capture drift.** Manual five-tap setup is not reproducible evidence. Mitigation: extend the existing DEBUG fixture with `map-partial` and its unit/UI semantic checks.
 
 ## File Map
 
-### Create during production
+### Production assets/docs created during this PR
 
-- `docs/visual-parity/living-kingdom/source/` — four untouched concept boards plus untouched additional pre-art native plate(s) and capture provenance.
-- `docs/visual-parity/living-kingdom/references/` — corrected 393×852 compositions.
-- `docs/visual-parity/living-kingdom/contact-sheets/` — destruction, landmarks, map, offline, FX.
-- `docs/visual-parity/living-kingdom/previews/` — breach/collapse previews.
-- `Pyxis/Assets.xcassets/lk-city-*.imageset/` — 16 fortress sets.
-- `Pyxis/Assets.xcassets/lk-battlefield-*.imageset/` — 3 treatment sets.
-- `Pyxis/Assets.xcassets/lk-fx-*.imageset/` — 12 transition frames + 3 ambient textures.
-- `Pyxis/Assets.xcassets/lk-map-*.imageset/` — 4 map overlays.
-- `tools/tests/test_living_kingdom_asset_pack.py` — final inventory/dimension/alpha/catalog validator.
+- `Pyxis/Assets.xcassets/lk-city-*.imageset/` — 16 fortress sets
+- `Pyxis/Assets.xcassets/lk-battlefield-*.imageset/` — 3 treatment sets
+- `Pyxis/Assets.xcassets/lk-fx-{breach,collapse}-*.imageset/` — 12 transition sets
+- `Pyxis/Assets.xcassets/lk-map-*.imageset/` — 4 map sets
+- `docs/visual-parity/living-kingdom/source/`
+- `docs/visual-parity/living-kingdom/references/`
+- `docs/visual-parity/living-kingdom/contact-sheets/`
+- `docs/visual-parity/living-kingdom/previews/`
+
+### Test/DEBUG support modified during this PR
+
+- `PyxisTests/BattleSceneTests.swift` — continuous asset contract
+- `Pyxis/ForgedVisualFixture.swift` — DEBUG `map-partial` case
+- `PyxisTests/ForgedVisualFixtureTests.swift` — parser/state coverage
+- `PyxisUITests/PyxisUITests.swift` — 393×852 fixture capture + semantic value
 
 ### Must remain untouched
 
-- `Pyxis/*.swift`
-- `PyxisTests/`
-- `PyxisUITests/`
+- non-DEBUG shipping behavior in `Pyxis/*.swift`
+- models/persistence/balance/routing
+- existing non-`lk-*` assets
 - `Pyxis.xcodeproj/project.pbxproj`
-- existing non-`lk-*` image sets
-- `.github/`
-- `codecov.yml`
+- `.github/`, `codecov.yml`
 
 ---
 
-## Task 1: Pass the source-reference gate and confirm baseline geometry
+## Task 1: Verify the shipping geometry and establish source provenance
 
 **Files:**
 - Modify: `docs/visual-parity/living-kingdom/README.md`
-- Create: `docs/visual-parity/living-kingdom/source/concept-siege-destruction.png`
-- Create: `docs/visual-parity/living-kingdom/source/concept-landmark-cities.png`
-- Create: `docs/visual-parity/living-kingdom/source/concept-living-map.png`
-- Create: `docs/visual-parity/living-kingdom/source/concept-offline-return.png`
+- Optional create: `docs/visual-parity/living-kingdom/source/concept-*.png`
+- Optional create: `docs/visual-parity/living-kingdom/source/README.md`
 
-**Produces:** A reviewable source pack plus mechanically confirmed immutable-baseline geometry. Tasks 2–6 must not start before this passes.
+**Produces:** Measured shipping dimensions/bounds and a non-blocking source-reference record.
 
-- [ ] **Step 1: Recover the exact four concept boards.** Extract `Pyxis_Living_Kingdom_Concept_References.zip`; map the boards by subject to the four repository names above. Copy without resizing, resampling, recompressing, or color conversion.
-
-- [ ] **Step 2: Hash the untouched boards.** Run:
-
-```bash
-shasum -a 256 docs/visual-parity/living-kingdom/source/concept-*.png
-```
-
-Record each SHA-256 in the README.
-
-- [ ] **Step 3: Confirm shipping canvas dimensions against the fixed baseline.** Run:
+- [ ] **Step 1: Verify baseline dimensions.**
 
 ```bash
 sips -g pixelWidth -g pixelHeight -g hasAlpha \
@@ -86,366 +82,430 @@ sips -g pixelWidth -g pixelHeight -g hasAlpha \
   Pyxis/Assets.xcassets/country-map-backdrop.imageset/country-map-backdrop.png
 ```
 
-Expected baseline:
+Expected baseline: enemy city 1223×1286; battlefield 864×1821; country map 1024×1536.
 
-```text
-enemy-city.png            1223 × 1286
-battlefield-backdrop.png   864 × 1821
-country-map-backdrop.png  1024 × 1536
+- [ ] **Step 2: Measure the shipping city alpha box before authoring.**
+
+```bash
+python3 - <<'PY'
+from PIL import Image
+p = "Pyxis/Assets.xcassets/enemy-city.imageset/enemy-city.png"
+with Image.open(p).convert("RGBA") as image:
+    print("size=", image.size)
+    print("alpha_bbox=", image.getchannel("A").getbbox())
+PY
 ```
 
-If any expected dimension differs on this immutable baseline, stop and correct the spec/README before generating art. Do not silently adapt per-asset geometry later.
+Expected approximately `(155, 23, 1070, 1258)` on the 1223×1286 baseline. If the checked-in source differs materially, update the spec's alpha-envelope bands **before** Task 2; do not generate around stale numbers.
 
-- [ ] **Step 4: Review the concept boards against exclusions.** In the README record that wood/stone/gems, invented city/level data, stock counters, fortification-management objectives, claim actions, and >8-hour idle credit are mood-board artifacts, not HPA-479 requirements.
+- [ ] **Step 3: Handle concept boards without blocking production.**
 
-- [ ] **Step 5: Lock the production prompt direction.** Reuse the README anime-fantasy brief and the exact 512×540 fortress / 864×1821 treatment / canonical-map contracts. Do not invent a separate prompt registry or generator framework.
+If the exact ZIP is available, copy the four PNGs unchanged and hash them:
 
-- [ ] **Step 6: Verify the source-gate diff.** Run:
+```bash
+shasum -a 256 docs/visual-parity/living-kingdom/source/concept-*.png
+```
+
+If the ZIP is unavailable, create `source/README.md` stating that the original boards were unavailable and production uses the approved written anime-fantasy brief plus Forged native plates. Do not wait for the ZIP.
+
+- [ ] **Step 4: Record the measured baseline and source status in the handoff README.** No runtime asset is created in this task.
+
+- [ ] **Step 5: Verify and commit.**
 
 ```bash
 git diff --check
 git diff --name-only main...HEAD
-```
-
-At this checkpoint, new production image sets are not required. Review the four hashes, source boards, exclusions, and confirmed dimensions before proceeding.
-
-- [ ] **Step 7: Commit the gate.** Run:
-
-```bash
 git add docs/visual-parity/living-kingdom
-git commit -m "docs: finalize Living Kingdom source handoff"
+git commit -m "docs: finalize Living Kingdom production baseline"
 ```
-
-**Checkpoint A:** This is the first point where the art source contract is reviewable. Do not bulk-generate before approval of this checkpoint; do not open another PR.
 
 ---
 
-## Task 2: Author the Frontier four-stage vertical slice
+## Task 2: Author Frontier first and land the CI asset contract
 
 **Files:**
 - Create: `Pyxis/Assets.xcassets/lk-city-frontier-{intact,damaged,breached,conquered}.imageset/`
 - Create: `docs/visual-parity/living-kingdom/references/battle-frontier-{intact,damaged,breached,conquered}.png`
 - Create: `docs/visual-parity/living-kingdom/contact-sheets/destruction-frontier.png`
+- Modify: `PyxisTests/BattleSceneTests.swift`
 - Modify: `docs/visual-parity/living-kingdom/README.md`
 
-**Produces:** The approved canvas/scale/baseline/gate/damage language every later fortress family copies.
+**Produces:** The four-stage quality gate and a CI test that later tasks extend.
 
-- [ ] **Step 1: Generate `lk-city-frontier-intact` only.** Use a transparent **512×540** canvas. Ground touches the bottom edge, gate center is x=256, intact structural silhouette uses most of the canvas height, and no transparent padding is used to alter apparent scale.
+- [ ] **Step 1: Extend the existing pixel-bounds helper to 2D.** Change the private test-only structure to:
 
-- [ ] **Step 2: Composite onto the exact real Battle plate.** Downsample `docs/visual-parity/forged-ui/native/battle-normal-393x852@3x.png` to logical 393×852, then replace only the enemy-city scene-art region. Do not redraw HUD, lane chrome, gold, troop counts, tabs, or text. At 132 pt target height the fortress should read around 125 pt wide and preserve lane/HP clearance.
+```swift
+private struct PixelBounds {
+    let minX: Int
+    let minY: Int
+    let maxXExclusive: Int
+    let maxYExclusive: Int
 
-- [ ] **Step 3: Reject geometry failures in art, not runtime.** If the intact fortress is too wide/narrow, gate misaligned, or silhouette too small because of padding, regenerate/crop within 512×540. Do not propose an HPA-478 body-rect sizing helper.
-
-- [ ] **Step 4: Derive damaged, breached, conquered.** Preserve canvas, baseline, gate x=256, camera, lighting, and broad footprint. Every stage must make sense when jumped to directly.
-
-- [ ] **Step 5: Create 1x-only scene-art image sets.** Each fortress `Contents.json` follows `enemy-city`: exactly one universal 1x entry with the PNG filename; no empty 2x/3x rows.
-
-- [ ] **Step 6: Verify dimensions/alpha.** Run:
-
-```bash
-for file in Pyxis/Assets.xcassets/lk-city-frontier-*.imageset/*.png; do
-  sips -g pixelWidth -g pixelHeight -g hasAlpha "$file"
-done
+    var width: Int { maxXExclusive - minX }
+    var height: Int { maxYExclusive - minY }
+}
 ```
 
-Expected for every file: **512×540** and alpha.
+Update `opaquePixelBounds(in:)` so its existing alpha scan tracks min/max Y as well as X. Preserve existing `infantryAttackFramesKeepMotionInsideCanvasInset` behavior.
 
-- [ ] **Step 7: Record alpha bounds as documentation only.** Measure `(minX, minY, maxX, maxY)` in PNG coordinates and add provenance. Do not make later runtime layout depend on those bounds.
+- [ ] **Step 2: Write the Frontier asset-contract test before adding the files.** Add beside `allSoldierAnimationFramesAreInstalled`:
 
-- [ ] **Step 8: Build.** Run:
+```swift
+@Test("Living Kingdom fortress assets match the shipping display envelope")
+func livingKingdomFrontierAssetsMatchContract() throws {
+    for stage in ["intact", "damaged", "breached", "conquered"] {
+        let name = "lk-city-frontier-\(stage)"
+        let image = try #require(UIImage(named: name))
+        let cgImage = try #require(image.cgImage)
+        let bounds = try #require(opaquePixelBounds(in: image))
 
-```bash
-xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
+        #expect(cgImage.width == 512)
+        #expect(cgImage.height == 540)
+
+        let widthRatio = Double(bounds.width) / 512.0
+        let heightRatio = Double(bounds.height) / 540.0
+        let bottomGapRatio = Double(540 - bounds.maxYExclusive) / 540.0
+        let center = Double(bounds.minX + bounds.maxXExclusive) / 2.0
+
+        #expect((0.72...0.80).contains(widthRatio))
+        #expect((0.94...0.98).contains(heightRatio))
+        #expect((0.015...0.030).contains(bottomGapRatio))
+        #expect(abs(center - 256.0) <= 10.24)
+        if stage == "intact" {
+            #expect(widthRatio <= 0.78)
+        }
+    }
+}
 ```
 
-Expected: `BUILD SUCCEEDED` with no asset-catalog warnings.
+Expected RED: missing `lk-city-frontier-*` assets.
 
-- [ ] **Step 9: Commit.**
+- [ ] **Step 3: Author only `lk-city-frontier-intact` first.** 512×540 RGBA, centered gate, target alpha envelope from the spec. Composite it onto the real 393×852 Battle plate and reject it if it reads materially wider than the shipping city.
 
-```bash
-git add Pyxis/Assets.xcassets/lk-city-frontier-*.imageset \
-  docs/visual-parity/living-kingdom
-git commit -m "art: add Living Kingdom frontier destruction set"
-```
+- [ ] **Step 4: Derive damaged/breached/conquered from the approved intact source.** Keep camera, center, baseline gap, tower positions, and footprint stable.
 
-**Checkpoint B:** Do not generate Ember/Arcane/Royal until all four Frontier stages pass phone-scale review.
-
----
-
-## Task 3: Add the remaining fortress families and landmark treatments
-
-**Files:**
-- Create: `Pyxis/Assets.xcassets/lk-city-ember-*.imageset/`
-- Create: `Pyxis/Assets.xcassets/lk-city-arcane-*.imageset/`
-- Create: `Pyxis/Assets.xcassets/lk-city-royal-*.imageset/`
-- Create: `Pyxis/Assets.xcassets/lk-battlefield-{ember,arcane,royal}.imageset/`
-- Create: `docs/visual-parity/living-kingdom/references/battle-{emberford,runewatch,crownspire}.png`
-- Create: `docs/visual-parity/living-kingdom/contact-sheets/landmarks.png`
-- Modify: `docs/visual-parity/living-kingdom/README.md`
-
-**Consumes:** Task 2's approved 512×540 envelope and Task 1's confirmed 864×1821 backdrop.
-
-- [ ] **Step 1: Author Ember stages.** Preserve the Frontier geometry contract; use bridge/gate cues, oil braziers, restrained orange atmosphere for Cities 7 and 12.
-
-- [ ] **Step 2: Author Arcane stages.** Preserve geometry; use cool ward motifs/light for Cities 9 and 13 without implying a second shield/HP system.
-
-- [ ] **Step 3: Author Royal stages.** Crownspire may feel grander through shape/material/banner quality, but it remains inside the same 512×540 canvas and ≈125×132 pt regular display envelope.
-
-- [ ] **Step 4: Preserve the explicit family table.** Record/verify `Frontier = 1–6, 8, 10, 11, 14`; `Ember = 7,12`; `Arcane = 9,13`; `Royal = 15`. City 11 must not become Royal because of `.reinforcedKeep`.
-
-- [ ] **Step 5: Author three transparent 864×1821 battlefield treatments.** Use the shipping backdrop composition/crop. Paint no second fortress. Author color/value so the treatment can sit at `GameUITheme.Z.background` under the warm `forgedAtmosphereNode`; lane terrain at z=-1 remains visually dominant/readable.
-
-- [ ] **Step 6: Create 1x-only image sets.** Twelve fortress sets + three treatment sets; exactly one universal 1x entry each.
-
-- [ ] **Step 7: Compose landmark references onto real Battle chrome.** Use the same shipping `battle-normal` plate. Replace only new art for City 7 Emberford, City 9 Runewatch, City 15 Crownspire Keep.
-
-- [ ] **Step 8: Verify dimensions/alpha and provenance.** All fortress PNGs are 512×540 with alpha. All three treatment PNGs are 864×1821 with alpha. Record measured bounds/tool/prompt/manual edits.
-
-- [ ] **Step 9: Build and commit.**
+- [ ] **Step 5: Create all four image sets using the existing catalog writer.**
 
 ```bash
-xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
+python3 - <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, "tools")
+from slice_soldier_animation_strips import write_contents_json
 
-git add Pyxis/Assets.xcassets/lk-city-*.imageset \
-  Pyxis/Assets.xcassets/lk-battlefield-*.imageset \
-  docs/visual-parity/living-kingdom
-git commit -m "art: add Living Kingdom landmark families"
+root = Path("Pyxis/Assets.xcassets")
+for stage in ("intact", "damaged", "breached", "conquered"):
+    name = f"lk-city-frontier-{stage}"
+    write_contents_json(root / f"{name}.imageset", f"{name}.png")
+PY
 ```
 
-**Checkpoint C:** At phone scale the three landmarks are distinct, lanes stay readable, and treatments still look color-graded by the existing Forged atmosphere rather than pasted above it.
+The image-set directories/PNGs must already exist before this command.
 
----
+- [ ] **Step 6: Run the CI-shaped focused test.**
 
-## Task 4: Add shared transition FX and ambient textures
+```bash
+xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO \
+  -only-testing:PyxisTests/BattleSceneTests/livingKingdomFrontierAssetsMatchContract
+```
 
-**Files:**
-- Create: `Pyxis/Assets.xcassets/lk-fx-breach-{01...06}.imageset/`
-- Create: `Pyxis/Assets.xcassets/lk-fx-collapse-{01...06}.imageset/`
-- Create: `Pyxis/Assets.xcassets/lk-fx-{smoke-soft,ember-specks,ward-glow}.imageset/`
-- Create: `docs/visual-parity/living-kingdom/contact-sheets/fx-{breach,collapse}.png`
-- Create: `docs/visual-parity/living-kingdom/previews/{breach,collapse}.gif`
-- Modify: `docs/visual-parity/living-kingdom/README.md`
+Expected GREEN: all four assets resolve, dimensions match, alpha envelope passes.
 
-**Produces:** Two deterministic overlay sequences that HPA-478 can place without pixel-coordinate guessing.
-
-- [ ] **Step 1: Author breach frames.** Six transparent 512×512 frames, impact at canvas bottom center, fixed position, dust/chips/debris only. Total 0.30 s at 0.05 s/frame.
-
-- [ ] **Step 2: Author collapse frames.** Same anchor/impact/fixed position, total 0.42 s at 0.07 s/frame. Do not animate a replacement fortress silhouette.
-
-- [ ] **Step 3: Make frame 06 fully transparent in both sequences.** `breached`/`conquered` static art owns the terminal appearance.
-
-- [ ] **Step 4: Author ambient textures.** `smoke-soft` and `ember-specks` are 256×256 RGBA; `ward-glow` is 512×512 RGBA. They require only SpriteKit drift/fade/pulse later.
-
-- [ ] **Step 5: Match catalog conventions.** Breach/collapse frame `Contents.json` mirrors soldier frames: named universal 1x + empty universal 2x/3x entries. Ambient sets are 1x-only scene art.
-
-- [ ] **Step 6: Create contact sheets/GIFs from the production frames only.** Preview order/timing must exactly match README; no preview-only frame set.
-
-- [ ] **Step 7: Verify alpha/registration.** Mechanically inspect dimensions/alpha; additionally verify final frame alpha max is zero and record PNG alpha bounds/provenance.
+- [ ] **Step 7: Record measured bounds/provenance and create the Frontier contact sheet/reference files.** Bounds are acceptance evidence, not HPA-478 layout input.
 
 - [ ] **Step 8: Build and commit.**
 
 ```bash
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO build
+
+git add Pyxis/Assets.xcassets/lk-city-frontier-*.imageset \
+  PyxisTests/BattleSceneTests.swift \
+  docs/visual-parity/living-kingdom
+git commit -m "art: add Living Kingdom frontier destruction set"
+```
+
+**Checkpoint B:** Do not author the remaining 12 fortress assets until this gate passes.
+
+---
+
+## Task 3: Add Ember, Arcane, Royal, and battlefield treatments
+
+**Files:**
+- Create: `Pyxis/Assets.xcassets/lk-city-{ember,arcane,royal}-*.imageset/`
+- Create: `Pyxis/Assets.xcassets/lk-battlefield-{ember,arcane,royal}.imageset/`
+- Create: landmark references/contact sheet
+- Modify: `PyxisTests/BattleSceneTests.swift`
+- Modify: `docs/visual-parity/living-kingdom/README.md`
+
+- [ ] **Step 1: Extend the existing Living Kingdom asset test table to all 16 fortress names before authoring.** Apply the same 512×540 + alpha-envelope assertions to every family/stage.
+
+- [ ] **Step 2: Add dimension/presence expectations for the three battlefield treatments:**
+
+```swift
+for name in ["lk-battlefield-ember", "lk-battlefield-arcane", "lk-battlefield-royal"] {
+    let image = try #require(UIImage(named: name))
+    let cgImage = try #require(image.cgImage)
+    #expect(cgImage.width == 864)
+    #expect(cgImage.height == 1821)
+}
+```
+
+Expected RED until the new files land.
+
+- [ ] **Step 3: Author the Ember family.** Cities 7/12; bridge/gate/oil-brazier identity; no gameplay fire mechanic.
+
+- [ ] **Step 4: Author the Arcane family.** Cities 9/13; cyan/blue ward motifs; no shield/second-HP reading.
+
+- [ ] **Step 5: Author the Royal family.** City 15 only; grander materials/banners but same alpha envelope.
+
+- [ ] **Step 6: Author three 864×1821 transparent treatments.** Compose for runtime z `GameUITheme.Z.background + 0.5`, beneath the warm Forged atmosphere and lane terrain. Paint no second fortress.
+
+- [ ] **Step 7: Generate all 15 Contents.json files with the same existing `write_contents_json` helper.** Do not hand-author a second JSON shape.
+
+- [ ] **Step 8: Compose real-plate landmark references for Emberford, Runewatch, Crownspire; record bounds/provenance.**
+
+- [ ] **Step 9: Run focused/full unit gates and build, then commit.**
+
+```bash
+xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO -only-testing:PyxisTests/BattleSceneTests
+
+xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+git add Pyxis/Assets.xcassets/lk-city-*.imageset \
+  Pyxis/Assets.xcassets/lk-battlefield-*.imageset \
+  PyxisTests/BattleSceneTests.swift docs/visual-parity/living-kingdom
+git commit -m "art: add Living Kingdom landmark families"
+```
+
+---
+
+## Task 4: Add only the two required transition sequences
+
+**Files:**
+- Create: `Pyxis/Assets.xcassets/lk-fx-breach-{01...06}.imageset/`
+- Create: `Pyxis/Assets.xcassets/lk-fx-collapse-{01...06}.imageset/`
+- Create: FX contact sheets/previews
+- Modify: `PyxisTests/BattleSceneTests.swift`
+- Modify: `docs/visual-parity/living-kingdom/README.md`
+
+- [ ] **Step 1: Extend the CI asset table with all 12 FX names and 512×512 dimensions.** Also add terminal transparency checks:
+
+```swift
+for name in ["lk-fx-breach-06", "lk-fx-collapse-06"] {
+    let image = try #require(UIImage(named: name))
+    #expect(opaquePixelBounds(in: image) == nil)
+}
+```
+
+Expected RED until the sequence assets land.
+
+- [ ] **Step 2: Author breach frames.** Fixed 512×512 canvas, bottom-center `(0.5, 0)` impact, no positional drift, frame 06 fully transparent, 0.05 s/frame.
+
+- [ ] **Step 3: Author collapse frames.** Same registration, frame 06 fully transparent, 0.07 s/frame.
+
+- [ ] **Step 4: Review at the actual display transform.** For regular Battle:
+
+```text
+fortressScale = 132 / 540
+fxDisplayHeight = 512 × fortressScale ≈ 125 pt
+```
+
+Reject any effect that requires native 512 pt display or obscures the battlefield.
+
+- [ ] **Step 5: Generate all 12 Contents.json files with the same helper; make previews/contact sheets from the production frames.**
+
+- [ ] **Step 6: Run `BattleSceneTests`, build, record timing/provenance, and commit.**
+
+```bash
+xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO -only-testing:PyxisTests/BattleSceneTests
 
 git add Pyxis/Assets.xcassets/lk-fx-*.imageset \
-  docs/visual-parity/living-kingdom
+  PyxisTests/BattleSceneTests.swift docs/visual-parity/living-kingdom
 git commit -m "art: add Living Kingdom transition effects"
 ```
 
 ---
 
-## Task 5: Add living-map overlays and truthful partial-state plate
+## Task 5: Add map overlays and a reproducible partial-map fixture
 
 **Files:**
 - Create: `Pyxis/Assets.xcassets/lk-map-{secured-city,caravan,route-6-7-worn,route-6-7-repaired}.imageset/`
-- Create: `docs/visual-parity/living-kingdom/source/native-map-city8-pre-art-393x852@3x.png`
-- Create: `docs/visual-parity/living-kingdom/references/map-{early,partial,complete}.png`
-- Create: `docs/visual-parity/living-kingdom/contact-sheets/map-progression.png`
-- Modify: `docs/visual-parity/living-kingdom/README.md`
+- Modify: `Pyxis/ForgedVisualFixture.swift`
+- Modify: `PyxisTests/ForgedVisualFixtureTests.swift`
+- Modify: `PyxisUITests/PyxisUITests.swift`
+- Modify: `PyxisTests/BattleSceneTests.swift`
+- Create: `docs/visual-parity/living-kingdom/source/native-map-partial-393x852@3x.png`
+- Create: map references/contact sheet
+- Modify: handoff README
 
-**Consumes:** Canonical 1024×1536 map geometry and `mapScale = displayedBackdropFrame.width / 1024`.
+- [ ] **Step 1: Add RED fixture parser/state tests.** Extend the exact parser list with `("map-partial", .mapPartial)`. Extend map-state coverage with:
 
-- [ ] **Step 1: Author `lk-map-secured-city`.** 96×96 canonical-pixel RGBA. Keep central number legible with low-alpha glow only; put the small banner away from the existing upper-right conquered marker.
-
-- [ ] **Step 2: Author `lk-map-caravan`.** 128×64 canonical-pixel RGBA, center anchor, faces +X. It must remain visually subordinate when scaled by the backdrop transform.
-
-- [ ] **Step 3: Author the 6→7 worn/repaired pair.** Both are 192×192 canonical-pixel RGBA, pre-oriented to 60.9888° and registered at `(393.6768, 580.3776)`. The repaired version changes bridge/road condition only.
-
-- [ ] **Step 4: Create 1x-only map image sets.** HPA-478 later multiplies each canonical canvas by the backdrop scale; it must not treat source pixels as point sizes.
-
-- [ ] **Step 5: Capture a truthful mid-progress shipping plate with existing DEBUG tooling.** On the same 393×852 logical simulator used by Forged parity: launch current shipping code, five-tap the top-right DEBUG jump hotspot, choose **City 8**, switch to Map, and capture the native framebuffer with `simctl io screenshot`. Do not change Swift or persisted production fixtures. Store the untouched capture plus device/runtime provenance.
-
-- [ ] **Step 6: Compose map references without redrawing chrome.** Use:
-  - early: existing `native/map-attackable-locked-393x852@3x.png`;
-  - partial: new City-8 pre-art native plate, with 6→7 repair eligible;
-  - complete: existing `native/map-complete-393x852@3x.png`.
-
-Only new map-art pixels may be composited.
-
-- [ ] **Step 7: Verify scale/readability.** At 393 pt backdrop width, 96 canonical px is roughly 37 pt and 192 canonical px roughly 74 pt. Confirm secured art does not obscure the number/conquered marker and route patches do not read as new interactive geography.
-
-- [ ] **Step 8: Build and commit.**
-
-```bash
-xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
-
-git add Pyxis/Assets.xcassets/lk-map-*.imageset \
-  docs/visual-parity/living-kingdom
-git commit -m "art: add Living Kingdom map overlays"
+```swift
+let partial = ForgedVisualFixture.mapPartial.makeState()
+#expect(partial.countryNumber == 1)
+#expect(partial.cityNumberInCountry == 8)
+#expect(partial.completedCityCount == 7)
+#expect(partial.stageStatus == .cityConqueredPendingMap)
+#expect(partial.pendingBattleResult == nil)
 ```
 
-**Checkpoint D:** Review early/partial/complete compositions and the untouched City-8 source plate. No management dashboard, fake completion state, or changed touch geometry.
+- [ ] **Step 2: Add the DEBUG fixture case.** In `ForgedVisualFixture`:
+
+```swift
+case mapPartial = "map-partial"
+```
+
+Include it in `.map` preferred-tab routing. In `makeState()`:
+
+```swift
+case .mapPartial:
+    var state = DevJumpState.make(city: 8)
+    state.stageStatus = .cityConqueredPendingMap
+    return state
+```
+
+This yields seven completed cities without a manual five-tap sequence.
+
+- [ ] **Step 3: Extend the existing 393×852 UI smoke.** Add `"map-partial"` to the fixture list and semantic switch:
+
+```swift
+case "map-partial":
+    expected = "Map;stage=cityConqueredPendingMap;completed=7;"
+        + "attackableCity=8;laterLockedCity=9"
+```
+
+If the controller's actual semantic string differs, use the shipping semantic value emitted by the fixture and update this exact expectation before capture; do not fabricate a string.
+
+- [ ] **Step 4: Run fixture tests before map art.**
+
+```bash
+xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO \
+  -only-testing:PyxisTests/ForgedVisualFixtureTests
+```
+
+- [ ] **Step 5: Author the four map assets in canonical source pixels.**
+
+- secured city: 96×96;
+- caravan: 128×64, faces +X;
+- worn/repaired: both 192×192, centered at `(393.6768, 580.3776)`, lower-left→upper-right.
+
+The worn asset is retained as the explicit before state required by HPA-479.
+
+- [ ] **Step 6: Extend the CI asset contract with the four map names/dimensions and generate all four Contents.json files with the same helper.**
+
+- [ ] **Step 7: Capture the native partial plate using the new fixture.** On the same logical 393×852 simulator:
+
+```bash
+xcrun simctl io booted screenshot \
+  docs/visual-parity/living-kingdom/source/native-map-partial-393x852@3x.png
+```
+
+Launch the app beforehand with `-pyxis-forged-fixture map-partial`; use the existing fixture capture flow rather than manual gameplay setup. Record device/runtime provenance.
+
+- [ ] **Step 8: Compose map early/partial/complete references only on real plates.** Partial uses the new untouched source plate; repaired 6→7 is eligible because completed count is seven.
+
+- [ ] **Step 9: Run unit/UI/build gates and commit.**
+
+```bash
+xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO \
+  -only-testing:PyxisTests/ForgedVisualFixtureTests \
+  -only-testing:PyxisTests/BattleSceneTests \
+  -only-testing:PyxisUITests/testForgedFixtureParitySmoke393x852
+
+git add Pyxis/Assets.xcassets/lk-map-*.imageset \
+  Pyxis/ForgedVisualFixture.swift \
+  PyxisTests/ForgedVisualFixtureTests.swift \
+  PyxisTests/BattleSceneTests.swift \
+  PyxisUITests/PyxisUITests.swift \
+  docs/visual-parity/living-kingdom
+git commit -m "art: add Living Kingdom map overlays and fixture"
+```
 
 ---
 
-## Task 6: Finish offline references and add the repeatable asset gate
+## Task 6: Finish offline references and final acceptance
 
 **Files:**
 - Create: `docs/visual-parity/living-kingdom/references/offline-{damage,conquest}.png`
 - Create: `docs/visual-parity/living-kingdom/contact-sheets/offline-return.png`
-- Create: `tools/tests/test_living_kingdom_asset_pack.py`
 - Modify: `docs/visual-parity/living-kingdom/README.md`
 
-**Consumes:** All 38 production image sets plus the real Forged native plates.
+**Consumes:** All 35 production image sets and real Forged native plates.
 
-### Validation interface
+- [ ] **Step 1: Compose `offline-damage.png` from the real Battle plate.** Replace scene-art pixels only. Do not synthesize elapsed-time UI or rewrite feedback chrome. When documenting the expected shipping wording, use formatted copy such as `Buildings dealt 1.2K idle damage.` rather than a raw integer example.
 
-`tools/tests/test_living_kingdom_asset_pack.py` is a manual repository gate. It must not require app/runtime imports or modify CI.
+- [ ] **Step 2: Compose `offline-conquest.png` from `conquest-idle-393x852@3x.png`.** Replace underlying fortress/art only; preserve report values and the single Continue action.
 
-- [ ] **Step 1: Add the asset validator.** Use this implementation shape:
+- [ ] **Step 3: Complete the handoff inventory/provenance.** Every asset batch records names, dimensions, measured bounds where relevant, anchor/registration, timing/display rule, tool/prompt/source status, and manual edits.
 
-```python
-from __future__ import annotations
-
-import json
-import unittest
-from pathlib import Path
-
-from PIL import Image
-
-ROOT = Path(__file__).resolve().parents[2]
-ASSETS = ROOT / "Pyxis" / "Assets.xcassets"
-
-FAMILIES = ("frontier", "ember", "arcane", "royal")
-STAGES = ("intact", "damaged", "breached", "conquered")
-FORTRESSES = {
-    f"lk-city-{family}-{stage}": (512, 540)
-    for family in FAMILIES
-    for stage in STAGES
-}
-BATTLEFIELDS = {
-    f"lk-battlefield-{family}": (864, 1821)
-    for family in ("ember", "arcane", "royal")
-}
-FX_FRAMES = {
-    **{f"lk-fx-breach-{index:02d}": (512, 512) for index in range(1, 7)},
-    **{f"lk-fx-collapse-{index:02d}": (512, 512) for index in range(1, 7)},
-}
-AMBIENTS = {
-    "lk-fx-smoke-soft": (256, 256),
-    "lk-fx-ember-specks": (256, 256),
-    "lk-fx-ward-glow": (512, 512),
-}
-MAP = {
-    "lk-map-secured-city": (96, 96),
-    "lk-map-caravan": (128, 64),
-    "lk-map-route-6-7-worn": (192, 192),
-    "lk-map-route-6-7-repaired": (192, 192),
-}
-EXPECTED = FORTRESSES | BATTLEFIELDS | FX_FRAMES | AMBIENTS | MAP
-
-
-class LivingKingdomAssetPackTests(unittest.TestCase):
-    def imageset(self, name: str) -> Path:
-        return ASSETS / f"{name}.imageset"
-
-    def test_exact_inventory(self) -> None:
-        actual = {path.stem for path in ASSETS.glob("lk-*.imageset")}
-        self.assertEqual(set(EXPECTED), actual)
-        self.assertEqual(38, len(actual))
-
-    def test_dimensions_and_alpha(self) -> None:
-        for name, expected_size in EXPECTED.items():
-            with self.subTest(name=name):
-                image_path = self.imageset(name) / f"{name}.png"
-                with Image.open(image_path) as image:
-                    self.assertEqual(expected_size, image.size)
-                    self.assertIn("A", image.getbands())
-                    alpha_min, _ = image.getchannel("A").getextrema()
-                    self.assertLess(alpha_min, 255)
-
-    def test_final_transition_frames_are_fully_transparent(self) -> None:
-        for name in ("lk-fx-breach-06", "lk-fx-collapse-06"):
-            with Image.open(self.imageset(name) / f"{name}.png") as image:
-                self.assertEqual(0, image.getchannel("A").getextrema()[1])
-
-    def test_contents_json_matches_repo_conventions(self) -> None:
-        for name in EXPECTED:
-            with self.subTest(name=name):
-                data = json.loads((self.imageset(name) / "Contents.json").read_text())
-                images = data["images"]
-                by_scale = {item["scale"]: item for item in images}
-                self.assertEqual(f"{name}.png", by_scale["1x"].get("filename"))
-                if name in FX_FRAMES:
-                    self.assertEqual({"1x", "2x", "3x"}, set(by_scale))
-                    self.assertNotIn("filename", by_scale["2x"])
-                    self.assertNotIn("filename", by_scale["3x"])
-                else:
-                    self.assertEqual({"1x"}, set(by_scale))
-```
-
-- [ ] **Step 2: Run the Python suite.**
+- [ ] **Step 4: Verify exact final inventory.**
 
 ```bash
-python3 -m unittest discover -s tools/tests
+find Pyxis/Assets.xcassets -maxdepth 1 -type d -name 'lk-*.imageset' -print | sort
 ```
 
-Expected: existing soldier-pipeline tests plus the Living Kingdom asset validator pass. This is a manual gate; do not edit `.github/workflows/ci.yml`.
+Expected: **35** image sets.
 
-- [ ] **Step 3: Compose `offline-damage.png` without fabricating chrome.** Start from the real `battle-normal` native plate and replace only fortress/art pixels with the truthful resulting damage stage. Do **not** draw an elapsed-time line or synthetic feedback panel. README records that shipping runtime copy is `Buildings dealt N idle damage.` and HPA-478 native acceptance owns the live feedback proof.
-
-- [ ] **Step 4: Compose `offline-conquest.png`.** Start from real `conquest-idle-393x852@3x.png`; replace only underlying scene art with conquered aftermath. Keep the shipping report, values, and exactly one Continue action unchanged.
-
-- [ ] **Step 5: Complete contact sheets/provenance.** Every final asset records dimensions, alpha treatment, measured bounds, anchor/registration, timing where applicable, intended use/scale, tool/prompt/source board, and manual edits.
-
-- [ ] **Step 6: Verify the final allowed diff.** Run:
+- [ ] **Step 5: Verify the allowed diff.**
 
 ```bash
 git diff --name-only main...HEAD
 ```
 
-Every changed path must be one of:
+Allowed paths only:
 
 - `Pyxis/Assets.xcassets/lk-*.imageset/**`
 - `docs/visual-parity/living-kingdom/**`
-- the two HPA-479 spec/plan docs
-- `tools/tests/test_living_kingdom_asset_pack.py`
+- the HPA-479 spec/plan docs
+- `PyxisTests/BattleSceneTests.swift`
+- `Pyxis/ForgedVisualFixture.swift`
+- `PyxisTests/ForgedVisualFixtureTests.swift`
+- `PyxisUITests/PyxisUITests.swift`
 
-Any Swift, project, existing asset, CI, or Codecov change fails this gate.
+Any other Swift/project/CI/existing-asset change fails the gate.
 
-- [ ] **Step 7: Run hygiene + build.**
+- [ ] **Step 6: Run final hygiene, unit, UI, and build gates.**
 
 ```bash
 git diff --check
-python3 -m unittest discover -s tools/tests
+
+xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO \
+  -only-testing:PyxisTests
+
+xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -parallel-testing-enabled NO \
+  -only-testing:PyxisUITests
+
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO build
 ```
 
-Expected: no diff errors, all Python tests pass, `BUILD SUCCEEDED`.
+Expected: no diff errors, unit/UI suites pass, BUILD SUCCEEDED.
 
-- [ ] **Step 8: Final phone-scale review.** Confirm 512×540 fortress sizing matches the shipping envelope, stages are aligned, Emberford/Runewatch/Crownspire are distinct, treatment overlays remain under the warm Forged grade, FX origins do not drift, map overlays use source-space scale, City 11 remains Frontier, and references do not invent idle elapsed time or HUD values.
+- [ ] **Step 7: Final visual review at logical 393×852.** Confirm apparent fortress width, stage continuity, landmark identity, treatment grade/z intent, FX scale/origin, map scale/labels, and truthful offline compositions.
 
-- [ ] **Step 9: Commit final acceptance artifacts.**
+- [ ] **Step 8: Commit final reference/provenance updates.**
 
 ```bash
-git add tools/tests/test_living_kingdom_asset_pack.py \
-  docs/visual-parity/living-kingdom
-git commit -m "test: validate Living Kingdom asset pack"
+git add docs/visual-parity/living-kingdom
+git commit -m "docs: finalize Living Kingdom visual handoff"
 ```
 
-- [ ] **Step 10: Mark the existing PR ready only after all gates pass.** Do not open another PR. HPA-478 starts runtime consumption only after this HPA-479 asset contract merges.
+- [ ] **Step 9: Mark the existing PR ready only after every gate passes.** HPA-478 starts shipping integration only after HPA-479 merges.
