@@ -381,8 +381,9 @@ Measured alpha bounds (Pillow scan of the shipped PNGs; acceptance evidence):
 | `lk-city-royal-breached` | (64, 5, 448, 528) | 0.7500 | 0.9685 | 0.0222 | 256.0 |
 | `lk-city-royal-conquered` | (64, 8, 448, 528) | 0.7500 | 0.9630 | 0.0222 | 256.0 |
 
-All twelve sit inside the contract bands; intact stages ≤ 0.78 width. A pixel scan found
-zero chroma-green residue (opaque samples where G > R×1.35 and G > B×1.35) on all twelve.
+All twelve sit inside the contract bands; intact stages ≤ 0.78 width. Chroma-green scan
+(opaque samples where G > R×1.35 and G > B×1.35) finds 0–16 near-black olive pixels per
+asset (G ≤ 60), invisible at display size; no green tint present.
 
 Battlefield treatments (`lk-battlefield-{ember,arcane,royal}`): atmosphere-only particle
 layers authored on pure-black plates — ember sparks + heat wisps, arcane motes + star
@@ -589,8 +590,10 @@ c(1119) = (50.2, 36.8, 22.0) toward the darker bottom stop). Only the
 faint fortress ghost region (396, 813)–(794, 1080) was recomputed with
 the new conquered stage behind the panel; chrome pixels inside the region
 (TAKEN badge arc, CITY 3 / Falconridge labels, gold coin and +17, stat
-tiles, MARCH ON) are residual-masked and kept from the capture, and
-everything outside the region is byte-identical to `conquest-idle`. The
+tiles, MARCH ON) keep their captured glyphs byte-identical — only their
+anti-aliasing halos carry ≤15/255 soft-mask bleed and badge-overlap rows
+changed ≤8/255 (both invisible) — and everything outside the region is
+byte-identical to `conquest-idle`. The
 report values (`+17`, `100% MVP`, `1` idle damage, `0/0 SENT/LOST`) and
 its single Continue action are preserved untouched.
 
