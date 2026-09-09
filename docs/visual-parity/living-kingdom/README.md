@@ -262,7 +262,62 @@ No separate `tools/tests/test_living_kingdom_asset_pack.py` and no CI workflow c
 
 ## Production metadata
 
-For every final asset batch, record here:
+### Frontier destruction set (Task 2, HPA-479)
+
+Landed 2026-09-08. Four image sets, all **512×540 RGBA**, bottom-center anchor
+`(0.5, 0)`, gate centered, derived from one approved intact source (same
+camera, center, baseline gap, tower positions, and footprint across stages).
+
+Generator/tool chain: `codex exec` → built-in `image_generation`
+(gpt-image; ~1024×1536 / 1221×1289 portrait rasters), flat `#00ff00` chroma-key
+background, keyed with
+`~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py`
+(`--key-color #00ff00 --tolerance 60 --auto-key border --soft-matte
+--spill-cleanup --despill`), then a deterministic PIL envelope repack
+(trim to alpha bbox → uniform LANCZOS scale → paste centered on a 512×540
+canvas with a fixed 12 px bottom gap).
+
+Prompt notes: intact was authored first (composition: centered banded timber
+gate, two flanking round towers with blue-gray conical roofs + red pennants,
+central keep with red banner, warm upper-left daylight, anime-painted fantasy
+style matching `concept-01-siege-destruction.png` mood). damaged/breached/
+conquered were generated from the intact green-plate reference with
+stage-delta prompts; conquered v2 tightened the footprint rule after v1's
+rubble flared past the width cap (v1 discarded).
+
+The `agy` CLI (Gemini) path was attempted first per plan but its upstream
+image endpoint returned consistent internal errors during this session
+("remote service remains unavailable"), so the skill's `codex exec` path B
+produced all four rasters.
+
+Measured alpha bounds (Pillow scan of the shipped PNGs; acceptance evidence,
+not HPA-478 layout input):
+
+| Stage | bbox (L, T, R, B) | width / 512 | height / 540 | bottom gap / 540 | center x |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `lk-city-frontier-intact` | (69, 10, 443, 528) | 0.7305 | 0.9593 | 0.0222 | 256.0 |
+| `lk-city-frontier-damaged` | (64, 10, 449, 528) | 0.7520 | 0.9593 | 0.0222 | 256.5 |
+| `lk-city-frontier-breached` | (60, 10, 453, 528) | 0.7676 | 0.9593 | 0.0222 | 256.5 |
+| `lk-city-frontier-conquered` | (64, 10, 448, 528) | 0.7500 | 0.9593 | 0.0222 | 256.0 |
+
+All four sit inside the contract bands (intact also ≤ 0.78 width). CI test:
+`PyxisTests/BattleSceneTests.livingKingdomFrontierAssetsMatchContract`.
+
+Manual edit/compositing notes: the intact stage was rejected once for a too-
+narrow silhouette (visible aspect 0.672 → regenerated at 0.723); conquered was
+regenerated once for a too-wide rubble footprint (0.889 → 0.741). A small
+residual chroma-green tinge inside the breached smoke plume was inspected at
+pixel level and is below visibility at asset scale.
+
+Reference plates (`references/battle-frontier-*.png`): the shipping enemy-city
+pixels on `docs/visual-parity/forged-ui/native/battle-normal-393x852@3x.png`
+were removed by lerping clean sky sampled on both sides of the city rect
+(438, 648)–(748, 1064) @3x, then each 512×540 stage was composited over the
+gate at the shipping transform — enemy-city canvas height 132 pt → 396 px at
+3x, scale = 396/540, canvas pasted at (406, 671) so visible bottoms align with
+the removed city. Forged chrome untouched.
+
+For every final asset batch beyond Task 2, record here:
 
 - exact names;
 - dimensions;
