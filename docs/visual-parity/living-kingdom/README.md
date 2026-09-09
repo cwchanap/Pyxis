@@ -300,8 +300,9 @@ not HPA-478 layout input):
 | `lk-city-frontier-breached` | (60, 10, 453, 528) | 0.7676 | 0.9593 | 0.0222 | 256.5 |
 | `lk-city-frontier-conquered` | (64, 10, 448, 528) | 0.7500 | 0.9593 | 0.0222 | 256.0 |
 
-All four sit inside the contract bands (intact also ≤ 0.78 width). CI test:
-`PyxisTests/BattleSceneTests.livingKingdomFrontierAssetsMatchContract`.
+All four sit inside the contract bands (intact also ≤ 0.78 width). CI test (grown to all
+16 fortresses in Task 3):
+`PyxisTests/BattleSceneTests.livingKingdomFortressAssetsMatchContract`.
 
 Manual edit/compositing notes: the intact stage was rejected once for a too-
 narrow silhouette (visible aspect 0.672 → regenerated at 0.723); conquered was
@@ -327,6 +328,79 @@ For every final asset batch beyond Task 2, record here:
 - generator/tool + prompt revision;
 - source-board usage if available;
 - manual edit/compositing notes.
+
+### Ember / Arcane / Royal landmark families + battlefield treatments (Task 3, HPA-479)
+
+Landed 2026-09-08. Fifteen image sets: 12 fortress stages (3 families × intact/damaged/
+breached/conquered, all **512×540 RGBA**, bottom-center anchor `(0.5, 0)`, gate centered,
+stage-stable camera/footprint per family) plus 3 battlefield treatments (**864×1821 RGBA**,
+transparent, authored for z = `GameUITheme.Z.background + 0.5`).
+
+Family identities (authored from `concept-02-landmark-cities.png` mood, not Frontier
+recolors): **Ember** — charcoal-basalt stone, fire-lit windows, flanking bronze oil
+braziers, narrow stone bridge apron, ember-orange flame banner (cities 7 Emberford,
+12 Ashbridge; decorative braziers only, no gameplay fire mechanic). **Arcane** — pale
+blue-white stone, cyan rune etchings + crystal finials, deep-blue star banner; runes are
+etched wall marks only, no dome/barrier/shield reading (cities 9 Runewatch, 13 Starveil
+Citadel). **Royal** — white marble + gold trim, crown crest, sun banner, fleur-de-lis
+tower banners, marble stair (city 15 Crownspire Keep).
+
+Generator/tool chain: `codex exec` → built-in `image_generation` (gpt-image; 1024×1536
+portrait rasters; battlefields came back at exactly 864×1821 / 864×1820). The `agy`
+(Gemini) path was attempted first again this session and its upstream endpoint still
+returned internal errors, so all rasters are gpt-image. Each family's intact stage was
+authored first on a flat `#00ff00` chroma plate; damaged/breached/conquered were produced
+as reference-image edits of that intact plate (composition/footprint locked by prompt),
+keyed with `~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py`
+(`--key-color #00ff00 --tolerance 60 --auto-key border --soft-matte --spill-cleanup
+--despill`), then a deterministic PIL repack: trim to alpha bbox → LANCZOS scale →
+paste centered on 512×540 with the fixed 12 px bottom gap. Per-asset opaque height
+`H = round(512 × 0.75 / aspect)` clamped to `[512, 528]` (Task 2 used a fixed 518; the
+per-asset clamp keeps every stage mid-band — the Ember breached smoke plume and wider
+families needed the slack). Intact stages additionally clamp under the 0.78 width cap.
+
+Prompt revisions: Ember intact took three attempts (v1/v2 silhouettes measured 0.79–0.80
+wide at the fixed height — the bridge apron kept reading wide; v3 narrowed the apron to
+gate width and landed 0.78 raw). Ember breached v2 overcorrected to a 0.884 wide plume
+and was discarded; v1 was kept.
+
+Measured alpha bounds (Pillow scan of the shipped PNGs; acceptance evidence):
+
+| Stage | bbox (L, T, R, B) | width / 512 | height / 540 | bottom gap / 540 | center x |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `lk-city-ember-intact` | (56, 16, 455, 528) | 0.7793 | 0.9481 | 0.0222 | 255.5 |
+| `lk-city-ember-damaged` | (64, 14, 448, 528) | 0.7500 | 0.9519 | 0.0222 | 256.0 |
+| `lk-city-ember-breached` | (70, 0, 441, 528) | 0.7246 | 0.9778 | 0.0222 | 255.5 |
+| `lk-city-ember-conquered` | (54, 16, 457, 528) | 0.7871 | 0.9481 | 0.0222 | 255.5 |
+| `lk-city-arcane-intact` | (64, 16, 448, 528) | 0.7500 | 0.9481 | 0.0222 | 256.0 |
+| `lk-city-arcane-damaged` | (64, 10, 448, 528) | 0.7500 | 0.9593 | 0.0222 | 256.0 |
+| `lk-city-arcane-breached` | (68, 0, 444, 528) | 0.7344 | 0.9778 | 0.0222 | 256.0 |
+| `lk-city-arcane-conquered` | (55, 16, 456, 528) | 0.7832 | 0.9481 | 0.0222 | 255.5 |
+| `lk-city-royal-intact` | (64, 5, 448, 528) | 0.7500 | 0.9685 | 0.0222 | 256.0 |
+| `lk-city-royal-damaged` | (64, 3, 448, 528) | 0.7500 | 0.9722 | 0.0222 | 256.0 |
+| `lk-city-royal-breached` | (64, 5, 448, 528) | 0.7500 | 0.9685 | 0.0222 | 256.0 |
+| `lk-city-royal-conquered` | (64, 8, 448, 528) | 0.7500 | 0.9630 | 0.0222 | 256.0 |
+
+All twelve sit inside the contract bands; intact stages ≤ 0.78 width. A pixel scan found
+zero chroma-green residue (opaque samples where G > R×1.35 and G > B×1.35) on all twelve.
+
+Battlefield treatments (`lk-battlefield-{ember,arcane,royal}`): atmosphere-only particle
+layers authored on pure-black plates — ember sparks + heat wisps, arcane motes + star
+sparkles, royal gold light shafts + dust — density concentrated in the top quarter,
+sparse center column, near-empty lower half; no architecture/shield/text. Conversion:
+luminance→alpha (`alpha = max(R,G,B)`, values ≤ 10 → 0) with color unpremultiplied so the
+layer composites like additive light; royal resized 1820→1821 (uniform LANCZOS, ≤0.1%).
+Transparency stats (864×1821 canvas): fully-transparent pixels **78.1% / 82.8% / 76.3%**
+(ember/arcane/royal), mean alpha **9.5 / 8.3 / 15.0**, bottom edge alpha **0.0**, lower
+corners fully transparent; top corners carry the intentional glow (ember 40/106, arcane
+37/85, royal 209/253 mean alpha in the 40 px corner patches).
+
+Reference plates (`references/battle-{emberford,runewatch,crownspire}.png`): same method
+as Task 2 — shipping enemy-city pixels on `battle-normal-393x852@3x.png` removed by
+per-row horizontal sky lerp sampled at `x ∈ [426,438)` and `[748,760)` across the city
+rect `(438, 648)–(748, 1064) @3x`, then each family's intact 512×540 stage composited at
+scale `396/540`, pasted at `(406, 671)` so visible bottoms align. Forged chrome untouched.
+Contact sheet: `contact-sheets/landmark-families.png` (3 families × 4 stages).
 
 ## Acceptance
 
