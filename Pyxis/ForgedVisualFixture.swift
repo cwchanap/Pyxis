@@ -7,6 +7,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     case campEmpty = "camp-empty"
     case campOccupied = "camp-occupied"
     case map
+    case mapPartial = "map-partial"
     case mapCountryComplete = "map-country-complete"
     case conquestLive = "conquest-live"
     case conquestIdle = "conquest-idle"
@@ -17,7 +18,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         switch self {
         case .campEmpty, .campOccupied:
             return .camp
-        case .map, .mapCountryComplete:
+        case .map, .mapPartial, .mapCountryComplete:
             return .map
         case .battle, .battleBlocked, .conquestLive, .conquestIdle:
             return .battle
@@ -54,6 +55,10 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         case .map:
             var state = DevJumpState.make(city: 3)
             state.completedCityCount = 3
+            state.stageStatus = .cityConqueredPendingMap
+            return state
+        case .mapPartial:
+            var state = DevJumpState.make(city: 8)
             state.stageStatus = .cityConqueredPendingMap
             return state
         case .mapCountryComplete:

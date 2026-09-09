@@ -53,6 +53,7 @@ final class PyxisUITests: XCTestCase {
             "camp-empty",
             "camp-occupied",
             "map",
+            "map-partial",
             "map-country-complete",
             "conquest-live",
             "conquest-idle"
@@ -130,6 +131,9 @@ final class PyxisUITests: XCTestCase {
         case "map":
             expected = "Map;stage=cityConqueredPendingMap;completed=3;"
                 + "attackableCity=4;laterLockedCity=5"
+        case "map-partial":
+            expected = "Map;stage=cityConqueredPendingMap;completed=8;"
+                + "attackableCity=none;laterLockedCity=10"
         case "map-country-complete":
             expected = "Map;stage=countryComplete;completed=15;"
                 + "attackableCity=none;laterLockedCity=none"
