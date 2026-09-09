@@ -1862,6 +1862,26 @@ struct BattleSceneTests {
         }
     }
 
+    @Test("Living Kingdom transition effects match the shipping FX contract")
+    func livingKingdomTransitionEffectsMatchContract() throws {
+        for sequence in ["breach", "collapse"] {
+            for frameIndex in 1...6 {
+                let name = "lk-fx-\(sequence)-\(String(format: "%02d", frameIndex))"
+                let image = try #require(UIImage(named: name))
+                let cgImage = try #require(image.cgImage)
+                #expect(cgImage.width == 512)
+                #expect(cgImage.height == 512)
+            }
+        }
+
+        // The effect ends by dissolving: frame 06 is fully transparent so the
+        // static breached/conquered fortress owns the terminal appearance.
+        for name in ["lk-fx-breach-06", "lk-fx-collapse-06"] {
+            let image = try #require(UIImage(named: name))
+            #expect(opaquePixelBounds(in: image) == nil)
+        }
+    }
+
     @Test("Living Kingdom battlefield treatments match the shipping backdrop canvas")
     func livingKingdomBattlefieldTreatmentsMatchContract() throws {
         for name in ["lk-battlefield-ember", "lk-battlefield-arcane", "lk-battlefield-royal"] {
