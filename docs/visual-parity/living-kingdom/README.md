@@ -461,6 +461,77 @@ installed production frames.
 
 CI seam: `PyxisTests/BattleSceneTests.livingKingdomTransitionEffectsMatchContract`
 (all 12 names resolve at 512×512; both terminal frames fully transparent).
+### Living map overlays + partial-map fixture (Task 5, HPA-479)
+
+Landed 2026-09-09. Four image sets plus the DEBUG `map-partial` fixture and
+`ForgedVisualFixture.mapPartial` (`DevJumpState.make(city: 8)` → 7 completed
+cities, `stageStatus = .cityConqueredPendingMap`).
+
+| Asset | Canvas | Measured alpha |
+| --- | ---: | --- |
+| `lk-map-secured-city` | 96×96 RGBA | bbox (2, 3, 93, 92), centroid (47.6, 47.6), max alpha 183 (intentional low-alpha treatment — number plate + upper-right conquered badge stay readable), 29.6% transparent |
+| `lk-map-caravan` | 128×64 RGBA | bbox (2, 6, 125, 57), centroid (59.0, 33.2), faces +X, 48.3% transparent |
+| `lk-map-route-6-7-worn` | 192×192 RGBA | bbox (43, 43, 148, 148), road length 148.5 canonical px, 90.9% transparent |
+| `lk-map-route-6-7-repaired` | 192×192 RGBA | bbox (43, 43, 148, 148), road length 148.5 canonical px, 90.9% transparent |
+
+Registration: both route stages share one identical registration — the road is
+centered on the canvas center and runs lower-left→upper-right (the 6→7 crossing
+is 60.99° from +X in authored y-up coordinates); its 150 canonical px length
+matches the 137.88 px city-6→city-7 span so the art connects the two city
+nodes without overrunning them when placed at the crossing midpoint
+`(393.6768, 580.3776)` at `runtimeOverlaySize = 192 × mapScale`. No text baked
+into any asset.
+
+Generator/tool chain: `codex exec` → built-in `image_generation` (gpt-image;
+1254×1254 secured-city/routes, 1536×1024 caravan rasters) on flat `#00ff00`
+chroma plates, soft-matte keyed with
+`~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py` (same flags as
+Tasks 2–4), then a deterministic PIL repack to the canonical canvases. The
+`agy` (Gemini) path was not retried this session; its upstream endpoint had
+returned 500s in Tasks 2–4, so generation ran via the established `codex
+exec` path. The route pair was re-registered in a final repack pass: trim at
+the 99% opaque bbox (+14 px soft-edge pad) → LANCZOS scale to a 150 canonical
+px road length → alpha ≤ 10 zeroed → centered paste on 192×192 (the first cut
+spanned the full canvas diagonal and overran both city nodes). A Pillow scan
+counts **0** chroma-signature opaque pixels (`G > R×1.35 and G > B×1.35`,
+alpha > 128) on all four.
+
+Prompt notes: secured-city = circular ring of pale weathered stones around
+trampled grass, upper-right kept empty so the runtime conquered marker stays
+readable; caravan = covered wagon with beige tilt pulled by two horses facing
+the right edge, tiny walking guard; worn = muddy battle-scarred dirt track
+with craters; repaired = clean fitted pale-gray cobblestone with grass tufts.
+Both routes authored from one composition rule (corner-to-corner diagonal at
+~60°) so they register identically.
+
+Fixture semantics: `makeState()` pins the pre-mount state
+(`completedCityCount == 7`, unit-tested). The pending-map init normalization
+(`completedCityCount = max(completedCityCount, cityNumberInCountry)`) bumps it
+to **8** on the fixture-install save/load path, so the mounted map's shipping
+semantic string is `Map;stage=cityConqueredPendingMap;completed=8;`
+`attackableCity=none;laterLockedCity=10` — the UI smoke asserts that value
+from the device. (The plan's guessed `completed=7;attackableCity=8;laterLockedCity=9`
+was wrong on all three counts; the shipping value is authoritative.)
+
+Native partial plate capture: `xcrun simctl install` + `launch cwchanap.Pyxis
+-pyxis-forged-fixture map-partial -pyxis-freeze-combat` + `xcrun simctl io
+screenshot`. Device: **iPhone 16 simulator, iOS 26.5** (logical 393×852,
+@3x → 1179×2556 px). This machine's "iPhone 17" simulator is the 2025 device
+type (402×874), so the 393×852 parity flow runs on the iPhone-16-class
+device; the UI smoke skips itself on any other logical size.
+
+Reference plates (`references/map-{early,partial,complete}.png`): composed
+only on real shipping plates with PIL `alpha_composite` at `mapScale =
+plateWidth / 1024` (1179/1024 = 1.15137 at 3x). Scene geometry replicated
+from `CountryMapLayout` for 393×852 with safe-area insets (62, 34): scale
+393/1024, backdrop 393×589.5 pt, `verticalOrigin = 206.7442 pt`, verified
+against plate-measured city-node centers (±14 px). secured-city overlays are
+centered on completed city nodes; nodes whose center falls below 1520 plate
+px sit behind the information card and receive no overlay (never paint over
+chrome). Worn 6→7 on `map-early` (before state), repaired 6→7 on
+`map-partial` (7 completed ⇒ repair eligible) and `map-complete`; caravan
+unrotated in contract +X facing on secured-route 2→3 (early) and 7→8
+(partial/complete). Contact sheet: `contact-sheets/map-references.png`.
 
 ## Acceptance
 

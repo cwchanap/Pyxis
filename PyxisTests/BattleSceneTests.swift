@@ -1882,6 +1882,23 @@ struct BattleSceneTests {
         }
     }
 
+    @Test("Living Kingdom map overlays match the canonical registration canvas")
+    func livingKingdomMapOverlaysMatchContract() throws {
+        let expected: [(String, CGSize)] = [
+            ("lk-map-secured-city", CGSize(width: 96, height: 96)),
+            ("lk-map-caravan", CGSize(width: 128, height: 64)),
+            ("lk-map-route-6-7-worn", CGSize(width: 192, height: 192)),
+            ("lk-map-route-6-7-repaired", CGSize(width: 192, height: 192))
+        ]
+
+        for (name, size) in expected {
+            let image = try #require(UIImage(named: name))
+            let cgImage = try #require(image.cgImage)
+            #expect(cgImage.width == Int(size.width), "\(name) width")
+            #expect(cgImage.height == Int(size.height), "\(name) height")
+        }
+    }
+
     @Test("Living Kingdom battlefield treatments match the shipping backdrop canvas")
     func livingKingdomBattlefieldTreatmentsMatchContract() throws {
         for name in ["lk-battlefield-ember", "lk-battlefield-arcane", "lk-battlefield-royal"] {

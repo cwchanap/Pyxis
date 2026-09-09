@@ -14,6 +14,7 @@ struct ForgedVisualFixtureTests {
             ("camp-empty", .campEmpty),
             ("camp-occupied", .campOccupied),
             ("map", .map),
+            ("map-partial", .mapPartial),
             ("map-country-complete", .mapCountryComplete),
             ("conquest-live", .conquestLive),
             ("conquest-idle", .conquestIdle)
@@ -92,6 +93,13 @@ struct ForgedVisualFixtureTests {
         #expect(map.completedCityCount == 3)
         #expect(map.stageStatus == .cityConqueredPendingMap)
         #expect(map.pendingBattleResult == nil)
+
+        let partial = ForgedVisualFixture.mapPartial.makeState()
+        #expect(partial.countryNumber == 1)
+        #expect(partial.cityNumberInCountry == 8)
+        #expect(partial.completedCityCount == 7)
+        #expect(partial.stageStatus == .cityConqueredPendingMap)
+        #expect(partial.pendingBattleResult == nil)
 
         let complete = ForgedVisualFixture.mapCountryComplete.makeState()
         #expect(complete.countryNumber == 1)
