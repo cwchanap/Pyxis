@@ -547,6 +547,130 @@ recomposited with the badge-disc restore above (no other pixels changed),
 and the registration prose was corrected to distinguish the asset's ≈45°
 canvas diagonal from the ≈61° map-space 6→7 route angle.
 
+### Offline return references (Task 6, HPA-479)
+
+Landed 2026-09-09. Three files, all composed **only** on real shipping
+plates; Forged chrome is never redrawn and no elapsed-time UI is
+synthesized.
+
+| File | Canvas | Base plate |
+| --- | ---: | --- |
+| `references/offline-damage.png` | 1179×2556 (@3x of 393×852) | `native/battle-live-damage-393x852@3x.png` |
+| `references/offline-conquest.png` | 1179×2556 (@3x of 393×852) | `native/conquest-idle-393x852@3x.png` |
+| `contact-sheets/offline-return.png` | 1156×1266 | the two references above |
+
+`offline-damage.png` (positive idle damage, city survived): the shipping
+enemy-city pixels on the live-damage plate were removed with the Task 2/3
+per-row horizontal sky lerp across the city rect (438, 648)–(748, 1064) @3x
+sampled at x ∈ [426,438) and [748,760), then
+`lk-city-frontier-damaged` (city 3 Falconridge, Frontier family) was
+composited at the shipping transform — scale `396/540`, canvas pasted at
+(406, 671). Every pixel outside the swap region is byte-identical to the
+base plate (programmatic assert). The plate's captured damage-feedback
+chrome (the live-combat `−3` float and its mini HP bar) is preserved as
+captured, never rewritten. Caveat recorded for reviewers: the captured
+HP chrome reflects the fixture's live state, while the fortress shows the
+damaged stage to illustrate the post-idle-damage presentation; at runtime
+the stage always follows remaining HP. Shipping offline-return feedback is
+a gold tooltip rendered at HUD z, and positive-damage copy is formatted
+through `CompactNumberFormatter` — e.g.
+**`Buildings dealt 1.2K idle damage.`** — never a raw integer; the tooltip
+itself is not baked into the reference.
+
+`offline-conquest.png` (idle conquest while backgrounded): the underlying
+scene was reconstructed from the aligned `battle-normal` plate (same
+backdrop; verified per-pixel, flanking-sky mean diff ≈ 4/255), city
+removed by the same sky lerp, and `lk-city-frontier-conquered` composited
+at the identical shipping transform. The report panel's show-through was
+then calibrated against the capture as `P ≈ k·S + c(y)` per channel
+(fitted k = (0.0225, 0.0279, 0.0335); c(820) = (59.0, 44.1, 28.2) —
+matching the authored panel-gradient top color (59, 44, 28) — trending to
+c(1119) = (50.2, 36.8, 22.0) toward the darker bottom stop). Only the
+faint fortress ghost region (396, 813)–(794, 1080) was recomputed with
+the new conquered stage behind the panel; chrome pixels inside the region
+(TAKEN badge arc, CITY 3 / Falconridge labels, gold coin and +17, stat
+tiles, MARCH ON) are residual-masked and kept from the capture, and
+everything outside the region is byte-identical to `conquest-idle`. The
+report values (`+17`, `100% MVP`, `1` idle damage, `0/0 SENT/LOST`) and
+its single Continue action are preserved untouched.
+
+Generator/tool chain: deterministic PIL/numpy compositing only — no
+generative step in Task 6; all art comes from the landed production image
+sets and the untouched native plates.
+
+### Final handoff inventory (Task 6, HPA-479)
+
+Normalized complete inventory for HPA-478. Per-batch provenance detail
+(tool chain, prompt revisions, manual edits, per-asset measurements) lives
+in the Task 2–5 sections above; this table is the single checklist of
+every delivered file.
+
+**Runtime image sets — 35** (all installed in `Pyxis/Assets.xcassets`, one
+universal 1x PNG per set via
+`tools/slice_soldier_animation_strips.py::write_contents_json`):
+
+| Batch | Sets | Canvas | Anchor / registration | Display / timing rule |
+| --- | --- | ---: | --- | --- |
+| Fortress (T2) | `lk-city-frontier-{intact,damaged,breached,conquered}` | 512×540 RGBA | SpriteKit `(0.5, 0)`, gate centered, stage-stable camera | 132 pt canvas height (compact ≈150 pt cap); stage by remaining HP (>60 intact, >25 damaged, >0 breached, 0 conquered) |
+| Fortress (T3) | `lk-city-{ember,arcane,royal}-{intact,damaged,breached,conquered}` | 512×540 RGBA | same | same |
+| Battlefield (T3) | `lk-battlefield-{ember,arcane,royal}` | 864×1821 RGBA | aspect-fill; z = `GameUITheme.Z.background + 0.5` (over opaque backdrop, under Forged grade + lane terrain) | atmosphere-only; no architecture/shield/text |
+| FX (T4) | `lk-fx-breach-01…06`, `lk-fx-collapse-01…06` | 512×512 RGBA | anchor `(0.5, 0)`, impact origin = canvas bottom center, node static | breach 0.05 s/frame (0.30 s), collapse 0.07 s/frame (0.42 s); height `512 × (132/540) ≈ 125 pt`; frame 06 fully transparent |
+| Map (T5) | `lk-map-secured-city`, `lk-map-caravan`, `lk-map-route-6-7-worn`, `lk-map-route-6-7-repaired` | 96×96 / 128×64 / 192×192 / 192×192 RGBA | canonical 1024×1536 map space; caravan faces +X; route tiles pre-drawn at ≈45° canvas diagonal for runtime rotation onto the ≈61° 6→7 route at midpoint (393.6768, 580.3776) | `runtimeOverlaySize = canonicalPixelSize × (displayedBackdropFrame.width / 1024)`; decorative/noninteractive |
+
+Measured alpha bounds per asset: Task 2/3 tables above (fortresses) and
+Task 4/5 tables above (FX registration, map overlays). CI seam:
+`PyxisTests/BattleSceneTests.livingKingdomFortressAssetsMatchContract` +
+`.livingKingdomTransitionEffectsMatchContract` (+ name/dimension checks
+for battlefield and map sets).
+
+**Reference plates — 12** (under `references/`, all 1179×2556 @3x of
+393×852, composed only on real shipping plates):
+
+| File | Base plate | Swap |
+| --- | --- | --- |
+| `battle-frontier-{intact,damaged,breached,conquered}` | `battle-normal` | per-stage frontier fortress at the gate |
+| `battle-emberford`, `battle-runewatch`, `battle-crownspire` | `battle-normal` | Ember/Arcane/Royal intact stages |
+| `map-early`, `map-partial`, `map-complete` | `map-attackable-locked` / `map-partial` native fixture / `map-complete` | worn/repaired 6→7, secured rings, caravan |
+| `offline-damage` | `battle-live-damage` | frontier-damaged at the gate; feedback chrome preserved |
+| `offline-conquest` | `conquest-idle` | conquered ghost behind the preserved report |
+
+**Support files**: contact sheets `contact-sheets/{destruction-frontier,
+landmark-families,fx-transition-sequences,map-references,offline-return}.png`
+and display-size previews `previews/fx-{breach,collapse}-filmstrip.png`;
+source boards + the native `map-partial` capture under `source/`.
+
+### Final visual review (Task 6, HPA-479)
+
+Reviewed 2026-09-09 at logical 393×852 (native @3x plates read at 1:1 and
+downscaled):
+
+- **Apparent fortress width** — intact/damaged frontier at the gate read
+  ≈90–100 pt against the removed shipping silhouette; gate-centered,
+  bottoms aligned. ✓
+- **Stage continuity** — `destruction-frontier` sheet and the offline
+  composite: same camera, center, tower positions, and footprint across
+  intact/damaged/breached/conquered. ✓
+- **Landmark identity** — Ember (charcoal + fire-lit braziers), Arcane
+  (pale blue-white + cyan runes, no shield reading), Royal (marble + gold
+  crown/sun banners) are distinct authored families, not recolors. ✓
+- **Treatment grade/z intent** — battlefield layers are top-weighted
+  atmosphere only (sparks/motes/light shafts), near-empty lower half,
+  authored for z = background + 0.5 under the Forged grade. ✓
+- **FX scale/origin** — 125 px filmstrips read at display size; bottom-
+  center origin; static node; frame 06 empty hands off to the static
+  breached/conquered fortress. ✓
+- **Map scale/labels** — `map-partial`: repaired 6→7 connects the nodes
+  beneath legible badge numerals; caravan on 7→8; secured rings never
+  cover numbers or conquered markers; no baked text. ✓
+- **Truthful offline compositions** — damage reference swaps only fortress
+  pixels on the real damage-return plate (no elapsed-time UI; formatted
+  shipping copy documented above); conquest reference preserves the
+  shipping report values and its single Continue action. ✓
+- Review limitation: `lk-city-royal-breached` could not be opened in a
+  viewer during this pass (content gateway rejects the file); its
+  correctness is covered programmatically — alpha-envelope bounds in the
+  Task 3 table and the CI contract test — and by the Task 3 pixel review.
+
 ## Acceptance
 
 Before PR #41 leaves Draft:
