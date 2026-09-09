@@ -13,7 +13,12 @@ import UIKit
 struct BattleSceneTests {
     private struct PixelBounds {
         let minX: Int
+        let minY: Int
         let maxXExclusive: Int
+        let maxYExclusive: Int
+
+        var width: Int { maxXExclusive - minX }
+        var height: Int { maxYExclusive - minY }
     }
 
     private enum BattleFeedbackCall: Equatable {
@@ -1826,6 +1831,32 @@ struct BattleSceneTests {
 
             #expect(bounds.minX - cropMinX >= 3)
             #expect(cropMaxX - bounds.maxXExclusive >= 3)
+        }
+    }
+
+    @Test("Living Kingdom fortress assets match the shipping display envelope")
+    func livingKingdomFrontierAssetsMatchContract() throws {
+        for stage in ["intact", "damaged", "breached", "conquered"] {
+            let name = "lk-city-frontier-\(stage)"
+            let image = try #require(UIImage(named: name))
+            let cgImage = try #require(image.cgImage)
+            let bounds = try #require(opaquePixelBounds(in: image))
+
+            #expect(cgImage.width == 512)
+            #expect(cgImage.height == 540)
+
+            let widthRatio = Double(bounds.width) / 512.0
+            let heightRatio = Double(bounds.height) / 540.0
+            let bottomGapRatio = Double(540 - bounds.maxYExclusive) / 540.0
+            let center = Double(bounds.minX + bounds.maxXExclusive) / 2.0
+
+            #expect((0.72...0.80).contains(widthRatio))
+            #expect((0.94...0.98).contains(heightRatio))
+            #expect((0.015...0.030).contains(bottomGapRatio))
+            #expect(abs(center - 256.0) <= 10.24)
+            if stage == "intact" {
+                #expect(widthRatio <= 0.78)
+            }
         }
     }
 
@@ -3965,7 +3996,9 @@ struct BattleSceneTests {
         }
 
         var minX = width
+        var minY = height
         var maxXExclusive = 0
+        var maxYExclusive = 0
         for y in 0..<height {
             for x in 0..<width {
                 let alphaIndex = (y * width + x) * 4 + 3
@@ -3973,14 +4006,21 @@ struct BattleSceneTests {
                     continue
                 }
                 minX = min(minX, x)
+                minY = min(minY, y)
                 maxXExclusive = max(maxXExclusive, x + 1)
+                maxYExclusive = max(maxYExclusive, y + 1)
             }
         }
 
-        guard minX < width else {
+        guard minX < width, minY < height else {
             return nil
         }
-        return PixelBounds(minX: minX, maxXExclusive: maxXExclusive)
+        return PixelBounds(
+            minX: minX,
+            minY: minY,
+            maxXExclusive: maxXExclusive,
+            maxYExclusive: maxYExclusive
+        )
     }
 
     // MARK: - touchesEnded
