@@ -475,10 +475,13 @@ cities, `stageStatus = .cityConqueredPendingMap`).
 | `lk-map-route-6-7-repaired` | 192×192 RGBA | bbox (43, 43, 148, 148), road length 148.5 canonical px, 90.9% transparent |
 
 Registration: both route stages share one identical registration — the road is
-centered on the canvas center and runs lower-left→upper-right (the 6→7 crossing
-is 60.99° from +X in authored y-up coordinates); its 150 canonical px length
-matches the 137.88 px city-6→city-7 span so the art connects the two city
-nodes without overrunning them when placed at the crossing midpoint
+centered on the canvas center and runs lower-left→upper-right as the
+square-canvas diagonal (measured principal axis ≈45.5° from +X on the
+192×192 canvas). The authored map-space 6→7 route is a different angle,
+≈61° from +X in authored y-up coordinates (60.99°): runtime placement
+(HPA-478) rotates/positions the tile onto that route. The 150 canonical px
+length matches the 137.88 px city-6→city-7 span so the art connects the two
+city nodes without overrunning them when placed at the crossing midpoint
 `(393.6768, 580.3776)` at `runtimeOverlaySize = 192 × mapScale`. No text baked
 into any asset.
 
@@ -501,8 +504,8 @@ trampled grass, upper-right kept empty so the runtime conquered marker stays
 readable; caravan = covered wagon with beige tilt pulled by two horses facing
 the right edge, tiny walking guard; worn = muddy battle-scarred dirt track
 with craters; repaired = clean fitted pale-gray cobblestone with grass tufts.
-Both routes authored from one composition rule (corner-to-corner diagonal at
-~60°) so they register identically.
+Both routes authored from one composition rule (corner-to-corner diagonal,
+≈45° principal axis on the canvas) so they register identically.
 
 Fixture semantics: `makeState()` pins the pre-mount state
 (`completedCityCount == 7`, unit-tested). The pending-map init normalization
@@ -531,7 +534,18 @@ px sit behind the information card and receive no overlay (never paint over
 chrome). Worn 6→7 on `map-early` (before state), repaired 6→7 on
 `map-partial` (7 completed ⇒ repair eligible) and `map-complete`; caravan
 unrotated in contract +X facing on secured-route 2→3 (early) and 7→8
-(partial/complete). Contact sheet: `contact-sheets/map-references.png`.
+(partial/complete). The 6→7 road renders **beneath the native node
+markers**: after the road paste the composer restores each route-end node's
+badge disc (55 plate-px circle sampled from the pre-road state, incl. any
+secured ring) so the node 6/7 numerals stay fully legible while the road
+still visibly connects the two nodes. Contact sheet:
+`contact-sheets/map-references.png`.
+
+Fix round 1 (review): the first composite pass pasted the road over node
+6/7's badges, burying node 6's numeral; all three references were
+recomposited with the badge-disc restore above (no other pixels changed),
+and the registration prose was corrected to distinguish the asset's ≈45°
+canvas diagonal from the ≈61° map-space 6→7 route angle.
 
 ## Acceptance
 
