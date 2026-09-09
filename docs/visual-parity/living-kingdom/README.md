@@ -402,6 +402,66 @@ rect `(438, 648)–(748, 1064) @3x`, then each family's intact 512×540 stage co
 scale `396/540`, pasted at `(406, 671)` so visible bottoms align. Forged chrome untouched.
 Contact sheet: `contact-sheets/landmark-families.png` (3 families × 4 stages).
 
+### Transition effects (Task 4, HPA-479)
+
+Landed 2026-09-08. Twelve image sets: `lk-fx-breach-01...06` and
+`lk-fx-collapse-01...06`, all **512×512 RGBA**, dust/debris/atmosphere only
+(no fortress silhouette), SpriteKit anchor `(0.5, 0)`, impact origin = canvas
+bottom center.
+
+Registration: every frame is derived from one of two chroma-keyed key plates per
+sequence (burst + dissipate) by deterministic PIL repack — trim to alpha bbox →
+LANCZOS scale (breach peak opaque width 430 px, collapse 460 px) → bottom-center
+paste at `(256, 512)` → alpha-multiply → integer shift pinning each frame's
+alpha-weighted centroid x to 256. The node position never moves during playback;
+the effect only expands (frames 01–03, scale 0.60/0.85/1.00 breach,
+0.62/0.88/1.00 collapse) and dissolves (frames 04–05 from the dissipate plate,
+opacity 0.45/0.18 breach, 0.50/0.22 collapse). **Frame 06 is a fully transparent
+512×512 RGBA canvas** (alpha all zero — `opaquePixelBounds == nil`), so the
+static breached/conquered fortress owns the terminal appearance.
+
+Timing: breach 0.05 s/frame (0.30 s total), collapse 0.07 s/frame (0.42 s total).
+Display: `fxDisplayHeight = 512 × (132/540) ≈ 125 pt`; both sequences were
+reviewed as 125 px filmstrips and read at that size (previews/fx-*-filmstrip.png).
+
+Measured per-frame alpha bbox + centroid x (Pillow scan of the shipped PNGs;
+registration evidence):
+
+| Frame | bbox (L, T, R, B) | centroid x |
+| --- | --- | ---: |
+| `lk-fx-breach-01` | (128, 361, 386, 512) | 256.29 |
+| `lk-fx-breach-02` | (74, 298, 440, 512) | 256.20 |
+| `lk-fx-breach-03` | (42, 260, 472, 512) | 256.16 |
+| `lk-fx-breach-04` | (62, 293, 476, 512) | 256.29 |
+| `lk-fx-breach-05` | (63, 306, 468, 512) | 256.03 |
+| `lk-fx-breach-06` | fully transparent | — |
+| `lk-fx-collapse-01` | (117, 359, 402, 512) | 255.92 |
+| `lk-fx-collapse-02` | (58, 295, 463, 512) | 255.65 |
+| `lk-fx-collapse-03` | (31, 266, 491, 512) | 255.56 |
+| `lk-fx-collapse-04` | (42, 294, 488, 512) | 256.33 |
+| `lk-fx-collapse-05` | (46, 313, 483, 511) | 256.47 |
+| `lk-fx-collapse-06` | fully transparent | — |
+
+Generator/tool chain: `codex exec` → built-in `image_generation` (gpt-image;
+1536×1024 rasters) on flat `#00ff00` chroma plates, keyed with
+`~/.codex/skills/.system/imagegen/scripts/remove_chroma_key.py`
+(`--key-color #00ff00 --tolerance 60 --auto-key border --soft-matte
+--spill-cleanup --despill`). The `agy` (Gemini) path was probed first and its
+upstream endpoint still returned 500s, as in Tasks 2–3. Prompt notes: breach
+burst = sharp tan-brown dust/debris blast erupting from one bottom-center point;
+collapse burst = heavier gray-brown masonry chunks + churning dust (denser,
+blockier read); one matching wispy dissipate plate per sequence. All four plates
+share the same composition rules (bottom-center origin, empty upper third, no
+architecture/ground line/text). A post-key clamp (`G → max(R,B)` on opaque
+pixels where `G > R×1.35 and G > B×1.35`) removed the residual chroma
+signature; the final scan counts **0** such pixels across all ten art frames.
+Previews: `previews/fx-{breach,collapse}-filmstrip.png` (125 px = display size)
+and `contact-sheets/fx-transition-sequences.png` (160 px), all built from the
+installed production frames.
+
+CI seam: `PyxisTests/BattleSceneTests.livingKingdomTransitionEffectsMatchContract`
+(all 12 names resolve at 512×512; both terminal frames fully transparent).
+
 ## Acceptance
 
 Before PR #41 leaves Draft:
