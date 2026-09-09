@@ -15,11 +15,32 @@ The final pack contains **35** runtime image sets:
 
 There are **no ambient smoke/ember/ward textures** in this ticket. Add them later only if HPA-478 proves a real consumer.
 
+## Measured shipping baseline
+
+Verified 2026-09-08 against this branch's assets (`sips` dimensions + Pillow alpha scan):
+
+| Asset | Canvas (px) | `hasAlpha` | Alpha bbox `(L, T, R, B)` |
+| --- | --- | --- | --- |
+| `enemy-city` | 1223×1286 | yes | `(155, 23, 1070, 1258)` |
+| `battlefield-backdrop` | 864×1821 | no | — (opaque) |
+| `country-map-backdrop` | 1024×1536 | no | — (opaque) |
+
+The measured enemy-city silhouette maps to opaque width **0.748** of canvas width (915/1223), opaque height **0.960** of canvas height (1235/1286), and a transparent gap below the opaque box of **0.022** of canvas height (28/1286); opaque-box center drift is ≈0.4 px at 512-scale. All four values sit inside the alpha-envelope bands in the Fortress contract below — the bands are confirmed, no spec change required.
+
 ## Concept references
 
 The original four boards from `Pyxis_Living_Kingdom_Concept_References.zip` are mood/composition references only and are **not a production blocker**.
 
-If recovered, copy them unchanged into `source/`, record SHA-256 hashes, and document which invented mechanics were excluded. If they remain unavailable, add `source/README.md` noting that production used this written brief plus the Forged native plates.
+**Status: recovered.** Copied **unchanged** into `source/` (byte-identical to the archive contents, confirmed by SHA-256):
+
+| File | SHA-256 |
+| --- | --- |
+| `source/concept-01-siege-destruction.png` | `43b6f241212e33ddbf318e5a5cc8904ba522303509b0db3fcb1fac8e69e86520` |
+| `source/concept-02-landmark-cities.png` | `f9f9b5cf3b503005bb1edb5b136aea3c883c14dd0037bec24c76e80bcc7891cd` |
+| `source/concept-03-living-kingdom-map.png` | `12bc622b1d2b83b601d888b8ed2d1ee4efe0da4fd20158e913e99a9afdeb4336` |
+| `source/concept-04-offline-return-reveal.png` | `65694bf7644d77cdedab9c4ef02cb24af76272a53d77a0843c2b4ec2b2750cac` |
+
+Mechanics visible in the boards that are **excluded** from this ticket: extra resources, invented names/levels, huge troop stocks, claim buttons, and fortification-management objectives. Production scope follows this written brief plus the Forged native plates, not the boards.
 
 ## Visual direction
 
