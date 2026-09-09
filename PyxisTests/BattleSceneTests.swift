@@ -1835,28 +1835,40 @@ struct BattleSceneTests {
     }
 
     @Test("Living Kingdom fortress assets match the shipping display envelope")
-    func livingKingdomFrontierAssetsMatchContract() throws {
-        for stage in ["intact", "damaged", "breached", "conquered"] {
-            let name = "lk-city-frontier-\(stage)"
+    func livingKingdomFortressAssetsMatchContract() throws {
+        for family in ["frontier", "ember", "arcane", "royal"] {
+            for stage in ["intact", "damaged", "breached", "conquered"] {
+                let name = "lk-city-\(family)-\(stage)"
+                let image = try #require(UIImage(named: name))
+                let cgImage = try #require(image.cgImage)
+                let bounds = try #require(opaquePixelBounds(in: image))
+
+                #expect(cgImage.width == 512)
+                #expect(cgImage.height == 540)
+
+                let widthRatio = Double(bounds.width) / 512.0
+                let heightRatio = Double(bounds.height) / 540.0
+                let bottomGapRatio = Double(540 - bounds.maxYExclusive) / 540.0
+                let center = Double(bounds.minX + bounds.maxXExclusive) / 2.0
+
+                #expect((0.72...0.80).contains(widthRatio))
+                #expect((0.94...0.98).contains(heightRatio))
+                #expect((0.015...0.030).contains(bottomGapRatio))
+                #expect(abs(center - 256.0) <= 10.24)
+                if stage == "intact" {
+                    #expect(widthRatio <= 0.78)
+                }
+            }
+        }
+    }
+
+    @Test("Living Kingdom battlefield treatments match the shipping backdrop canvas")
+    func livingKingdomBattlefieldTreatmentsMatchContract() throws {
+        for name in ["lk-battlefield-ember", "lk-battlefield-arcane", "lk-battlefield-royal"] {
             let image = try #require(UIImage(named: name))
             let cgImage = try #require(image.cgImage)
-            let bounds = try #require(opaquePixelBounds(in: image))
-
-            #expect(cgImage.width == 512)
-            #expect(cgImage.height == 540)
-
-            let widthRatio = Double(bounds.width) / 512.0
-            let heightRatio = Double(bounds.height) / 540.0
-            let bottomGapRatio = Double(540 - bounds.maxYExclusive) / 540.0
-            let center = Double(bounds.minX + bounds.maxXExclusive) / 2.0
-
-            #expect((0.72...0.80).contains(widthRatio))
-            #expect((0.94...0.98).contains(heightRatio))
-            #expect((0.015...0.030).contains(bottomGapRatio))
-            #expect(abs(center - 256.0) <= 10.24)
-            if stage == "intact" {
-                #expect(widthRatio <= 0.78)
-            }
+            #expect(cgImage.width == 864)
+            #expect(cgImage.height == 1821)
         }
     }
 
