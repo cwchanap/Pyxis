@@ -1874,8 +1874,18 @@ struct BattleSceneTests {
             }
         }
 
-        // The effect ends by dissolving: frame 06 is fully transparent so the
-        // static breached/conquered fortress owns the terminal appearance.
+        // Nonterminal FX frames are transparent overlays: each must carry at
+        // least one transparent pixel so it cannot fully occlude the battlefield
+        // during the transition. Frame 06 is fully transparent so the static
+        // breached/conquered fortress owns the terminal appearance.
+        for sequence in ["breach", "collapse"] {
+            for frameIndex in 1...5 {
+                let name = "lk-fx-\(sequence)-\(String(format: "%02d", frameIndex))"
+                let image = try #require(UIImage(named: name))
+                #expect(hasTransparentPixel(in: image), "\(name) must not be fully opaque")
+            }
+        }
+
         for name in ["lk-fx-breach-06", "lk-fx-collapse-06"] {
             let image = try #require(UIImage(named: name))
             #expect(opaquePixelBounds(in: image) == nil)
@@ -1896,6 +1906,9 @@ struct BattleSceneTests {
             let cgImage = try #require(image.cgImage)
             #expect(cgImage.width == Int(size.width), "\(name) width")
             #expect(cgImage.height == Int(size.height), "\(name) height")
+            // Map overlays are transparent per the asset contract; an opaque
+            // replacement would cover the shipping map when HPA-478 consumes the pack.
+            #expect(hasTransparentPixel(in: image), "\(name) must not be fully opaque")
         }
     }
 
@@ -1906,6 +1919,9 @@ struct BattleSceneTests {
             let cgImage = try #require(image.cgImage)
             #expect(cgImage.width == 864)
             #expect(cgImage.height == 1821)
+            // Battlefield treatments are transparent overlays composited over the
+            // opaque backdrop; an opaque replacement would hide the shipping battlefield.
+            #expect(hasTransparentPixel(in: image), "\(name) must not be fully opaque")
         }
     }
 
@@ -4013,7 +4029,7 @@ struct BattleSceneTests {
         return Array(pixels[offset..<(offset + 4)]).map(Int.init)
     }
 
-    private func opaquePixelBounds(in image: UIImage) -> PixelBounds? {
+    private func rgbaPixels(in image: UIImage) -> [UInt8]? {
         guard let cgImage = image.cgImage else {
             return nil
         }
@@ -4040,9 +4056,17 @@ struct BattleSceneTests {
             didDraw = true
         }
 
-        guard didDraw else {
+        return didDraw ? pixels : nil
+    }
+
+    private func opaquePixelBounds(in image: UIImage) -> PixelBounds? {
+        guard let cgImage = image.cgImage,
+              let pixels = rgbaPixels(in: image) else {
             return nil
         }
+
+        let width = cgImage.width
+        let height = cgImage.height
 
         var minX = width
         var minY = height
@@ -4070,6 +4094,20 @@ struct BattleSceneTests {
             maxXExclusive: maxXExclusive,
             maxYExclusive: maxYExclusive
         )
+    }
+
+    /// Returns true when the image has at least one fully transparent pixel
+    /// (alpha == 0). Used to enforce the "transparent overlay" contract for map
+    /// and battlefield overlays, and the nonterminal FX frames: an opaque
+    /// replacement would occlude the shipping map/battlefield during playback.
+    private func hasTransparentPixel(in image: UIImage) -> Bool {
+        guard let pixels = rgbaPixels(in: image) else {
+            return false
+        }
+        for offset in stride(from: 3, to: pixels.count, by: 4) where pixels[offset] == 0 {
+            return true
+        }
+        return false
     }
 
     // MARK: - touchesEnded
