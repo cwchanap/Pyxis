@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Integrate HPA-479's Living Kingdom assets into Battle and Country Map, and make offline-return presentation truthful, without changing Pyxis gameplay/economy/save ownership.
+**Goal:** Integrate HPA-479's Living Kingdom assets into Battle and Country Map, and make offline-return presentation truthful, without changing Pyxis combat/economy/save ownership.
 
-**Architecture:** Add one pure `LivingKingdomPresentation` projection. `BattleScene`, `CountryMapScene`, and `BuildingViewScene` keep their existing state/layout/feedback ownership and consume the projection locally. Reuse existing scene routing and pending-first `GameViewController` behavior; explicitly supersede only the historical Map stay-on-idle-conquest journey, while preserving Camp build/upgrade stay-in-place behavior.
+**Architecture:** Author each city's visual family once in `Country1CityCatalog`, then use one pure `LivingKingdomPresentation` projection for HP stage, asset naming, FX metadata/selection, and completed-map decoration. `BattleScene`, `CountryMapScene`, and `BuildingViewScene` remain scene-local owners. Reuse existing pending-first `GameViewController` routing and intentionally supersede only the historical idle-conquest journey described below.
 
 **Tech Stack:** Swift 5, SpriteKit/UIKit, Swift Testing, XCTest UI tests, Xcode asset catalogs, existing HPA-479 `lk-*` PNGs.
 
@@ -13,52 +13,60 @@
 ## Global Constraints
 
 - This branch/PR is the **single HPA-478 implementation PR**. Tasks are commits/checkpoints, never separate PRs.
-- Baseline: `main` at `10036a88911aa055a406035154dd9e181f474701` after HPA-479 / PR #41.
+- Baseline: `main` at `10036a88911aa055a406035154dd9e181f474701`, after HPA-479 / PR #41.
 - HPA-479's tracked art contract is `docs/superpowers/specs/2026-09-07-living-kingdom-art-pack-design.md` plus landed `lk-*` assets/tests.
-- `docs/visual-parity/living-kingdom/**` is local-only/gitignored; generate evidence there but do not force it into git.
+- `docs/visual-parity/living-kingdom/**` is local-only/gitignored; captures/clips are PR evidence, not runtime inputs.
 - Do not modify HPA-479 production art in this PR.
-- Do not add save fields/migrations, economy/combat rules, timers, settlement owners, claim/report flows, route topology, Country 2, telemetry, or generic content/VFX infrastructure.
-- Keep `enemyCityNode.name == "enemy-city"`; Living Kingdom assets change the texture, not semantic node identity.
+- Do not add save fields/migrations, combat/economy rules, timers, settlement owners, claim/report flows, route topology, Country 2, telemetry, a VFX manager, runtime asset manifest, content registry, or routing service.
+- `Country1CityCatalog` remains the single authored source of Country 1 identity. Visual family is authored there, never inferred from `CityDefenseTrait`.
+- Keep `enemyCityNode.name == "enemy-city"`; stage/family changes swap its texture rather than replacing the semantic node.
 - Fortress stages use exact integer comparisons: `>60%` intact, `>25%...60%` damaged, `>0%...25%` breached, zero/pending conquered.
-- Exact families: Frontier `1–6,8,10,11,14`; Ember `7,12`; Arcane `9,13`; Royal `15`.
-- City 11 remains Frontier.
-- `TransitionEffect` owns FX frame names/timings; `BattleScene` only plays the selected effect.
-- Restore/resize/relaunch applies static state only and never replays historical Living Kingdom FX.
-- Map decoration derives from `completedCityCount`; at most two caravans; fixed repair segment 6→7.
-- Positive idle copy: `Buildings dealt <CompactNumberFormatter value> idle damage.`
-- Zero idle damage creates no new return/reward message.
-- Map foreground/current-city idle conquest intentionally routes to the pending Battle report; this supersedes old Map stay-on-conquest tests/docs.
-- Camp foreground idle conquest routes to the pending Battle report, but Camp build/upgrade settlement conquest **does not auto-route**.
+- Exact visual families: Frontier `1–6,8,10,11,14`; Ember `7,12`; Arcane `9,13`; Royal `15`. City 11 stays Frontier.
+- `TransitionEffect` owns the two FX frame-name lists and `0.05` / `0.07` second frame timings.
+- Live combat can request at most one final-stage Living Kingdom transition. Restore/resize/relaunch never replays historical FX.
+- Optional breach/collapse frames and perpetual caravan motion both honor Reduce Motion; static outcome art always remains visible.
+- Map decoration derives from `completedCityCount`; at most two caravans; fixed repair segment is 6→7.
+- Positive idle copy is exactly `Buildings dealt <CompactNumberFormatter value> idle damage.`
+- A real zero-damage return clears stale feedback to the scene's existing silent/default state.
+- Governing journey rule: **conquest that happens while the player was not looking routes to the pending report; conquest caused by a deliberate in-place Camp build/upgrade action stays in place.**
+- Map foreground/current-city RETURN idle conquest and Camp foreground/gate-resume idle conquest route through existing `.battle` tab routing. `layoutGateWillPause` never routes.
+- Camp build/upgrade conquest does not auto-route; it shows `City conquered. Open Battle for the report.` and leaves `pendingBattleResult` for explicit Battle navigation.
 - Production `GameViewController` routing remains unchanged.
 - `CountryMapScoutCardNode` continues using generic `enemy-city` thumbnail in this ticket.
-- Existing Codecov project/patch targets remain 90%; test uncovered code rather than changing thresholds/exclusions.
+- Existing Codecov project/patch targets remain 90%; add tests rather than exclusions or threshold changes.
 - Do not edit `project.pbxproj`, `.github/`, or `codecov.yml`.
 
 ## Risks
 
-1. **Map journey contract inversion:** old tests/specs assert idle conquest stays on Map. Task 5 rewrites the named expectations before changing routing.
-2. **Layout-gate reentrancy:** never route from `layoutGateWillPause`; pending state is the deferral signal, routing happens only after resume.
-3. **FX vs city colorize:** `playCityHitFeedback` and `playCityConquestFeedback` colorize the same enemy sprite. Keep one persistent semantic node, swap only texture, and use one replaceable FX child.
-4. **Resize/redraw during FX:** static reapplication must not rebuild the enemy node or append another effect. Tests cover layout refresh and `redraw(shouldLayout:false)`.
-5. **Threshold rounding:** real city maxima are not all round hundreds. Task 1 uses integer ratio math and real City 1/City 3 maxima.
-6. **Visual evidence drift:** local HPA-479 references may not be present. Tracked art spec + installed assets/tests are authoritative; captures are PR evidence only.
+1. **Journey contract inversion.** Current Map tests/specs explicitly assert no auto-route. Task 5 changes those expectations before production routing.
+2. **Layout-gate reentrancy.** Pending state may be created during gate pause, but routing must wait for resume.
+3. **Threshold rounding.** Real city maxima are not round hundreds; Task 1 uses integer ratios and real City 1/City 3 values.
+4. **Perpetual motion accessibility.** Caravans must stop moving under Reduce Motion; static decoration remains.
+5. **Scene-consumer regressions.** Focused gates include test suites that actually instantiate each changed scene, not only the scene's primary test file.
+6. **Visual evidence drift.** Tracked HPA-479 spec + landed assets/tests are authoritative if local corrected plates are absent.
 
 ## File Map
 
 ### Create
 
-- `Pyxis/LivingKingdomPresentation.swift` — pure family/stage/FX/map projection.
-- `PyxisTests/LivingKingdomPresentationTests.swift` — exact projection and asset-contract coverage.
+- `Pyxis/LivingKingdomPresentation.swift` — pure derived stage/asset/FX/map rules.
+- `PyxisTests/LivingKingdomPresentationTests.swift` — exact projection and asset-contract tests.
 
 ### Modify
 
-- `Pyxis/BattleScene.swift` — stable enemy-city texture swap, treatment, live FX, zero-return no-op, DEBUG readbacks.
-- `Pyxis/CountryMapScene.swift` — noninteractive map decoration and explicit pending-report routing for Map idle/current-city settlement.
-- `Pyxis/CountryMapTransientFeedback.swift` — `.idleSummary`, positive-only compact idle projection.
-- `Pyxis/BuildingViewScene.swift` — compact positive idle copy; foreground/gate pending-report routing only; build/upgrade stays in place.
-- `Pyxis/ForgedVisualFixture.swift` — missing visual states only.
-- focused tests in `PyxisTests/*` and `PyxisUITests/PyxisUITests.swift`.
-- `Pyxis/GameViewController.swift` only inside the existing `#if DEBUG` fixture installer if `return-damage` needs the foreground hook.
+- `Pyxis/CityDefinition.swift` — add framework-free `CityVisualFamily` and `visualFamily` field.
+- `Pyxis/Country1CityCatalog.swift` — author all 15 visual-family values beside existing city identity.
+- `PyxisTests/Country1CityCatalogTests.swift` — extend expected authored table with visual family.
+- `Pyxis/BattleScene.swift` — fortress texture/treatment integration, `effectsLayer` FX, zero-return clearing, DEBUG readbacks.
+- `Pyxis/CountryMapScene.swift` — living-map layer, Reduce Motion caravan policy, pending-report routing.
+- `Pyxis/CountryMapTransientFeedback.swift` — nonblocking `.idleSummary` and positive-only idle projection.
+- `Pyxis/BuildingViewScene.swift` — compact positive idle copy, zero-return reset, foreground/gate routing, deliberate-conquest pointer copy.
+- `Pyxis/ForgedVisualFixture.swift` — missing visual states plus explicit fixed foreground date.
+- `Pyxis/GameViewController.swift` — DEBUG fixture block only if needed to invoke the fixed return seam.
+- `CLAUDE.md` — governing idle-conquest routing rule.
+- `docs/superpowers/specs/2026-08-01-gameplay-sound-haptics-settings-design.md` — concise HPA-478 supersession note.
+- `docs/superpowers/specs/2026-07-30-compact-conquest-report-design.md` — concise HPA-478 supersession note.
+- focused tests in `PyxisTests/` and `PyxisUITests/PyxisUITests.swift` as named below.
 
 ### Must remain unchanged
 
@@ -74,17 +82,42 @@
 
 ---
 
-## Task 1: Add the pure Living Kingdom presentation contract
+## Task 1: Author visual family once and add the pure presentation projection
 
 **Files:**
+- Modify: `Pyxis/CityDefinition.swift`
+- Modify: `Pyxis/Country1CityCatalog.swift`
+- Modify: `PyxisTests/Country1CityCatalogTests.swift`
 - Create: `Pyxis/LivingKingdomPresentation.swift`
 - Create: `PyxisTests/LivingKingdomPresentationTests.swift`
 
 **Interfaces:**
-- Consumes: city number, remaining/max HP, pending-result boolean, completed-city count.
-- Produces: `LivingKingdomPresentation.Battle`, `TransitionEffect`, and `Map` used by later tasks.
+- `CityDefinition.visualFamily: CityVisualFamily` is the single authored family value.
+- `LivingKingdomPresentation.battle(cityNumber:remainingHP:maxHP:hasPendingConquest:) -> Battle`
+- `LivingKingdomPresentation.transitionEffect(from:to:) -> TransitionEffect?`
+- `LivingKingdomPresentation.map(completedCityCount:) -> Map`
 
-- [ ] **Step 1: Write failing real-HP boundary tests.**
+- [ ] **Step 1: Extend the authored catalog test before production code.**
+
+Add `visualFamily: CityVisualFamily` to `Country1CityCatalogTests.ExpectedDefinition`, pass it through its `definition` builder, and add the exact family to each of the 15 expected rows:
+
+```swift
+1...6  -> .frontier
+7      -> .ember
+8      -> .frontier
+9      -> .arcane
+10...11 -> .frontier
+12     -> .ember
+13     -> .arcane
+14     -> .frontier
+15     -> .royal
+```
+
+The existing full-table equality check must now fail because production `CityDefinition` has no `visualFamily`.
+
+- [ ] **Step 2: Add failing real-HP projection tests.**
+
+Create `PyxisTests/LivingKingdomPresentationTests.swift`:
 
 ```swift
 import Testing
@@ -105,14 +138,14 @@ struct LivingKingdomPresentationTests {
         remaining: Int,
         expected: LivingKingdomPresentation.FortressStage
     ) {
-        #expect(KingdomGameState.cityMaxPower(for: 1) == 20)
-        let battle = LivingKingdomPresentation.battle(
+        let maximum = KingdomGameState.cityMaxPower(for: 1)
+        #expect(maximum == 20)
+        #expect(LivingKingdomPresentation.battle(
             cityNumber: 1,
             remainingHP: remaining,
-            maxHP: KingdomGameState.cityMaxPower(for: 1),
+            maxHP: maximum,
             hasPendingConquest: false
-        )
-        #expect(battle.stage == expected)
+        ).stage == expected)
     }
 
     @Test(arguments: [
@@ -121,65 +154,44 @@ struct LivingKingdomPresentationTests {
         (24, .damaged),
         (23, .breached)
     ])
-    func cityThreeUsesIntegerRatioBoundaries(
+    func cityThreeUsesRealIntegerBoundaries(
         remaining: Int,
         expected: LivingKingdomPresentation.FortressStage
     ) {
-        #expect(KingdomGameState.cityMaxPower(for: 3) == 92)
+        let maximum = KingdomGameState.cityMaxPower(for: 3)
+        #expect(maximum == 92)
         #expect(LivingKingdomPresentation.battle(
             cityNumber: 3,
             remainingHP: remaining,
-            maxHP: KingdomGameState.cityMaxPower(for: 3),
+            maxHP: maximum,
             hasPendingConquest: false
         ).stage == expected)
     }
 }
 ```
 
-Add a pending-result case with positive HP and expect `.conquered`.
+Add a test with positive HP + `hasPendingConquest: true` expecting `.conquered`.
 
-- [ ] **Step 2: Write failing all-city family and asset-name tests.**
+- [ ] **Step 3: Add failing catalog-family/asset and FX-contract tests.**
 
-```swift
-let expected: [Int: LivingKingdomPresentation.FortressFamily] = [
-    1: .frontier, 2: .frontier, 3: .frontier, 4: .frontier,
-    5: .frontier, 6: .frontier, 7: .ember, 8: .frontier,
-    9: .arcane, 10: .frontier, 11: .frontier, 12: .ember,
-    13: .arcane, 14: .frontier, 15: .royal
-]
-for (city, family) in expected {
-    let battle = LivingKingdomPresentation.battle(
-        cityNumber: city,
-        remainingHP: KingdomGameState.cityMaxPower(for: city),
-        maxHP: KingdomGameState.cityMaxPower(for: city),
-        hasPendingConquest: false
-    )
-    #expect(battle.family == family)
-    #expect(UIImage(named: battle.fortressAssetName) != nil)
-    if let treatment = battle.battlefieldTreatmentAssetName {
-        #expect(UIImage(named: treatment) != nil)
-    }
-}
-```
+For every city in `Country1CityCatalog.cityRange`, assert the projected family equals `Country1CityCatalog.definition(for: city).visualFamily`. Assert City 11 is `.frontier`, every generated `lk-city-*` asset resolves, Frontier treatment is nil, and each themed treatment resolves.
 
-Explicitly assert City 11 `.frontier` and Frontier treatment `nil`.
-
-- [ ] **Step 3: Write failing FX-contract tests.**
+Lock FX metadata exactly:
 
 ```swift
-#expect(LivingKingdomPresentation.TransitionEffect.breach.frameNames ==
-    (1...6).map { String(format: "lk-fx-breach-%02d", $0) })
+#expect(LivingKingdomPresentation.TransitionEffect.breach.frameNames == [
+    "lk-fx-breach-01", "lk-fx-breach-02", "lk-fx-breach-03",
+    "lk-fx-breach-04", "lk-fx-breach-05", "lk-fx-breach-06"
+])
 #expect(LivingKingdomPresentation.TransitionEffect.breach.secondsPerFrame == 0.05)
-#expect(LivingKingdomPresentation.TransitionEffect.collapse.frameNames ==
-    (1...6).map { String(format: "lk-fx-collapse-%02d", $0) })
+#expect(LivingKingdomPresentation.TransitionEffect.collapse.frameNames == [
+    "lk-fx-collapse-01", "lk-fx-collapse-02", "lk-fx-collapse-03",
+    "lk-fx-collapse-04", "lk-fx-collapse-05", "lk-fx-collapse-06"
+])
 #expect(LivingKingdomPresentation.TransitionEffect.collapse.secondsPerFrame == 0.07)
-for name in LivingKingdomPresentation.TransitionEffect.breach.frameNames
-    + LivingKingdomPresentation.TransitionEffect.collapse.frameNames {
-    #expect(UIImage(named: name) != nil)
-}
 ```
 
-Also lock skipped-stage selection:
+Assert all 12 names resolve with `UIImage(named:)` and lock skipped-stage selection:
 
 ```swift
 #expect(LivingKingdomPresentation.transitionEffect(from: .intact, to: .damaged) == nil)
@@ -190,7 +202,7 @@ Also lock skipped-stage selection:
 #expect(LivingKingdomPresentation.transitionEffect(from: .conquered, to: .conquered) == nil)
 ```
 
-- [ ] **Step 4: Write failing map projection tests.**
+- [ ] **Step 4: Add failing map-projection tests.**
 
 ```swift
 #expect(LivingKingdomPresentation.map(completedCityCount: -3).securedCityNumbers == [])
@@ -198,30 +210,58 @@ Also lock skipped-stage selection:
 #expect(LivingKingdomPresentation.map(completedCityCount: 2).caravanSegmentStartCityNumbers == [1])
 #expect(LivingKingdomPresentation.map(completedCityCount: 4).caravanSegmentStartCityNumbers == [1, 2])
 #expect(LivingKingdomPresentation.map(completedCityCount: 99).securedCityNumbers == Array(1...15))
-#expect(LivingKingdomPresentation.map(completedCityCount: 99).caravanSegmentStartCityNumbers.count == 2)
+#expect(LivingKingdomPresentation.map(completedCityCount: 99).caravanSegmentStartCityNumbers == [1, 2])
 #expect(LivingKingdomPresentation.map(completedCityCount: 6).routeSixToSevenAssetName == "lk-map-route-6-7-worn")
 #expect(LivingKingdomPresentation.map(completedCityCount: 7).routeSixToSevenAssetName == "lk-map-route-6-7-repaired")
 ```
 
-- [ ] **Step 5: Run the new suite and confirm RED.**
+- [ ] **Step 5: Run the two focused suites and confirm RED.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -parallel-testing-enabled NO \
+  -only-testing:PyxisTests/Country1CityCatalogTests \
   -only-testing:PyxisTests/LivingKingdomPresentationTests
 ```
 
-Expected: compile failure because the projection does not exist.
+Expected: compile/test failure because `CityVisualFamily`, `visualFamily`, and `LivingKingdomPresentation` do not exist.
 
-- [ ] **Step 6: Implement the minimum projection with exact integer math.**
+- [ ] **Step 6: Add the catalog field and author all 15 values.**
+
+In `CityDefinition.swift`:
 
 ```swift
-enum LivingKingdomPresentation {
-    enum FortressFamily: String, CaseIterable, Equatable {
-        case frontier, ember, arcane, royal
-    }
+enum CityVisualFamily: String, CaseIterable, Equatable {
+    case frontier
+    case ember
+    case arcane
+    case royal
+}
 
+struct CityDefinition: Equatable {
+    let cityNumber: Int
+    let name: String
+    let flavorText: String
+    let conquestTitle: String
+    let defenseTrait: CityDefenseTrait
+    let laneDefenseProfile: LaneDefenseProfile
+    let visualFamily: CityVisualFamily
+
+    var displayTitle: String {
+        "City \(cityNumber) · \(name)"
+    }
+}
+```
+
+Add `visualFamily:` to each existing `Country1CityCatalog.definitions` row using the exact mapping from Step 1. Do not infer it from `defenseTrait`.
+
+- [ ] **Step 7: Implement the minimum pure projection.**
+
+```swift
+import Foundation
+
+enum LivingKingdomPresentation {
     enum FortressStage: String, CaseIterable, Equatable {
         case intact, damaged, breached, conquered
     }
@@ -230,17 +270,30 @@ enum LivingKingdomPresentation {
         case breach, collapse
 
         var frameNames: [String] {
-            let prefix = self == .breach ? "lk-fx-breach" : "lk-fx-collapse"
-            return (1...6).map { String(format: "\(prefix)-%02d", $0) }
+            switch self {
+            case .breach:
+                return [
+                    "lk-fx-breach-01", "lk-fx-breach-02", "lk-fx-breach-03",
+                    "lk-fx-breach-04", "lk-fx-breach-05", "lk-fx-breach-06"
+                ]
+            case .collapse:
+                return [
+                    "lk-fx-collapse-01", "lk-fx-collapse-02", "lk-fx-collapse-03",
+                    "lk-fx-collapse-04", "lk-fx-collapse-05", "lk-fx-collapse-06"
+                ]
+            }
         }
 
-        var secondsPerFrame: Double {
-            self == .breach ? 0.05 : 0.07
+        var secondsPerFrame: TimeInterval {
+            switch self {
+            case .breach: 0.05
+            case .collapse: 0.07
+            }
         }
     }
 
     struct Battle: Equatable {
-        let family: FortressFamily
+        let family: CityVisualFamily
         let stage: FortressStage
 
         var fortressAssetName: String {
@@ -264,14 +317,6 @@ enum LivingKingdomPresentation {
         maxHP: Int,
         hasPendingConquest: Bool
     ) -> Battle {
-        let family: FortressFamily
-        switch cityNumber {
-        case 7, 12: family = .ember
-        case 9, 13: family = .arcane
-        case 15: family = .royal
-        default: family = .frontier
-        }
-
         let maximum = max(1, maxHP)
         let remaining = max(0, remainingHP)
         let stage: FortressStage
@@ -284,7 +329,10 @@ enum LivingKingdomPresentation {
         } else {
             stage = .breached
         }
-        return Battle(family: family, stage: stage)
+        return Battle(
+            family: Country1CityCatalog.definition(for: cityNumber).visualFamily,
+            stage: stage
+        )
     }
 
     static func transitionEffect(
@@ -300,12 +348,12 @@ enum LivingKingdomPresentation {
     }
 
     static func map(completedCityCount: Int) -> Map {
-        let completed = min(15, max(0, completedCityCount))
+        let completed = min(KingdomGameState.firstCountryCityCount, max(0, completedCityCount))
         let secured = completed == 0 ? [] : Array(1...completed)
-        let starts = completed <= 1 ? [] : Array(1..<completed)
+        let eligibleStarts = completed <= 1 ? [] : Array(1..<completed)
         return Map(
             securedCityNumbers: secured,
-            caravanSegmentStartCityNumbers: Array(starts.prefix(2)),
+            caravanSegmentStartCityNumbers: Array(eligibleStarts.prefix(2)),
             routeSixToSevenAssetName: completed >= 7
                 ? "lk-map-route-6-7-repaired"
                 : "lk-map-route-6-7-worn"
@@ -314,70 +362,62 @@ enum LivingKingdomPresentation {
 }
 ```
 
-If `String(format:)` requires Foundation in this file, replace it with a tiny private formatter that emits `01...06`; do not add an animation-timing type solely to preserve the Foundation-free preference.
-
-- [ ] **Step 7: Run focused tests and commit.**
+- [ ] **Step 8: Run focused tests and commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -parallel-testing-enabled NO \
+  -only-testing:PyxisTests/Country1CityCatalogTests \
   -only-testing:PyxisTests/LivingKingdomPresentationTests
 
 git diff --check
-git add Pyxis/LivingKingdomPresentation.swift PyxisTests/LivingKingdomPresentationTests.swift
+git add Pyxis/CityDefinition.swift Pyxis/Country1CityCatalog.swift \
+  Pyxis/LivingKingdomPresentation.swift \
+  PyxisTests/Country1CityCatalogTests.swift PyxisTests/LivingKingdomPresentationTests.swift
 git commit -m "feat: project Living Kingdom visual state"
 ```
 
 ---
 
-## Task 2: Integrate Battle fortress/treatment and live FX on the existing enemy-city node
+## Task 2: Integrate Battle fortress/treatment and live FX through existing owners
 
 **Files:**
 - Modify: `Pyxis/BattleScene.swift`
 - Modify: `PyxisTests/BattleSceneTests.swift`
-- Optional modify: `PyxisTests/BattleSceneCoverageTests.swift` only for uncovered execution paths
+- Optional modify: `PyxisTests/BattleSceneCoverageTests.swift` only if new executable branches need direct coverage
+- Regression-run unchanged: `PyxisTests/GameViewControllerTests.swift`
+- Regression-run unchanged: `PyxisTests/SoldierRuntimeGeometryTests.swift`
 
 **Interfaces:**
-- Consumes: Task 1 `Battle` and `TransitionEffect`.
-- Produces: correct static fortress/treatment plus at most one live transition child; semantic node name remains `enemy-city`.
+- Consumes Task 1 `Battle` and `TransitionEffect`.
+- Produces a stable `enemy-city` node with derived texture/treatment and one replaceable `effectsLayer` transition.
 
-- [ ] **Step 1: Add failing static identity tests.**
+- [ ] **Step 1: Add failing static/readback tests.**
 
-Add minimal DEBUG readbacks:
+Add DEBUG readbacks for the current projected fortress asset and optional treatment asset. Tests must prove:
 
-```swift
-var livingKingdomFortressAssetNameForTesting: String? { ... }
-var livingKingdomTreatmentAssetNameForTesting: String? { ... }
-var livingKingdomTransitionEffectsForTesting: [LivingKingdomPresentation.TransitionEffect] { ... }
-var livingKingdomTransitionChildCountForTesting: Int { ... }
-```
+- full-HP City 3 → `lk-city-frontier-intact`, no treatment;
+- City 3 at its real 60% boundary → damaged;
+- City 3 at its real 25% boundary → breached;
+- City 7 → Ember + `lk-battlefield-ember`;
+- City 9 → Arcane + `lk-battlefield-arcane`;
+- City 15 → Royal + `lk-battlefield-royal`;
+- pending result → conquered immediately;
+- `firstNode(named: "enemy-city", in: scene)` still resolves after every texture change.
 
-Tests must assert:
+- [ ] **Step 2: Add failing live-effect tests using a DEBUG request counter.**
 
-- City 3 full → Frontier intact/no treatment;
-- City 3 at 55/92 → damaged;
-- City 3 at 23/92 → breached;
-- City 7 → Ember treatment;
-- City 9 → Arcane treatment;
-- City 15 → Royal treatment;
-- pending result → conquered;
-- `firstNode(named: "enemy-city", in: scene)` still finds the fortress in every case.
+Record only requested `TransitionEffect` values in DEBUG storage. Prove:
 
-- [ ] **Step 2: Add failing live-transition tests before production changes.**
+- damaged transition → zero Living Kingdom effects;
+- direct/intact→breached → exactly one `.breach`;
+- direct conquest → exactly one `.collapse`, never breach + collapse;
+- restored pending scene → zero requested effects;
+- layout refresh after a live breach does not append a request;
+- a no-layout redraw after a hit does not append a request or replace `enemy-city`.
 
-Drive existing combat helpers and assert:
-
-- damaged transition records no Living Kingdom FX;
-- breached transition records one `.breach`;
-- direct conquest records one `.collapse` only;
-- restored pending scene records zero transition requests;
-- layout refresh after breach does not append another effect;
-- a no-layout redraw after a hit leaves one semantic enemy-city node and at most one FX child.
-
-Keep the existing `battleSettingsPausesCityHitFeedbackUntilClose` test intact; it already proves code expects the `enemy-city` semantic name.
-
-- [ ] **Step 3: Run focused Battle tests and confirm RED.**
+- [ ] **Step 3: Run Battle tests and confirm RED.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -386,7 +426,15 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -only-testing:PyxisTests/BattleSceneTests
 ```
 
-- [ ] **Step 4: Add the projected static presentation without renaming the node.**
+- [ ] **Step 4: Keep the existing fortress node and swap only texture.**
+
+Create the enemy sprite once with any valid current projected fortress asset, then keep:
+
+```swift
+cityNode.name = BattleAssetName.enemyCity // "enemy-city"
+```
+
+Add:
 
 ```swift
 private var livingKingdomBattlePresentation: LivingKingdomPresentation.Battle {
@@ -399,27 +447,23 @@ private var livingKingdomBattlePresentation: LivingKingdomPresentation.Battle {
 }
 ```
 
-Build the fortress with the projected asset but keep:
+`applyLivingKingdomStaticPresentation()` sets `enemyCitySprite.texture = SKTexture(imageNamed: presentation.fortressAssetName)` but never changes the sprite's semantic name or replaces it. This is safe because all 16 HPA-479 fortress textures share the same 512×540 canvas.
+
+- [ ] **Step 5: Add one optional treatment node.**
+
+Configure once:
 
 ```swift
-cityNode.name = BattleAssetName.enemyCity
+livingKingdomTreatmentNode.name = "livingKingdomBattlefieldTreatment"
+livingKingdomTreatmentNode.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+livingKingdomTreatmentNode.zPosition = GameUITheme.Z.background + 0.5
+livingKingdomTreatmentNode.blendMode = .alpha
+environmentLayer.addChild(livingKingdomTreatmentNode)
 ```
 
-Add one `livingKingdomTreatmentNode` at `GameUITheme.Z.background + 0.5`. Frontier hides it; themed families set texture.
+Frontier hides it. Other families load the projected `lk-battlefield-*`. Mirror the existing backdrop position/scale after battlefield layout.
 
-- [ ] **Step 5: Reapply only texture/treatment from `redraw()`.**
-
-`applyLivingKingdomStaticPresentation()` must:
-
-1. read the current projection;
-2. set `enemyCitySprite.texture = SKTexture(imageNamed: presentation.fortressAssetName)`;
-3. leave `enemyCityNode.name` unchanged;
-4. set/hide treatment texture;
-5. run no action and create no new fortress node.
-
-Call before the existing layout/HP-bar measurement. Mirror the backdrop position/scale onto the treatment in `layoutBattlefield`.
-
-- [ ] **Step 6: Capture the old stage around the existing live model transaction.**
+- [ ] **Step 6: Capture old/new stage around the existing live mutation.**
 
 Immediately before `state.applyLiveSoldierAttacks(...)`:
 
@@ -427,7 +471,7 @@ Immediately before `state.applyLiveSoldierAttacks(...)`:
 let previousStage = livingKingdomBattlePresentation.stage
 ```
 
-After the existing save/redraw path:
+After the existing model mutation, save, and static redraw:
 
 ```swift
 let currentStage = livingKingdomBattlePresentation.stage
@@ -439,9 +483,9 @@ if let effect = LivingKingdomPresentation.transitionEffect(
 }
 ```
 
-Do not add `lastFortressStage` scene state.
+Do not add `lastFortressStage` state.
 
-- [ ] **Step 7: Implement one replaceable child FX player using enum metadata.**
+- [ ] **Step 7: Play transition in existing `effectsLayer`, not under the fortress.**
 
 ```swift
 private func playLivingKingdomTransition(
@@ -450,51 +494,62 @@ private func playLivingKingdomTransition(
     #if DEBUG
     livingKingdomTransitionEffectsForTestingStorage.append(effect)
     #endif
-    guard !UIAccessibility.isReduceMotionEnabled,
-          let city = enemyCityNode as? SKSpriteNode else { return }
 
-    city.childNode(withName: "livingKingdomTransitionFX")?.removeFromParent()
+    effectsLayer.childNode(withName: "livingKingdomTransitionFX")?.removeFromParent()
+    guard !UIAccessibility.isReduceMotionEnabled else { return }
+
     let textures = effect.frameNames.map(SKTexture.init(imageNamed:))
     guard let first = textures.first else { return }
+
     let fx = SKSpriteNode(texture: first)
     fx.name = "livingKingdomTransitionFX"
     fx.anchorPoint = CGPoint(x: 0.5, y: 0)
-    fx.position = .zero
-    fx.size = CGSize(width: 512, height: 512)
-    fx.zPosition = 1
-    city.addChild(fx)
+    fx.zPosition = GameUITheme.Z.effects
+    effectsLayer.addChild(fx)
+    layoutLivingKingdomTransitionFX(fx)
     fx.run(.sequence([
         .animate(with: textures, timePerFrame: effect.secondsPerFrame),
         .removeFromParent()
     ]))
 }
+
+private func layoutLivingKingdomTransitionFX(_ fx: SKSpriteNode) {
+    guard let city = enemyCityNode as? SKSpriteNode else { return }
+    let displayedFortressHeight = city.size.height * abs(city.yScale)
+    let fxHeight = 512 * displayedFortressHeight / 540
+    fx.position = city.position
+    fx.size = CGSize(width: fxHeight, height: fxHeight)
+}
 ```
 
-The static texture swap happens even with Reduce Motion; only frames are skipped.
+Because `environmentLayer` and `battlefieldActionLayer` share the battlefield origin and `effectsLayer` is under the latter, `city.position` is the same battlefield coordinate. Settings already pauses `battlefieldActionLayer`, so it pauses the new effect without a second controller.
 
-- [ ] **Step 8: Verify colorize/pause/redraw coexistence.**
+After laying out the city on resize, if `effectsLayer.childNode(withName: "livingKingdomTransitionFX")` is an active sprite, call `layoutLivingKingdomTransitionFX` to reposition/rescale it without restarting playback.
 
-Add assertions around the existing city-hit test so:
+- [ ] **Step 8: Preserve existing colorize and pause tests.**
 
-- `city.action(forKey: "cityHitFeedback")` still runs on the same node after texture change;
-- opening Settings still pauses that action and the FX child through parent pause;
-- `refreshLayoutForCurrentEnvironment()` does not create a second FX request/child;
-- `redraw(shouldLayout:false)` does not replace the semantic node.
+The existing `playCityHitFeedback` / `playCityConquestFeedback` continue to colorize only `enemy-city`; the new FX is a separate effects-layer node. Keep the existing Settings pause regression and add only the assertion needed to prove the new FX remains under the paused action layer.
 
-- [ ] **Step 9: Run Battle tests/build and commit.**
+- [ ] **Step 9: Run all real Battle consumers before commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -parallel-testing-enabled NO \
   -only-testing:PyxisTests/BattleSceneTests \
-  -only-testing:PyxisTests/BattleSceneCoverageTests
+  -only-testing:PyxisTests/BattleSceneCoverageTests \
+  -only-testing:PyxisTests/GameViewControllerTests \
+  -only-testing:PyxisTests/SoldierRuntimeGeometryTests
 
 xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
-  -destination 'generic/platform=iOS Simulator' \
-  CODE_SIGNING_ALLOWED=NO build
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
 git diff --check
+```
+
+- [ ] **Step 10: Commit.**
+
+```bash
 git add Pyxis/BattleScene.swift PyxisTests/BattleSceneTests.swift
 # Add BattleSceneCoverageTests.swift only if it actually changed.
 git commit -m "feat: render Living Kingdom battle progression"
@@ -502,46 +557,54 @@ git commit -m "feat: render Living Kingdom battle progression"
 
 ---
 
-## Task 3: Render the living conquered map without touching layout or hit targets
+## Task 3: Render living-map decoration and make caravan motion accessible
 
 **Files:**
 - Modify: `Pyxis/CountryMapScene.swift`
 - Modify: `PyxisTests/CountryMapSceneTests.swift`
+- Regression-run unchanged: `PyxisTests/CountryMapScoutCardAcceptanceTests.swift`
+- Regression-run unchanged: `PyxisTests/GameViewControllerTests.swift`
 
 **Interfaces:**
-- Consumes: `LivingKingdomPresentation.map(completedCityCount:)` and existing runtime `CountryMapLayout.cityPositions/displayedBackdropFrame`.
-- Produces: one noninteractive decoration layer.
+- Consumes `LivingKingdomPresentation.map(completedCityCount:)` and existing `CountryMapLayout.cityPositions/displayedBackdropFrame`.
+- Produces one noninteractive decoration layer; does not change layout/hit topology.
 
-- [ ] **Step 1: Add failing early/partial/complete decoration tests.**
+- [ ] **Step 1: Add failing decoration/interaction tests.**
 
-Add DEBUG readbacks:
-
-```swift
-var livingKingdomSecuredCityCountForTesting: Int { ... }
-var livingKingdomCaravanCountForTesting: Int { ... }
-var livingKingdomRoutePatchAssetNameForTesting: String? { ... }
-```
-
-Assert:
+Add DEBUG readbacks for secured count, caravan count, route-patch asset, and whether visible caravans currently have movement actions. Assert:
 
 - completed 0/1 → zero caravans;
 - completed 2 → one caravan;
 - completed 3+ → exactly two, never more;
-- secured count equals clamped completed count;
-- 6 → worn patch; 7 → repaired patch;
-- existing city center/hit frame remains unchanged with decoration;
-- unsupported geometry clears decoration/actions.
+- secured count equals clamped completion count;
+- completed 6 → worn; completed 7 → repaired;
+- existing 44pt city hit frames/centers are unchanged;
+- unsupported geometry clears decoration/actions;
+- repeated redraw with unchanged progress/layout does not recreate caravan nodes/actions.
 
-- [ ] **Step 2: Run `CountryMapSceneTests` and confirm RED.**
+- [ ] **Step 2: Add a Reduce Motion seam without new runtime infrastructure.**
+
+Add an init override used only by tests:
+
+```swift
+private let isReduceMotionEnabled: () -> Bool
+```
+
+Default it to `{ UIAccessibility.isReduceMotionEnabled }`. Existing call sites need no change because the parameter has a default. Add one test with `{ true }` and assert eligible caravan sprites exist but have no movement action.
+
+Do not add an accessibility settings preference; this reads the system setting only.
+
+- [ ] **Step 3: Run Map scene + acceptance tests and confirm RED.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -parallel-testing-enabled NO \
-  -only-testing:PyxisTests/CountryMapSceneTests
+  -only-testing:PyxisTests/CountryMapSceneTests \
+  -only-testing:PyxisTests/CountryMapScoutCardAcceptanceTests
 ```
 
-- [ ] **Step 3: Add one decoration layer and render key.**
+- [ ] **Step 4: Add one decoration layer and render key.**
 
 ```swift
 private let livingKingdomLayer = SKNode()
@@ -549,24 +612,22 @@ private let livingKingdomLayer = SKNode()
 private struct LivingKingdomMapRenderKey: Equatable {
     let completedCityCount: Int
     let backdropFrame: CGRect
+    let reduceMotion: Bool
 }
 private var lastLivingKingdomMapRenderKey: LivingKingdomMapRenderKey?
 ```
 
-In `buildInterface`:
+Set z positions:
 
 ```swift
 routeLayer.zPosition = 0
 livingKingdomLayer.zPosition = 5
 cityLayer.zPosition = 10
-addChild(routeLayer)
-addChild(livingKingdomLayer)
-addChild(cityLayer)
 ```
 
-Reset key + remove children in `clearLayoutGeometry()`.
+Add the layer once. In `clearLayoutGeometry()`, reset the key and remove all Living Kingdom children.
 
-- [ ] **Step 4: Render secured cities and 6→7 patch using existing runtime positions.**
+- [ ] **Step 5: Render secured overlays and fixed 6→7 patch.**
 
 ```swift
 let presentation = LivingKingdomPresentation.map(completedCityCount: state.completedCityCount)
@@ -574,87 +635,89 @@ let mapScale = layout.displayedBackdropFrame.width
     / CountryMapLayoutDefinition.country1.canonicalBackdropSize.width
 ```
 
-For each secured city, create `lk-map-secured-city`, center at `layout.cityPositions[city]`, size `96 * mapScale` square.
+For every secured city with a runtime position, add `lk-map-secured-city` at that position with `96 * mapScale` square size.
 
-For City 6→7:
+For City 6/7 positions, add the projected route patch at their midpoint with `192 * mapScale` square size. Do not rotate or mutate the underlying route.
 
-```swift
-if let start = layout.cityPositions[6], let end = layout.cityPositions[7] {
-    let patch = SKSpriteNode(imageNamed: presentation.routeSixToSevenAssetName)
-    patch.position = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
-    patch.size = CGSize(width: 192 * mapScale, height: 192 * mapScale)
-    livingKingdomLayer.addChild(patch)
-}
-```
+- [ ] **Step 6: Render at most two caravans; move only without Reduce Motion.**
 
-Do not rotate or alter the route line.
-
-- [ ] **Step 5: Render at most two deterministic caravans.**
-
-For each projected start `n`:
+For every projected start `n`:
 
 ```swift
 let start = layout.cityPositions[n]!
 let end = layout.cityPositions[n + 1]!
 let caravan = SKSpriteNode(imageNamed: "lk-map-caravan")
+caravan.name = "livingKingdomCaravan-\(n)"
 caravan.size = CGSize(width: 128 * mapScale, height: 64 * mapScale)
 caravan.position = start
 caravan.zRotation = atan2(end.y - start.y, end.x - start.x)
-let move = SKAction.move(to: end, duration: 5.0)
-let reset = SKAction.run { [weak caravan] in caravan?.position = start }
-caravan.run(.repeatForever(.sequence([move, reset])))
 livingKingdomLayer.addChild(caravan)
 ```
 
-A fixed index-based initial wait may stagger the two. No random speed or reverse route.
+If Reduce Motion is false, run deterministic movement:
 
-- [ ] **Step 6: Call render only when progress/layout changes.**
+```swift
+let wait = SKAction.wait(forDuration: 0.8 * Double(index))
+let move = SKAction.move(to: end, duration: 5.0)
+let reset = SKAction.run { [weak caravan] in caravan?.position = start }
+caravan.run(.repeatForever(.sequence([wait, move, reset])), withKey: "livingKingdomCaravanMove")
+```
 
-From `redraw()` after valid layout, compare `(completedCityCount, displayedBackdropFrame)` to the last key. City selection/transient feedback redraws must be decoration no-ops.
+If Reduce Motion is true, leave the sprite static at `start` and run no action.
 
-- [ ] **Step 7: Run map tests and commit.**
+- [ ] **Step 7: Render only when completion/layout/motion state changes.**
+
+Call `renderLivingKingdomMapIfNeeded(layout:)` from `redraw()` after valid layout. Compare the render key before rebuilding so Scout selection/transient-feedback redraws are no-ops.
+
+- [ ] **Step 8: Run every real CountryMapScene consumer and commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -parallel-testing-enabled NO \
-  -only-testing:PyxisTests/CountryMapSceneTests
+  -only-testing:PyxisTests/CountryMapSceneTests \
+  -only-testing:PyxisTests/CountryMapScoutCardAcceptanceTests \
+  -only-testing:PyxisTests/GameViewControllerTests
 
 git diff --check
 git add Pyxis/CountryMapScene.swift PyxisTests/CountryMapSceneTests.swift
 git commit -m "feat: make conquered map feel alive"
 ```
 
+Do not add `CountryMapScoutCardNodeTests` merely for this task: it constructs `CountryMapScoutCardNode` directly, and that node remains unchanged.
+
 ---
 
-## Task 4: Make positive idle summaries compact/nonblocking and zero progress silent
+## Task 4: Make positive idle summaries truthful and zero returns actually silent
 
 **Files:**
 - Modify: `Pyxis/CountryMapTransientFeedback.swift`
 - Modify: `Pyxis/BattleScene.swift`
 - Modify: `Pyxis/BuildingViewScene.swift`
 - Modify: `PyxisTests/CountryMapTransientFeedbackTests.swift`
+- Modify: `PyxisTests/CountryMapSceneTests.swift`
 - Modify: `PyxisTests/BattleSceneTests.swift`
 - Modify: `PyxisTests/BuildingViewSceneTests.swift`
+- Regression-run unchanged: `PyxisTests/CountryMapScoutCardAcceptanceTests.swift`
+- Regression-run unchanged: `PyxisTests/GameViewControllerTests.swift`
 
 **Interfaces:**
-- Consumes: existing `IdleProgressResult` and `CompactNumberFormatter`.
-- Produces: truthful positive non-conquest summary and no zero-result reveal. This task does **not** change journey routing yet.
+- Positive non-conquest result becomes a compact summary.
+- Credited elapsed time + zero damage clears stale feedback.
+- This task does not change journey routing yet.
 
-- [ ] **Step 1: Rewrite the two affected transient-feedback tests first.**
+- [ ] **Step 1: Rewrite transient-feedback tests first.**
 
-Replace `onlyFlavorDoesNotBlockScoutEntry` with an expectation that exactly `.flavor` and `.idleSummary` are nonblocking.
-
-Replace `idleProjectsExistingStatusCopy` with positive-only semantics:
+Replace `onlyFlavorDoesNotBlockScoutEntry` so `.flavor` and `.idleSummary` are the only nonblocking kinds. Replace `idleProjectsExistingStatusCopy` with:
 
 ```swift
-let result = KingdomGameState.IdleProgressResult(
+let positive = KingdomGameState.IdleProgressResult(
     elapsedSeconds: 3_600,
     damageDealt: 1_234,
     conqueredCities: 0,
     goldEarned: 0
 )
-let feedback = try #require(CountryMapTransientFeedback.idle(result: result, state: state))
+let feedback = try #require(CountryMapTransientFeedback.idle(result: positive, state: state))
 #expect(feedback.kind == .idleSummary)
 #expect(!feedback.kind.blocksScoutEntry)
 #expect(feedback.text == "Buildings dealt 1.2K idle damage.")
@@ -673,7 +736,12 @@ let feedback = try #require(CountryMapTransientFeedback.idle(result: result, sta
 
 ```swift
 enum Kind: Equatable {
-    case locked, completed, status, recoverableError, flavor, idleSummary
+    case locked
+    case completed
+    case status
+    case recoverableError
+    case flavor
+    case idleSummary
 
     var blocksScoutEntry: Bool {
         self != .flavor && self != .idleSummary
@@ -681,90 +749,106 @@ enum Kind: Equatable {
 }
 ```
 
-`idle(result:state:)` returns nil unless elapsed > 0, damage > 0, and conquered == 0, then returns:
+`idle(result:state:)` returns nil unless `elapsedSeconds > 0`, `damageDealt > 0`, and `conqueredCities == 0`. The returned summary uses the existing 2.5s/0.3s timing and compact formatted damage. Keep the existing `state` parameter for minimal call-site churn in this PR.
+
+- [ ] **Step 3: Add failing stale-text reset tests for all three scenes.**
+
+Battle: seed a visible prior tooltip/message, resolve a real positive elapsed return that yields zero damage, and expect `feedbackTextForTesting == ""` after settlement.
+
+Camp: seed a prior action message such as a successful build or insufficient-gold message, resolve a real positive elapsed zero-damage return, and expect `feedbackTextForTesting == "Select a city lot."` and its label hidden.
+
+Map: show a prior transient, resolve a real positive elapsed zero-damage return, and expect no visible idle transient/overlay.
+
+Also keep positive-damage exact-copy tests.
+
+- [ ] **Step 4: Implement scene-specific silent/default clearing.**
+
+In Battle foreground settlement:
 
 ```swift
-status-like timing + kind .idleSummary
-text = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
+if result.elapsedSeconds > 0 {
+    if result.conqueredCities > 0 {
+        // existing conquest behavior
+    } else if result.damageDealt > 0 {
+        feedbackText = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
+    } else {
+        feedbackText = ""
+    }
+}
 ```
 
-Keep the existing method signature for minimal call-site churn even if `state` is no longer needed; remove the parameter only if every caller/test becomes cleaner in the same commit.
-
-- [ ] **Step 3: Add Battle positive/zero tests and remove only the zero assignment.**
-
-Keep the existing positive compact formatting. Change:
+In Camp `applyIdleProgressFeedback`:
 
 ```swift
+guard result.elapsedSeconds > 0 else { return }
+if result.conqueredCities > 0 {
+    // existing conquest handling for now; Task 5 changes journey/copy
 } else if result.damageDealt > 0 {
     feedbackText = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
 } else {
-    feedbackText = "No building damage while away."
+    feedbackText = "Select a city lot."
 }
 ```
 
-to:
+In Map, when a real elapsed result produces neither positive summary nor conquest, clear `transientFeedback` and reapply/redraw so stale status/flavor does not remain as a return result.
 
-```swift
-} else if result.damageDealt > 0 {
-    feedbackText = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
-}
-```
-
-Assert zero return preserves prior/default feedback.
-
-- [ ] **Step 4: Add Camp positive/zero tests and compact formatting.**
-
-In `applyIdleProgressFeedback`, preserve conquest handling for now, change positive copy to `CompactNumberFormatter`, and remove the zero assignment. No routing change in this task.
-
-- [ ] **Step 5: Run focused suites and commit.**
+- [ ] **Step 5: Run all touched-scene consumers and commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -parallel-testing-enabled NO \
   -only-testing:PyxisTests/CountryMapTransientFeedbackTests \
+  -only-testing:PyxisTests/CountryMapSceneTests \
+  -only-testing:PyxisTests/CountryMapScoutCardAcceptanceTests \
   -only-testing:PyxisTests/BattleSceneTests \
-  -only-testing:PyxisTests/BuildingViewSceneTests
+  -only-testing:PyxisTests/BuildingViewSceneTests \
+  -only-testing:PyxisTests/GameViewControllerTests
 
 git diff --check
-git add Pyxis/CountryMapTransientFeedback.swift Pyxis/BattleScene.swift Pyxis/BuildingViewScene.swift \
-  PyxisTests/CountryMapTransientFeedbackTests.swift PyxisTests/BattleSceneTests.swift \
-  PyxisTests/BuildingViewSceneTests.swift
+git add Pyxis/CountryMapTransientFeedback.swift Pyxis/CountryMapScene.swift \
+  Pyxis/BattleScene.swift Pyxis/BuildingViewScene.swift \
+  PyxisTests/CountryMapTransientFeedbackTests.swift PyxisTests/CountryMapSceneTests.swift \
+  PyxisTests/BattleSceneTests.swift PyxisTests/BuildingViewSceneTests.swift
 git commit -m "feat: show truthful idle damage summaries"
 ```
 
 ---
 
-## Task 5: Supersede Map stay-on-conquest only where HPA-478 needs the pending report
+## Task 5: Apply the governing conquest journey rule and update docs of record
 
 **Files:**
 - Modify: `Pyxis/CountryMapScene.swift`
 - Modify: `Pyxis/BuildingViewScene.swift`
 - Modify: `PyxisTests/CountryMapSceneTests.swift`
 - Modify: `PyxisTests/BuildingViewSceneTests.swift`
-- Optional modify: `PyxisTests/GameViewControllerTests.swift` only if pending-first coverage is missing
+- Regression-run unchanged: `PyxisTests/GameViewControllerTests.swift`
+- Modify: `CLAUDE.md`
+- Modify: `docs/superpowers/specs/2026-08-01-gameplay-sound-haptics-settings-design.md`
+- Modify: `docs/superpowers/specs/2026-07-30-compact-conquest-report-design.md`
 
 **Interfaces:**
-- Consumes: existing scene routing protocols and `pendingBattleResult`.
-- Produces: immediate pending-report route for Map foreground/current-city idle conquest and Camp foreground idle conquest; **no Camp build/upgrade auto-route**.
+- Background/foreground/gate-resume conquest reaches existing pending report.
+- Deliberate Camp build/upgrade conquest stays on Camp with one short pointer.
+- No new protocol or routing service.
 
-- [ ] **Step 1: Rewrite the existing Map journey tests before changing production behavior.**
+- [ ] **Step 1: Invert the named Map tests before production code.**
 
-Change these current tests by name:
+Change these existing tests:
 
-- `selectedCurrentCityReturnLeavesLethalIdleConquestPending` → expect `.battle` route once while pending result remains persisted;
-- `countryMapFreshIdleConquestEmitsRewardThenCityOutcomeWithoutReplay` → expect one `.battle` route after the same `[goldReward, cityConquest]` feedback sequence; remove the `Next: ...` Map transient expectation because the report owns conquest;
-- `countryMapFinalIdleConquestEmitsExactlyOneCountryOutcome` → expect one `.battle` route after `[goldReward, countryCompletion]` and no Map conquest transient.
+- `selectedCurrentCityReturnLeavesLethalIdleConquestPending` → expect one `.battle` request while persisted `pendingBattleResult` remains idle.
+- `countryMapFreshIdleConquestEmitsRewardThenCityOutcomeWithoutReplay` → expect one `.battle` request after the same `[goldReward, cityConquest]` feedback; remove `Next: Bramblegate` Map transient expectation.
+- `countryMapFinalIdleConquestEmitsExactlyOneCountryOutcome` → expect one `.battle` request after `[goldReward, countryCompletion]`; no Map conquest transient.
 
-Also add:
+Add explicit tests:
 
-- layout-gate pause creates pending result but router count stays zero;
-- `layoutGateWillResume` routes pending once;
-- normal tab settlement that creates pending result still makes only its existing one route request.
+- `layoutGateWillPause` can create pending result but router count remains zero;
+- `layoutGateWillResume` routes once if pending remains;
+- normal tab settlement that creates pending state still produces only its existing one route request.
 
-These RED failures are intentional contract supersession, not regressions to preserve.
+These failures are intentional HPA-478 contract supersession.
 
-- [ ] **Step 2: Add a tiny scene-local Map pending route helper.**
+- [ ] **Step 2: Add a five-line scene-local pending route helper in Map.**
 
 ```swift
 @discardableResult
@@ -781,67 +865,84 @@ private func routePendingConquestIfNeeded() -> Bool {
 }
 ```
 
-This is not a new router; it is five-line reuse of the existing routing protocol.
+Use it after save/feedback/redraw in `handleSceneWillEnterForeground`, in the current-city RETURN settlement path when conquest occurs, and on `layoutGateWillResume`. Never call it from `layoutGateWillPause`. Leave normal tab routing unchanged.
 
-- [ ] **Step 3: Route only the Map settlement cases that otherwise stay on Map.**
+- [ ] **Step 3: Add Camp tests for the asymmetric deliberate-action rule.**
 
-After save/feedback/redraw:
+Lock all of these:
 
-- `handleSceneWillEnterForeground`: if conquest/pending, call `routePendingConquestIfNeeded()`;
-- current-city `requestEntry` path: when settlement leaves `stageStatus != .battleActive` and pending exists, apply existing fresh feedback then call the helper instead of returning on Map;
-- `layoutGateWillResume`: after gate state is usable/redrawn, call helper if pending;
-- `layoutGateWillPause`: **never route**.
+- foreground idle conquest → `.battle` once;
+- gate pause → zero route; resume → `.battle` once if pending;
+- build settlement conquest → pending result saved, reward/outcome feedback emitted, **no route**;
+- upgrade settlement conquest → same no-route behavior;
+- build/upgrade conquest visible copy is exactly `City conquered. Open Battle for the report.`;
+- later explicit Battle/tab request routes once and existing pending-first controller presents the report.
 
-Leave `requestGameplayTab`'s existing routing path untouched; it already requests a tab after settlement and the controller is pending-first.
+- [ ] **Step 4: Keep deliberate Camp conquest local and visible.**
 
-- [ ] **Step 4: Add Camp foreground/gate route tests while locking build/upgrade stay-in-place.**
-
-Tests must assert:
-
-- foreground idle conquest → router receives `.battle` once;
-- layout-gate pause → zero route; resume → one route if pending;
-- build settlement conquest → pending result saved, existing reward/outcome feedback emitted, **router receives no request**;
-- upgrade settlement conquest → same no-route contract;
-- build/upgrade conquest does not set a duplicate `Buildings conquered ... Earned ...` / `Buildings conquered ...` feedback sentence;
-- a later explicit Battle/tab request routes once and the controller's pending-first behavior can present the report.
-
-- [ ] **Step 5: Keep Camp build/upgrade settlement local.**
-
-For `.cityConqueredDuringSettlement` in `buildSelectedSlot` / `upgradeSelectedSlot`:
+For `.cityConqueredDuringSettlement` in both build/upgrade paths:
 
 ```swift
 store.save(state)
 closeFeedbackSettings(focusTarget: .systemDefault)
 emitFreshOutcomeFeedback(goldEarned: goldEarned, conqueredCities: 1)
-feedbackText = ""
+feedbackText = "City conquered. Open Battle for the report."
 ```
 
-Do **not** call the router here. The pending result stays until explicit Battle/tab navigation.
+Do not call the router here. Do not repeat the city name, gold amount, report statistics, or add a second Continue action.
 
-- [ ] **Step 6: Route only Camp foreground/gate idle conquest.**
+- [ ] **Step 5: Route only Camp idle/gate-resume conquest.**
 
-Add a scene-local helper analogous to Map using `buildingViewSceneDidRequestGameplayTab(self, tab: .battle)`. Call it after foreground idle conquest and from `layoutGateWillResume` if pending. Do not call it from layout-gate pause or build/upgrade settlement.
+Add a private helper analogous to Map but calling:
 
-- [ ] **Step 7: Re-run pending-first controller coverage.**
+```swift
+router.buildingViewSceneDidRequestGameplayTab(self, tab: .battle)
+```
 
-Search `GameViewControllerTests` first. If it already proves a pending result overrides preferred Camp/Map tabs, do not modify the controller or its tests. Otherwise add one test only; production controller stays unchanged.
+Call it after foreground idle conquest and on `layoutGateWillResume` when pending remains. Never call it from gate pause or build/upgrade settlement.
 
-- [ ] **Step 8: Run the high-risk affected suites and commit.**
+- [ ] **Step 6: Update repository docs of record in the same behavior commit.**
+
+In `CLAUDE.md`, replace the unconditional Building View no-auto-route sentence with the governing rule:
+
+> Conquest that happens while the player was not looking (idle foreground/gate-resume settlement, plus Map current-city RETURN settlement) routes to Battle so the pending report is shown. Conquest caused by a deliberate in-place Building View build/upgrade action stays on Camp, leaves the pending result in place, and shows a short pointer to open Battle for the report.
+
+Also update the `.idleSummary` convention so both `.flavor` and `.idleSummary` are documented as nonblocking Map feedback kinds.
+
+In each older spec, add a concise note near the old no-auto-route requirement:
+
+```markdown
+> **Superseded by HPA-478:** idle foreground/gate-resume conquest now routes to the existing pending Battle report. Deliberate in-place Camp build/upgrade conquest still stays on Camp.
+```
+
+Do not rewrite unrelated historical design sections.
+
+- [ ] **Step 7: Run high-risk routing/doc-adjacent tests.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -parallel-testing-enabled NO \
   -only-testing:PyxisTests/CountryMapSceneTests \
+  -only-testing:PyxisTests/CountryMapScoutCardAcceptanceTests \
   -only-testing:PyxisTests/BuildingViewSceneTests \
   -only-testing:PyxisTests/GameViewControllerTests
 
 git diff --check
+```
+
+- [ ] **Step 8: Commit behavior + superseded docs together.**
+
+```bash
 git add Pyxis/CountryMapScene.swift Pyxis/BuildingViewScene.swift \
-  PyxisTests/CountryMapSceneTests.swift PyxisTests/BuildingViewSceneTests.swift
-# Add GameViewControllerTests.swift only if it actually changed.
+  PyxisTests/CountryMapSceneTests.swift PyxisTests/BuildingViewSceneTests.swift \
+  CLAUDE.md \
+  docs/superpowers/specs/2026-08-01-gameplay-sound-haptics-settings-design.md \
+  docs/superpowers/specs/2026-07-30-compact-conquest-report-design.md
 git commit -m "feat: route idle conquests to pending report"
 ```
+
+Do not modify production `GameViewController` for this task.
 
 ---
 
@@ -849,19 +950,19 @@ git commit -m "feat: route idle conquests to pending report"
 
 **Files:**
 - Modify: `Pyxis/ForgedVisualFixture.swift`
-- Modify: `Pyxis/GameViewController.swift` **DEBUG block only if needed for return-damage hook**
+- Modify: `Pyxis/GameViewController.swift` **DEBUG fixture block only if the return hook is required**
 - Modify: `PyxisTests/ForgedVisualFixtureTests.swift`
-- Modify: `PyxisTests/GameViewControllerTests.swift` only for DEBUG fixture semantics if needed
+- Modify: `PyxisTests/GameViewControllerTests.swift` only for DEBUG fixture semantics if required
 - Modify: `PyxisUITests/PyxisUITests.swift`
 - Local-only: `docs/visual-parity/living-kingdom/**`
 
 **Interfaces:**
-- Consumes: completed shipping implementation.
-- Produces: deterministic acceptance states/evidence; no Release behavior.
+- Consumes completed shipping implementation.
+- Produces deterministic visual states/evidence; no Release behavior.
 
-- [ ] **Step 1: Add missing fixture cases using real maxima.**
+- [ ] **Step 1: Add missing fixture cases and explicitly define fixed foreground time.**
 
-Add:
+Add cases:
 
 ```text
 battle-damaged
@@ -872,40 +973,53 @@ battle-crownspire
 return-damage
 ```
 
-State requirements:
+Use real City 1 thresholds:
 
 ```swift
-// exact threshold fixtures use City 1 because maxHP == 20
-battle-damaged: remainingHP = KingdomGameState.cityMaxPower(for: 1) * 3 / 5 // 12
-battle-breached: remainingHP = KingdomGameState.cityMaxPower(for: 1) / 4     // 5
+// City 1 max HP = 20.
+battle-damaged: remainingHP = 12
+battle-breached: remainingHP = 5
 ```
 
-Landmark fixtures use `DevJumpState.make(city: 7/9/15)` at full HP.
+Landmark fixtures use `DevJumpState.make(city: 7)`, `9`, and `15` at full HP.
 
-`return-damage` seeds one building, a fixed background timestamp, and enough HP to remain non-conquered after a fixed foreground return.
+For `return-damage`, seed one building, a fixed background timestamp, and enough HP to avoid conquest. Add the missing property explicitly:
 
-- [ ] **Step 2: Extend fixture parser/state tests and semantic probes.**
+```swift
+var foregroundReturnDate: Date? {
+    switch self {
+    case .returnDamage:
+        return Date(timeIntervalSince1970: 4_600)
+    default:
+        return nil
+    }
+}
+```
 
-For Battle without pending result, expose family/stage through existing DEBUG accessibility value. For Map, expose only secured/caravan/route-patch facts needed by UI assertions. `return-damage` must prove the compact visible copy.
+Seed the return fixture's background state at `Date(timeIntervalSince1970: 1_000)` so the result is deterministic.
 
-Do not expose animation frames or serialize full state.
+- [ ] **Step 2: Add failing fixture parser/state/semantic tests.**
 
-- [ ] **Step 3: Add the fixed-time return hook only in the existing DEBUG installer if required.**
+Lock every new raw value. For Battle fixtures, assert projected family/stage in the existing DEBUG accessibility value. For Map, expose only secured/caravan/patch facts needed for UI assertions. For `return-damage`, assert the visible compact damage copy.
+
+- [ ] **Step 3: Use the actual existing Battle lifecycle seam.**
+
+In the existing `#if DEBUG` fixture installer only:
 
 ```swift
 if let returnDate = fixture.foregroundReturnDate,
    let battle = view.scene as? BattleScene {
-    battle.sceneWillEnterForegroundForTesting(at: returnDate)
+    battle.enterForegroundForTesting(at: returnDate)
 }
 ```
 
-No production clock/routing change.
+The method name is exactly `enterForegroundForTesting(at:)`; do not introduce `sceneWillEnterForegroundForTesting`.
 
 - [ ] **Step 4: Keep Scout thumbnail explicitly outside the fixture matrix.**
 
-Landmark acceptance captures validate the Battle fortress/treatment. Do not add `CountryMapScoutCardNode` changes or assert a family-specific Scout thumbnail in this PR.
+Landmark captures validate Battle fortress/treatment only. `CountryMapScoutCardNode.swift` stays unchanged and keeps generic `enemy-city` art.
 
-- [ ] **Step 5: Run fixture unit/UI tests.**
+- [ ] **Step 5: Run fixture semantic tests.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -930,30 +1044,24 @@ conquest-live/idle      -> conquered fortress under existing report
 battle-emberford        -> Ember family/treatment
 battle-runewatch        -> Arcane family/treatment
 battle-crownspire       -> Royal family/treatment
-map                     -> early map
-map-partial             -> partial map
-map-country-complete    -> complete map
+map                     -> early living map
+map-partial             -> partial living map
+map-country-complete    -> complete living map
 return-damage           -> positive idle summary
 conquest-idle           -> idle conquest + one Continue
 ```
 
-Store local evidence under ignored `docs/visual-parity/living-kingdom/runtime/`; attach/link it in the PR conversation, never `git add -f` it.
+Store evidence under ignored `docs/visual-parity/living-kingdom/runtime/`; attach/link it in the PR conversation and never `git add -f` it.
 
-- [ ] **Step 7: Record a short live clip for behavior that screenshots cannot prove.**
+- [ ] **Step 7: Record one short behavior clip.**
 
-Clip must show:
-
-1. one live breached/conquered threshold crossing with the correct single FX;
-2. eligible caravan motion;
-3. an idle return leading to positive summary or pending report.
-
-Resize/background/foreground during smoke and confirm no historical FX replay.
+Show one live breach/conquest threshold crossing with its single FX, eligible caravan movement with Reduce Motion off, and an idle return leading to a positive summary or pending report. Also smoke Reduce Motion on and confirm caravans remain static while all static visual state remains readable.
 
 - [ ] **Step 8: Smoke compact phone and portrait iPad.**
 
-Verify lanes, HP bar, milestone accent, map 44pt city targets, Scout/Attack, tabs, report/Continue, Camp, Settings, and no unexpected Camp navigation after build/upgrade conquest.
+Verify lanes, HP bar, milestone accent, 44pt Map city targets, Scout/Attack, tabs, pending report/Continue, Camp/Settings, and no unexpected auto-navigation after deliberate build/upgrade conquest.
 
-- [ ] **Step 9: Run full gates.**
+- [ ] **Step 9: Run full serial gates.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -977,48 +1085,44 @@ git status --short
 git diff --name-only main...HEAD
 ```
 
-Expected:
+Expected final production diff is concentrated in the catalog/projection and three scene owners. It must not include HPA-479 art, save/schema files, `CountryMapLayout*`, production `GameViewController` routing, `CountryMapScoutCardNode.swift`, or CI/Codecov configuration.
 
-- no HPA-479 asset changes;
-- no schema/model/layout-definition/CI changes;
-- production `GameViewController` diff absent;
-- `CountryMapScoutCardNode.swift` absent;
-- local visual evidence not tracked.
+Inspect Codecov after CI. If project/patch coverage is below 90%, cover the new executable branches; do not lower the gate.
 
-Inspect Codecov after CI; if project/patch is below 90%, add focused tests for uncovered new lines.
-
-- [ ] **Step 10: Commit fixture/acceptance code.**
+- [ ] **Step 10: Commit fixture/acceptance code and keep Draft until evidence/CI pass.**
 
 ```bash
 git add Pyxis/ForgedVisualFixture.swift \
   PyxisTests/ForgedVisualFixtureTests.swift PyxisUITests/PyxisUITests.swift
-# Add GameViewController.swift/GameViewControllerTests.swift only if the DEBUG return hook required them.
+# Add Pyxis/GameViewController.swift and PyxisTests/GameViewControllerTests.swift only if the DEBUG return fixture required changes.
 git commit -m "test: cover Living Kingdom visual acceptance"
 ```
-
-Keep PR Draft until local visual evidence and CI/coverage are green.
 
 ---
 
 ## Final Self-Review Checklist
 
+- [ ] `Country1CityCatalog` is the only authored visual-family table; City 11 is Frontier.
+- [ ] `LivingKingdomPresentation` contains derived stage/asset/FX/map rules only.
 - [ ] Exact integer stage math is covered with real City 1 and City 3 maxima.
-- [ ] City 11 is Frontier; family never comes from `CityDefenseTrait`.
-- [ ] `TransitionEffect` owns all 12 frame names and both timings; all names resolve in tests.
-- [ ] Enemy fortress semantic node name remains exactly `enemy-city` through texture changes.
-- [ ] Treatment stays at `background + 0.5` using backdrop transform.
-- [ ] Live skipped-stage hit plays at most one final-stage FX.
-- [ ] `redraw(shouldLayout:false)`, resize, restore, and relaunch do not rebuild/replay Living Kingdom FX.
-- [ ] Existing city colorize feedback and Settings pause still work with the FX child.
-- [ ] Map decoration is noninteractive and does not alter 44pt city targets or route topology.
-- [ ] At most two caravans use completed `n→n+1` primary segments.
-- [ ] 6→7 patch changes at completed City 7.
-- [ ] `.idleSummary` is nonblocking; zero/conquest return produces no Map idle summary.
-- [ ] Historical Map no-auto-route tests/docs are explicitly superseded by HPA-478 for foreground/current-city idle conquest.
-- [ ] Map gate pause never routes; resume routes a remaining pending result once.
-- [ ] Camp foreground idle conquest routes to report, but build/upgrade settlement conquest does not auto-route.
-- [ ] Camp build/upgrade conquest has no duplicate conquest/gold sentence.
-- [ ] Existing pending-first `GameViewController` behavior is reused unchanged.
+- [ ] `TransitionEffect` owns all 12 frame names and both timings; every name resolves.
+- [ ] Enemy fortress semantic node name remains exactly `enemy-city`; texture swaps do not replace the node.
+- [ ] All 16 fortress assets remain safe for texture-only swapping because they share the 512×540 canvas contract.
+- [ ] Battlefield treatment stays at `background + 0.5` using the existing backdrop transform.
+- [ ] Live skipped-stage mutation requests at most one final-stage FX.
+- [ ] Living Kingdom FX lives in `effectsLayer`; fortress colorize actions remain independent.
+- [ ] Active FX can relayout without restart; resize/restore/relaunch never creates historical FX.
+- [ ] Reduce Motion skips optional breach/collapse animation and stops caravan looping; static art remains.
+- [ ] Map decoration is noninteractive and leaves route topology/44pt city targets unchanged.
+- [ ] At most two caravans use completed primary `n→n+1` segments; 6→7 repairs at completed City 7.
+- [ ] `.idleSummary` is nonblocking and compact-formatted.
+- [ ] Real elapsed zero-damage return clears stale Battle/Camp/Map feedback to silent/default state.
+- [ ] Map foreground/current-city idle conquest routes to existing pending report; gate pause never routes.
+- [ ] Camp foreground/gate-resume idle conquest routes, but deliberate build/upgrade conquest stays in place.
+- [ ] Deliberate Camp conquest copy is exactly `City conquered. Open Battle for the report.`
+- [ ] `CLAUDE.md` + the two superseded design specs reflect the governing journey rule.
+- [ ] DEBUG return fixture defines `foregroundReturnDate` and uses `BattleScene.enterForegroundForTesting(at:)`.
+- [ ] Focused tests include real scene consumers; unchanged node-only Scout tests are not added mechanically.
 - [ ] Scout thumbnail remains generic `enemy-city` by explicit scope decision.
 - [ ] No save/schema/economy/combat/layout-definition/art/CI changes.
 - [ ] Full tests/lint/Debug+Release builds/Codecov ≥90% and visual evidence pass before Ready for review.
