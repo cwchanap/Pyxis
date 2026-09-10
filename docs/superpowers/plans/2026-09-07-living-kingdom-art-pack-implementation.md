@@ -42,10 +42,14 @@
 - `Pyxis/Assets.xcassets/lk-battlefield-*.imageset/` — 3 treatment sets
 - `Pyxis/Assets.xcassets/lk-fx-{breach,collapse}-*.imageset/` — 12 transition sets
 - `Pyxis/Assets.xcassets/lk-map-*.imageset/` — 4 map sets
-- `docs/visual-parity/living-kingdom/source/`
-- `docs/visual-parity/living-kingdom/references/`
-- `docs/visual-parity/living-kingdom/contact-sheets/`
-- `docs/visual-parity/living-kingdom/previews/`
+- `docs/visual-parity/living-kingdom/{source,references,contact-sheets,previews}/` — **local-only, gitignored** (see note below)
+
+> **Local-only visual-parity artifacts.** `docs/visual-parity/` is ignored by
+> `.gitignore` because the Living Kingdom handoff/reference/contact-sheet PNGs are
+> large (tens of MB) and exist for local visual parity only. These paths are **not
+> committed**; the `git add docs/visual-parity/living-kingdom` steps below are
+> intentional no-ops kept as a local-build marker. Nothing under
+> `docs/visual-parity/living-kingdom/**` should appear in the tracked diff.
 
 ### Test/DEBUG support modified during this PR
 
@@ -115,8 +119,8 @@ If the ZIP is unavailable, create `source/README.md` stating that the original b
 ```bash
 git diff --check
 git diff --name-only main...HEAD
-git add docs/visual-parity/living-kingdom
-git commit -m "docs: finalize Living Kingdom production baseline"
+# docs/visual-parity/living-kingdom is local-only (gitignored); nothing to commit here.
+git commit --allow-empty -m "docs: finalize Living Kingdom production baseline"
 ```
 
 ---
@@ -223,8 +227,7 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
   CODE_SIGNING_ALLOWED=NO build
 
 git add Pyxis/Assets.xcassets/lk-city-frontier-*.imageset \
-  PyxisTests/BattleSceneTests.swift \
-  docs/visual-parity/living-kingdom
+  PyxisTests/BattleSceneTests.swift
 git commit -m "art: add Living Kingdom frontier destruction set"
 ```
 
@@ -280,7 +283,7 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
 
 git add Pyxis/Assets.xcassets/lk-city-*.imageset \
   Pyxis/Assets.xcassets/lk-battlefield-*.imageset \
-  PyxisTests/BattleSceneTests.swift docs/visual-parity/living-kingdom
+  PyxisTests/BattleSceneTests.swift
 git commit -m "art: add Living Kingdom landmark families"
 ```
 
@@ -329,7 +332,7 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -parallel-testing-enabled NO -only-testing:PyxisTests/BattleSceneTests
 
 git add Pyxis/Assets.xcassets/lk-fx-*.imageset \
-  PyxisTests/BattleSceneTests.swift docs/visual-parity/living-kingdom
+  PyxisTests/BattleSceneTests.swift
 git commit -m "art: add Living Kingdom transition effects"
 ```
 
@@ -429,8 +432,7 @@ git add Pyxis/Assets.xcassets/lk-map-*.imageset \
   Pyxis/ForgedVisualFixture.swift \
   PyxisTests/ForgedVisualFixtureTests.swift \
   PyxisTests/BattleSceneTests.swift \
-  PyxisUITests/PyxisUITests.swift \
-  docs/visual-parity/living-kingdom
+  PyxisUITests/PyxisUITests.swift
 git commit -m "art: add Living Kingdom map overlays and fixture"
 ```
 
@@ -468,14 +470,15 @@ git diff --name-only main...HEAD
 Allowed paths only:
 
 - `Pyxis/Assets.xcassets/lk-*.imageset/**`
-- `docs/visual-parity/living-kingdom/**`
 - the HPA-479 spec/plan docs
 - `PyxisTests/BattleSceneTests.swift`
 - `Pyxis/ForgedVisualFixture.swift`
 - `PyxisTests/ForgedVisualFixtureTests.swift`
 - `PyxisUITests/PyxisUITests.swift`
 
-Any other Swift/project/CI/existing-asset change fails the gate.
+`docs/visual-parity/living-kingdom/**` is local-only and gitignored, so it must
+**not** appear in the tracked diff. Any other Swift/project/CI/existing-asset
+change fails the gate.
 
 - [ ] **Step 6: Run final hygiene, unit, UI, and build gates.**
 
@@ -504,8 +507,8 @@ Expected: no diff errors, unit/UI suites pass, BUILD SUCCEEDED.
 - [ ] **Step 8: Commit final reference/provenance updates.**
 
 ```bash
-git add docs/visual-parity/living-kingdom
-git commit -m "docs: finalize Living Kingdom visual handoff"
+# docs/visual-parity/living-kingdom is local-only (gitignored); nothing to commit here.
+git commit --allow-empty -m "docs: finalize Living Kingdom visual handoff"
 ```
 
 - [ ] **Step 9: Mark the existing PR ready only after every gate passes.** HPA-478 starts shipping integration only after HPA-479 merges.

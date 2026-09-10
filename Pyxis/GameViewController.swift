@@ -510,10 +510,19 @@ extension GameViewController {
                 + "selectedSlot=\(selectedSlot);mode=\(mode)"
 
         case is CountryMapScene:
-            let attackableCity = state.mapStatus(for: 4) == .unlocked ? "4" : "none"
-            let laterLockedCity = Country1CityCatalog.cityRange.first(where: {
-                $0 > 4 && state.mapStatus(for: $0) == .locked
-            }).map(String.init) ?? "none"
+            // Derive the attackable (unlocked) city and the next locked city from
+            // state so the semantic probe reflects the actual map progression
+            // instead of a hard-coded City 4 assumption.
+            let attackableCityNumber = state.unlockedMapCityNumber
+            let attackableCity = attackableCityNumber.map(String.init) ?? "none"
+            let laterLockedCity: String
+            if let attackable = attackableCityNumber {
+                laterLockedCity = Country1CityCatalog.cityRange.first(where: {
+                    $0 > attackable && state.mapStatus(for: $0) == .locked
+                }).map(String.init) ?? "none"
+            } else {
+                laterLockedCity = "none"
+            }
             return "Map;stage=\(state.stageStatus.rawValue);"
                 + "completed=\(state.completedCityCount);"
                 + "attackableCity=\(attackableCity);laterLockedCity=\(laterLockedCity)"

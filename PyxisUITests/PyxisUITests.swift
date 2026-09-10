@@ -132,8 +132,10 @@ final class PyxisUITests: XCTestCase {
             expected = "Map;stage=cityConqueredPendingMap;completed=3;"
                 + "attackableCity=4;laterLockedCity=5"
         case "map-partial":
+            // Fixture is pendingMap with city 8; init normalization makes city 8
+            // the just-conquered city (completed=8), so city 9 is the unlock.
             expected = "Map;stage=cityConqueredPendingMap;completed=8;"
-                + "attackableCity=none;laterLockedCity=10"
+                + "attackableCity=9;laterLockedCity=10"
         case "map-country-complete":
             expected = "Map;stage=countryComplete;completed=15;"
                 + "attackableCity=none;laterLockedCity=none"
