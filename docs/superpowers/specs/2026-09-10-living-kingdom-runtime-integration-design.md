@@ -2,74 +2,80 @@
 
 ## Status
 
-Planning contract for **HPA-478**. This draft PR is the one HPA-478 implementation PR: it starts with the design and implementation plan, then implementation commits land on the same branch. Do not open a second runtime PR for this ticket.
+Planning contract for **HPA-478**. This draft PR is the one HPA-478 implementation PR: planning and runtime implementation stay on the same branch/PR.
 
-Planning baseline: `main` at `10036a88911aa055a406035154dd9e181f474701`, after HPA-479 / PR #41 landed the Living Kingdom production asset pack and its CI asset checks.
+Planning baseline: `main` at `10036a88911aa055a406035154dd9e181f474701`, after HPA-479 / PR #41 landed the Living Kingdom production asset pack and CI asset checks.
 
-HPA-479's tracked source of truth is `docs/superpowers/specs/2026-09-07-living-kingdom-art-pack-design.md` plus the installed `lk-*` asset catalog entries and their tests. `docs/visual-parity/living-kingdom/**` is intentionally local-only/gitignored after PR #41; HPA-478 may regenerate local capture evidence there, but must not add a runtime manifest or commit the large visual-parity image set.
+HPA-479's tracked source of truth is `docs/superpowers/specs/2026-09-07-living-kingdom-art-pack-design.md` plus the installed `lk-*` asset catalog entries/tests. `docs/visual-parity/living-kingdom/**` is intentionally local-only/gitignored; HPA-478 may regenerate local evidence there but does not add a runtime manifest or commit the large capture set.
 
 ## Goal
 
-Make Country 1 visibly evolve while preserving the current prepare → deploy → watch → conquer game loop:
+Make Country 1 visibly evolve without changing the prepare → deploy → watch → conquer mechanics:
 
-1. show the current fortress damage state during battle;
-2. give Emberford/Runewatch/Crownspire their approved visual families;
-3. make conquered territory on the map feel occupied and repaired;
-4. make offline return reveal the real result, with the existing conquest report remaining the single conquest acknowledgment.
+1. show fortress damage state during battle;
+2. give Emberford, Runewatch, and Crownspire their approved visual families;
+3. make conquered territory on the map feel occupied/repaired;
+4. show truthful offline-return outcomes, with the existing pending conquest report remaining the single conquest acknowledgment.
 
-This is a presentation integration. It does not add a gameplay system.
+This is presentation integration, not a new gameplay system.
 
-## Current code survey
+## Review resolution
 
-The existing runtime already owns the hard parts that HPA-478 should reuse:
+The latest review was checked against current `main` before changing this contract.
 
-- `KingdomGameState` owns city HP, max HP, completion state, idle settlement, rewards, and `pendingBattleResult`.
-- `BattleScene` already owns the enemy-city node, battlefield backdrop/atmosphere ordering, combat damage application, live hit/conquest feedback, idle foreground settlement, and pending conquest report.
-- `CountryMapScene` already owns canonical map layout, routes, city positions/hit targets, completed/unlocked/locked appearance, transient Scout-card feedback, idle settlement, and routing.
-- `BuildingViewScene` already owns Camp idle settlement and transient feedback text.
-- `GameViewController.presentSceneForCurrentStage(in:preferredTab:)` is already pending-first: when `pendingBattleResult != nil`, any existing Map/Camp routing request lands in `BattleScene` and presents the report.
-- `ForgedVisualFixture` already provides deterministic Battle/Map/Camp/conquest states, including `map-partial` from HPA-479.
+Adopted:
 
-Important existing behavior to preserve:
+- explicitly supersede the historical Country Map rule that fresh idle conquest stays on Map;
+- **do not** auto-route Camp build/upgrade settlement conquest — Building View still stays until the player explicitly chooses Battle;
+- keep the enemy fortress node semantic name `enemy-city`; only its texture changes;
+- put Living Kingdom FX frame names/timings on `TransitionEffect` instead of hard-coding them in `BattleScene`;
+- use integer ratio comparisons for the 60%/25% boundaries and test real `cityMaxPower(for:)` values;
+- add explicit journey/FX/layout risks and name the legacy tests whose expectations must change;
+- keep the Scout thumbnail generic `enemy-city` in this ticket to avoid a second presentation call site.
 
-- Battle foreground return already uses `CompactNumberFormatter` for positive idle damage and presents the existing report for idle conquest.
-- Map currently turns idle results into a blocking `CountryMapTransientFeedback.status` message.
-- Camp currently shows inline idle result text and can remain on Camp after an idle conquest.
-- Map/Camp layout-gate pause paths may settle idle progress, so a pending conquest can be created while a geometry gate is active.
+No extra PR, router service, VFX manager, save field, map route model, or Scout redesign is added.
 
-## Design choice
+## Existing ownership to reuse
 
-Use **one small pure presentation projection plus scene-local rendering**.
+- `KingdomGameState` owns city HP/max HP, progression, idle settlement, rewards, and `pendingBattleResult`.
+- `BattleScene` owns live combat/rendering, enemy-city node, city hit/conquest feedback, idle foreground settlement, and pending conquest report.
+- `CountryMapScene` owns map layout/routes/city hit targets, transient Scout-card feedback, idle settlement, and Map routing.
+- `BuildingViewScene` owns Camp settlement, build/upgrade actions, feedback text, and Camp routing.
+- `GameViewController.presentSceneForCurrentStage(in:preferredTab:)` is pending-first: once `pendingBattleResult != nil`, any accepted scene routing request presents `BattleScene` regardless of preferred tab.
+- `ForgedVisualFixture` already provides deterministic Battle/Map/Camp/conquest states, including HPA-479's `map-partial` fixture.
+
+## Architecture
+
+Use **one pure `LivingKingdomPresentation` projection plus scene-local rendering**.
 
 Rejected alternatives:
 
-1. **Generic Living Kingdom/VFX/content service.** Rejected because there is one country, four fixed art families, two fixed transition sequences, and one fixed repaired route. A registry/manifest/service adds indirection without a second consumer.
-2. **Duplicate HP/theme/map rules directly inside scenes.** Rejected because exact 60%/25% thresholds and City 11's Frontier exception are easy to drift. One pure projection is cheaper to test and maintain.
-3. **Persist visual stages/caravan state.** Rejected because every visual result is derivable from existing save data; persistence would create migration and replay bugs for no player-facing value.
+- generic Living Kingdom/VFX/content service — one country, four fixed families, two fixed FX sequences, one fixed repaired route;
+- persisted visual stages/caravans — all state is derivable from existing save data;
+- route metadata added to `CountryMapLayout` — Country 1 primary routes are already the fixed `1→2→...→15` chain;
+- new routing protocol/service — existing scene routing plus pending-first controller behavior is sufficient;
+- Scout thumbnail family integration — useful later, but not required to satisfy the Battle-focused landmark showcase and would widen this task.
 
-## New production abstraction
+## Pure presentation contract
 
-Create `Pyxis/LivingKingdomPresentation.swift` as a pure, Foundation/CoreGraphics-free presentation projection.
+Create `Pyxis/LivingKingdomPresentation.swift`.
 
 ```swift
 enum LivingKingdomPresentation {
     enum FortressFamily: String, CaseIterable, Equatable {
-        case frontier
-        case ember
-        case arcane
-        case royal
+        case frontier, ember, arcane, royal
     }
 
     enum FortressStage: String, CaseIterable, Equatable {
-        case intact
-        case damaged
-        case breached
-        case conquered
+        case intact, damaged, breached, conquered
     }
 
     enum TransitionEffect: Equatable {
         case breach
         case collapse
+
+        var frameNames: [String] { /* six HPA-479 names */ }
+        var secondsPerFrame: Double { /* 0.05 or 0.07 */ }
     }
 
     struct Battle: Equatable {
@@ -93,329 +99,297 @@ enum LivingKingdomPresentation {
 }
 ```
 
-The exact implementation may keep computed properties/functions on the namespace rather than create additional structs if that is smaller, but it must keep the rules pure and independently testable. Do not create protocols, dependency injection, a manifest parser, or a generic scene-decoration model.
+No protocol, dependency injection, manifest parser, content registry, or scene-independent renderer.
 
-## Battle projection
+## Fortress stage math
 
-### Fortress stage
+Do not convert HP to a floating percentage. Use exact integer ratio comparisons after `maxHP = max(1, maxHP)`:
 
-Use current city remaining HP divided by that city's existing maximum HP. `pendingBattleResult != nil` or remaining HP `<= 0` always projects `.conquered`.
+```text
+remaining <= 0 or pending result -> conquered
+remaining * 5 > maxHP * 3       -> intact      (>60%)
+remaining * 4 > maxHP           -> damaged     (>25%...60%)
+otherwise                        -> breached    (>0%...25%)
+```
 
-| Remaining HP | Stage |
-| --- | --- |
-| `> 60%` | `.intact` |
-| `> 25% ... 60%` | `.damaged` |
-| `> 0% ... 25%` | `.breached` |
-| `0` / pending conquest | `.conquered` |
+Country 1 maxima are small enough that these products are comfortably inside `Int` range. This avoids rounding drift for real city maxima such as City 3's 92 HP.
 
-Boundary behavior is exact: 60% is damaged; 25% is breached.
+Boundary examples:
 
-No stage is written to a save. A scene created at 24% HP immediately shows breached art without replaying breach FX.
+- City 1 max 20: 13 intact, 12 damaged, 6 damaged, 5 breached;
+- City 3 max 92: 56 intact, 55 damaged, 24 damaged, 23 breached.
 
-### Fortress family
+A pending result always forces `.conquered` even if a malformed caller supplies positive remaining HP.
 
-Family is fixed by Country 1 city number and never inferred from defense traits:
+## Fortress family
+
+Family is fixed by city number, never `CityDefenseTrait`:
 
 | Family | Cities |
 | --- | --- |
-| Frontier | 1–6, 8, 10, 11, 14 |
+| Frontier | 1–6, 8, 10, **11**, 14 |
 | Ember | 7, 12 |
 | Arcane | 9, 13 |
 | Royal | 15 |
 
-City 11 remains Frontier even though it shares a reinforced-keep gameplay identity with City 15.
+City 11 intentionally remains Frontier although it shares `.reinforcedKeep` gameplay identity with City 15.
 
-### Transition selection
+## Transition effect contract
 
-Transitions are selected from the old projected stage and the new projected stage only for a **live combat mutation**:
+`TransitionEffect` owns the HPA-479 playback contract:
+
+- `.breach`: `lk-fx-breach-01...06`, `0.05` seconds/frame;
+- `.collapse`: `lk-fx-collapse-01...06`, `0.07` seconds/frame.
+
+Selection is based only on a newly observed **live mutation** old→new stage:
 
 ```text
-new stage == breached  -> breach FX
-new stage == conquered -> collapse FX
-otherwise               -> no Living Kingdom FX
+new stage == breached  -> breach
+new stage == conquered -> collapse
+otherwise               -> none
 ```
 
-A skipped-stage hit does not queue intermediate effects. Examples:
-
-- intact → breached: play breach only;
-- intact → conquered: play collapse only;
-- damaged → conquered: play collapse only;
-- breached → conquered: play collapse only;
-- intact → damaged: no special FX.
-
-This selector stays pure so skipped-stage behavior is unit-tested without a SpriteKit timing harness.
+Skipped stages do not queue history. `intact→conquered` plays collapse only. Restore, resize, relaunch, or foreground static reapplication never calls this selector as a playback trigger.
 
 ## BattleScene integration
 
-### Static fortress and theme
+### Semantic node identity
 
-`BattleScene.buildBattlefield()` should create the enemy fortress from the current `LivingKingdomPresentation.Battle` instead of `enemy-city`. Preserve the existing bottom-center anchor and `fitBattleNode` layout path; HPA-479 deliberately authored every fortress against that contract.
+Keep the existing enemy fortress node name permanently:
 
-Add one optional battlefield-treatment sprite. For Ember/Arcane/Royal it uses the projected `lk-battlefield-*` asset; Frontier hides/removes the treatment. Its ordering is fixed by the HPA-479 contract:
+```swift
+enemyCityNode.name = BattleAssetName.enemyCity // "enemy-city"
+```
+
+The node name is semantic and already used by tests/debugging. HP-stage changes update the sprite texture, never the node name. DEBUG readbacks expose the projected `lk-city-*` asset name separately.
+
+### Static fortress and battlefield treatment
+
+`buildBattlefield()` creates the enemy node through the existing `makeBattleSprite` path using the projected fortress asset. Preserve:
+
+- bottom-center anchor `(0.5, 0)`;
+- `fitBattleNode` sizing;
+- existing gate/impact coordinates;
+- HP bar and milestone accent ownership;
+- `enemy-city` semantic name.
+
+Add one optional treatment sprite at:
 
 ```text
 battlefield backdrop       GameUITheme.Z.background
 Living Kingdom treatment   GameUITheme.Z.background + 0.5
 Forged atmosphere          GameUITheme.Z.background + 1
-lane terrain               -1 within environment content
 ```
 
-The treatment mirrors the existing `battlefieldBackdropNode` position and aspect-fill scale. Do not create another backdrop-layout abstraction just for this node.
+The treatment mirrors the existing backdrop position/aspect-fill scale. Frontier hides it.
 
-`redraw()`/layout refresh always reapplies the static projected fortress texture and treatment. That makes scene entry, resize, restored pending reports, and foreground restore immediately correct without any historical animation.
+`redraw()` reapplies only static texture/treatment state. Layout refresh therefore cannot replay historical FX.
 
-### Live breach/collapse FX
+### Live FX
 
-In `applyCombatResult(_:)`, project the old battle stage immediately before `state.applyLiveSoldierAttacks(...)`, apply the existing state mutation, then project the new stage. After the existing save/redraw path applies the terminal static texture, play at most one effect selected by the pure transition selector.
+In `applyCombatResult(_:)`:
 
-Use the HPA-479 sequences exactly:
+1. project old stage immediately before `state.applyLiveSoldierAttacks`;
+2. run the existing mutation/save/redraw transaction unchanged;
+3. project the new stage;
+4. select at most one `TransitionEffect`;
+5. start the optional child animation after the static terminal texture is applied.
 
-- `lk-fx-breach-01...06`, `0.05 s/frame`;
-- `lk-fx-collapse-01...06`, `0.07 s/frame`.
+Playback stays a temporary child of the enemy fortress sprite:
 
-The simplest correct placement is a temporary child sprite of the enemy fortress:
-
+- fixed name `livingKingdomTransitionFX`;
 - anchor `(0.5, 0)`;
 - local position `.zero`;
-- source size `512×512`;
-- inherits the fortress's `512×540`-canvas scale, automatically satisfying the required `512 × enemyCityDisplayHeight / 540` display height;
-- inherits city shake and Settings pause behavior;
-- removes itself when the six-frame action completes.
+- size `512×512` source points before inherited fortress scale;
+- replace an existing same-name child rather than stack;
+- Reduce Motion skips frames but keeps the static stage swap.
 
-Use one fixed action/node key so duplicate playback replaces rather than stacks. If Reduce Motion is enabled, keep the static stage change and skip the extra frame animation.
+Because existing `playCityHitFeedback` / `playCityConquestFeedback` colorize the parent fortress sprite, tests must prove changing the parent texture during the hit transaction does not strand color blend state or duplicate the FX child. `redraw(shouldLayout: false)` must update the static texture without rebuilding the fortress node.
 
-Do not delay saving, the conquest report, Continue, or routing while FX plays.
+Saving, reward feedback, report presentation, Continue, and routing never wait for FX completion.
 
-### Conquest report
+## Living conquered map
 
-The report remains unchanged as the one conquest acknowledgment. Because `BattleScene.didMove`, live conquest, and idle conquest already call `redraw()` before/around report presentation, the new static projection makes `.conquered` fortress art visible underneath the existing report for both fresh and restored results.
-
-Do not add reward logic or another Continue action.
-
-## Living map projection
-
-The map projection derives only from `completedCityCount`, clamped to `0...15`.
+The map projection clamps `completedCityCount` to `0...15` and derives:
 
 ```text
-secured cities: 1...completedCityCount
-eligible caravan segments: primary routes whose start/end cities are both secured
-visible caravans: first two eligible segments in authored primary-route order
-6→7 patch: worn while completedCityCount < 7, repaired once completedCityCount >= 7
+secured cities: 1...completed
+eligible caravan segments: n→n+1 where both are completed
+visible caravans: first two eligible segments
+6→7 patch: worn for completed < 7, repaired for completed >= 7
 ```
 
-The primary route is already the fixed 1→2→...→15 chain, so the projection can return only each caravan segment's start city number. `CountryMapScene` can obtain runtime endpoints from `layout.cityPositions[start]` and `[start + 1]`; there is no need to add endpoint metadata to `CountryMapRouteLayout`.
+Country 1's authored primary route is exactly `1→2→...→15`, so returning the segment start city number is sufficient. `CountryMapScene` resolves runtime endpoints from `layout.cityPositions[n]` / `[n + 1]`.
 
-No caravan state is persisted. Relaunch may restart a decorative caravan at its route start; this is acceptable because it has no gameplay meaning.
+Add one noninteractive `livingKingdomLayer` with z between `routeLayer` and `cityLayer`:
 
-## CountryMapScene integration
-
-Add a single `livingKingdomLayer` between the existing route and city layers. All children are noninteractive.
-
-### Secured city overlays
-
-For every projected secured city, render `lk-map-secured-city` centered at the existing runtime city position and behind the current circle/number/conquered marker.
-
-Size from HPA-479's canonical contract:
-
-```swift
-let mapScale = layout.displayedBackdropFrame.width / 1024
-secured.size = CGSize(width: 96 * mapScale, height: 96 * mapScale)
+```text
+routeLayer          0
+livingKingdomLayer  5
+cityLayer          10
 ```
 
-Do not replace or rename existing hit targets.
+Render:
 
-### 6→7 route patch
+- `lk-map-secured-city` at each completed city, `96×96 * mapScale`;
+- `lk-map-route-6-7-worn` or `...repaired` at the 6→7 midpoint, `192×192 * mapScale`;
+- at most two `lk-map-caravan` sprites, `128×64 * mapScale`, oriented with `atan2` and moving along eligible primary segments.
 
-Render exactly one of `lk-map-route-6-7-worn` or `lk-map-route-6-7-repaired` at the midpoint between runtime City 6 and City 7 positions. Size is `192×192 * mapScale`. The asset is already authored in the canonical map orientation, so placement/scaling is enough; do not add a repair animation or route mutation.
+`mapScale = layout.displayedBackdropFrame.width / 1024`.
 
-### Caravans
+A tiny private render key `(completedCityCount, displayedBackdropFrame)` prevents ordinary Scout redraws from restarting caravans. No persistence, pathfinding, economy, collision, branch travel, or repair timer.
 
-Render at most two `lk-map-caravan` sprites using projected eligible route starts:
+All existing city circles/numbers/markers/hit targets remain on `cityLayer` and unchanged.
 
-- size `128×64 * mapScale`;
-- start/end from existing city positions;
-- rotate the +X-facing sprite with `atan2(end.y - start.y, end.x - start.x)`;
-- use a fixed-duration `SKAction.move(to:duration:)` and repeat forever;
-- a short deterministic stagger between the two is allowed;
-- no randomization, speed economy, collision, income, pathfinding, or off-map branch travel.
+## Offline-return summary semantics
 
-Avoid restarting the actions on ordinary Scout-card/city-selection redraws. A tiny private render key containing the completed-city count plus displayed-backdrop frame is sufficient; rebuild decoration only when progress or layout changes. Reset the key when layout geometry is cleared.
+All scenes keep their existing `returnFromBackground(at:)` ownership. No shared settlement service or timer is added.
 
-## Offline return behavior
+### Positive non-conquest
 
-### Shared rules
+When `elapsedSeconds > 0 && damageDealt > 0 && conqueredCities == 0`, show exactly:
 
-Every scene keeps calling the existing `KingdomGameState.returnFromBackground(at:)` owner exactly where it already does. HPA-478 does not add a timer, settlement coordinator, save wrapper, or new result model.
+```text
+Buildings dealt <CompactNumberFormatter value> idle damage.
+```
 
-Positive non-conquest result:
+No duration line, gold line, claim button, or required tap.
 
-- require `elapsedSeconds > 0` and `damageDealt > 0`;
-- display `Buildings dealt <formatted> idle damage.` using `CompactNumberFormatter`;
-- do not display gold when no gold was awarded;
-- do not add a claim/Continue action;
-- do not invent elapsed-time text just because `elapsedSeconds` is available.
+### Zero progress
 
-Zero-damage result:
+Do not create a new `No building damage while away.` return reveal. Leave prior/default feedback untouched.
 
-- do not synthesize a success/reward reveal;
-- leave the scene's prior/default feedback state alone rather than displaying a new "reward" message.
+### Map summary
 
-Idle conquest:
+Add `CountryMapTransientFeedback.Kind.idleSummary` with `blocksScoutEntry == false`. `idle(result:state:)` becomes positive-nonconquest-only and returns nil for zero progress or conquest.
 
-- existing model mutation/reward/save remains authoritative;
-- emit the existing fresh conquest/gold feedback once;
-- route to `BattleScene` through the scene's existing routing protocol;
-- `GameViewController.presentSceneForCurrentStage` sees `pendingBattleResult` and therefore presents Battle regardless of the requested preferred tab;
-- Battle shows the existing pending conquest report over `.conquered` fortress art;
-- no second reward or report is generated.
+Do not reuse `.flavor`; Scout flavor and an offline result are different semantics.
 
-Restored pending result:
+### Camp summary
 
-- `BattleScene` continues to project only fields retained in `BattleResult`;
-- no new duration/history field is persisted;
-- restored presentation does not replay breach/collapse, gold burst, or fresh outcome feedback.
+Camp uses the same compact positive-damage copy and no zero-result assignment.
 
-### Map transient feedback
+## Journey contract supersession
 
-`CountryMapTransientFeedback.idle` should become positive-nonconquest-only and nonblocking. Add a semantic kind such as `.idleSummary` whose `blocksScoutEntry` is `false`, alongside `.flavor`.
+HPA-478 intentionally changes one historical journey rule so the ticket's "existing conquest report remains the single conquest acknowledgment" requirement is actually true.
 
-It returns nil for conquest (because the pending report owns that outcome) and zero damage (because there is no return reveal to show). It formats damage through `CompactNumberFormatter`.
+The following historical contracts are **superseded for Country Map idle/current-city settlement conquest**:
 
-Do not reuse `.flavor` for this result just to avoid one enum case; Scout flavor and an offline result are different semantics even though both are nonblocking.
+- `docs/superpowers/specs/2026-08-01-gameplay-sound-haptics-settings-design.md`: Map idle conquest "does not auto-route to Battle";
+- `docs/superpowers/specs/2026-07-30-compact-conquest-report-design.md`: Map idle conquest stays on Map without opening the report;
+- current `CountryMapSceneTests` expectations that fresh foreground/current-city lethal idle settlement leaves the pending result on Map.
 
-### Map routing cases
+New HPA-478 contract:
 
-Use the existing `CountryMapSceneRouting.countryMapSceneDidRequestGameplayTab` path; do not add a protocol method.
+- Map foreground idle conquest saves/emits once, then requests existing `.battle` routing so pending-first controller routing presents the one report;
+- Map current-city RETURN/Attack settlement that becomes conquest does the same;
+- a normal Map tab request already routes after settlement and needs no new path;
+- Map layout-gate pause may create a pending result but must not route reentrantly while the gate is being installed; `layoutGateWillResume` requests Battle once if the pending result remains.
 
-- foreground idle conquest: save/emit/redraw, then request `.battle`;
-- current-city `requestEntry` that settles into conquest: request `.battle` instead of remaining on Map;
-- normal tab request already routes after settlement and therefore naturally hits the pending-first controller path;
-- layout-gate pause must not re-enter scene routing while the controller is applying the gate; if it creates a pending result, route on `layoutGateWillResume` after geometry is usable again.
+This is a deliberate journey change, not merely a visual implementation detail.
 
-### Camp routing cases
+### Camp behavior stays narrower
 
-Use the existing `BuildingViewSceneRouting.buildingViewSceneDidRequestGameplayTab` path; do not add a protocol method.
+HPA-478 does **not** supersede the existing Building View "stay until explicit Battle" contract for build/upgrade settlement conquest.
 
-- foreground idle conquest: save/emit/redraw, then request `.battle`;
-- build/upgrade returning `.cityConqueredDuringSettlement`: save/emit, then request `.battle`;
-- normal tab request already routes after settlement and naturally hits the pending-first controller path;
-- layout-gate pause follows the same defer-until-resume rule as Map.
+- Camp foreground idle conquest routes to Battle so an offline return immediately shows the pending report;
+- Camp layout-gate pause defers the same route until resume;
+- Camp `buildSelectedSlot` / `upgradeSelectedSlot` settlement conquest **does not auto-route**;
+- those build/upgrade paths save and emit the existing fresh outcome once, clear the duplicate conquest/gold sentence, keep `pendingBattleResult`, and let the player's next explicit Battle/tab request hit the existing pending-first router.
 
-Camp positive damage uses the same formatted copy as Battle/Map. Zero damage creates no new return message.
+No new routing protocol method or shared routing service.
+
+## Scout thumbnail boundary
+
+`CountryMapScoutCardNode` continues to load the generic `enemy-city` thumbnail in HPA-478. Landmark family identity is demonstrated in the Battle scene/treatment captures; Scout-family thumbnails are explicitly out of scope rather than silently expected by the visual matrix.
 
 ## DEBUG capture strategy
 
 Reuse `ForgedVisualFixture`; do not add a snapshot framework.
 
-Existing cases already cover:
+Existing cases cover Frontier intact/conquered and early/partial/complete Map states. Add only:
 
-- Frontier intact Battle: `battle`;
-- Frontier conquered/pending report: `conquest-live` / `conquest-idle`;
-- Map early/partial/complete: `map`, `map-partial`, `map-country-complete`.
-
-Add only the missing deterministic visual states:
-
-- `battle-damaged` — Frontier at exactly/inside damaged range;
-- `battle-breached` — Frontier in breached range;
+- `battle-damaged` — Frontier City 1 at exact 60% (`12/20`);
+- `battle-breached` — Frontier City 1 at exact 25% (`5/20`);
 - `battle-emberford` — City 7 intact;
 - `battle-runewatch` — City 9 intact;
 - `battle-crownspire` — City 15 intact;
-- `return-damage` — fixed-time Battle foreground-return fixture producing positive non-conquest damage.
+- `return-damage` — fixed-time Battle positive non-conquest idle return.
 
-For `return-damage`, reuse the existing `sceneWillEnterForegroundForTesting(at:)` seam after presenting the fixture state. Do not add a production launch mode or new clock service.
+The DEBUG installer may invoke the existing `sceneWillEnterForegroundForTesting(at:)` seam for `return-damage`. No Release clock/routing change.
 
-Update the fixture's accessibility probe with the minimum semantic fields needed to prove family/stage/map decoration/idle summary selection. Do not encode animation frame-by-frame output into accessibility text.
+Fixture accessibility semantics expose only enough to prove projected family/stage/map-decoration/idle-summary state.
 
-Generated 393×852 captures and short clips remain local under ignored `docs/visual-parity/living-kingdom/`. Before merge, attach or link the final evidence in the PR conversation rather than force binary evidence into git.
+Local captures/clips remain ignored under `docs/visual-parity/living-kingdom/` and are attached/linked in the PR conversation before merge.
 
-## Testing strategy
+## Risks and mitigations
 
-### Pure projection tests
+1. **Journey-test inversion.** Existing Map tests intentionally assert no auto-route. Mitigation: Task 5 explicitly rewrites those named tests before production routing changes.
+2. **Layout-gate routing reentrancy.** `layoutGateWillPause` is called while the controller is installing the gate. Mitigation: never route there; use persisted `pendingBattleResult` as the deferral signal and request Battle only from resume.
+3. **FX vs existing city colorize actions.** Hit/conquest feedback colorizes the same semantic enemy-city sprite. Mitigation: keep one persistent node, swap only texture, attach FX as one replaceable child, and test colorize/action coexistence.
+4. **Resize/redraw during FX.** Static reapplication must not recreate the node or replay history. Mitigation: `redraw` changes texture/treatment only; test `redraw(shouldLayout:false)` and layout refresh while/after a transition.
+5. **Integer boundary drift.** Real city maxima are not all divisible by threshold denominators. Mitigation: integer ratio math plus City 1 and City 3 parameterized cases; fixtures derive HP from `cityMaxPower(for:)`.
+6. **Visual evidence drift.** HPA-479 large reference files are local-only. Mitigation: tracked art spec + landed assets/tests are authoritative; runtime captures are PR evidence, not production inputs.
+7. **Coverage.** Existing 90% project/patch gates remain blocking. Mitigation: add focused tests for reported uncovered new code, never exclusions/lower thresholds.
 
-Create `PyxisTests/LivingKingdomPresentationTests.swift` and cover:
+## Testing contract
 
-- 61/60/26/25/1/0 percent boundaries;
+### Pure projection
+
+Cover:
+
+- integer 60%/25% boundaries using City 1 and City 3 real maxima;
 - pending result forcing conquered;
-- all 15 exact city-family mappings, especially City 11;
-- exact fortress/treatment asset names;
-- skipped-stage transition effect selection;
-- completed-city clamping;
-- zero/one/two/many completed-city caravan eligibility;
-- at-most-two caravan invariant;
-- worn → repaired 6→7 threshold at completed City 7.
+- all 15 city-family mappings, especially City 11;
+- exact fortress/treatment names;
+- both `TransitionEffect.frameNames` arrays, seconds/frame, and all 12 `UIImage(named:)` resolutions;
+- skipped-stage transition selection;
+- completed-count clamping, secured cities, max-two caravans, and 6→7 repair threshold.
 
-### Scene integration tests
+### Battle
 
-Add focused tests beside the current scene suites rather than a broad new framework:
+Cover:
 
-- Battle static texture/treatment follows state and survives layout refresh without effect replay;
-- a live transition into breached/conquered creates only the selected FX sequence;
-- restored pending report uses conquered art with zero Living Kingdom transition playback;
-- Map decoration counts/asset names/positions derive from existing layout and do not change city hit targets;
-- Map idle summary is formatted and nonblocking;
-- Map/Camp idle conquest requests existing Battle routing exactly once;
-- Map/Camp zero idle result does not create a new return reveal;
-- build/upgrade settlement conquest routes to the pending report without double reward;
-- current save/economy/8-hour cap/1/10 idle rate tests remain unchanged and green.
+- static texture selection while `enemyCityNode.name == "enemy-city"` at every stage/family sample;
+- treatment visibility/order/transform;
+- live damaged/breached/conquered transitions;
+- direct conquest plays collapse only;
+- restored pending result/static resize plays no Living Kingdom FX;
+- `redraw(shouldLayout:false)` after hit leaves one enemy node and at most one FX child;
+- existing city hit/conquest colorize and Settings pause remain functional;
+- positive/zero/conquest foreground return behavior.
 
-Keep the existing 90% project/patch coverage gates. Add focused coverage for new branches; do not lower thresholds or add exclusions.
+### Map
 
-## Expected production file map
+Cover:
 
-Create:
+- secured/repair/caravan states and unchanged 44pt city hit targets;
+- `.idleSummary` is nonblocking and compact-formatted;
+- zero/conquest return produces no Map idle summary;
+- foreground and current-city settlement conquest route once to Battle;
+- normal tab settlement remains one existing route;
+- gate pause never routes; gate resume routes pending once;
+- existing fresh reward/outcome feedback remains exactly once even though the scene now routes afterward.
 
-- `Pyxis/LivingKingdomPresentation.swift`
-- `PyxisTests/LivingKingdomPresentationTests.swift`
+### Camp
 
-Modify:
+Cover:
 
-- `Pyxis/BattleScene.swift`
-- `Pyxis/CountryMapScene.swift`
-- `Pyxis/CountryMapTransientFeedback.swift`
-- `Pyxis/BuildingViewScene.swift`
-- `Pyxis/ForgedVisualFixture.swift` (DEBUG only)
-- existing Battle/Map/Camp/fixture test files as needed
-- `PyxisUITests/PyxisUITests.swift` only for the new deterministic capture cases/semantics
+- positive compact copy and zero no-op;
+- foreground idle conquest routes once;
+- gate pause/resume deferral;
+- build/upgrade settlement conquest saves/emits but does **not** auto-route and does not add duplicate conquest/gold text;
+- an explicit later Battle/tab request reaches pending-first report.
 
-Expected **no change**:
+## Final acceptance
 
-- `KingdomGameState.swift`
-- `BattleCombatState.swift`
-- `GameViewController.swift`
-- `CountryMapLayout.swift`
-- `CountryMapLayoutDefinition.swift`
-- persistence/schema code
-- economy/balance data
-- HPA-479 `lk-*` production PNGs
-- `project.pbxproj`
-- CI/Codecov configuration
-
-If implementation proves one of these expected-no-change files truly must change, document why in the PR before expanding scope; do not silently refactor around the feature.
-
-## Out of scope
-
-- wall/gate HP or destructible physics;
-- gameplay fire/wards/shields;
-- map income, collection, rebuild timers, caravan simulation, pathfinding, or inspection;
-- new currencies/resources;
-- new save fields or migrations;
-- new battle replay/history;
-- new report/claim flow;
-- generic VFX manager, asset manifest, content plugin system, service locator, or DI layer;
-- Country 2, prestige, campaigns, or HPA-360's evidence-gated Rally/direct-lane/Chronicle experiments;
-- new image/animation generation or correction. Asset defects go back to HPA-479/art scope rather than being painted around in runtime code.
-
-## Done definition
-
-HPA-478 is done when one implementation PR proves all of the following:
-
-1. all four HP states render the correct HPA-479 fortress family without persisted presentation state;
-2. Cities 7/9/15 show Ember/Arcane/Royal identity while all other mappings, including City 11, remain exact;
-3. live breach/collapse effects play only on newly observed live transitions, skipped stages play only the final relevant effect, and restore/resize/relaunch never replays them;
-4. the conquered map derives secured decoration, the fixed 6→7 repair, and no more than two noninteractive caravans from existing completion state;
-5. positive idle return shows compact formatted damage without blocking gameplay; zero damage produces no fabricated reward reveal;
-6. idle conquest from Battle/Map/Camp reaches the existing pending report over conquered art with one Continue and no duplicate gold/reward;
-7. existing navigation restrictions, three lanes, hit targets, milestone Cities 5/10/15, Camp, Settings, economy, idle cap/rate, saves, and routing semantics remain intact;
-8. deterministic fixtures cover the missing visual matrix, local 393×852 captures and a short live FX/caravan/return clip are reviewed, and a supported compact phone plus portrait iPad smoke without clipping or hit-target regressions;
-9. unit/UI tests, SwiftLint, Debug/Release builds, CI, and unchanged 90% coverage gates pass;
-10. the PR contains no new art authoring, generic framework, schema, or second-ticket/second-PR scope drift.
+- all four Living Kingdom concepts run in real gameplay with HPA-479 production assets;
+- no gameplay/economy/save/schema/route-topology/art changes;
+- `enemy-city` semantic node name remains stable;
+- Scout thumbnail remains generic by explicit scope decision;
+- Battle restore/resize does not replay historical FX;
+- Map city hit targets/Scout/Attack and Camp/Settings remain usable;
+- idle conquest has exactly one report/Continue acknowledgment;
+- Camp build/upgrade conquest does not unexpectedly navigate away;
+- 393×852 capture matrix plus compact phone/portrait iPad smoke is complete;
+- 90% project/patch coverage gates, tests, lint, Debug/Release builds, and diff checks pass.
