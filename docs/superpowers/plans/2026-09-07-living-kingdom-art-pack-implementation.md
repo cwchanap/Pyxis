@@ -361,6 +361,8 @@ let partial = ForgedVisualFixture.mapPartial.makeState()
 #expect(partial.pendingBattleResult == nil)
 ```
 
+This is the **pre-round-trip seed** asserted directly against `makeState()`. The captured app state is normalized: `installForgedVisualFixtureIfRequested` saves then reloads the fixture, and `KingdomGameState.init` clamps `cityConqueredPendingMap` to `completedCityCount = max(completedCityCount, cityNumberInCountry) = max(7, 8) = 8`. The post-normalization values (completed=8, attackableCity=9) are asserted in the UI smoke in Step 3, not here.
+
 - [ ] **Step 2: Add the DEBUG fixture case.** In `ForgedVisualFixture`:
 
 ```swift
@@ -382,9 +384,11 @@ This yields seven completed cities without a manual five-tap sequence.
 
 ```swift
 case "map-partial":
-    expected = "Map;stage=cityConqueredPendingMap;completed=7;"
-        + "attackableCity=8;laterLockedCity=9"
+    expected = "Map;stage=cityConqueredPendingMap;completed=8;"
+        + "attackableCity=9;laterLockedCity=10"
 ```
+
+These are the post-normalization values: the fixture is saved then reloaded, and `KingdomGameState.init` clamps `cityConqueredPendingMap` City 8 to `completedCityCount = 8`, so city 9 is the unlock and city 10 the next lock. This must match the shipping semantic string emitted by the fixture after the round trip.
 
 If the controller's actual semantic string differs, use the shipping semantic value emitted by the fixture and update this exact expectation before capture; do not fabricate a string.
 
@@ -416,7 +420,7 @@ xcrun simctl io booted screenshot \
 
 Launch the app beforehand with `-pyxis-forged-fixture map-partial`; use the existing fixture capture flow rather than manual gameplay setup. Record device/runtime provenance.
 
-- [ ] **Step 8: Compose map early/partial/complete references only on real plates.** Partial uses the new untouched source plate; repaired 6→7 is eligible because completed count is seven.
+- [ ] **Step 8: Compose map early/partial/complete references only on real plates.** Partial uses the new untouched source plate; repaired 6→7 is eligible because the normalized captured state has `completed=8`, so city 7 has been conquered and the 6→7 route is in its repaired state.
 
 - [ ] **Step 9: Run unit/UI/build gates and commit.**
 
