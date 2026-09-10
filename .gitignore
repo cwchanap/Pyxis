@@ -5,3 +5,6 @@ build/
 __pycache__/
 *.pyc
 /.worktrees/
+
+# visual-parity docs are local-only (large art references)
+docs/visual-parity/
