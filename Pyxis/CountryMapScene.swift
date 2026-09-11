@@ -633,6 +633,25 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
         store.save(state)
         redraw()
+        routePendingConquestIfNeeded()
+    }
+
+    /// HPA-478: conquest that settled while the player was not looking
+    /// (idle foreground/gate-resume settlement, current-city RETURN
+    /// settlement) routes to Battle so the pending report is shown. Never
+    /// called from `layoutGateWillPause`; deliberate in-place actions keep
+    /// their own journey.
+    @discardableResult
+    private func routePendingConquestIfNeeded() -> Bool {
+        guard state.pendingBattleResult != nil,
+              !isRoutingToBattle,
+              let router else { return false }
+        isRoutingToBattle = true
+        guard router.countryMapSceneDidRequestGameplayTab(self, tab: .battle) else {
+            isRoutingToBattle = false
+            return false
+        }
+        return true
     }
 
     private func clearLayoutGeometry() {
@@ -1267,6 +1286,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         store.save(state)
         applyIdleProgressFeedback(result)
         redraw()
+        routePendingConquestIfNeeded()
     }
 
     private func applyIdleProgressFeedback(
@@ -1404,6 +1424,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                 selectedCityNumber = state.unlockedMapCityNumber ?? state.cityNumberInCountry
                 applyIdleProgressFeedback(idleResult)
                 redraw()
+                routePendingConquestIfNeeded()
                 return
             }
 

@@ -186,11 +186,73 @@ struct BuildingViewSceneTests {
         scene.buildSelectedSlotForTesting(.archeryRange)
 
         #expect(store.load().pendingBattleResult != nil)
+        #expect(feedback.events == [.goldReward, .cityConquest])
+        // HPA-478: deliberate build conquest stays on Camp with exactly this
+        // pointer; the report itself waits in the pending result.
+        #expect(scene.feedbackTextForTesting == "City conquered. Open Battle for the report.")
         #expect(scene.selectedSlotForTesting == 2)
         #expect(router.requestedTabs.isEmpty)
 
         scene.requestGameplayTabForTesting(.map)
         #expect(router.requestedTabs == [.map])
+    }
+
+    @Test("Camp upgrade conquest stays on camp with a pointer to the pending report")
+    func upgradeSettlementConquestStaysOnCampWithPointer() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 1_000,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 5,
+            completedCityCount: 4
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        _ = state.buildBuilding(.archeryRange, inSlot: 2, at: start)
+        let store = try makeStore(initialState: state)
+        let feedback = BuildingViewFeedbackRecorder()
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router, feedback: feedback)
+
+        scene.selectSlotForTesting(2)
+        scene.upgradeSelectedSlotForTesting()
+
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(store.load().stageStatus == .cityConqueredPendingMap)
+        #expect(feedback.events == [.goldReward, .cityConquest])
+        #expect(scene.feedbackTextForTesting == "City conquered. Open Battle for the report.")
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.requestGameplayTabForTesting(.battle)
+        #expect(router.requestedTabs == [.battle])
+    }
+
+    @Test("Camp layout gate conquest stays unrouted while paused and routes once on resume")
+    func campLayoutGateConquestRoutesOnceOnResume() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.layoutGateWillPause(at: start.addingTimeInterval(10_000))
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.pendingBattleResult?.conquestMode == .idle)
+        // The gate pause itself never routes; the pending result waits.
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.layoutGateWillResume(at: start.addingTimeInterval(10_100))
+
+        #expect(store.load() == saved)
+        #expect(router.requestedTabs == [.battle])
+        #expect(scene.isRoutingToBattleForTesting)
     }
 
     @Test("Camp exits settle and save before forwarding a gameplay tab")
@@ -297,20 +359,24 @@ struct BuildingViewSceneTests {
         )
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let feedback = BuildingViewFeedbackRecorder()
+        let router = RouteSpy()
         let scene = makeScene(
             store: try makeStore(initialState: state),
-            router: RouteSpy(),
+            router: router,
             feedback: feedback
         )
 
         scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_000))
         #expect(feedback.events == [.goldReward, .cityConquest])
+        // HPA-478: idle foreground conquest routes to the pending report.
+        #expect(router.requestedTabs == [.battle])
 
         scene.redrawForTesting()
         scene.repeatDidMoveForTesting()
         scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(20_000))
 
         #expect(feedback.events == [.goldReward, .cityConquest])
+        #expect(router.requestedTabs == [.battle])
     }
 
     @Test("Camp foreground idle damage summary uses compact copy")

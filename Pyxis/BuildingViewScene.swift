@@ -635,10 +635,12 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             feedbackText = "\(type.displayName) limit reached."
             feedback.emit(.invalidAction)
         case let .cityConqueredDuringSettlement(goldEarned, _):
-            feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
             store.save(state)
             closeFeedbackSettings(focusTarget: .systemDefault)
             emitFreshOutcomeFeedback(goldEarned: goldEarned, conqueredCities: 1)
+            // HPA-478: a deliberate build conquest stays on Camp with only
+            // this pointer; the pending report waits for the player.
+            feedbackText = "City conquered. Open Battle for the report."
         case .unavailable:
             feedbackText = "Enter a city before building."
             feedback.emit(.invalidAction)
@@ -667,10 +669,12 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             feedbackText = "Select a building first."
             feedback.emit(.invalidAction)
         case let .cityConqueredDuringSettlement(goldEarned, _):
-            feedbackText = "Buildings conquered \(state.displayCityTitle). Earned \(goldEarned) gold."
             store.save(state)
             closeFeedbackSettings(focusTarget: .systemDefault)
             emitFreshOutcomeFeedback(goldEarned: goldEarned, conqueredCities: 1)
+            // HPA-478: a deliberate upgrade conquest stays on Camp with only
+            // this pointer; the pending report waits for the player.
+            feedbackText = "City conquered. Open Battle for the report."
         case .unavailable:
             feedbackText = "Enter a city before upgrading."
             feedback.emit(.invalidAction)
@@ -719,6 +723,24 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         }
         store.save(state)
         redraw()
+        routePendingConquestIfNeeded()
+    }
+
+    /// HPA-478: conquest that settled while the player was not looking (idle
+    /// foreground/gate-resume settlement) routes to Battle so the pending
+    /// report is shown. Never called from `layoutGateWillPause` or the
+    /// deliberate build/upgrade settlement paths, which stay on Camp.
+    @discardableResult
+    private func routePendingConquestIfNeeded() -> Bool {
+        guard state.pendingBattleResult != nil,
+              !isRoutingToBattle,
+              let router else { return false }
+        isRoutingToBattle = true
+        guard router.buildingViewSceneDidRequestGameplayTab(self, tab: .battle) else {
+            isRoutingToBattle = false
+            return false
+        }
+        return true
     }
 
     func refreshLayoutForCurrentEnvironment() {
@@ -768,6 +790,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         store.save(state)
         applyIdleProgressFeedback(result)
         redraw()
+        routePendingConquestIfNeeded()
     }
 
     private func applyIdleProgressFeedback(_ result: KingdomGameState.IdleProgressResult) {
