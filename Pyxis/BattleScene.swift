@@ -3683,6 +3683,10 @@ extension BattleScene {
         state.cityRemainingPower
     }
 
+    var livingKingdomBattlePresentationForTesting: LivingKingdomPresentation.Battle {
+        livingKingdomBattlePresentation
+    }
+
     var cityLevelForTesting: Int {
         state.cityLevel
     }

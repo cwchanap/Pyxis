@@ -11,6 +11,12 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     case mapCountryComplete = "map-country-complete"
     case conquestLive = "conquest-live"
     case conquestIdle = "conquest-idle"
+    case battleDamaged = "battle-damaged"
+    case battleBreached = "battle-breached"
+    case battleEmberford = "battle-emberford"
+    case battleRunewatch = "battle-runewatch"
+    case battleCrownspire = "battle-crownspire"
+    case returnDamage = "return-damage"
 
     static let launchArgument = "-pyxis-forged-fixture"
 
@@ -20,8 +26,21 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             return .camp
         case .map, .mapPartial, .mapCountryComplete:
             return .map
-        case .battle, .battleBlocked, .conquestLive, .conquestIdle:
+        case .battle, .battleBlocked, .conquestLive, .conquestIdle,
+             .battleDamaged, .battleBreached, .battleEmberford, .battleRunewatch,
+             .battleCrownspire, .returnDamage:
             return .battle
+        }
+    }
+
+    /// Fixed foreground timestamp for the return-damage fixture so the idle
+    /// settlement result is deterministic across launches and captures.
+    var foregroundReturnDate: Date? {
+        switch self {
+        case .returnDamage:
+            return Date(timeIntervalSince1970: 4_600)
+        default:
+            return nil
         }
     }
 
@@ -37,12 +56,32 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         switch self {
         case .battle, .battleBlocked:
             return Self.battleState()
-        case .campEmpty:
-            var state = DevJumpState.make(city: 5)
-            state.gold = 1_000
-            return state
-        case .campOccupied:
-            var state = DevJumpState.make(city: 5)
+        case .battleDamaged, .battleBreached:
+            // City 1 max HP = 20: 12 is the damaged threshold, 5 the breached one.
+            return Self.battleState(
+                cityNumber: 1,
+                remainingPower: self == .battleBreached ? 5 : 12
+            )
+        case .battleEmberford:
+            return DevJumpState.make(city: 7)
+        case .battleRunewatch:
+            return DevJumpState.make(city: 9)
+        case .battleCrownspire:
+            return DevJumpState.make(city: 15)
+        case .returnDamage:
+            return Self.returnDamageState()
+        case .campEmpty, .campOccupied:
+            return Self.campState(occupied: self == .campOccupied)
+        case .map, .mapPartial, .mapCountryComplete:
+            return Self.mapFixtureState(for: self)
+        case .conquestLive, .conquestIdle:
+            return Self.conquestState(mode: self == .conquestLive ? .live : .idle)
+        }
+    }
+
+    private static func campState(occupied: Bool) -> KingdomGameState {
+        var state = DevJumpState.make(city: 5)
+        if occupied {
             state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: [
                 1: CityBuilding(type: .barracks, level: 2),
                 3: CityBuilding(type: .barracks),
@@ -51,7 +90,14 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
                 11: CityBuilding(type: .archeryRange),
                 12: CityBuilding(type: .barracks, level: 3)
             ])
-            return state
+        } else {
+            state.gold = 1_000
+        }
+        return state
+    }
+
+    private static func mapFixtureState(for fixture: ForgedVisualFixture) -> KingdomGameState {
+        switch fixture {
         case .map:
             var state = DevJumpState.make(city: 3)
             state.completedCityCount = 3
@@ -66,16 +112,29 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             state.completedCityCount = KingdomGameState.firstCountryCityCount
             state.stageStatus = .countryComplete
             return state
-        case .conquestLive:
-            return Self.conquestState(mode: .live)
-        case .conquestIdle:
-            return Self.conquestState(mode: .idle)
+        default:
+            preconditionFailure("mapFixtureState supports map fixtures only")
         }
     }
 
-    private static func battleState() -> KingdomGameState {
+    private static func returnDamageState() -> KingdomGameState {
         var state = DevJumpState.make(city: 3)
+        let backgroundAt = Date(timeIntervalSince1970: 1_000)
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks)],
+            lastBuildingProgressResolvedAt: backgroundAt
+        )
+        state.markCurrentCityBuildingProgressInactive(at: backgroundAt)
+        return state
+    }
+
+    private static func battleState(
+        cityNumber: Int = 3,
+        remainingPower: Int? = nil
+    ) -> KingdomGameState {
+        var state = DevJumpState.make(city: cityNumber)
         state.gold = 4_200
+        state.cityRemainingPower = remainingPower ?? state.cityMaxPower
         state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: [
             1: CityBuilding(type: .barracks, level: 2),
             2: CityBuilding(type: .archeryRange)
