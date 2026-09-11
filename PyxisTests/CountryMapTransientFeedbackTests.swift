@@ -34,8 +34,9 @@ struct CountryMapTransientFeedbackTests {
         #expect(flavor.fadeDuration == 0.3)
     }
 
-    @Test func onlyFlavorDoesNotBlockScoutEntry() {
+    @Test func flavorAndIdleSummaryAreTheOnlyNonblockingKinds() {
         #expect(CountryMapTransientFeedback.Kind.flavor.blocksScoutEntry == false)
+        #expect(CountryMapTransientFeedback.Kind.idleSummary.blocksScoutEntry == false)
         #expect(CountryMapTransientFeedback.Kind.locked.blocksScoutEntry == true)
         #expect(CountryMapTransientFeedback.Kind.completed.blocksScoutEntry == true)
         #expect(CountryMapTransientFeedback.Kind.status.blocksScoutEntry == true)
@@ -60,41 +61,34 @@ struct CountryMapTransientFeedbackTests {
         #expect(error.fadeDuration == 0.3)
     }
 
-    @Test func idleProjectsExistingStatusCopy() throws {
-        let pendingState = KingdomGameState(
-            cityRemainingPower: 0,
-            cityNumberInCountry: 3,
-            completedCityCount: 3,
-            stageStatus: .cityConqueredPendingMap
+    @Test func idleReturnsCompactSummaryOnlyForPositiveNonConquestResults() throws {
+        let state = KingdomGameState()
+
+        let positive = KingdomGameState.IdleProgressResult(
+            elapsedSeconds: 3_600,
+            damageDealt: 1_234,
+            conqueredCities: 0,
+            goldEarned: 0
         )
-        let countryCompleteState = KingdomGameState(
-            cityLevel: 15,
-            cityRemainingPower: 0,
-            cityNumberInCountry: 15,
-            completedCityCount: 15,
-            stageStatus: .countryComplete
-        )
+        let feedback = try #require(CountryMapTransientFeedback.idle(result: positive, state: state))
+        #expect(feedback.kind == .idleSummary)
+        #expect(!feedback.kind.blocksScoutEntry)
+        #expect(feedback.text == "Buildings dealt 1.2K idle damage.")
+        #expect(feedback.totalDuration == 2.5)
+        #expect(feedback.fadeDuration == 0.3)
 
         #expect(CountryMapTransientFeedback.idle(
             result: .init(elapsedSeconds: 0, damageDealt: 0, conqueredCities: 0, goldEarned: 0),
-            state: pendingState
+            state: state
         ) == nil)
         #expect(CountryMapTransientFeedback.idle(
-            result: .init(elapsedSeconds: 10, damageDealt: 9, conqueredCities: 0, goldEarned: 0),
-            state: pendingState
-        )?.text == "Buildings dealt 9 idle damage.")
-        #expect(CountryMapTransientFeedback.idle(
             result: .init(elapsedSeconds: 10, damageDealt: 0, conqueredCities: 0, goldEarned: 0),
-            state: pendingState
-        )?.text == "No building damage while away.")
+            state: state
+        ) == nil)
         #expect(CountryMapTransientFeedback.idle(
             result: .init(elapsedSeconds: 10, damageDealt: 9, conqueredCities: 1, goldEarned: 4),
-            state: pendingState
-        )?.text == "Next: Bramblegate")
-        #expect(CountryMapTransientFeedback.idle(
-            result: .init(elapsedSeconds: 10, damageDealt: 9, conqueredCities: 1, goldEarned: 4),
-            state: countryCompleteState
-        )?.text == "Country 1 conquered at Crownspire Keep.")
+            state: state
+        ) == nil)
     }
 
     @Test func alphaIsOpaqueUntilTheFinalFadeWindowThenFallsLinearly() {

@@ -2818,7 +2818,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             } else if result.damageDealt > 0 {
                 feedbackText = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
             } else {
-                feedbackText = "No building damage while away."
+                // A real credited return that produced no damage stays silent:
+                // clear any stale message rather than reporting a no-damage copy.
+                feedbackText = ""
             }
         }
 

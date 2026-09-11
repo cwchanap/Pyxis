@@ -674,7 +674,10 @@ struct CountryMapSceneTests {
 
         #expect(store.load().stageStatus == .cityConqueredPendingMap)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "Next: Bramblegate")
+        // Conquest results no longer render transient map copy via
+        // `CountryMapTransientFeedback.idle`; the scout card's own projected
+        // conquered status carries the result.
+        #expect(scene.visibleFeedbackTextForTesting == nil)
         #expect(sound.calls == [
             .play(.goldReward),
             .play(.cityConquest)
@@ -728,7 +731,9 @@ struct CountryMapSceneTests {
 
         #expect(store.load().stageStatus == .countryComplete)
         #expect(router.battleRequestCount == 0)
-        #expect(scene.visibleFeedbackTextForTesting == "Country 1 conquered at Crownspire Keep.")
+        // Conquest results no longer render transient map copy (see the fresh
+        // conquest test above).
+        #expect(scene.visibleFeedbackTextForTesting == nil)
         #expect(sound.calls == [
             .play(.goldReward),
             .play(.countryCompletion)
@@ -1073,18 +1078,55 @@ struct CountryMapSceneTests {
         #expect(store.load() == initialState)
     }
 
-    @Test func idleFeedbackPreservesExistingWordingAndLongDuration() throws {
+    @Test func mapPositiveIdleReturnShowsNonBlockingCompactSummary() throws {
+        let origin = Date(timeIntervalSinceReferenceDate: 9_000)
+        var initialState = KingdomGameState(
+            gold: 100,
+            lastBackgroundedAt: origin
+        )
+        initialState.cityBattleStates[initialState.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks)],
+            lastBuildingProgressResolvedAt: origin
+        )
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: RouteSpy())
+        // The current-city scout card offers its Return action before the
+        // return settles.
+        let attackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
+
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(300))
+
+        // City 1 has 20 power; 300 credited idle seconds deal 3 damage —
+        // positive but non-conquest.
+        #expect(scene.lastIdleProgressResultForTesting == .init(
+            elapsedSeconds: 300,
+            damageDealt: 3,
+            conqueredCities: 0,
+            goldEarned: 0
+        ))
+        #expect(scene.visibleFeedbackTextForTesting == "Buildings dealt 3 idle damage.")
+        #expect(scene.feedbackRemainingDurationForTesting == 2.5)
+        // The compact summary is non-blocking: Attack stays tappable.
+        #expect(scene.scoutCardAttackHitFrameForTesting == attackFrame)
+    }
+
+    @Test("Map clears stale transient feedback on a real zero-damage idle return")
+    func mapZeroDamageIdleReturnClearsStaleTransientFeedback() throws {
         let origin = Date(timeIntervalSinceReferenceDate: 9_000)
         let store = try makeStore(initialState: KingdomGameState(
             lastBackgroundedAt: origin
         ))
         let scene = makeScene(store: store, router: RouteSpy())
 
-        scene.layoutGateWillPause(at: origin.addingTimeInterval(10))
+        scene.presentFlavorFeedbackForTesting("Arrow towers command the ridge.")
+        #expect(scene.visibleFeedbackTextForTesting == "Arrow towers command the ridge.")
 
-        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 10)
-        #expect(scene.visibleFeedbackTextForTesting == "No building damage while away.")
-        #expect(scene.feedbackRemainingDurationForTesting == 2.5)
+        scene.layoutGateWillPause(at: origin.addingTimeInterval(300))
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 300)
+        #expect(scene.lastIdleProgressResultForTesting.damageDealt == 0)
+        #expect(scene.visibleFeedbackTextForTesting == nil)
+        #expect(scene.feedbackRemainingDurationForTesting == nil)
     }
 
     @Test func countryCompleteCardRemainsVisibleAfterIgnoredEntryRequest() throws {

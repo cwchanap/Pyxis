@@ -2832,6 +2832,39 @@ struct BattleSceneTests {
         #expect(scene.floatingFeedbackCountForTesting == 0)
     }
 
+    @Test func battleForegroundPositiveIdleDamageUsesCompactSummary() throws {
+        let origin = Date(timeIntervalSince1970: 1_000)
+        var state = KingdomGameState(gold: 100)
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: origin)
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        scene.enterBackgroundForTesting(at: origin)
+        scene.enterForegroundForTesting(at: origin.addingTimeInterval(300))
+
+        // City 1 has 20 power; 300 credited idle seconds spawn three level-1
+        // infantry for 3 damage — positive but non-conquest.
+        #expect(scene.feedbackTextForTesting == "Buildings dealt 3 idle damage.")
+        #expect(scene.gameStateForTesting.stageStatus == .battleActive)
+        #expect(scene.gameStateForTesting.pendingBattleResult == nil)
+    }
+
+    @Test func battleForegroundZeroDamageIdleClearsStaleFeedback() throws {
+        let origin = Date(timeIntervalSince1970: 1_000)
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store)
+
+        scene.setFeedbackTextForTesting("Manual squad is full.")
+        #expect(scene.feedbackTextForTesting == "Manual squad is full.")
+
+        // A real credited return with no buildings resolves zero damage and
+        // must clear the stale message instead of reporting a no-damage copy.
+        scene.enterBackgroundForTesting(at: origin)
+        scene.enterForegroundForTesting(at: origin.addingTimeInterval(300))
+
+        #expect(scene.feedbackTextForTesting == "")
+    }
+
     @Test func countryCompleteIsAnInertReportHost() throws {
         let store = try makeStore(initialState: pendingConqueredState(city: 15, mode: .idle, countryComplete: true))
         let scene = makeScene(store: store)
