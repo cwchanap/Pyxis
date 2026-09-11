@@ -16,7 +16,8 @@ enum Country1CityCatalog {
             flavorText: "A quiet crossing where the campaign begins.",
             conquestTitle: "Willowford Secured",
             defenseTrait: .standardWatch,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 2,
@@ -24,7 +25,8 @@ enum Country1CityCatalog {
             flavorText: "A hill watchtown guarding the old trade road.",
             conquestTitle: "Pinewatch Secured",
             defenseTrait: .standardWatch,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 3,
@@ -32,7 +34,8 @@ enum Country1CityCatalog {
             flavorText: "Arrow towers command the high ridge road.",
             conquestTitle: "Falconridge Silenced",
             defenseTrait: .arrowTower,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .left)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .left),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 4,
@@ -40,7 +43,8 @@ enum Country1CityCatalog {
             flavorText: "Iron spikes guard a narrow frontier gate.",
             conquestTitle: "Bramblegate Broken",
             defenseTrait: .spikedGate,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 5,
@@ -48,7 +52,8 @@ enum Country1CityCatalog {
             flavorText: "A proud hill fortress crowns the frontier.",
             conquestTitle: "Highcrest Falls",
             defenseTrait: .arrowTower,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 6,
@@ -56,7 +61,8 @@ enum Country1CityCatalog {
             flavorText: "Stone walls seal the mountain road ahead.",
             conquestTitle: "Granite Pass Open",
             defenseTrait: .stoneWall,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 7,
@@ -64,7 +70,8 @@ enum Country1CityCatalog {
             flavorText: "Burning oil guards the bridge inland.",
             conquestTitle: "Emberford Secured",
             defenseTrait: .burningOil,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
+            visualFamily: .ember
         ),
         CityDefinition(
             cityNumber: 8,
@@ -72,7 +79,8 @@ enum Country1CityCatalog {
             flavorText: "Layered stone walls protect a busy town.",
             conquestTitle: "Greywall Falls",
             defenseTrait: .stoneWall,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 9,
@@ -80,7 +88,8 @@ enum Country1CityCatalog {
             flavorText: "Arcane wards shimmer over the night road.",
             conquestTitle: "Runewatch Unbound",
             defenseTrait: .arcaneWard,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
+            visualFamily: .arcane
         ),
         CityDefinition(
             cityNumber: 10,
@@ -88,7 +97,8 @@ enum Country1CityCatalog {
             flavorText: "A hardened gate blocks the inner road.",
             conquestTitle: "Ironthorn Gate Broken",
             defenseTrait: .spikedGate,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 11,
@@ -96,7 +106,8 @@ enum Country1CityCatalog {
             flavorText: "A reinforced fortress guards the royal road.",
             conquestTitle: "Kingshield Keep Falls",
             defenseTrait: .reinforcedKeep,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 12,
@@ -104,7 +115,8 @@ enum Country1CityCatalog {
             flavorText: "Fire cauldrons guard the last crossing.",
             conquestTitle: "Ashbridge Secured",
             defenseTrait: .burningOil,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
+            visualFamily: .ember
         ),
         CityDefinition(
             cityNumber: 13,
@@ -112,7 +124,8 @@ enum Country1CityCatalog {
             flavorText: "Arcane wards protect the capital heights.",
             conquestTitle: "Starveil Citadel Falls",
             defenseTrait: .arcaneWard,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
+            visualFamily: .arcane
         ),
         CityDefinition(
             cityNumber: 14,
@@ -120,7 +133,8 @@ enum Country1CityCatalog {
             flavorText: "Massive stone walls ring the royal seat.",
             conquestTitle: "Stonecrown Breached",
             defenseTrait: .stoneWall,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
+            visualFamily: .frontier
         ),
         CityDefinition(
             cityNumber: 15,
@@ -128,7 +142,8 @@ enum Country1CityCatalog {
             flavorText: "The final keep rises above the capital.",
             conquestTitle: "Crownspire Keep Falls",
             defenseTrait: .reinforcedKeep,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center)
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
+            visualFamily: .royal
         )
     ]
 

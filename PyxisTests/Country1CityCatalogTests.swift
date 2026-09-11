@@ -15,6 +15,7 @@ struct Country1CityCatalogTests {
         let defenseTrait: CityDefenseTrait
         let fortifiedLane: BattleLane
         let exposedLane: BattleLane
+        let visualFamily: CityVisualFamily
 
         init(
             _ cityNumber: Int,
@@ -23,7 +24,8 @@ struct Country1CityCatalogTests {
             conquestTitle: String,
             _ defenseTrait: CityDefenseTrait,
             _ fortifiedLane: BattleLane,
-            _ exposedLane: BattleLane
+            _ exposedLane: BattleLane,
+            _ visualFamily: CityVisualFamily
         ) {
             self.cityNumber = cityNumber
             self.name = name
@@ -32,6 +34,7 @@ struct Country1CityCatalogTests {
             self.defenseTrait = defenseTrait
             self.fortifiedLane = fortifiedLane
             self.exposedLane = exposedLane
+            self.visualFamily = visualFamily
         }
 
         var definition: CityDefinition {
@@ -44,27 +47,28 @@ struct Country1CityCatalogTests {
                 laneDefenseProfile: LaneDefenseProfile(
                     fortifiedLane: fortifiedLane,
                     exposedLane: exposedLane
-                )
+                ),
+                visualFamily: visualFamily
             )
         }
     }
 
     private static let expectedDefinitions: [ExpectedDefinition] = [
-        .init(1, name: "Willowford", flavorText: "A quiet crossing where the campaign begins.", conquestTitle: "Willowford Secured", .standardWatch, .left, .right),
-        .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left),
-        .init(3, name: "Falconridge", flavorText: "Arrow towers command the high ridge road.", conquestTitle: "Falconridge Silenced", .arrowTower, .right, .left),
-        .init(4, name: "Bramblegate", flavorText: "Iron spikes guard a narrow frontier gate.", conquestTitle: "Bramblegate Broken", .spikedGate, .left, .right),
-        .init(5, name: "Highcrest", flavorText: "A proud hill fortress crowns the frontier.", conquestTitle: "Highcrest Falls", .arrowTower, .center, .left),
-        .init(6, name: "Granite Pass", flavorText: "Stone walls seal the mountain road ahead.", conquestTitle: "Granite Pass Open", .stoneWall, .right, .center),
-        .init(7, name: "Emberford", flavorText: "Burning oil guards the bridge inland.", conquestTitle: "Emberford Secured", .burningOil, .left, .right),
-        .init(8, name: "Greywall", flavorText: "Layered stone walls protect a busy town.", conquestTitle: "Greywall Falls", .stoneWall, .center, .left),
-        .init(9, name: "Runewatch", flavorText: "Arcane wards shimmer over the night road.", conquestTitle: "Runewatch Unbound", .arcaneWard, .right, .center),
-        .init(10, name: "Ironthorn Gate", flavorText: "A hardened gate blocks the inner road.", conquestTitle: "Ironthorn Gate Broken", .spikedGate, .left, .right),
-        .init(11, name: "Kingshield Keep", flavorText: "A reinforced fortress guards the royal road.", conquestTitle: "Kingshield Keep Falls", .reinforcedKeep, .center, .left),
-        .init(12, name: "Ashbridge", flavorText: "Fire cauldrons guard the last crossing.", conquestTitle: "Ashbridge Secured", .burningOil, .right, .center),
-        .init(13, name: "Starveil Citadel", flavorText: "Arcane wards protect the capital heights.", conquestTitle: "Starveil Citadel Falls", .arcaneWard, .left, .right),
-        .init(14, name: "Stonecrown", flavorText: "Massive stone walls ring the royal seat.", conquestTitle: "Stonecrown Breached", .stoneWall, .center, .left),
-        .init(15, name: "Crownspire Keep", flavorText: "The final keep rises above the capital.", conquestTitle: "Crownspire Keep Falls", .reinforcedKeep, .right, .center)
+        .init(1, name: "Willowford", flavorText: "A quiet crossing where the campaign begins.", conquestTitle: "Willowford Secured", .standardWatch, .left, .right, .frontier),
+        .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left, .frontier),
+        .init(3, name: "Falconridge", flavorText: "Arrow towers command the high ridge road.", conquestTitle: "Falconridge Silenced", .arrowTower, .right, .left, .frontier),
+        .init(4, name: "Bramblegate", flavorText: "Iron spikes guard a narrow frontier gate.", conquestTitle: "Bramblegate Broken", .spikedGate, .left, .right, .frontier),
+        .init(5, name: "Highcrest", flavorText: "A proud hill fortress crowns the frontier.", conquestTitle: "Highcrest Falls", .arrowTower, .center, .left, .frontier),
+        .init(6, name: "Granite Pass", flavorText: "Stone walls seal the mountain road ahead.", conquestTitle: "Granite Pass Open", .stoneWall, .right, .center, .frontier),
+        .init(7, name: "Emberford", flavorText: "Burning oil guards the bridge inland.", conquestTitle: "Emberford Secured", .burningOil, .left, .right, .ember),
+        .init(8, name: "Greywall", flavorText: "Layered stone walls protect a busy town.", conquestTitle: "Greywall Falls", .stoneWall, .center, .left, .frontier),
+        .init(9, name: "Runewatch", flavorText: "Arcane wards shimmer over the night road.", conquestTitle: "Runewatch Unbound", .arcaneWard, .right, .center, .arcane),
+        .init(10, name: "Ironthorn Gate", flavorText: "A hardened gate blocks the inner road.", conquestTitle: "Ironthorn Gate Broken", .spikedGate, .left, .right, .frontier),
+        .init(11, name: "Kingshield Keep", flavorText: "A reinforced fortress guards the royal road.", conquestTitle: "Kingshield Keep Falls", .reinforcedKeep, .center, .left, .frontier),
+        .init(12, name: "Ashbridge", flavorText: "Fire cauldrons guard the last crossing.", conquestTitle: "Ashbridge Secured", .burningOil, .right, .center, .ember),
+        .init(13, name: "Starveil Citadel", flavorText: "Arcane wards protect the capital heights.", conquestTitle: "Starveil Citadel Falls", .arcaneWard, .left, .right, .arcane),
+        .init(14, name: "Stonecrown", flavorText: "Massive stone walls ring the royal seat.", conquestTitle: "Stonecrown Breached", .stoneWall, .center, .left, .frontier),
+        .init(15, name: "Crownspire Keep", flavorText: "The final keep rises above the capital.", conquestTitle: "Crownspire Keep Falls", .reinforcedKeep, .right, .center, .royal)
     ]
 
     @Test func catalogIsCompleteUniqueOrderedAndMatchesAuthoredCombatMetadata() {
