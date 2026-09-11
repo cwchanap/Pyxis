@@ -165,6 +165,8 @@ When Country Map finalizes idle progress that conquers a city, remaining on the 
 - Emits the same one strong success haptic used by other fresh outcomes.
 - Does not auto-route to Battle or introduce new report navigation.
 
+> **Superseded by HPA-478:** idle foreground/gate-resume conquest now routes to the existing pending Battle report. Deliberate in-place Camp build/upgrade conquest still stays on Camp.
+
 Existing pending-result and stage routing remain unchanged. HPA-389 adds sensory feedback to the transition; it does not change the Country Map journey or HPA-388 report ownership.
 
 ### Immediate preference changes

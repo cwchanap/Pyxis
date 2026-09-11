@@ -432,6 +432,8 @@ The approved behavior preserves the current surface:
 - Do not auto-route to Battle Scene.
 - Do not play the conquest report gold burst or battlefield flourish.
 
+> **Superseded by HPA-478:** idle foreground/gate-resume conquest now routes to the existing pending Battle report. Deliberate in-place Camp build/upgrade conquest still stays on Camp.
+
 When the player taps Battle, `BuildingViewScene.requestBattle()` saves state and calls `buildingViewSceneDidRequestBattle`. `GameViewController` then uses `presentSceneForCurrentStage`; pending-first routing creates a new Battle Scene, which presents the report as `.restored` with Continue enabled and no effects.
 
 This also covers a conquest finalized by the final `returnFromBackground` inside `requestBattle()` immediately before routing. No third presentation origin is introduced.

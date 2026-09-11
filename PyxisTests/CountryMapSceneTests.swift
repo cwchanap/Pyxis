@@ -260,7 +260,7 @@ struct CountryMapSceneTests {
         #expect(!scene.isRoutingToBattleForTesting)
     }
 
-    @Test("Selected current city RETURN leaves a lethal idle conquest pending on the map")
+    @Test("Selected current city RETURN routes a lethal idle conquest to the pending report")
     func selectedCurrentCityReturnLeavesLethalIdleConquestPending() throws {
         let start = Date.distantPast
         var initialState = KingdomGameState(
@@ -284,7 +284,9 @@ struct CountryMapSceneTests {
         #expect(saved.stageStatus == .cityConqueredPendingMap)
         #expect(saved.lastBackgroundedAt == nil)
         #expect(saved.pendingBattleResult?.conquestMode == .idle)
-        #expect(router.requestedTabs.isEmpty)
+        // HPA-478: conquest that settled while the player was not looking
+        // routes to Battle so the pending report is shown.
+        #expect(router.requestedTabs == [.battle])
     }
 
     @Test("Country Map keeps resource, progress, and settings in its top chrome")
@@ -640,7 +642,7 @@ struct CountryMapSceneTests {
         #expect(label.fontSize == 16)
     }
 
-    @Test("Fresh Country Map idle conquest stays on map and emits reward before one city outcome")
+    @Test("Fresh Country Map idle conquest routes to the pending report and emits reward before one city outcome")
     func countryMapFreshIdleConquestEmitsRewardThenCityOutcomeWithoutReplay() throws {
         let start = Date.distantPast
         var initialState = KingdomGameState(
@@ -673,7 +675,8 @@ struct CountryMapSceneTests {
         scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_000))
 
         #expect(store.load().stageStatus == .cityConqueredPendingMap)
-        #expect(router.battleRequestCount == 0)
+        // HPA-478: idle foreground conquest routes to the pending report.
+        #expect(router.battleRequestCount == 1)
         // Conquest results no longer render transient map copy via
         // `CountryMapTransientFeedback.idle`; the scout card's own projected
         // conquered status carries the result.
@@ -696,7 +699,7 @@ struct CountryMapSceneTests {
         #expect(haptics.played == [.strongSuccess])
     }
 
-    @Test("Final Country Map idle conquest emits country completion instead of city conquest")
+    @Test("Final Country Map idle conquest routes to the pending report with one country outcome")
     func countryMapFinalIdleConquestEmitsExactlyOneCountryOutcome() throws {
         let start = Date.distantPast
         var initialState = KingdomGameState(
@@ -730,7 +733,8 @@ struct CountryMapSceneTests {
         scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_000))
 
         #expect(store.load().stageStatus == .countryComplete)
-        #expect(router.battleRequestCount == 0)
+        // HPA-478: idle foreground conquest routes to the pending report.
+        #expect(router.battleRequestCount == 1)
         // Conquest results no longer render transient map copy (see the fresh
         // conquest test above).
         #expect(scene.visibleFeedbackTextForTesting == nil)
@@ -854,7 +858,8 @@ struct CountryMapSceneTests {
         #expect(saved.cityRemainingPower < 1000)
     }
 
-    @Test func enteringCityStaysOnMapWhenIdleProgressConquersCity() throws {
+    @Test("Entering the current city with a conquering idle settlement routes to the pending report")
+    func enteringCityStaysOnMapWhenIdleProgressConquersCity() throws {
         let start = Date.distantPast
         var battleState = KingdomGameState(
             gold: 100,
@@ -874,7 +879,40 @@ struct CountryMapSceneTests {
 
         let saved = store.load()
         #expect(saved.stageStatus == .cityConqueredPendingMap)
-        #expect(router.battleRequestCount == 0)
+        // HPA-478: a current-city RETURN settlement conquest routes to the
+        // pending report.
+        #expect(router.requestedTabs == [.battle])
+    }
+
+    @Test("Map layout gate conquest stays unrouted while paused and routes once on resume")
+    func layoutGateConquestStaysUnroutedUntilResume() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.layoutGateWillPause(at: start.addingTimeInterval(10_000))
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.pendingBattleResult?.conquestMode == .idle)
+        // The gate pause itself never routes; the pending result waits.
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.layoutGateWillResume(at: start.addingTimeInterval(10_100))
+
+        #expect(store.load() == saved)
+        #expect(router.requestedTabs == [.battle])
+        #expect(scene.isRoutingToBattleForTesting)
     }
 
     @Test func mapShowsTraitForUnlockedCityInScoutCard() throws {
