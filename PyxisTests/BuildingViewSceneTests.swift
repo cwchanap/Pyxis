@@ -313,6 +313,66 @@ struct BuildingViewSceneTests {
         #expect(feedback.events == [.goldReward, .cityConquest])
     }
 
+    @Test("Camp foreground idle damage summary uses compact copy")
+    func campForegroundPositiveIdleDamageUsesCompactSummary() throws {
+        // City 15 has ~23K power, so five barracks resolving the 8-hour idle
+        // cap deal 1,440 damage — compact-formatted, positive, non-conquest.
+        let origin = Date(timeIntervalSince1970: 1_000)
+        var state = KingdomGameState(
+            gold: 100,
+            cityLevel: 15,
+            lastBackgroundedAt: origin,
+            cityNumberInCountry: 15,
+            completedCityCount: 14
+        )
+        for slot in 1...5 {
+            _ = state.buildBuilding(.barracks, inSlot: slot, at: origin)
+        }
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        let catchUpSeconds = KingdomGameState.maxIdleCatchUpSeconds
+        scene.sceneDidEnterBackgroundForTesting(at: origin)
+        scene.sceneWillEnterForegroundForTesting(
+            at: origin.addingTimeInterval(TimeInterval(catchUpSeconds))
+        )
+
+        #expect(scene.lastIdleProgressResultForTesting == .init(
+            elapsedSeconds: catchUpSeconds,
+            damageDealt: 1_440,
+            conqueredCities: 0,
+            goldEarned: 0
+        ))
+        #expect(scene.feedbackTextForTesting == "Buildings dealt 1.4K idle damage.")
+    }
+
+    @Test("Camp foreground zero-damage idle return resets to the hidden default")
+    func campForegroundZeroDamageIdleReturnResetsDefaultFeedback() throws {
+        // Camp arms idle tracking via `markCurrentCityBuildingProgressInactive`
+        // only when its layout gate is paused, so seed the credited return by
+        // backgrounding the state before mounting the scene (mirrors the
+        // existing camp conquest foreground test).
+        let origin = Date(timeIntervalSince1970: 1_000)
+        let store = try makeStore(initialState: KingdomGameState(
+            gold: 100,
+            lastBackgroundedAt: origin
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(1)
+        #expect(scene.feedbackTextForTesting == "Empty lot 1 selected.")
+
+        // A real credited return with no buildings resolves zero damage and
+        // must fall back to the hidden default instead of a no-damage copy.
+        scene.sceneDidEnterBackgroundForTesting(at: origin)
+        scene.sceneWillEnterForegroundForTesting(at: origin.addingTimeInterval(300))
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 300)
+        #expect(scene.lastIdleProgressResultForTesting.damageDealt == 0)
+        #expect(scene.feedbackTextForTesting == "Select a city lot.")
+        #expect(scene.isFeedbackLabelHiddenForTesting)
+    }
+
     @Test("Camp Settings modal shields builder, lot, and tab touches")
     func campSettingsModalShieldsUnderlyingCampControls() throws {
         let initialState = KingdomGameState(gold: 100)

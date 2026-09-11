@@ -13,11 +13,13 @@ struct CountryMapTransientFeedback: Equatable {
         case status
         case recoverableError
         case flavor
+        case idleSummary
 
-        /// `false` only for `.flavor`, which overlays the Scout card without
-        /// blocking Attack or scout entry. All other kinds block both.
+        /// `false` only for `.flavor` and `.idleSummary`, which overlay the
+        /// Scout card without blocking Attack or scout entry. All other kinds
+        /// block both.
         var blocksScoutEntry: Bool {
-            self != .flavor
+            self != .flavor && self != .idleSummary
         }
     }
 
@@ -89,29 +91,25 @@ struct CountryMapTransientFeedback: Equatable {
         )
     }
 
+    /// Compact non-blocking summary for a credited, non-conquest idle return
+    /// with positive damage. Returns `nil` otherwise: conquest results render
+    /// their own map copy, and zero-elapsed or zero-damage returns must stay
+    /// silent (the scene clears stale feedback instead of showing a message).
+    /// `state` is retained for call-site stability in this PR.
     static func idle(
         result: KingdomGameState.IdleProgressResult,
         state: KingdomGameState
     ) -> Self? {
-        guard result.elapsedSeconds > 0 else { return nil }
+        guard result.elapsedSeconds > 0,
+              result.damageDealt > 0,
+              result.conqueredCities == 0 else { return nil }
 
-        let text: String
-        if result.conqueredCities > 0 {
-            if state.stageStatus == .countryComplete {
-                text = "Country \(state.countryNumber) conquered at \(Country1CityCatalog.definition(for: 15).name)."
-            } else if let cityNumber = state.unlockedMapCityNumber {
-                text = "Next: \(Country1CityCatalog.definition(for: cityNumber).name)"
-            } else {
-                assertionFailure("Idle conquest must unlock a city or complete the country")
-                return nil
-            }
-        } else if result.damageDealt > 0 {
-            text = "Buildings dealt \(result.damageDealt) idle damage."
-        } else {
-            text = "No building damage while away."
-        }
-
-        return status(text)
+        return .init(
+            kind: .idleSummary,
+            text: "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage.",
+            totalDuration: 2.5,
+            fadeDuration: 0.3
+        )
     }
 
     static func cannotEnterCityYet() -> Self {

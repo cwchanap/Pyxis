@@ -781,9 +781,11 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             )
             feedbackText = "Buildings conquered \(state.displayCityTitle)."
         } else if result.damageDealt > 0 {
-            feedbackText = "Buildings dealt \(result.damageDealt) idle damage."
+            feedbackText = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
         } else {
-            feedbackText = "No building damage while away."
+            // A real credited return that produced no damage resets to the
+            // hidden default instead of a no-damage copy.
+            feedbackText = "Select a city lot."
         }
     }
 
@@ -920,6 +922,10 @@ extension BuildingViewScene {
 
     var feedbackLabelFrameForTesting: CGRect? {
         sceneFrame(for: feedbackLabel)
+    }
+
+    var isFeedbackLabelHiddenForTesting: Bool {
+        feedbackLabel.isHidden
     }
 
     var isCampLayoutSupportedForTesting: Bool { campChromeLayout != nil }
