@@ -2562,6 +2562,176 @@ struct CountryMapSceneTests {
         #expect(scene.visibleFeedbackAlphaForTesting > 0)
     }
 
+    // MARK: - Living Kingdom map decoration
+
+    private func makeDecorationScene(
+        completedCityCount: Int,
+        isReduceMotionEnabled: (() -> Bool)? = nil
+    ) throws -> CountryMapScene {
+        let state: KingdomGameState
+        if completedCityCount >= KingdomGameState.firstCountryCityCount {
+            state = KingdomGameState(
+                cityNumberInCountry: KingdomGameState.firstCountryCityCount,
+                completedCityCount: completedCityCount,
+                stageStatus: .countryComplete
+            )
+        } else if completedCityCount <= 0 {
+            state = KingdomGameState(stageStatus: .battleActive)
+        } else {
+            state = KingdomGameState(
+                cityRemainingPower: 0,
+                cityNumberInCountry: completedCityCount,
+                completedCityCount: completedCityCount,
+                stageStatus: .cityConqueredPendingMap
+            )
+        }
+        return makeScene(
+            store: try makeStore(initialState: state),
+            router: RouteSpy(),
+            isReduceMotionEnabled: isReduceMotionEnabled
+        )
+    }
+
+    private func livingKingdomCaravans(in scene: CountryMapScene) -> [SKNode] {
+        scene.livingKingdomDecorationNodesForTesting.filter {
+            $0.name?.hasPrefix("livingKingdomCaravan-") == true
+        }
+    }
+
+    private func livingKingdomSecuredOverlayCount(in scene: CountryMapScene) -> Int {
+        scene.livingKingdomDecorationNodesForTesting.filter {
+            $0.name?.hasPrefix("livingKingdomSecuredCity-") == true
+        }.count
+    }
+
+    private func livingKingdomRoutePatchName(in scene: CountryMapScene) -> String? {
+        scene.livingKingdomDecorationNodesForTesting.first {
+            $0.name?.hasPrefix("livingKingdomRoutePatch-") == true
+        }?.name
+    }
+
+    @Test("Living Kingdom caravans: none below two, one at two, capped at two")
+    func livingKingdomCaravansFollowCompletedCitiesAndCapAtTwo() throws {
+        let zero = try makeDecorationScene(completedCityCount: 0)
+        let one = try makeDecorationScene(completedCityCount: 1)
+        let two = try makeDecorationScene(completedCityCount: 2)
+        let three = try makeDecorationScene(completedCityCount: 3)
+        let all = try makeDecorationScene(completedCityCount: 15)
+
+        #expect(livingKingdomCaravans(in: zero).isEmpty)
+        #expect(livingKingdomCaravans(in: one).isEmpty)
+        #expect(livingKingdomCaravans(in: two).map { $0.name ?? "" }
+            == ["livingKingdomCaravan-1"])
+        #expect(livingKingdomCaravans(in: three).map { $0.name ?? "" }
+            == ["livingKingdomCaravan-1", "livingKingdomCaravan-2"])
+        #expect(livingKingdomCaravans(in: all).count == 2)
+    }
+
+    @Test("Living Kingdom secured overlays match clamped completion count")
+    func livingKingdomSecuredOverlaysMatchClampedCompletionCount() throws {
+        let zero = try makeDecorationScene(completedCityCount: 0)
+        let three = try makeDecorationScene(completedCityCount: 3)
+        let all = try makeDecorationScene(completedCityCount: 15)
+
+        #expect(livingKingdomSecuredOverlayCount(in: zero) == 0)
+        #expect(livingKingdomSecuredOverlayCount(in: three) == 3)
+        #expect(livingKingdomSecuredOverlayCount(in: all) == 15)
+    }
+
+    @Test("Living Kingdom route patch wears until City 7 completes, then repairs")
+    func livingKingdomRoutePatchSwitchesAssetAtCitySevenCompletion() throws {
+        let six = try makeDecorationScene(completedCityCount: 6)
+        let seven = try makeDecorationScene(completedCityCount: 7)
+
+        #expect(livingKingdomRoutePatchName(in: six)?.hasSuffix("lk-map-route-6-7-worn") == true)
+        #expect(
+            livingKingdomRoutePatchName(in: seven)?.hasSuffix("lk-map-route-6-7-repaired") == true
+        )
+    }
+
+    @Test("Living Kingdom decoration leaves city hit frames and lookup untouched")
+    func livingKingdomDecorationDoesNotChangeCityHitTargets() throws {
+        let scene = try makeDecorationScene(completedCityCount: 7)
+
+        for cityNumber in 1...KingdomGameState.firstCountryCityCount {
+            let center = try #require(scene.cityNodePositionForTesting(cityNumber))
+            #expect(scene.cityNumberAtPointForTesting(center) == cityNumber)
+            #expect(
+                scene.cityHitFrameForTesting(cityNumber)?.size == CGSize(width: 44, height: 44)
+            )
+        }
+
+        // Caravans sit exactly on city 1/2 centers; the lookup must still resolve.
+        let city1Center = try #require(scene.cityNodePositionForTesting(1))
+        #expect(livingKingdomCaravans(in: scene).contains { caravan in
+            abs(caravan.position.x - city1Center.x) <= 1.0
+                && abs(caravan.position.y - city1Center.y) <= 1.0
+        })
+        #expect(scene.cityNumberAtPointForTesting(city1Center) == 1)
+    }
+
+    @Test("Unsupported geometry clears Living Kingdom decoration and movement")
+    func livingKingdomDecorationClearsOnUnsupportedGeometry() throws {
+        let supportedSize = CGSize(width: 393, height: 852)
+        let scene = try makeDecorationScene(completedCityCount: 3)
+
+        #expect(livingKingdomCaravans(in: scene).count == 2)
+        #expect(livingKingdomSecuredOverlayCount(in: scene) == 3)
+
+        scene.size = CGSize(width: 667, height: 375)
+        scene.refreshLayoutForCurrentEnvironment()
+
+        #expect(scene.livingKingdomDecorationNodesForTesting.isEmpty)
+
+        scene.size = supportedSize
+        scene.refreshLayoutForCurrentEnvironment()
+
+        let caravans = livingKingdomCaravans(in: scene)
+        #expect(caravans.count == 2)
+        #expect(caravans.allSatisfy { $0.action(forKey: "livingKingdomCaravanMove") != nil })
+    }
+
+    @Test("Unchanged progress and layout keep caravan nodes and actions across redraws")
+    func livingKingdomDecorationIsStableAcrossRedrawsWithoutChanges() throws {
+        let scene = try makeDecorationScene(completedCityCount: 3)
+        let caravansBefore = livingKingdomCaravans(in: scene)
+        let identitiesBefore = caravansBefore.map(ObjectIdentifier.init)
+
+        #expect(caravansBefore.count == 2)
+        #expect(caravansBefore.allSatisfy { $0.action(forKey: "livingKingdomCaravanMove") != nil })
+
+        scene.redrawForTesting()
+        scene.handleTouchForTesting(at: try #require(scene.cityNodePositionForTesting(4)))
+        scene.redrawForTesting()
+
+        let caravansAfter = livingKingdomCaravans(in: scene)
+        #expect(caravansAfter.map(ObjectIdentifier.init) == identitiesBefore)
+        #expect(caravansAfter.allSatisfy { $0.action(forKey: "livingKingdomCaravanMove") != nil })
+    }
+
+    @Test("Reduce Motion keeps eligible caravans visible but static")
+    func livingKingdomCaravansStayStaticUnderReduceMotion() throws {
+        let scene = try makeDecorationScene(
+            completedCityCount: 3,
+            isReduceMotionEnabled: { true }
+        )
+        let layout = try #require(scene.countryMapLayoutForTesting)
+        let caravans = livingKingdomCaravans(in: scene)
+
+        #expect(
+            caravans.map { $0.name ?? "" }
+                == ["livingKingdomCaravan-1", "livingKingdomCaravan-2"]
+        )
+        #expect(caravans.allSatisfy { $0.action(forKey: "livingKingdomCaravanMove") == nil })
+        // SKNode.position round-trips through float32, so compare with a small
+        // tolerance (mirrors cityNodesAlignToAuthoredBackdropPads).
+        #expect(zip(caravans, [1, 2]).allSatisfy { caravan, cityNumber in
+            guard let expected = layout.cityPositions[cityNumber] else { return false }
+            return abs(caravan.position.x - expected.x) <= 1.0
+                && abs(caravan.position.y - expected.y) <= 1.0
+        })
+    }
+
     private final class CountingUserDefaults: UserDefaults {
         private let countedKey: String
         private(set) var stateSaveCount = 0
@@ -2719,7 +2889,8 @@ struct CountryMapSceneTests {
         ),
         imageLoader: ((String) -> UIImage?)? = nil,
         feedback: GameplayFeedbackProviding? = nil,
-        feedbackPreferences: FeedbackPreferencesManaging? = nil
+        feedbackPreferences: FeedbackPreferencesManaging? = nil,
+        isReduceMotionEnabled: (() -> Bool)? = nil
     ) -> CountryMapScene {
         let scene = CountryMapScene(
             size: size,
@@ -2728,7 +2899,9 @@ struct CountryMapSceneTests {
             layoutEnvironmentOverride: environment,
             imageLoaderOverride: imageLoader,
             feedback: feedback ?? NoOpGameplayFeedbackProvider(),
-            feedbackPreferences: feedbackPreferences ?? RecordingFeedbackPreferencesManager()
+            feedbackPreferences: feedbackPreferences ?? RecordingFeedbackPreferencesManager(),
+            isReduceMotionEnabled: isReduceMotionEnabled
+                ?? { UIAccessibility.isReduceMotionEnabled }
         )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)
