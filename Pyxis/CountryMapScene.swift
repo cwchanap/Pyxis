@@ -37,16 +37,28 @@ struct CountryMapLayoutFrames {
 final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
     private enum NodeName {
         static let cityPrefix = "countryMapCity-"
+        static let livingKingdomSecuredCityPrefix = "livingKingdomSecuredCity-"
+        static let livingKingdomCaravanPrefix = "livingKingdomCaravan-"
+        static let livingKingdomRoutePatchPrefix = "livingKingdomRoutePatch-"
     }
 
     private enum MapAssetName {
         static let countryMapBackdrop = "country-map-backdrop"
         static let conqueredMarker = "conquered-marker"
         static let goldBurst = "gold-burst"
+        static let livingKingdomSecuredCity = "lk-map-secured-city"
+        static let livingKingdomCaravan = "lk-map-caravan"
     }
 
     private enum ActionKey {
         static let unlockedPulse = "countryMapUnlockedPulse"
+        static let livingKingdomCaravanMove = "livingKingdomCaravanMove"
+    }
+
+    private struct LivingKingdomMapRenderKey: Equatable {
+        let completedCityCount: Int
+        let backdropFrame: CGRect
+        let reduceMotion: Bool
     }
 
     private let store: KingdomGameStore
@@ -54,6 +66,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private let feedback: GameplayFeedbackProviding
     private let feedbackPreferences: FeedbackPreferencesManaging
     private let feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter?
+    private let isReduceMotionEnabled: () -> Bool
     private var feedbackSettingsController: FeedbackSettingsController?
     private var state: KingdomGameState
     private let layoutEnvironmentOverride: CountryMapLayoutEnvironment?
@@ -72,6 +85,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private let backdropLayer = SKNode()
     private let routeLayer = SKNode()
+    private let livingKingdomLayer = SKNode()
     private let cityLayer = SKNode()
     private let titlePanel = PanelNode(size: CGSize(width: 320, height: 68))
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
@@ -95,6 +109,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private var selectedCityNumber: Int?
     private var scoutCardLayout: CountryMapScoutCardLayout?
     private var transientFeedback: CountryMapTransientFeedback?
+    private var lastLivingKingdomMapRenderKey: LivingKingdomMapRenderKey?
     private var previousUpdateTime: TimeInterval?
     private let gameplayTabBar = GameplayTabBarNode(appearance: .forged)
     private var gameplayTabBarFrame = CGRect.zero
@@ -124,13 +139,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         feedbackPreferences: FeedbackPreferencesManaging = MainActor.assumeIsolated {
             FeedbackPreferencesStore.shared
         },
-        feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil
+        feedbackSettingsAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter? = nil,
+        isReduceMotionEnabled: @escaping () -> Bool = { UIAccessibility.isReduceMotionEnabled }
     ) {
         self.store = store
         self.router = router
         self.feedback = feedback
         self.feedbackPreferences = feedbackPreferences
         self.feedbackSettingsAccessibilityAdapter = feedbackSettingsAccessibilityAdapter
+        self.isReduceMotionEnabled = isReduceMotionEnabled
         self.state = store.load()
         self.layoutEnvironmentOverride = layoutEnvironmentOverride
         self.imageLoaderOverride = imageLoaderOverride
@@ -146,6 +163,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         self.feedback = NoOpGameplayFeedbackProvider()
         self.feedbackPreferences = FeedbackPreferencesStore.shared
         self.feedbackSettingsAccessibilityAdapter = nil
+        self.isReduceMotionEnabled = { UIAccessibility.isReduceMotionEnabled }
         self.state = KingdomGameStore.shared.load()
         self.layoutEnvironmentOverride = nil
         self.imageLoaderOverride = nil
@@ -293,6 +311,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func buildInterface() {
         backdropLayer.zPosition = -20
         routeLayer.zPosition = 0
+        livingKingdomLayer.zPosition = 5
         cityLayer.zPosition = 10
         titlePanel.zPosition = GameUITheme.Z.hud
         resourcePanel.name = "countryMapGoldPanel"
@@ -306,6 +325,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         progressSegments.forEach { $0.zPosition = GameUITheme.Z.hud + 1 }
         addChild(backdropLayer)
         addChild(routeLayer)
+        addChild(livingKingdomLayer)
         addChild(cityLayer)
         addChild(titlePanel)
         addChild(resourcePanel)
@@ -620,6 +640,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         scoutCardLayout = nil
         layoutFrames = (.zero, .zero, .zero, .zero)
         routeLayer.removeAllChildren()
+        livingKingdomLayer.removeAllChildren()
+        lastLivingKingdomMapRenderKey = nil
 
         backdropNode?.isHidden = true
         backdropNode?.size = .zero
@@ -984,6 +1006,68 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             applyVisualState(visualState(for: cityNumber), to: cityNumber)
+        }
+
+        if let layout = countryMapLayout {
+            renderLivingKingdomMapIfNeeded(layout: layout)
+        }
+    }
+
+    /// Renders the noninteractive Living Kingdom decoration (secured-city
+    /// overlays, the fixed 6→7 route patch, and at most two caravans), but
+    /// only when its render key `(completedCityCount, backdropFrame,
+    /// reduceMotion)` changed, so Scout selection/transient redraws never
+    /// recreate caravan nodes or restart their movement actions.
+    private func renderLivingKingdomMapIfNeeded(layout: CountryMapLayout) {
+        let reduceMotion = isReduceMotionEnabled()
+        let key = LivingKingdomMapRenderKey(
+            completedCityCount: state.completedCityCount,
+            backdropFrame: layout.displayedBackdropFrame,
+            reduceMotion: reduceMotion
+        )
+        guard key != lastLivingKingdomMapRenderKey else { return }
+        lastLivingKingdomMapRenderKey = key
+
+        livingKingdomLayer.removeAllChildren()
+
+        let presentation = LivingKingdomPresentation.map(completedCityCount: state.completedCityCount)
+        let mapScale = layout.displayedBackdropFrame.width
+            / CountryMapLayoutDefinition.country1.canonicalBackdropSize.width
+
+        for cityNumber in presentation.securedCityNumbers {
+            let overlay = SKSpriteNode(imageNamed: MapAssetName.livingKingdomSecuredCity)
+            overlay.name = "\(NodeName.livingKingdomSecuredCityPrefix)\(cityNumber)"
+            overlay.size = CGSize(width: 96 * mapScale, height: 96 * mapScale)
+            overlay.position = layout.cityPositions[cityNumber]!
+            livingKingdomLayer.addChild(overlay)
+        }
+
+        let city6 = layout.cityPositions[6]!
+        let city7 = layout.cityPositions[7]!
+        let routePatch = SKSpriteNode(imageNamed: presentation.routeSixToSevenAssetName)
+        routePatch.name = "\(NodeName.livingKingdomRoutePatchPrefix)\(presentation.routeSixToSevenAssetName)"
+        routePatch.size = CGSize(width: 192 * mapScale, height: 192 * mapScale)
+        routePatch.position = CGPoint(x: (city6.x + city7.x) / 2, y: (city6.y + city7.y) / 2)
+        livingKingdomLayer.addChild(routePatch)
+
+        for (index, startCityNumber) in presentation.caravanSegmentStartCityNumbers.enumerated() {
+            let start = layout.cityPositions[startCityNumber]!
+            let end = layout.cityPositions[startCityNumber + 1]!
+            let caravan = SKSpriteNode(imageNamed: MapAssetName.livingKingdomCaravan)
+            caravan.name = "\(NodeName.livingKingdomCaravanPrefix)\(startCityNumber)"
+            caravan.size = CGSize(width: 128 * mapScale, height: 64 * mapScale)
+            caravan.position = start
+            caravan.zRotation = atan2(end.y - start.y, end.x - start.x)
+            livingKingdomLayer.addChild(caravan)
+
+            guard !reduceMotion else { continue }
+            let wait = SKAction.wait(forDuration: 0.8 * Double(index))
+            let move = SKAction.move(to: end, duration: 5.0)
+            let reset = SKAction.run { [weak caravan] in caravan?.position = start }
+            caravan.run(
+                .repeatForever(.sequence([wait, move, reset])),
+                withKey: ActionKey.livingKingdomCaravanMove
+            )
         }
     }
 
@@ -1451,6 +1535,14 @@ extension CountryMapScene {
 
     var routeLayoutCountForTesting: Int {
         routeLayer.children.count
+    }
+
+    var livingKingdomDecorationNodesForTesting: [SKNode] {
+        livingKingdomLayer.children
+    }
+
+    func redrawForTesting() {
+        redraw()
     }
 
     var mapLayoutFramesForTesting: CountryMapLayoutFrames {
