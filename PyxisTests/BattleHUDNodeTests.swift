@@ -280,6 +280,80 @@ struct BattleHUDNodeTests {
         #expect(title.text == "WILLOWFORD")
     }
 
+    @Test func compactPhoneKeepsEarnRateChipInsideTheIncomePanel() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: .zero
+        )))
+        let state = KingdomGameState(
+            gold: 4_200,
+            cityRemainingPower: 46,
+            cityNumberInCountry: 13,
+            completedCityCount: 12
+        )
+        let node = BattleHUDNode()
+        #expect(node.apply(content: .project(from: state, manualCount: 0), layout: layout) == .presented)
+
+        let incomeFrame = layout.incomeFrame
+        let reward = try #require(node.childNode(withName: "battleIncomeLabel") as? SKLabelNode)
+        let arrow = try #require(node.childNode(withName: "battleIncomeArrow") as? SKShapeNode)
+        let divider = try #require(node.childNode(withName: "battleIncomeDivider") as? SKShapeNode)
+
+        #expect(incomeFrame.insetBy(dx: -1, dy: -1).contains(reward.frame))
+        #expect(incomeFrame.insetBy(dx: -1, dy: -1).contains(arrow.frame))
+        #expect(reward.frame.minX > divider.frame.maxX + 1)
+    }
+
+    @Test func compactPhoneFitsCityTitleAndCounterInsideTheCityProgressRow() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: .zero
+        )))
+        // City 13 "Starveil Citadel" is the longest authored city name.
+        let state = KingdomGameState(
+            gold: 4_200,
+            cityRemainingPower: 46,
+            cityNumberInCountry: 13,
+            completedCityCount: 12
+        )
+        let node = BattleHUDNode()
+        #expect(node.apply(content: .project(from: state, manualCount: 0), layout: layout) == .presented)
+
+        let cityFrame = layout.cityProgressFrame
+        let counter = try #require(node.childNode(withName: "battleCityProgressLabel") as? SKLabelNode)
+        let title = try #require(node.childNode(withName: "battleCityTitleLabel") as? SKLabelNode)
+        let bar = try #require(node.childNode(withName: "battleCityProgressBar") as? ProgressBarNode)
+        let barShape = try #require(bar.children.compactMap { $0 as? SKShapeNode }.first)
+        let barBox = try #require(barShape.path?.boundingBox)
+        let barFrame = barBox.offsetBy(dx: bar.position.x, dy: bar.position.y)
+
+        #expect(cityFrame.insetBy(dx: -1, dy: -1).contains(title.frame))
+        #expect(cityFrame.insetBy(dx: -1, dy: -1).contains(counter.frame))
+        #expect(cityFrame.insetBy(dx: -1, dy: -1).contains(barFrame))
+        #expect(title.fontSize < 21)
+        #expect(counter.frame.maxX < barFrame.minX + 1)
+        #expect(title.frame.maxX < layout.settingsFrame.minX - 1)
+    }
+
+    @Test func referencePhoneKeepsAuthoredIncomeChipOffsetsAndFullSizeTitle() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        _ = node.apply(
+            content: .project(from: KingdomGameState(cityNumberInCountry: 3), manualCount: 0),
+            layout: layout
+        )
+
+        let reward = try #require(node.childNode(withName: "battleIncomeLabel") as? SKLabelNode)
+        let title = try #require(node.childNode(withName: "battleCityTitleLabel") as? SKLabelNode)
+
+        #expect(reward.frame.minX > layout.incomeFrame.minX + 108)
+        #expect(reward.frame.minX < layout.incomeFrame.minX + 116)
+        #expect(title.fontSize == 21)
+    }
+
     @Test func medallionsUseAuthoredUnitFramesAsTheirPrimaryVisual() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),
