@@ -455,6 +455,10 @@ extension GameViewController {
            let buildingScene = view.scene as? BuildingViewScene {
             buildingScene.selectSlotForTesting(1)
         }
+        if let returnDate = fixture.foregroundReturnDate,
+           let battle = view.scene as? BattleScene {
+            battle.enterForegroundForTesting(at: returnDate)
+        }
         view.accessibilityValue = forgedFixtureAccessibilityValue(for: view)
         return true
     }
@@ -494,9 +498,16 @@ extension GameViewController {
             }
 
             let mode = scene.manualLiveSoldierCountForTesting > 0 ? "blocked" : "normal"
-            return "Battle;stage=\(state.stageStatus.rawValue);mode=\(mode);"
+            let presentation = scene.livingKingdomBattlePresentationForTesting
+            var value = "Battle;stage=\(state.stageStatus.rawValue);mode=\(mode);"
                 + "city=\(state.currentCityKey.storageKey);"
                 + "manualLiving=\(scene.manualLiveSoldierCountForTesting)"
+            value += ";family=\(presentation.family.rawValue);fortress=\(presentation.stage.rawValue)"
+            let feedback = scene.feedbackTextForTesting
+            if !feedback.isEmpty {
+                value += ";feedback=\(feedback)"
+            }
+            return value
 
         case let scene as BuildingViewScene:
             let selectedSlot = scene.campSelectionContentForTesting?.selectedSlot
@@ -523,9 +534,15 @@ extension GameViewController {
             } else {
                 laterLockedCity = "none"
             }
+            let livingMap = LivingKingdomPresentation.map(
+                completedCityCount: state.completedCityCount
+            )
             return "Map;stage=\(state.stageStatus.rawValue);"
                 + "completed=\(state.completedCityCount);"
                 + "attackableCity=\(attackableCity);laterLockedCity=\(laterLockedCity)"
+                + ";secured=\(livingMap.securedCityNumbers.count)"
+                + ";caravan=\(livingMap.caravanSegmentStartCityNumbers.map(String.init).joined(separator: ","))"
+                + ";patch=\(livingMap.routeSixToSevenAssetName)"
 
         default:
             return "Unknown"

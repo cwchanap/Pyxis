@@ -6,6 +6,12 @@ import UIKit
 #if DEBUG
 @MainActor
 struct ForgedVisualFixtureTests {
+    private struct LandmarkCase {
+        let fixture: ForgedVisualFixture
+        let cityNumber: Int
+        let family: CityVisualFamily
+    }
+
     @Test("DEBUG fixture parser accepts only the exact marker values")
     func parserAcceptsExactValues() {
         let expected: [(String, ForgedVisualFixture)] = [
@@ -17,7 +23,13 @@ struct ForgedVisualFixtureTests {
             ("map-partial", .mapPartial),
             ("map-country-complete", .mapCountryComplete),
             ("conquest-live", .conquestLive),
-            ("conquest-idle", .conquestIdle)
+            ("conquest-idle", .conquestIdle),
+            ("battle-damaged", .battleDamaged),
+            ("battle-breached", .battleBreached),
+            ("battle-emberford", .battleEmberford),
+            ("battle-runewatch", .battleRunewatch),
+            ("battle-crownspire", .battleCrownspire),
+            ("return-damage", .returnDamage)
         ]
 
         for (rawValue, fixture) in expected {
@@ -55,6 +67,63 @@ struct ForgedVisualFixtureTests {
             1: CityBuilding(type: .barracks, level: 2),
             2: CityBuilding(type: .archeryRange, level: 1)
         ])
+    }
+
+    @Test("DEBUG damaged/breached fixtures pin City 1 living-kingdom thresholds")
+    func damagedAndBreachedFixturesPinCityOneThresholds() {
+        let damaged = ForgedVisualFixture.battleDamaged.makeState()
+        #expect(damaged.cityNumberInCountry == 1)
+        #expect(damaged.cityMaxPower == 20)
+        #expect(damaged.cityRemainingPower == 12)
+        #expect(damaged.stageStatus == .battleActive)
+        #expect(damaged.pendingBattleResult == nil)
+
+        let breached = ForgedVisualFixture.battleBreached.makeState()
+        #expect(breached.cityNumberInCountry == 1)
+        #expect(breached.cityMaxPower == 20)
+        #expect(breached.cityRemainingPower == 5)
+        #expect(breached.stageStatus == .battleActive)
+        #expect(breached.pendingBattleResult == nil)
+    }
+
+    @Test("DEBUG landmark fixtures pin full-HP family cities")
+    func landmarkFixturesPinFullHPStates() {
+        let landmarks = [
+            LandmarkCase(fixture: .battleEmberford, cityNumber: 7, family: .ember),
+            LandmarkCase(fixture: .battleRunewatch, cityNumber: 9, family: .arcane),
+            LandmarkCase(fixture: .battleCrownspire, cityNumber: 15, family: .royal)
+        ]
+
+        for landmark in landmarks {
+            let state = landmark.fixture.makeState()
+            #expect(state.cityNumberInCountry == landmark.cityNumber)
+            #expect(state.stageStatus == .battleActive)
+            #expect(state.pendingBattleResult == nil)
+            #expect(state.cityRemainingPower == state.cityMaxPower)
+            #expect(
+                Country1CityCatalog.definition(for: landmark.cityNumber).visualFamily
+                    == landmark.family
+            )
+        }
+    }
+
+    @Test("DEBUG return-damage fixture pins seeded background and fixed foreground return")
+    func returnDamageFixturePinsSeededBackgroundState() {
+        let state = ForgedVisualFixture.returnDamage.makeState()
+        #expect(state.cityNumberInCountry == 3)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.pendingBattleResult == nil)
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 1)
+        #expect(state.cityBattleStateForCurrentCity.slots[1]?.type == .barracks)
+        #expect(state.lastBackgroundedAt == Date(timeIntervalSince1970: 1_000))
+
+        #expect(
+            ForgedVisualFixture.returnDamage.foregroundReturnDate
+                == Date(timeIntervalSince1970: 4_600)
+        )
+        for fixture in ForgedVisualFixture.allCases where fixture != .returnDamage {
+            #expect(fixture.foregroundReturnDate == nil)
+        }
     }
 
     @Test("DEBUG blocked battle reuses the deterministic battle state")
@@ -169,7 +238,83 @@ struct ForgedVisualFixtureTests {
         #expect(view.scene is BattleScene)
         #expect(
             view.accessibilityValue ==
-                "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0"
+                "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
+                + "family=frontier;fortress=intact"
+        )
+    }
+
+    @Test("DEBUG battle fixture hooks project family and fortress stage semantics")
+    func hookProjectsBattleFamilyAndFortressStage() throws {
+        let fixtures: [(ForgedVisualFixture, String)] = [
+            (
+                .battleDamaged,
+                "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
+                    + "family=frontier;fortress=damaged"
+            ),
+            (
+                .battleBreached,
+                "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
+                    + "family=frontier;fortress=breached"
+            ),
+            (
+                .battleEmberford,
+                "Battle;stage=battleActive;mode=normal;city=1-7;manualLiving=0;"
+                    + "family=ember;fortress=intact"
+            ),
+            (
+                .battleRunewatch,
+                "Battle;stage=battleActive;mode=normal;city=1-9;manualLiving=0;"
+                    + "family=arcane;fortress=intact"
+            ),
+            (
+                .battleCrownspire,
+                "Battle;stage=battleActive;mode=normal;city=1-15;manualLiving=0;"
+                    + "family=royal;fortress=intact"
+            )
+        ]
+
+        for (fixture, expectedValue) in fixtures {
+            let store = try makeStore(initialState: KingdomGameState(gold: 73))
+            let controller = GameViewController(store: store)
+            let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+            #expect(controller.installForgedVisualFixtureIfRequested(
+                in: view,
+                arguments: [
+                    "Pyxis",
+                    ForgedVisualFixture.launchArgument,
+                    fixture.rawValue
+                ]
+            ))
+            #expect(view.scene is BattleScene)
+            #expect(view.accessibilityValue == expectedValue)
+        }
+    }
+
+    @Test("DEBUG return-damage hook settles fixed idle return with compact damage copy")
+    func hookSettlesReturnDamageWithCompactCopy() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 73))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+        #expect(controller.installForgedVisualFixtureIfRequested(
+            in: view,
+            arguments: [
+                "Pyxis",
+                ForgedVisualFixture.launchArgument,
+                ForgedVisualFixture.returnDamage.rawValue
+            ]
+        ))
+        let battle = try #require(view.scene as? BattleScene)
+        #expect(battle.feedbackTextForTesting == "Buildings dealt 36 idle damage.")
+        #expect(battle.cityRemainingPowerForTesting == 56)
+        #expect(battle.gameStateForTesting.pendingBattleResult == nil)
+        #expect(store.load().lastBackgroundedAt == nil)
+        #expect(
+            view.accessibilityValue ==
+                "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
+                + "family=frontier;fortress=intact;"
+                + "feedback=Buildings dealt 36 idle damage."
         )
     }
 
@@ -235,7 +380,9 @@ struct ForgedVisualFixtureTests {
         #expect(store.load().pendingBattleResult == nil)
         #expect(
             view.accessibilityValue ==
-                "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1"
+                "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1;"
+                + "family=frontier;fortress=intact;"
+                + "feedback=Finish the current squad before building."
         )
     }
 
@@ -276,12 +423,14 @@ struct ForgedVisualFixtureTests {
             (
                 .map,
                 "Map;stage=cityConqueredPendingMap;completed=3;"
-                    + "attackableCity=4;laterLockedCity=5"
+                    + "attackableCity=4;laterLockedCity=5;"
+                    + "secured=3;caravan=1,2;patch=lk-map-route-6-7-worn"
             ),
             (
                 .mapCountryComplete,
                 "Map;stage=countryComplete;completed=15;"
-                    + "attackableCity=none;laterLockedCity=none"
+                    + "attackableCity=none;laterLockedCity=none;"
+                    + "secured=15;caravan=1,2;patch=lk-map-route-6-7-repaired"
             )
         ]
 

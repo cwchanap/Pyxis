@@ -56,7 +56,13 @@ final class PyxisUITests: XCTestCase {
             "map-partial",
             "map-country-complete",
             "conquest-live",
-            "conquest-idle"
+            "conquest-idle",
+            "battle-damaged",
+            "battle-breached",
+            "battle-emberford",
+            "battle-runewatch",
+            "battle-crownspire",
+            "return-damage"
         ]
 
         for fixture in fixtures {
@@ -116,41 +122,103 @@ final class PyxisUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let expected: String
+        let expected: String?
         switch fixture {
-        case "battle":
-            expected = "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0"
-        case "battle-blocked":
-            expected = "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1"
-        case "camp-empty":
-            expected = "Camp;stage=battleActive;city=1-5;buildings=0;"
-                + "selectedSlot=1;mode=builder"
-        case "camp-occupied":
-            expected = "Camp;stage=battleActive;city=1-5;buildings=6;"
-                + "selectedSlot=1;mode=inspector"
-        case "map":
-            expected = "Map;stage=cityConqueredPendingMap;completed=3;"
-                + "attackableCity=4;laterLockedCity=5"
-        case "map-partial":
-            // Fixture is pendingMap with city 8; init normalization makes city 8
-            // the just-conquered city (completed=8), so city 9 is the unlock.
-            expected = "Map;stage=cityConqueredPendingMap;completed=8;"
-                + "attackableCity=9;laterLockedCity=10"
-        case "map-country-complete":
-            expected = "Map;stage=countryComplete;completed=15;"
-                + "attackableCity=none;laterLockedCity=none"
-        case "conquest-live":
-            expected = "Conquest;pending=true;mode=live;city=1-3;"
-                + "source=manual;deployments=6;losses=1"
-        case "conquest-idle":
-            expected = "Conquest;pending=true;mode=idle;city=1-3;"
-                + "source=idle;deployments=0;losses=0;idleDamage=1"
+        case "battle", "battle-blocked", "battle-damaged", "battle-breached",
+             "battle-emberford", "battle-runewatch", "battle-crownspire", "return-damage":
+            expected = battleSemanticValue(for: fixture)
+        case "camp-empty", "camp-occupied":
+            expected = campSemanticValue(for: fixture)
+        case "map", "map-partial", "map-country-complete":
+            expected = mapSemanticValue(for: fixture)
+        case "conquest-live", "conquest-idle":
+            expected = conquestSemanticValue(for: fixture)
         default:
             XCTFail("Unexpected fixture: " + fixture, file: file, line: line)
             return
         }
 
         XCTAssertEqual(value, expected, file: file, line: line)
+    }
+
+    private func battleSemanticValue(for fixture: String) -> String {
+        switch fixture {
+        case "battle":
+            return "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
+                + "family=frontier;fortress=intact"
+        case "battle-blocked":
+            return "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1;"
+                + "family=frontier;fortress=intact;"
+                + "feedback=Finish the current squad before building."
+        case "battle-damaged":
+            return "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
+                + "family=frontier;fortress=damaged"
+        case "battle-breached":
+            return "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
+                + "family=frontier;fortress=breached"
+        case "battle-emberford":
+            return "Battle;stage=battleActive;mode=normal;city=1-7;manualLiving=0;"
+                + "family=ember;fortress=intact"
+        case "battle-runewatch":
+            return "Battle;stage=battleActive;mode=normal;city=1-9;manualLiving=0;"
+                + "family=arcane;fortress=intact"
+        case "battle-crownspire":
+            return "Battle;stage=battleActive;mode=normal;city=1-15;manualLiving=0;"
+                + "family=royal;fortress=intact"
+        case "return-damage":
+            return "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
+                + "family=frontier;fortress=intact;"
+                + "feedback=Buildings dealt 36 idle damage."
+        default:
+            return ""
+        }
+    }
+
+    private func campSemanticValue(for fixture: String) -> String {
+        switch fixture {
+        case "camp-empty":
+            return "Camp;stage=battleActive;city=1-5;buildings=0;"
+                + "selectedSlot=1;mode=builder"
+        case "camp-occupied":
+            return "Camp;stage=battleActive;city=1-5;buildings=6;"
+                + "selectedSlot=1;mode=inspector"
+        default:
+            return ""
+        }
+    }
+
+    private func mapSemanticValue(for fixture: String) -> String {
+        switch fixture {
+        case "map":
+            return "Map;stage=cityConqueredPendingMap;completed=3;"
+                + "attackableCity=4;laterLockedCity=5;"
+                + "secured=3;caravan=1,2;patch=lk-map-route-6-7-worn"
+        case "map-partial":
+            // Fixture is pendingMap with city 8; init normalization makes city 8
+            // the just-conquered city (completed=8), so city 9 is the unlock.
+            return "Map;stage=cityConqueredPendingMap;completed=8;"
+                + "attackableCity=9;laterLockedCity=10;"
+                + "secured=8;caravan=1,2;patch=lk-map-route-6-7-repaired"
+        case "map-country-complete":
+            return "Map;stage=countryComplete;completed=15;"
+                + "attackableCity=none;laterLockedCity=none;"
+                + "secured=15;caravan=1,2;patch=lk-map-route-6-7-repaired"
+        default:
+            return ""
+        }
+    }
+
+    private func conquestSemanticValue(for fixture: String) -> String {
+        switch fixture {
+        case "conquest-live":
+            return "Conquest;pending=true;mode=live;city=1-3;"
+                + "source=manual;deployments=6;losses=1"
+        case "conquest-idle":
+            return "Conquest;pending=true;mode=idle;city=1-3;"
+                + "source=idle;deployments=0;losses=0;idleDamage=1"
+        default:
+            return ""
+        }
     }
 
     private func screenshotAttachment(for app: XCUIApplication, name: String) -> XCTAttachment {
