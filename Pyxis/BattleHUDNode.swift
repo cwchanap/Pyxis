@@ -510,8 +510,14 @@ final class BattleHUDNode: SKNode {
         rewardLabel.fontSize = 12
         rewardLabel.fontColor = SKColor(red: 124 / 255, green: 240 / 255, blue: 160 / 255, alpha: 1)
         rewardLabel.horizontalAlignmentMode = .left
+        // The income row internals are authored for the 160pt panel. Narrower
+        // (compact) panels right-anchor the earn-rate chip and pull the divider
+        // in so no element can spill into the adjacent city row.
+        let incomeUsesAuthoredOffsets = layout.incomeFrame.width >= 150
         rewardLabel.position = CGPoint(
-            x: layout.incomeFrame.minX + 112,
+            x: incomeUsesAuthoredOffsets
+                ? layout.incomeFrame.minX + 112
+                : layout.incomeFrame.maxX - 12 - rewardLabel.frame.width,
             y: layout.incomeFrame.midY
         )
         incomeArrow.position = CGPoint(
@@ -520,7 +526,9 @@ final class BattleHUDNode: SKNode {
         )
         incomeDivider.path = CGPath(
             rect: CGRect(
-                x: layout.incomeFrame.minX + 101,
+                x: incomeUsesAuthoredOffsets
+                    ? layout.incomeFrame.minX + 101
+                    : layout.incomeFrame.maxX - 52,
                 y: layout.incomeFrame.midY - 11,
                 width: 1,
                 height: 22
@@ -537,32 +545,64 @@ final class BattleHUDNode: SKNode {
         cityTitleLabel.fontSize = 21
         cityTitleLabel.horizontalAlignmentMode = .left
         let cityGroupGap: CGFloat = 9
-        let cityGroupWidth = cityProgressLabel.frame.width
-            + cityGroupGap
-            + cityTitleLabel.frame.width
-        let cityGroupMinX = layout.cityProgressFrame.midX - cityGroupWidth / 2
-        let cityGroupY = layout.isCompact
-            ? layout.cityProgressFrame.maxY - 21
-            : layout.sceneFrame.maxY - 122.5
-        cityProgressLabel.position = CGPoint(
-            x: cityGroupMinX,
-            y: cityGroupY
-        )
-        cityTitleLabel.position = CGPoint(
-            x: cityGroupMinX + cityProgressLabel.frame.width + cityGroupGap,
-            y: cityGroupY
-        )
+        let cityFrame = layout.cityProgressFrame
+        let cityProgressBarSize: CGSize
+        if layout.isCompact {
+            // Compact phones split the authored one-line group: the fitted
+            // title takes the row's upper line alone; the counter shares the
+            // HP-bar line so neither can spill under the settings gear.
+            let titleText = content.cityTitle.uppercased()
+            cityTitleLabel.fontSize = SingleLineTextFitter.fittedFontSize(
+                titleText,
+                startingAt: 21,
+                minimum: 9,
+                maximumWidth: max(24, cityFrame.width - 8),
+                measure: Self.measureBoldTextWidth
+            ) ?? 9
+            // ponytail: 9pt floor — the longest authored name (16 chars) fits
+            // at 9pt in the narrowest supported compact frame; a longer future
+            // name would need a copy ceiling, not more shrinking.
+            cityTitleLabel.position = CGPoint(
+                x: cityFrame.midX - cityTitleLabel.frame.width / 2,
+                y: cityFrame.maxY - 21
+            )
+            cityProgressLabel.position = CGPoint(
+                x: cityFrame.minX,
+                y: cityFrame.minY + 11
+            )
+            cityProgressBarSize = CGSize(
+                width: max(44, cityFrame.width - cityProgressLabel.frame.width - 10),
+                height: 14
+            )
+        } else {
+            let cityGroupWidth = cityProgressLabel.frame.width
+                + cityGroupGap
+                + cityTitleLabel.frame.width
+            let cityGroupMinX = cityFrame.midX - cityGroupWidth / 2
+            let cityGroupY = layout.sceneFrame.maxY - 122.5
+            cityProgressLabel.position = CGPoint(
+                x: cityGroupMinX,
+                y: cityGroupY
+            )
+            cityTitleLabel.position = CGPoint(
+                x: cityGroupMinX + cityProgressLabel.frame.width + cityGroupGap,
+                y: cityGroupY
+            )
+            cityProgressBarSize = CGSize(
+                width: min(288, max(44, cityFrame.width - 16)),
+                height: 14
+            )
+        }
         cityHPLabel.text = nil
         cityHPLabel.isHidden = true
-        cityProgressBar.update(size: CGSize(
-            width: min(288, max(44, layout.cityProgressFrame.width - 16)),
-            height: 14
-        ))
+        cityProgressBar.update(size: cityProgressBarSize)
         cityProgressBar.update(progress: CGFloat(content.cityRemainingPower)
             / CGFloat(max(1, content.cityMaxPower)))
         cityProgressBar.position = CGPoint(
-            x: layout.cityProgressFrame.midX,
-            y: layout.cityProgressFrame.minY + 11
+            x: layout.isCompact
+                ? cityFrame.maxX - cityProgressBarSize.width / 2
+                : cityFrame.midX,
+            y: cityFrame.minY + 11
         )
         objectiveLabel.text = "NEXT"
         objectiveLabel.fontSize = 9.5
@@ -940,6 +980,12 @@ final class BattleHUDNode: SKNode {
         path.addLine(to: CGPoint(x: -4, y: 3))
         path.closeSubpath()
         return path
+    }
+
+    private static func measureBoldTextWidth(_ text: String, fontSize: CGFloat) -> CGFloat {
+        let font = UIFont(name: GameUITheme.Font.bold, size: fontSize)
+            ?? UIFont.systemFont(ofSize: fontSize)
+        return (text as NSString).size(withAttributes: [.font: font]).width
     }
 
     private static func objectiveText(
