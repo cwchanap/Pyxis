@@ -4597,6 +4597,179 @@ struct BattleSceneTests {
         // Settings should still be open (scrim doesn't close on tap)
         #expect(scene.isFeedbackSettingsVisibleForTesting)
     }
+
+    // MARK: - Living Kingdom battle presentation (HPA-478)
+
+    /// City 1 (frontier, Standard Watch) holding at 13/20 HP — intact — with a
+    /// level-8 barracks, so a single live attack (power 10, 1.0× trait) drops
+    /// the city straight from intact to breached in one mutation.
+    private func intactFrontierCityWithEliteBarracksState() -> KingdomGameState {
+        KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 13,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 1).storageKey:
+                    CityBattleState(slots: [1: CityBuilding(type: .barracks, level: 8)])
+            ]
+        )
+    }
+
+    /// Advances combat until `condition` holds (or the step budget runs out).
+    private func advanceCombatUntil(_ scene: BattleScene, _ condition: () -> Bool) {
+        for _ in 0..<120 where !condition() {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+        }
+    }
+
+    @Test("Living Kingdom projection drives enemy-city texture and battlefield treatment")
+    func livingKingdomProjectionDrivesFortressTextureAndTreatment() throws {
+        let city3MaxPower = KingdomGameState.cityMaxPower(for: 3)
+        func city3Scene(cityRemainingPower: Int) throws -> BattleScene {
+            makeScene(store: try makeStore(initialState: stateWithBarracks(
+                cityRemainingPower: cityRemainingPower,
+                cityNumberInCountry: 3,
+                completedCityCount: 2
+            )))
+        }
+
+        // Full-HP City 3 → frontier intact, no treatment.
+        let intact = try city3Scene(cityRemainingPower: city3MaxPower)
+        #expect(intact.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-intact")
+        #expect(intact.appliedLivingKingdomTreatmentAssetForTesting == nil)
+        #expect(try #require(intact.livingKingdomTreatmentNodeForTesting).isHidden)
+
+        // City 3 at its real 60% boundary → damaged.
+        let damagedAtBoundary = try city3Scene(cityRemainingPower: city3MaxPower * 3 / 5)
+        #expect(damagedAtBoundary.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-damaged")
+
+        // City 3 at its real 25% boundary → breached.
+        let breachedAtBoundary = try city3Scene(cityRemainingPower: city3MaxPower / 4)
+        #expect(breachedAtBoundary.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-breached")
+
+        // Family + treatment per authored city.
+        let familyByCity: [(cityNumber: Int, family: String)] = [
+            (7, "ember"), (9, "arcane"), (15, "royal")
+        ]
+        for entry in familyByCity {
+            let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(
+                cityRemainingPower: KingdomGameState.cityMaxPower(for: entry.cityNumber),
+                cityNumberInCountry: entry.cityNumber,
+                completedCityCount: entry.cityNumber - 1
+            )))
+            #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-\(entry.family)-intact")
+            #expect(scene.appliedLivingKingdomTreatmentAssetForTesting == "lk-battlefield-\(entry.family)")
+            #expect(try #require(scene.livingKingdomTreatmentNodeForTesting).isHidden == false)
+        }
+
+        // Pending conquest → conquered immediately.
+        let pending = makeScene(store: try makeStore(initialState: pendingConqueredState(city: 3)))
+        #expect(pending.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-conquered")
+
+        // The semantic node still resolves after every texture selection above.
+        for scene in [intact, damagedAtBoundary, breachedAtBoundary, pending] {
+            #expect(firstNode(named: "enemy-city", in: scene) != nil)
+        }
+    }
+
+    @Test("A live hit inside the damaged stage requests no Living Kingdom transition")
+    func liveHitWithinDamagedStageRequestsNoTransition() throws {
+        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(cityRemainingPower: 12)))
+        #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-damaged")
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.cityRemainingPowerForTesting < 12 }
+
+        #expect(scene.cityRemainingPowerForTesting < 12)
+        #expect(scene.livingKingdomTransitionEffectsForTesting.isEmpty)
+        #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-damaged")
+    }
+
+    @Test("An intact-to-breached live hit requests exactly one breach effect")
+    func intactToBreachedLiveHitRequestsExactlyOneBreachEffect() throws {
+        let scene = makeScene(store: try makeStore(
+            initialState: intactFrontierCityWithEliteBarracksState()
+        ))
+        #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-intact")
+        let enemyCity = try #require(firstNode(named: "enemy-city", in: scene))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.livingKingdomTransitionEffectsForTesting.isEmpty }
+
+        #expect(scene.livingKingdomTransitionEffectsForTesting == [.breach])
+        #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-breached")
+        #expect(scene.cityRemainingPowerForTesting >= 1)
+        #expect(firstNode(named: "enemy-city", in: scene) === enemyCity)
+    }
+
+    @Test("A direct live conquest requests exactly one collapse effect")
+    func directLiveConquestRequestsExactlyOneCollapseEffect() throws {
+        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(cityRemainingPower: 1)))
+        let enemyCity = try #require(firstNode(named: "enemy-city", in: scene))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.gameStateForTesting.pendingBattleResult != nil }
+
+        #expect(scene.livingKingdomTransitionEffectsForTesting == [.collapse])
+        #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-conquered")
+        #expect(firstNode(named: "enemy-city", in: scene) === enemyCity)
+    }
+
+    @Test("A restored pending-conquest scene requests no transition effects")
+    func restoredPendingConquestSceneRequestsNoTransitionEffects() throws {
+        let scene = makeScene(store: try makeStore(initialState: pendingConqueredState(city: 1)))
+
+        scene.redrawForTesting(shouldLayout: true)
+
+        #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-conquered")
+        #expect(scene.livingKingdomTransitionEffectsForTesting.isEmpty)
+    }
+
+    @Test("Layout refresh after a live breach does not append a transition request")
+    func layoutRefreshAfterLiveBreachDoesNotAppendTransitionRequest() throws {
+        let scene = makeScene(store: try makeStore(
+            initialState: intactFrontierCityWithEliteBarracksState()
+        ))
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.livingKingdomTransitionEffectsForTesting.isEmpty }
+        #expect(scene.livingKingdomTransitionEffectsForTesting == [.breach])
+
+        scene.refreshLayoutForCurrentEnvironment()
+        scene.redrawForTesting(shouldLayout: true)
+        scene.repeatDidMoveForTesting()
+
+        #expect(scene.livingKingdomTransitionEffectsForTesting == [.breach])
+    }
+
+    @Test("No-layout redraw after a live hit appends no request and keeps enemy-city")
+    func noLayoutRedrawAfterLiveHitAppendsNoRequestAndKeepsEnemyCity() throws {
+        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(cityRemainingPower: 12)))
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.cityRemainingPowerForTesting < 12 }
+        #expect(scene.cityRemainingPowerForTesting < 12)
+
+        let enemyCity = try #require(firstNode(named: "enemy-city", in: scene))
+        scene.redrawForTesting(shouldLayout: false)
+
+        #expect(scene.livingKingdomTransitionEffectsForTesting.isEmpty)
+        #expect(firstNode(named: "enemy-city", in: scene) === enemyCity)
+    }
+
+    @Test("Living Kingdom transition FX plays under the pausable battlefield action layer")
+    func transitionFXPlaysUnderPausableBattlefieldActionLayer() throws {
+        let scene = makeScene(store: try makeStore(
+            initialState: intactFrontierCityWithEliteBarracksState()
+        ))
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.livingKingdomTransitionEffectsForTesting.isEmpty }
+
+        let fx = try #require(scene.livingKingdomTransitionFXNodeForTesting)
+        #expect(scene.isLivingKingdomTransitionFXUnderBattlefieldActionLayerForTesting)
+
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.isBattlefieldActionLayerPausedForTesting)
+        #expect(scene.livingKingdomTransitionFXNodeForTesting === fx)
+    }
 }
 
 private extension CGRect {

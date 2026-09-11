@@ -31,11 +31,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private enum EffectName {
         static let floatingFeedback = "floatingFeedback"
         static let goldBurst = "goldBurst"
+        static let livingKingdomTransitionFX = "livingKingdomTransitionFX"
     }
 
     private enum BattlefieldNodeName {
         static let cityHPBarBackground = "cityHPBarBackground"
         static let cityHPBarFill = "cityHPBarFill"
+        static let livingKingdomBattlefieldTreatment = "livingKingdomBattlefieldTreatment"
     }
 
     private enum EffectStyle {
@@ -110,6 +112,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var playerCastleNode: SKNode?
     private var enemyCityNode: SKNode?
     private var battlefieldBackdropNode: SKSpriteNode?
+    /// Optional Living Kingdom battlefield treatment sprite (one per scene).
+    /// Hidden for frontier cities; lives in the environment layer behind the
+    /// fortress so the enemy-city node keeps its own texture identity.
+    private let livingKingdomTreatmentNode = SKSpriteNode()
     private let forgedAtmosphereNode = SKSpriteNode(
         color: SKColor(red: 52 / 255, green: 26 / 255, blue: 6 / 255, alpha: 1),
         size: .zero
@@ -190,6 +196,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var lastConquestReportLayoutInputForTestingStorage: ConquestReportLayout.Input?
     private var milestoneConquestFlourishCountForTestingStorage = 0
     private var lastMilestoneFlourishCityForTestingStorage: Int?
+    /// Requested Living Kingdom transition effects, in request order. Recorded
+    /// before any playback guard (including Reduce Motion) so tests can assert
+    /// requests regardless of the runner's accessibility settings.
+    private var livingKingdomTransitionEffectsForTestingStorage: [LivingKingdomPresentation.TransitionEffect] = []
+    private var appliedLivingKingdomFortressAssetForTestingStorage: String?
+    private var appliedLivingKingdomTreatmentAssetForTestingStorage: String?
     #endif
 
     private var feedbackText = ""
@@ -952,12 +964,23 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         forgedAtmosphereNode.colorBlendFactor = 0
         environmentLayer.addChild(forgedAtmosphereNode)
 
+        livingKingdomTreatmentNode.name = BattlefieldNodeName.livingKingdomBattlefieldTreatment
+        livingKingdomTreatmentNode.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        livingKingdomTreatmentNode.zPosition = GameUITheme.Z.background + 0.5
+        livingKingdomTreatmentNode.blendMode = .alpha
+        livingKingdomTreatmentNode.isHidden = true
+        environmentLayer.addChild(livingKingdomTreatmentNode)
+
         let castleNode = makeBattleSprite(
             named: BattleAssetName.playerCastle,
             fallbackColor: SKColor(red: 0.22, green: 0.40, blue: 0.64, alpha: 1.0)
         )
+        // Created once with the currently projected fortress asset; later
+        // stage changes swap the texture only. All Living Kingdom fortress
+        // textures share the 512×540 canvas, so the swap never resizes the
+        // node and the semantic "enemy-city" name below never changes.
         let cityNode = makeBattleSprite(
-            named: BattleAssetName.enemyCity,
+            named: livingKingdomBattlePresentation.fortressAssetName,
             fallbackColor: SKColor(red: 0.58, green: 0.28, blue: 0.26, alpha: 1.0)
         )
 
@@ -997,6 +1020,51 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         node.strokeColor = SKColor(white: 1.0, alpha: 0.22)
         node.lineWidth = 2
         return node
+    }
+
+    private var livingKingdomBattlePresentation: LivingKingdomPresentation.Battle {
+        LivingKingdomPresentation.battle(
+            cityNumber: state.currentCityKey.cityNumber,
+            remainingHP: state.cityRemainingPower,
+            maxHP: state.cityMaxPower,
+            hasPendingConquest: state.pendingBattleResult != nil
+        )
+    }
+
+    /// Projects the current Living Kingdom fortress stage onto the existing
+    /// enemy-city sprite (texture swap only — the node and its semantic name
+    /// are never replaced) and syncs the optional battlefield treatment.
+    private func applyLivingKingdomStaticPresentation() {
+        let presentation = livingKingdomBattlePresentation
+        if let citySprite = enemyCityNode as? SKSpriteNode {
+            citySprite.texture = SKTexture(imageNamed: presentation.fortressAssetName)
+        }
+        if let treatmentAssetName = presentation.battlefieldTreatmentAssetName {
+            livingKingdomTreatmentNode.texture = SKTexture(imageNamed: treatmentAssetName)
+            livingKingdomTreatmentNode.isHidden = false
+        } else {
+            livingKingdomTreatmentNode.isHidden = true
+        }
+        #if DEBUG
+        appliedLivingKingdomFortressAssetForTestingStorage = presentation.fortressAssetName
+        appliedLivingKingdomTreatmentAssetForTestingStorage = presentation.battlefieldTreatmentAssetName
+        #endif
+    }
+
+    /// Mirrors the backdrop's center position and scale-to-scene fill for the
+    /// treatment sprite, matching the existing environment-layer treatment.
+    private func layoutLivingKingdomBattlefieldTreatment() {
+        guard !livingKingdomTreatmentNode.isHidden,
+              let texture = livingKingdomTreatmentNode.texture else {
+            return
+        }
+        livingKingdomTreatmentNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+        livingKingdomTreatmentNode.setScale(1)
+        let scale = max(
+            size.width / max(1, texture.size().width),
+            size.height / max(1, texture.size().height)
+        )
+        livingKingdomTreatmentNode.setScale(scale)
     }
 
     private func layoutBattlefield(
@@ -1042,6 +1110,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
             battlefieldBackdropNode.setScale(scale)
         }
+        applyLivingKingdomStaticPresentation()
+        layoutLivingKingdomBattlefieldTreatment()
         if forgedAtmosphereTextureSize != size {
             forgedAtmosphereTextureSize = size
             forgedAtmosphereTexture = makeForgedAtmosphereTexture(size: size)
@@ -1086,6 +1156,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         layoutLaneIndicators()
         syncSoldierNodes()
         layoutMilestoneCityAccent()
+        if let transitionFX = effectsLayer.childNode(withName: EffectName.livingKingdomTransitionFX)
+            as? SKSpriteNode {
+            // Keep an in-flight transition anchored to the fortress without
+            // restarting its playback.
+            layoutLivingKingdomTransitionFX(transitionFX)
+        }
     }
 
     private func makeForgedAtmosphereTexture(size: CGSize) -> SKTexture? {
@@ -1465,6 +1541,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             layoutInterface()
         } else {
             layoutCityHPBar()
+            applyLivingKingdomStaticPresentation()
             applyBattleHUD()
         }
         presentFeedbackTooltipIfNeeded()
@@ -1648,6 +1725,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
+        // Capture the stage around the live mutation so at most one final-stage
+        // transition is requested per mutation; restore/resize/redraw paths
+        // never replay historical effects.
+        let previousStage = livingKingdomBattlePresentation.stage
         let damageResult = state.applyLiveSoldierAttacks(result.soldierAttacks)
         guard damageResult.attackApplied else {
             return
@@ -1673,6 +1754,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             conqueredCities: damageResult.conqueredCities
         )
         redraw(shouldLayout: conqueredCity)
+
+        playLivingKingdomTransitionForStageChange(from: previousStage)
 
         if conqueredCity {
             if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
@@ -2238,6 +2321,68 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         playImpactFlash()
+    }
+
+    /// Requests the one-shot Living Kingdom transition for the stage change
+    /// the just-applied live mutation produced (at most one per mutation).
+    /// `previousStage` is captured immediately before the model mutation, so
+    /// restore/resize/redraw paths never replay historical effects.
+    private func playLivingKingdomTransitionForStageChange(
+        from previousStage: LivingKingdomPresentation.FortressStage
+    ) {
+        let currentStage = livingKingdomBattlePresentation.stage
+        guard let effect = LivingKingdomPresentation.transitionEffect(
+            from: previousStage,
+            to: currentStage
+        ) else {
+            return
+        }
+        playLivingKingdomTransition(effect)
+    }
+
+    /// Plays a one-shot Living Kingdom fortress transition in the existing
+    /// `effectsLayer` (never under the colorized fortress). The request is
+    /// recorded before the Reduce Motion guard so tests can assert requests
+    /// regardless of the runner's accessibility settings; playback itself is
+    /// skipped under Reduce Motion. `battlefieldActionLayer` pauses this layer
+    /// along with combat, so Settings freezes the effect with no extra
+    /// controller.
+    private func playLivingKingdomTransition(
+        _ effect: LivingKingdomPresentation.TransitionEffect
+    ) {
+        #if DEBUG
+        livingKingdomTransitionEffectsForTestingStorage.append(effect)
+        #endif
+
+        effectsLayer.childNode(withName: EffectName.livingKingdomTransitionFX)?.removeFromParent()
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+
+        let textures = effect.frameNames.map(SKTexture.init(imageNamed:))
+        guard let first = textures.first else { return }
+
+        let fx = SKSpriteNode(texture: first)
+        fx.name = EffectName.livingKingdomTransitionFX
+        fx.anchorPoint = CGPoint(x: 0.5, y: 0)
+        fx.zPosition = GameUITheme.Z.effects
+        effectsLayer.addChild(fx)
+        layoutLivingKingdomTransitionFX(fx)
+        fx.run(.sequence([
+            .animate(with: textures, timePerFrame: effect.secondsPerFrame),
+            .removeFromParent()
+        ]))
+    }
+
+    /// Anchors a transition FX to the fortress bottom-center, scaled to the
+    /// displayed fortress height (all FX frames share the 512×512 canvas;
+    /// fortresses are 512×540). `environmentLayer` and `battlefieldActionLayer`
+    /// share the battlefield origin, so the city's position is the same
+    /// battlefield coordinate inside `effectsLayer`.
+    private func layoutLivingKingdomTransitionFX(_ fx: SKSpriteNode) {
+        guard let city = enemyCityNode as? SKSpriteNode else { return }
+        let displayedFortressHeight = city.size.height * abs(city.yScale)
+        let fxHeight = 512 * displayedFortressHeight / 540
+        fx.position = city.position
+        fx.size = CGSize(width: fxHeight, height: fxHeight)
     }
 
     private func playImpactFlash() {
@@ -3002,6 +3147,47 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 extension BattleScene {
     var milestoneTierForTesting: Int? {
         currentMilestoneTier?.rawValue
+    }
+
+    /// Living Kingdom transition effects requested so far, in request order.
+    var livingKingdomTransitionEffectsForTesting: [LivingKingdomPresentation.TransitionEffect] {
+        livingKingdomTransitionEffectsForTestingStorage
+    }
+
+    /// Fortress asset the scene last projected onto the enemy-city sprite.
+    var appliedLivingKingdomFortressAssetForTesting: String? {
+        appliedLivingKingdomFortressAssetForTestingStorage
+    }
+
+    /// Treatment asset the scene last projected (nil for frontier cities).
+    var appliedLivingKingdomTreatmentAssetForTesting: String? {
+        appliedLivingKingdomTreatmentAssetForTestingStorage
+    }
+
+    var livingKingdomTreatmentNodeForTesting: SKNode? {
+        environmentLayer.childNode(withName: BattlefieldNodeName.livingKingdomBattlefieldTreatment)
+    }
+
+    var livingKingdomTransitionFXNodeForTesting: SKNode? {
+        effectsLayer.childNode(withName: EffectName.livingKingdomTransitionFX)
+    }
+
+    /// True when an in-flight transition FX sits in a subtree rooted at
+    /// `battlefieldActionLayer` — the layer Settings pauses — so the effect
+    /// freezes with combat without a second controller.
+    var isLivingKingdomTransitionFXUnderBattlefieldActionLayerForTesting: Bool {
+        guard var ancestor = livingKingdomTransitionFXNodeForTesting?.parent else {
+            return false
+        }
+        while true {
+            if ancestor === battlefieldActionLayer {
+                return true
+            }
+            guard let parent = ancestor.parent else {
+                return false
+            }
+            ancestor = parent
+        }
     }
 
     var isMilestoneArrivalVisibleForTesting: Bool {
