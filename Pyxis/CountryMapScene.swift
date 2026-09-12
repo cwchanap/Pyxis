@@ -1312,9 +1312,11 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             state: state
         ) {
             showFeedback(feedback)
-        } else if result.conqueredCities == 0 {
+        } else if result.elapsedSeconds > 0 && result.conqueredCities == 0 {
             // A real credited return with no damage and no conquest is silent:
             // clear stale status/flavor so it doesn't linger as a return result.
+            // A zero-elapsed no-op resolves nothing and must leave any live
+            // transient untouched.
             transientFeedback = nil
         }
     }
