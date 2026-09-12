@@ -730,10 +730,14 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     /// foreground/gate-resume settlement) routes to Battle so the pending
     /// report is shown. Never called from `layoutGateWillPause` or the
     /// deliberate build/upgrade settlement paths, which stay on Camp.
+    /// Routing requires a live scene — a gate-paused or system-backgrounded
+    /// scene defers to its resume/foreground hook.
     @discardableResult
     private func routePendingConquestIfNeeded() -> Bool {
         guard state.pendingBattleResult != nil,
               !isRoutingToBattle,
+              !isLayoutGatePaused,
+              !isSystemBackgrounded,
               let router else { return false }
         isRoutingToBattle = true
         guard router.buildingViewSceneDidRequestGameplayTab(self, tab: .battle) else {
