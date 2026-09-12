@@ -255,6 +255,58 @@ struct BuildingViewSceneTests {
         #expect(scene.isRoutingToBattleForTesting)
     }
 
+    @Test("Camp pending conquest foregrounded under a paused gate routes once on resume")
+    func campPendingConquestForegroundedUnderPausedGateRoutesOnResume() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.layoutGateWillPause(at: start.addingTimeInterval(10_000))
+        scene.sceneDidEnterBackgroundForTesting(at: start.addingTimeInterval(10_050))
+
+        // Foreground while the gate is still paused must not route.
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_100))
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.layoutGateWillResume(at: start.addingTimeInterval(10_150))
+
+        #expect(router.requestedTabs == [.battle])
+        #expect(scene.isRoutingToBattleForTesting)
+    }
+
+    @Test("Camp pending conquest gate-resumed while backgrounded routes once on foreground")
+    func campPendingConquestResumedWhileBackgroundedRoutesOnForeground() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.layoutGateWillPause(at: start.addingTimeInterval(10_000))
+        scene.sceneDidEnterBackgroundForTesting(at: start.addingTimeInterval(10_050))
+
+        // Gate resume while still system-backgrounded must not route.
+        scene.layoutGateWillResume(at: start.addingTimeInterval(10_100))
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_150))
+
+        #expect(router.requestedTabs == [.battle])
+        #expect(scene.isRoutingToBattleForTesting)
+    }
+
     @Test("Camp exits settle and save before forwarding a gameplay tab")
     func campExitSettlesBeforeRoute() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))

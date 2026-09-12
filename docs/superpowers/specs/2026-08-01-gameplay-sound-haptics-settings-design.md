@@ -158,16 +158,15 @@ Country Map transient feedback also stops advancing while settings is visible. B
 
 ### Country Map idle-conquest product intent
 
-When Country Map finalizes idle progress that conquers a city, remaining on the map is intentional. The scene:
+When Country Map finalizes idle progress that conquers a city — a foreground return, a layout-gate resume, or a current-city RETURN settlement — the scene routes to the existing pending Battle report (HPA-478). Before routing, the scene:
 
 - Keeps the existing transient visible feedback.
 - Emits newly awarded reward SFX followed by conquest or country-completion SFX.
 - Emits the same one strong success haptic used by other fresh outcomes.
-- Does not auto-route to Battle or introduce new report navigation.
 
-> **Superseded by HPA-478:** idle foreground/gate-resume conquest now routes to the existing pending Battle report. Deliberate in-place Camp build/upgrade conquest still stays on Camp.
+Deliberate in-place Camp build/upgrade conquest stays on Camp instead: it emits the same fresh-outcome feedback, retains the pending result, and shows a short pointer to open Battle for the report.
 
-Existing pending-result and stage routing remain unchanged. HPA-389 adds sensory feedback to the transition; it does not change the Country Map journey or HPA-388 report ownership.
+Pending-result ownership stays with HPA-388; HPA-389 adds sensory feedback to the transition.
 
 ### Immediate preference changes
 
@@ -743,7 +742,7 @@ When the current-city action is hidden, its frame is nil and the title may exten
 #### Event sources
 
 - Rejected city entry with visible rejection feedback emits invalid once.
-- Fresh map idle conquest follows the explicit stay-on-map behavior.
+- Fresh map idle conquest emits full fresh outcome feedback, then routes to the pending Battle report (HPA-478).
 - Normal successful city entry emits no event.
 
 ### Building View
@@ -870,7 +869,7 @@ This intentionally replaces slot-first resolution. Audit existing slot-first tes
 - Residual title width is at least 160 pt and fitted font at least 16 pt.
 - Gear/title/current-city frames do not overlap.
 - Gear priority and modal blocking.
-- Map idle conquest stays on map, shows transient feedback, emits full fresh outcome feedback, and does not auto-route.
+- Map idle conquest shows transient feedback, emits full fresh outcome feedback, and routes to the pending Battle report.
 
 ### Building View tests
 
@@ -943,7 +942,7 @@ Additional iPad/Stage Manager devices and phone generations are release follow-u
 - Disabling sound stops active output; re-enabling replays nothing.
 - No music control/preference appears.
 - Fresh outcomes emit once; restored/redraw/resize are silent.
-- Country Map fresh idle conquest remains on map with full outcome feedback.
+- Country Map fresh idle conquest emits full outcome feedback and routes to the pending Battle report.
 - Background/interruption stops and never replays stale sounds.
 - Every sound has offline-reviewable provenance, licensing, and duration metadata.
 - Required device smoke passes before merge.

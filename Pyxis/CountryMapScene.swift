@@ -640,11 +640,14 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     /// (idle foreground/gate-resume settlement, current-city RETURN
     /// settlement) routes to Battle so the pending report is shown. Never
     /// called from `layoutGateWillPause`; deliberate in-place actions keep
-    /// their own journey.
+    /// their own journey. Routing requires a live scene — a gate-paused or
+    /// system-backgrounded scene defers to its resume/foreground hook.
     @discardableResult
     private func routePendingConquestIfNeeded() -> Bool {
         guard state.pendingBattleResult != nil,
               !isRoutingToBattle,
+              !isLayoutGatePaused,
+              !isSystemBackgrounded,
               let router else { return false }
         isRoutingToBattle = true
         guard router.countryMapSceneDidRequestGameplayTab(self, tab: .battle) else {

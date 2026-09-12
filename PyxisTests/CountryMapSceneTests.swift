@@ -915,6 +915,64 @@ struct CountryMapSceneTests {
         #expect(scene.isRoutingToBattleForTesting)
     }
 
+    @Test("Map pending conquest foregrounded under a paused gate routes once on resume")
+    func pendingConquestForegroundedUnderPausedGateRoutesOnResume() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.layoutGateWillPause(at: start.addingTimeInterval(10_000))
+        scene.sceneDidEnterBackgroundForTesting(at: start.addingTimeInterval(10_050))
+
+        // Foreground while the gate is still paused must not route.
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_100))
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.layoutGateWillResume(at: start.addingTimeInterval(10_150))
+
+        #expect(router.requestedTabs == [.battle])
+        #expect(scene.isRoutingToBattleForTesting)
+    }
+
+    @Test("Map pending conquest gate-resumed while backgrounded routes once on foreground")
+    func pendingConquestResumedWhileBackgroundedRoutesOnForeground() throws {
+        let start = Date.distantPast
+        var initialState = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.layoutGateWillPause(at: start.addingTimeInterval(10_000))
+        scene.sceneDidEnterBackgroundForTesting(at: start.addingTimeInterval(10_050))
+
+        // Gate resume while still system-backgrounded must not route.
+        scene.layoutGateWillResume(at: start.addingTimeInterval(10_100))
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_150))
+
+        #expect(router.requestedTabs == [.battle])
+        #expect(scene.isRoutingToBattleForTesting)
+    }
+
     @Test func mapShowsTraitForUnlockedCityInScoutCard() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityRemainingPower: 0,
