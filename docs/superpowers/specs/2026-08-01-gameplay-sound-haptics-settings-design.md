@@ -869,7 +869,7 @@ This intentionally replaces slot-first resolution. Audit existing slot-first tes
 - Residual title width is at least 160 pt and fitted font at least 16 pt.
 - Gear/title/current-city frames do not overlap.
 - Gear priority and modal blocking.
-- Map idle conquest shows transient feedback, emits full fresh outcome feedback, and routes to the pending Battle report.
+- Map idle conquest emits full fresh outcome feedback and routes to the pending Battle report without adding transient map feedback.
 
 ### Building View tests
 
