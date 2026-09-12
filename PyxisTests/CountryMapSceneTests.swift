@@ -1225,6 +1225,24 @@ struct CountryMapSceneTests {
         #expect(scene.feedbackRemainingDurationForTesting == nil)
     }
 
+    @Test("Map preserves live transient feedback on a zero-elapsed lifecycle return")
+    func mapZeroElapsedReturnPreservesTransientFeedback() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.presentFlavorFeedbackForTesting("Arrow towers command the ridge.")
+        #expect(scene.visibleFeedbackTextForTesting == "Arrow towers command the ridge.")
+
+        // No backgrounding was armed, so the lifecycle return resolves .none
+        // (elapsedSeconds == 0): nothing was credited, and the live
+        // transient must remain untouched.
+        scene.sceneWillEnterForegroundForTesting(at: Date())
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 0)
+        #expect(scene.visibleFeedbackTextForTesting == "Arrow towers command the ridge.")
+        #expect(scene.feedbackRemainingDurationForTesting == 2.5)
+    }
+
     @Test func countryCompleteCardRemainsVisibleAfterIgnoredEntryRequest() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 15,

@@ -49,6 +49,11 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private var isLayoutGatePaused = false
     private var isSystemBackgrounded = false
     private var isRoutingToBattle = false
+    /// HPA-478: armed only when a passive idle/gate settlement observed by
+    /// this scene creates the pending conquest. A deliberate in-place
+    /// build/upgrade conquest leaves it clear so the resume/foreground
+    /// hooks never auto-route the report the player was already shown.
+    private var shouldAutoRoutePendingConquest = false
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
     private var selectedSlot: Int?
     private var feedbackText = "Select a city lot."
@@ -731,10 +736,13 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     /// report is shown. Never called from `layoutGateWillPause` or the
     /// deliberate build/upgrade settlement paths, which stay on Camp.
     /// Routing requires a live scene — a gate-paused or system-backgrounded
-    /// scene defers to its resume/foreground hook.
+    /// scene defers to its resume/foreground hook — and the armed intent,
+    /// so a deliberate in-place conquest keeps waiting for an explicit
+    /// player route even across later resume/foreground cycles.
     @discardableResult
     private func routePendingConquestIfNeeded() -> Bool {
         guard state.pendingBattleResult != nil,
+              shouldAutoRoutePendingConquest,
               !isRoutingToBattle,
               !isLayoutGatePaused,
               !isSystemBackgrounded,
@@ -801,6 +809,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         guard result.elapsedSeconds > 0 else { return }
 
         if result.conqueredCities > 0 {
+            shouldAutoRoutePendingConquest = true
             closeFeedbackSettings(focusTarget: .systemDefault)
             emitFreshOutcomeFeedback(
                 goldEarned: result.goldEarned,

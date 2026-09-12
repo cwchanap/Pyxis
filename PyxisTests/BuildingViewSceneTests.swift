@@ -307,6 +307,93 @@ struct BuildingViewSceneTests {
         #expect(scene.isRoutingToBattleForTesting)
     }
 
+    @Test("Camp deliberate build conquest does not auto-route on gate pause/resume")
+    func deliberateBuildConquestDoesNotAutoRouteOnGateResume() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 5,
+            completedCityCount: 4
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.archeryRange)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(router.requestedTabs.isEmpty)
+
+        // A deliberate in-place conquest stays on Camp until the player
+        // routes explicitly — a later gate cycle must not open Battle.
+        scene.layoutGateWillPause(at: start.addingTimeInterval(10_000))
+        scene.layoutGateWillResume(at: start.addingTimeInterval(10_100))
+
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(scene.feedbackTextForTesting == "City conquered. Open Battle for the report.")
+    }
+
+    @Test("Camp deliberate build conquest does not auto-route on background/foreground")
+    func deliberateBuildConquestDoesNotAutoRouteOnForegroundReturn() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 5,
+            completedCityCount: 4
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.archeryRange)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.sceneDidEnterBackgroundForTesting(at: start.addingTimeInterval(10_000))
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_100))
+
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(scene.feedbackTextForTesting == "City conquered. Open Battle for the report.")
+    }
+
+    @Test("Camp deliberate upgrade conquest does not auto-route on background/foreground")
+    func deliberateUpgradeConquestDoesNotAutoRouteOnForegroundReturn() throws {
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 1_000,
+            cityRemainingPower: 1,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 5,
+            completedCityCount: 4
+        )
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+        _ = state.buildBuilding(.archeryRange, inSlot: 2, at: start)
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.selectSlotForTesting(2)
+        scene.upgradeSelectedSlotForTesting()
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.sceneDidEnterBackgroundForTesting(at: start.addingTimeInterval(10_000))
+        scene.sceneWillEnterForegroundForTesting(at: start.addingTimeInterval(10_100))
+
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(scene.feedbackTextForTesting == "City conquered. Open Battle for the report.")
+    }
+
     @Test("Camp exits settle and save before forwarding a gameplay tab")
     func campExitSettlesBeforeRoute() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
