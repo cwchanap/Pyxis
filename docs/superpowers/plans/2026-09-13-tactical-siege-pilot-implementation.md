@@ -39,7 +39,7 @@ Cover:
 - Falconridge uses exactly `falconridge.keep`, `falconridge.arrow-tower`, and `falconridge.ridge-gate`;
 - Falconridge left route is Tower → Keep;
 - center/right are Gate → Keep;
-- Falconridge Tower covers all lanes;
+- Falconridge Tower covers all lanes with no duplicate authored coverage lanes;
 - City 3 HP resolves to Keep 46 / Tower 23 / Gate 23;
 - the other 14 Country 1 cities use the one-Keep layout.
 
@@ -50,6 +50,8 @@ Keep `SiegeState.swift` small:
 - `CitySiegeLayout` with nested objective/route/defensive-fire values;
 - `SiegeProgress: Codable, Equatable`;
 - pure max-HP / remaining-HP / first-live-step / budget-spend helpers.
+
+Use `[BattleLane]` for authored defensive coverage; do not add `Hashable` to `BattleLane` just to introduce a `Set` here.
 
 Prefer static functions or value methods. Do **not** add protocols, repositories, registries, a graph, or a `SiegeEngine` class.
 
@@ -218,28 +220,37 @@ No global RNG lane assignment remains for production spawns. Keep the optional/r
 **Files**
 
 - Modify `Pyxis/BattleHUDNode.swift`
-- Modify `Pyxis/BattleChromeLayout.swift` only if hit-frame containment actually needs adjustment
+- Modify `Pyxis/BattleChromeLayout.swift`
 - Modify `Pyxis/BattleScene.swift`
+- Modify `PyxisTests/BattleChromeLayoutTests.swift`
 - Modify `PyxisTests/BattleHUDContentTests.swift`
 - Modify `PyxisTests/BattleHUDNodeTests.swift`
 - Modify `PyxisTests/BattleSceneTests.swift`
 
-### 4.1 Extend the existing HUD projection
+### 4.1 Extend the existing HUD projection and layout
 
 Add `selectedAssaultLane` to `BattleHUDContent` from `state.siegeProgress.selectedLane`.
 
 Add `BattleHUDNode.Action.selectLane(BattleLane)`.
 
-Use the already-computed `laneChipFrames` as the hit targets; do not create a fourth geometry authority.
+Keep `laneChipFrames` as the existing 26pt visual frames. Add `laneChipHitFrames: [BattleLane: CGRect]` to `BattleChromeLayout`, derived from those visual frames and expanded/clamped to at least 44×44 inside `battlefieldFrame`. This mirrors the existing medallion visual/hit-frame pattern and keeps one geometry authority.
 
-### 4.2 Make every lane chip visible and selectable
+Pin `BattleChromeLayoutTests` for:
 
-Current chips visually hide the standard lane. Change presentation so all three lanes remain discoverable:
+- three visual frames + three hit frames;
+- visual frames remain contained in the battlefield;
+- hit frames are contained and at least 44×44;
+- each hit frame contains its corresponding visual frame;
+- lane hit frames do not overlap unrelated top/bottom HUD controls.
 
-- preserve OPEN / standard / HELD role information;
-- selected lane receives the selected treatment and small procedural flag glyph / `ASSAULT` cue;
-- each hit target remains at least 44×44 and inside `battlefieldFrame`;
-- `BattleHUDNode.action(at:)` returns `.selectLane` for a lane chip.
+### 4.2 Show one assault flag, not a second lane taxonomy
+
+Preserve the current OPEN / HELD role visuals for exposed/fortified lanes. The standard lane does not need a new role label.
+
+- all three lane-entry hit regions are selectable;
+- selected lane receives the selected treatment and one small procedural flag / `ASSAULT` cue;
+- exactly one assault flag is visible;
+- `BattleHUDNode.action(at:)` resolves `.selectLane` from `laneChipHitFrames`.
 
 No new command strip or modal selector.
 
@@ -261,7 +272,7 @@ Pin tests that touching these existing controls does not change lane:
 - income/city tooltip frames;
 - conquest Continue.
 
-**Gate:** Battle HUD/scene tests prove selection is visible, persists, and does not fall through.
+**Gate:** Battle layout/HUD/scene tests prove selection is visible, persists, has 44pt hit targets, and does not fall through.
 
 ---
 
@@ -343,6 +354,7 @@ xcodebuild test \
   -only-testing:PyxisTests/KingdomGameStateTests \
   -only-testing:PyxisTests/KingdomGameStoreTests \
   -only-testing:PyxisTests/BattleCombatStateTests \
+  -only-testing:PyxisTests/BattleChromeLayoutTests \
   -only-testing:PyxisTests/BattleHUDContentTests \
   -only-testing:PyxisTests/BattleHUDNodeTests \
   -only-testing:PyxisTests/BattleSceneTests \
@@ -398,7 +410,7 @@ Record:
 6. **Layout smoke**
    - compact phone;
    - portrait iPad;
-   - lane chips remain tappable, objective labels fit, Settings/tab/report input is unaffected.
+   - lane entrances remain tappable, objective labels fit, Settings/tab/report input is unaffected.
 
 Add a compact evidence table to the PR description before moving the PR out of draft. Do not create a separate QA document unless the evidence no longer fits cleanly in the PR.
 
@@ -408,7 +420,7 @@ New production surface should stay close to:
 
 - one pure `SiegeState.swift` model/helper file;
 - existing catalog/state/combat/result files;
-- existing Battle HUD/scene;
+- existing Battle layout/HUD/scene;
 - existing Living Kingdom + Scout projections.
 
 If implementation starts requiring a route graph, pathfinder, second combat state, per-objective repository, new scene router, or broad generic framework, stop and simplify back to the authored ordered-route model before continuing.
