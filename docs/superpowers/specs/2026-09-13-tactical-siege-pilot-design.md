@@ -73,7 +73,7 @@ struct CitySiegeLayout: Equatable {
 
     struct DefensiveFire: Equatable {
         let sourceObjectiveID: String
-        let coveredLanes: Set<BattleLane>
+        let coveredLanes: [BattleLane]
     }
 
     let objectives: [Objective]
@@ -82,6 +82,8 @@ struct CitySiegeLayout: Equatable {
     let defensiveFire: DefensiveFire
 }
 ```
+
+Use an authored lane array rather than changing `BattleLane` to `Hashable` only to support a `Set`; tests can pin that coverage contains no duplicates.
 
 The exact implementation may nest helpers differently, but keep these contracts:
 
@@ -226,16 +228,19 @@ Ordinary in-Battle lane taps with no armed inactive interval do not synthesize e
 
 ## Battle UI and input
 
-Reuse the existing Forged `BattleHUDNode` lane chips and `BattleChromeLayout.laneChipFrames`; do not add another command bar.
+Reuse the existing Forged `BattleHUDNode` lane chips and keep `BattleChromeLayout` as the only geometry authority; do not add another command bar.
+
+The current lane-chip visuals are 26pt high, so do not treat those visual rectangles as touch targets. Add `laneChipHitFrames` to `BattleChromeLayout`, derived from each visual `laneChipFrame`, expanded/clamped to at least 44×44 inside the battlefield. This mirrors the existing medallion visual-frame / hit-frame pattern.
 
 Changes:
 
 - `BattleHUDContent` adds selected assault lane.
 - `BattleHUDNode.Action` adds `.selectLane(BattleLane)`.
-- all three lane chips become visible 44pt+ hit targets;
-- unselected chips still communicate the current OPEN / standard / HELD role;
-- selected chip gets a small procedural flag glyph plus selected treatment and the `ASSAULT` state;
-- `BattleScene.handleBattleHUDTouch` routes selection through the model mutation and persists it;
+- all three lane-entrance hit regions are active even when the standard lane has no OPEN/HELD role chip.
+- retain existing OPEN / HELD treatment for exposed/fortified lanes; do not invent another role taxonomy for the standard lane.
+- exactly the selected lane shows the small procedural assault flag and `ASSAULT` treatment, satisfying the single-visible-flag requirement.
+- `BattleHUDNode.action(at:)` resolves lane selection from `laneChipHitFrames`.
+- `BattleScene.handleBattleHUDTouch` routes selection through the model mutation and persists it.
 - lane selection is consumed before scene-level fallback handling, so Deploy, unit medallions, Settings, tabs, income/city tooltips, and conquest UI cannot accidentally change the lane.
 
 No new Settings surface or separate lane picker.
