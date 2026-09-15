@@ -12,7 +12,7 @@
 /// Persisted progress (`SiegeProgress`) is the forgiving half and is
 /// normalized by its owner.
 struct CitySiegeLayout: Equatable {
-    enum ObjectiveKind: Equatable {
+    enum ObjectiveKind: Equatable, Hashable {
         case keep
         case gate
         case arrowTower

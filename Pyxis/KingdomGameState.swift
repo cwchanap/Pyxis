@@ -90,9 +90,18 @@ struct KingdomGameState: Codable, Equatable {
         case unavailable
     }
 
+    /// Explicit settle-before-select lane selection outcome (HPA-468).
+    enum AssaultLaneSelectionResult: Equatable {
+        case unavailable
+        case unchanged(idleProgress: IdleProgressResult)
+        case selected(idleProgress: IdleProgressResult)
+        case conqueredDuringSettlement(IdleProgressResult)
+    }
+
     var gold: Int
     var cityLevel: Int
     var cityRemainingPower: Int
+    var siegeProgress: SiegeProgress
     var normalSoldierUpgradeLevel: Int
     var lastBackgroundedAt: Date?
     var countryNumber: Int
@@ -107,6 +116,7 @@ struct KingdomGameState: Codable, Equatable {
         case gold
         case cityLevel
         case cityRemainingPower
+        case siegeProgress
         case normalSoldierUpgradeLevel
         case lastBackgroundedAt
         case countryNumber
@@ -137,6 +147,7 @@ struct KingdomGameState: Codable, Equatable {
         gold: Int = 15,
         cityLevel: Int = 1,
         cityRemainingPower: Int? = nil,
+        siegeProgress: SiegeProgress? = nil,
         normalSoldierUpgradeLevel: Int = 1,
         lastBackgroundedAt: Date? = nil,
         countryNumber: Int = 1,
@@ -213,6 +224,12 @@ struct KingdomGameState: Codable, Equatable {
             self.cityRemainingPower = max(0, cityRemainingPower ?? 0)
         }
 
+        self.siegeProgress = Self.normalizedSiegeProgress(
+            siegeProgress,
+            layout: Country1CityCatalog.definition(for: normalizedCityNumber).siegeLayout,
+            totalBudget: Self.cityMaxPower(for: normalizedCityLevel)
+        )
+
         let normalizedCurrentCityKey = CityKey(
             countryNumber: clampedCountryNumber,
             cityNumber: normalizedCityNumber
@@ -252,6 +269,7 @@ struct KingdomGameState: Codable, Equatable {
             gold: try container.decodeIfPresent(Int.self, forKey: .gold) ?? 0,
             cityLevel: try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1,
             cityRemainingPower: try container.decodeIfPresent(Int.self, forKey: .cityRemainingPower),
+            siegeProgress: (try? container.decodeIfPresent(SiegeProgress.self, forKey: .siegeProgress)) ?? nil,
             normalSoldierUpgradeLevel: try container.decodeIfPresent(Int.self, forKey: .normalSoldierUpgradeLevel) ?? 1,
             lastBackgroundedAt: try container.decodeIfPresent(Date.self, forKey: .lastBackgroundedAt),
             countryNumber: try container.decodeIfPresent(Int.self, forKey: .countryNumber) ?? 1,
@@ -291,6 +309,27 @@ struct KingdomGameState: Codable, Equatable {
 
     var cityMaxPower: Int {
         Self.cityMaxPower(for: cityLevel)
+    }
+
+    /// Forgiving normalization of persisted siege progress (HPA-468):
+    /// unknown objective IDs are discarded, damage clamps to authored
+    /// maxima, and a missing progress falls back to the authored default
+    /// lane with zero damage.
+    private static func normalizedSiegeProgress(
+        _ progress: SiegeProgress?,
+        layout: CitySiegeLayout,
+        totalBudget: Int
+    ) -> SiegeProgress {
+        let maxPowers = layout.maxPowerAllocation(totalBudget: totalBudget)
+        var damageByObjectiveID: [String: Int] = [:]
+        for (objectiveID, rawDamage) in progress?.damageByObjectiveID ?? [:] {
+            guard let maxPower = maxPowers[objectiveID] else { continue }
+            damageByObjectiveID[objectiveID] = min(max(0, rawDamage), maxPower)
+        }
+        return SiegeProgress(
+            selectedLane: progress?.selectedLane ?? layout.defaultLane,
+            damageByObjectiveID: damageByObjectiveID
+        )
     }
 
     var currentGoldReward: Int {
@@ -391,6 +430,10 @@ struct KingdomGameState: Codable, Equatable {
         cityNumberInCountry = cityNumber
         cityLevel = completedCityCount + 1
         cityRemainingPower = cityMaxPower
+        siegeProgress = SiegeProgress(
+            selectedLane: currentCityDefinition.siegeLayout.defaultLane,
+            damageByObjectiveID: [:]
+        )
         stageStatus = .battleActive
         lastBackgroundedAt = nil
         pendingBattleResult = nil
@@ -775,6 +818,99 @@ struct KingdomGameState: Codable, Equatable {
         resolveCurrentCityBuildingIdleProgress(at: date)
     }
 
+    /// Settle-before-select lane selection (HPA-468): any armed inactive
+    /// interval is settled using the OLD lane first; if that settlement
+    /// conquers the city the selection is left unchanged. No armed interval
+    /// means no synthetic work.
+    @discardableResult
+    mutating func selectAssaultLane(_ lane: BattleLane, at date: Date) -> AssaultLaneSelectionResult {
+        guard stageStatus == .battleActive else {
+            return .unavailable
+        }
+
+        let idleProgress = resolveCurrentCityBuildingIdleProgress(at: date)
+        guard stageStatus == .battleActive else {
+            return .conqueredDuringSettlement(idleProgress)
+        }
+
+        guard lane != siegeProgress.selectedLane else {
+            return .unchanged(idleProgress: idleProgress)
+        }
+
+        siegeProgress.selectedLane = lane
+        return .selected(idleProgress: idleProgress)
+    }
+
+    /// Applies live objective damage with validation (HPA-468): unknown
+    /// objective IDs are rejected and damage clamps to the objective's
+    /// remaining HP. Finalizes conquest exactly once when Keep HP reaches
+    /// zero. Returns the applied damage.
+    @discardableResult
+    mutating func applyObjectiveDamage(_ requestedDamage: Int, toObjectiveID objectiveID: String) -> Int {
+        guard stageStatus == .battleActive, requestedDamage > 0 else {
+            return 0
+        }
+
+        let maxPowers = currentSiegeMaxPowers
+        guard maxPowers[objectiveID] != nil else {
+            return 0
+        }
+
+        var damageByObjectiveID = siegeProgress.damageByObjectiveID
+        let remaining = max(0, (maxPowers[objectiveID] ?? 0) - (damageByObjectiveID[objectiveID] ?? 0))
+        let applied = min(requestedDamage, remaining)
+        guard applied > 0 else {
+            return 0
+        }
+
+        damageByObjectiveID[objectiveID, default: 0] += applied
+        siegeProgress.damageByObjectiveID = damageByObjectiveID
+
+        finalizeConquestWhenKeepDestroyed(conquestMode: .live)
+        return applied
+    }
+
+    /// Spends an abstract (idle) damage budget down `lane`'s authored route
+    /// using the shared route rule (HPA-468): the first living objective
+    /// absorbs up to its remaining HP and the remainder spills only after it
+    /// dies; anything left once the Keep dies is dropped. Finalizes conquest
+    /// exactly once when Keep HP reaches zero. Returns the total applied
+    /// damage.
+    @discardableResult
+    mutating func spendRouteDamageBudget(_ budget: Int, lane: BattleLane) -> Int {
+        guard stageStatus == .battleActive, budget > 0 else {
+            return 0
+        }
+
+        let (damageByObjectiveID, appliedByObjectiveID) = currentSiegeLayout.spendDamageBudget(
+            budget,
+            along: lane,
+            maxPowers: currentSiegeMaxPowers,
+            damageByObjectiveID: siegeProgress.damageByObjectiveID
+        )
+        siegeProgress.damageByObjectiveID = damageByObjectiveID
+
+        finalizeConquestWhenKeepDestroyed(conquestMode: .idle)
+        return appliedByObjectiveID.values.reduce(0, +)
+    }
+
+    /// Completes the current city exactly once when the Keep reaches zero;
+    /// optional structures are never fabricated destroyed. Later calls are
+    /// no-ops via the stage gate in `completeCurrentCity`.
+    @discardableResult
+    private mutating func finalizeConquestWhenKeepDestroyed(conquestMode: BattleConquestMode) -> Bool {
+        guard stageStatus == .battleActive, currentKeepRemainingPower <= 0 else {
+            return false
+        }
+
+        let reward = currentGoldReward
+        let cityKey = currentCityKey
+        ensureSession()
+        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: cityKey))
+            .finalized(conquestMode: conquestMode, goldEarned: reward)
+        return completeCurrentCity(with: result).awarded
+    }
+
     @discardableResult
     mutating func upgradeNormalSoldier() -> UpgradeResult {
         guard stageStatus == .battleActive else {
@@ -847,6 +983,29 @@ struct KingdomGameState: Codable, Equatable {
 
     var currentCityLaneDefenseProfile: LaneDefenseProfile {
         currentCityDefinition.laneDefenseProfile
+    }
+
+    // MARK: Siege authority (HPA-468)
+
+    var currentSiegeLayout: CitySiegeLayout {
+        currentCityDefinition.siegeLayout
+    }
+
+    private var currentSiegeMaxPowers: [String: Int] {
+        currentSiegeLayout.maxPowerAllocation(totalBudget: cityMaxPower)
+    }
+
+    /// Authored Keep maximum for the current city's layout.
+    var currentKeepMaxPower: Int {
+        currentSiegeMaxPowers[currentSiegeLayout.keepObjective.id] ?? 0
+    }
+
+    /// Keep HP is the sole conquest/liveness authority (HPA-468).
+    var currentKeepRemainingPower: Int {
+        currentSiegeLayout.keepRemainingPower(
+            maxPowers: currentSiegeMaxPowers,
+            damageByObjectiveID: siegeProgress.damageByObjectiveID
+        )
     }
 
     func manualSoldierLevel(for soldierType: SoldierType) -> Int? {

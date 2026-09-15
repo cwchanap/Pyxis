@@ -1862,4 +1862,296 @@ struct KingdomGameStateTests {
         #expect(state.cityBattleStates[state.currentCityKey.storageKey] == nil)
         #expect(state.gold == 85 + 8)
     }
+
+    // MARK: - Siege persistence/Keep authority (HPA-468)
+
+    @Test func freshCitySiegeProgressDefaultsToAuthoredLaneWithZeroDamage() {
+        let city1 = KingdomGameState()
+
+        #expect(city1.siegeProgress.selectedLane == city1.currentCityLaneDefenseProfile.standardLane)
+        #expect(city1.siegeProgress.damageByObjectiveID.isEmpty)
+        #expect(city1.currentKeepRemainingPower == city1.currentKeepMaxPower)
+
+        // Falconridge (City 3) pins the authored pilot split 46/23/23.
+        let falconridge = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46)
+
+        #expect(falconridge.siegeProgress.selectedLane == BattleLane.center)
+        #expect(falconridge.currentKeepMaxPower == 46)
+        #expect(falconridge.currentKeepRemainingPower == 46)
+        #expect(falconridge.stageStatus == .battleActive)
+    }
+
+    @Test func siegeProgressEncodesAndDecodesThroughExplicitCodingKeys() throws {
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 40,
+            keepRemaining: 40,
+            supportDamage: [.gate: 7],
+            selectedLane: .right
+        )
+
+        let data = try JSONEncoder().encode(state)
+
+        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(payload["siegeProgress"] != nil)
+
+        let decoded = try JSONDecoder().decode(KingdomGameState.self, from: data)
+        #expect(decoded == state)
+    }
+
+    @Test func decodingSiegeProgressDiscardsUnknownIDsAndClampsDamage() throws {
+        let data = """
+        {
+          "cityLevel": 3,
+          "cityNumberInCountry": 3,
+          "completedCityCount": 2,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 2,
+            "damageByObjectiveID": {
+              "falconridge.ridge-gate": 999,
+              "falconridge.arrow-tower": 5,
+              "ghost.objective": 12
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.selectedLane == .right)
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 23) // clamped to authored max
+        #expect(state.siegeProgress.damageByObjectiveID[towerID] == 5)
+        #expect(state.siegeProgress.damageByObjectiveID.count == 2) // unknown ID discarded
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+    }
+
+    @Test func keepProjectionsTrackObjectiveDamage() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46)
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+
+        #expect(state.applyObjectiveDamage(10, toObjectiveID: keepID) == 10)
+
+        #expect(state.currentKeepMaxPower == 46)
+        #expect(state.currentKeepRemainingPower == 36)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 82)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func gateAndTowerDamageNeverChangesKeepHP() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46)
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+
+        #expect(state.applyObjectiveDamage(23, toObjectiveID: gateID) == 23)
+        #expect(state.applyObjectiveDamage(23, toObjectiveID: towerID) == 23)
+
+        #expect(state.currentKeepRemainingPower == 46)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 46)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func objectiveDamageRejectsUnknownIDsAndClampsToRemaining() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46)
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+
+        #expect(state.applyObjectiveDamage(0, toObjectiveID: gateID) == 0)
+        #expect(state.applyObjectiveDamage(5, toObjectiveID: "not-an-objective") == 0)
+        #expect(state.applyObjectiveDamage(999, toObjectiveID: gateID) == 23) // clamped to remaining
+        #expect(state.applyObjectiveDamage(999, toObjectiveID: gateID) == 0) // dead objective absorbs nothing
+        #expect(state.currentKeepRemainingPower == 46)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func keepZeroFinalizesExactlyOnceDespiteLiveSupportStructures() throws {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 5,
+            keepRemaining: 46,
+            supportDamage: [.gate: 5]
+        )
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+
+        #expect(state.applyObjectiveDamage(46, toObjectiveID: keepID) == 46)
+
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
+        #expect(state.completedCityCount == 3)
+        #expect(state.pendingBattleResult != nil)
+
+        // The still-living gate is not fabricated destroyed.
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 5)
+
+        // Exactly once: post-conquest objective damage applies nothing.
+        #expect(state.applyObjectiveDamage(46, toObjectiveID: keepID) == 0)
+        #expect(state.spendRouteDamageBudget(10, lane: .center) == 0)
+        #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
+    }
+
+    @Test func routeSpendingRespectsBlockersBeforeKeepSpillover() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46, selectedLane: .center)
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+
+        // A live gate blocks all damage from reaching the Keep.
+        #expect(state.spendRouteDamageBudget(23, lane: .center) == 23)
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 23)
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == nil)
+        #expect(state.stageStatus == .battleActive)
+
+        // Spillover to the Keep only once the blocker dies.
+        #expect(state.spendRouteDamageBudget(1, lane: .center) == 1)
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 1)
+
+        // With the blocker dead, budgets flow straight to the Keep.
+        #expect(state.spendRouteDamageBudget(45, lane: .center) == 45)
+        #expect(state.currentKeepRemainingPower == 0)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+
+        // Route exhausted: excess past a destroyed Keep is dropped, and
+        // spending applies nothing a second time.
+        #expect(state.spendRouteDamageBudget(10, lane: .center) == 0)
+    }
+
+    @Test func routeSpendingBlocksAtTowerOnLeftLane() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46, selectedLane: .left)
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+
+        #expect(state.spendRouteDamageBudget(20, lane: .left) == 20)
+
+        #expect(state.siegeProgress.damageByObjectiveID[towerID] == 20)
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == nil)
+        #expect(state.currentKeepRemainingPower == 46)
+    }
+
+    @Test func singleKeepRouteSpendingReachesKeepDirectly() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20, selectedLane: .right)
+
+        #expect(state.spendRouteDamageBudget(3, lane: .right) == 3)
+
+        #expect(state.currentKeepRemainingPower == 17)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func selectAssaultLaneIsUnavailableOutsideActiveBattle() {
+        var state = KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        #expect(state.selectAssaultLane(.left, at: Date(timeIntervalSinceReferenceDate: 1_000)) == .unavailable)
+        #expect(state.siegeProgress.selectedLane == state.currentCityDefinition.siegeLayout.defaultLane)
+    }
+
+    @Test func selectAssaultLaneWithoutArmedIntervalDoesNoSyntheticWork() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20, selectedLane: .center)
+
+        let unchanged = state.selectAssaultLane(.center, at: Date(timeIntervalSinceReferenceDate: 1_000))
+        #expect(unchanged == .unchanged(idleProgress: .none))
+
+        let selected = state.selectAssaultLane(.right, at: Date(timeIntervalSinceReferenceDate: 1_100))
+        #expect(selected == .selected(idleProgress: .none))
+
+        #expect(state.siegeProgress.selectedLane == .right)
+        #expect(state.currentKeepRemainingPower == 20)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func selectAssaultLaneSettlesArmedTimeBeforeSelecting() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let end = start.addingTimeInterval(2_400) // 24 idle infantry spawns at 1/10 rate
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 100,
+            keepRemaining: 46,
+            selectedLane: .center
+        )
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        state.enterBackground(at: start)
+
+        let result = state.selectAssaultLane(.left, at: end)
+
+        // The armed interval settled explicitly (before the lane changed).
+        let settled = KingdomGameState.IdleProgressResult(
+            elapsedSeconds: 2_400,
+            damageDealt: 24,
+            conqueredCities: 0,
+            goldEarned: 0
+        )
+        #expect(result == .selected(idleProgress: settled))
+        #expect(state.siegeProgress.selectedLane == .left)
+        #expect(state.lastBackgroundedAt == nil)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func selectAssaultLaneReturnsConqueredDuringSettlementAndKeepsSelection() {
+        let start = Date(timeIntervalSinceReferenceDate: 4_000)
+        let end = start.addingTimeInterval(200) // 2 idle infantry spawns → 2 damage
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 100,
+            keepRemaining: 2,
+            selectedLane: .left
+        )
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        state.enterBackground(at: start)
+
+        let result = state.selectAssaultLane(.right, at: end)
+
+        let settled = KingdomGameState.IdleProgressResult(
+            elapsedSeconds: 200,
+            damageDealt: 2,
+            conqueredCities: 1,
+            goldEarned: 8
+        )
+        #expect(result == .conqueredDuringSettlement(settled))
+        #expect(state.siegeProgress.selectedLane == .left) // selection unchanged
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func startingNextCityResetsSiegeProgressToNextLayout() throws {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 10,
+            supportDamage: [.gate: 23, .arrowTower: 23],
+            selectedLane: .left
+        )
+
+        // Falconridge must fall before City 4 unlocks on the map.
+        let falconridgeKeepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        #expect(state.applyObjectiveDamage(state.currentKeepRemainingPower, toObjectiveID: falconridgeKeepID) == 10)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+
+        #expect(state.startCityFromMap(4) == .entered(country: 1, city: 4))
+
+        #expect(state.siegeProgress.selectedLane == state.currentCityDefinition.siegeLayout.defaultLane)
+        #expect(state.siegeProgress.damageByObjectiveID.isEmpty)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+        // City 4 is a single-Keep city: no Falconridge history survives.
+        #expect(SiegeTestSupport.objectiveID(for: .gate, in: state) == nil)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == state.currentKeepMaxPower)
+    }
+
+    @Test func pendingResultRetainsSiegeProgressForRestoredPresentation() throws {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 46,
+            supportDamage: [.gate: 5],
+            selectedLane: .right
+        )
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+
+        #expect(state.applyObjectiveDamage(46, toObjectiveID: keepID) == 46)
+
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.siegeProgress.selectedLane == .right)
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 5)
+        #expect(state.currentKeepRemainingPower == 0)
+    }
 }
