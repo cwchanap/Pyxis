@@ -276,6 +276,34 @@ struct CountryMapScoutCardTextLayoutTests {
         }
     }
 
+    @Test(arguments: CountryMapLayoutTestFixtures.supported)
+    func falconridgeTacticalFooterFitsAtAMeasuredSizeInEverySupportedLayout(
+        fixture: CountryMapLayoutTestFixture
+    ) throws {
+        let cardLayout = try scoutCardLayout(for: fixture)
+        guard !cardLayout.isCompact else {
+            return
+        }
+        let footerSize: CGFloat = isPhoneLayout(fixture) ? 13 : 11
+        let footer = try #require(CountryMapScoutCardContent.tacticalFooter(
+            for: Country1CityCatalog.definition(for: 3).siegeLayout
+        ))
+
+        // The measured contract: the footer fits the existing lane frame at
+        // some approved size ≥ 8pt via the shared fitter (fail-closed card
+        // path otherwise).
+        #expect(CountryMapScoutCardTextLayout.fittedFontSize(
+            footer,
+            startingAt: footerSize,
+            minimum: 8,
+            maximumWidth: cardLayout.exposedLaneFrame.width,
+            measure: { text, size in
+                (try? width(text, fontName: GameUITheme.Font.medium, size: size))
+                    ?? .greatestFiniteMagnitude
+            }
+        ) != nil, "\(fixture.name): Falconridge footer must fit at ≥8pt")
+    }
+
     @Test func syntheticFooterTitleAndRewardOverflowFailValidation() throws {
         let fixture = try #require(CountryMapLayoutTestFixtures.supported.first { $0.name == "iPhone 12/13 mini" })
         let cardLayout = try scoutCardLayout(for: fixture)

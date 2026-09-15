@@ -367,6 +367,38 @@ struct CountryMapScoutCardAcceptanceTests {
         }
     }
 
+    @Test(arguments: CountryMapLayoutTestFixtures.supported)
+    func falconridgeScoutCardPresentsAcrossAllSupportedLayouts(
+        fixture: CountryMapLayoutTestFixture
+    ) throws {
+        let state = KingdomGameState(
+            cityLevel: 3,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        try withHarness(state: state, fixture: fixture) { harness in
+            let scout = try projectedScout(from: harness.scene)
+            #expect(scout.cityNumber == 3)
+            #expect(scout.tacticalFooter == "L Tower · C/R Gate")
+
+            let base = try #require(harness.scene.scoutCardBaseContentForTesting)
+            assertRequiredScoutContent(
+                base,
+                scene: harness.scene,
+                scout: scout,
+                layoutClass: fixture.layoutClass,
+                usesGoldFallback: false
+            )
+            #expect(base.attack == "RETURN")
+            #expect(harness.scene.scoutCardAttackHitFrameForTesting != nil)
+            #expect(
+                harness.scene.visibleScoutCardTextsForTesting
+                    == expectedVisibleLabelTexts(from: base, layoutClass: fixture.layoutClass)
+            )
+        }
+    }
+
     private final class SceneHarness {
         let scene: CountryMapScene
         let store: KingdomGameStore
@@ -550,7 +582,7 @@ struct CountryMapScoutCardAcceptanceTests {
             #expect(base.favorable == favorable)
             #expect(base.disadvantaged == disadvantaged)
         }
-        #expect(base.lane == "Open: \(scout.exposedLane.displayName)")
+        #expect(base.lane == (scout.tacticalFooter ?? "Open: \(scout.exposedLane.displayName)"))
         #expect(base.reward == reward)
         #expect(base.attack == scout.actionTitle)
 

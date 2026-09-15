@@ -52,6 +52,7 @@ final class CountryMapScoutCardNode: SKNode {
         let favorableItems: [PreparedFooterItem]
         let disadvantagedItems: [PreparedFooterItem]
         let laneText: String
+        let laneFontSize: CGFloat
         let cityImage: UIImage?
         let cityAssetName: String?
         let goldImage: UIImage?
@@ -345,6 +346,7 @@ final class CountryMapScoutCardNode: SKNode {
                 favorableItems: [],
                 disadvantagedItems: [],
                 laneText: "",
+                laneFontSize: metrics.footerSize,
                 cityImage: nil,
                 cityAssetName: nil,
                 goldImage: nil,
@@ -420,8 +422,21 @@ final class CountryMapScoutCardNode: SKNode {
             return nil
         }
 
-        let laneText = "Open: \(scout.exposedLane.displayName)"
-        guard footerMeasure(laneText) <= layout.exposedLaneFrame.width else {
+        // Measured lane footer (HPA-468): the pilot tactical footer and the
+        // plain `Open: <lane>` copy share the same fitter with the approved
+        // 8pt minimum. The guard fails closed when even the minimum cannot
+        // fit the existing frame — the card path's explicit size gate.
+        let laneText = scout.tacticalFooter ?? "Open: \(scout.exposedLane.displayName)"
+        guard let laneFontSize = CountryMapScoutCardTextLayout.fittedFontSize(
+            laneText,
+            startingAt: metrics.footerSize,
+            minimum: 8,
+            maximumWidth: layout.exposedLaneFrame.width,
+            measure: { text, size in
+                self.measure(fontName: GameUITheme.Font.medium, size: size)?(text)
+                    ?? .greatestFiniteMagnitude
+            }
+        ) else {
             return nil
         }
 
@@ -459,6 +474,7 @@ final class CountryMapScoutCardNode: SKNode {
             favorableItems: favorableItems,
             disadvantagedItems: disadvantagedItems,
             laneText: laneText,
+            laneFontSize: laneFontSize,
             cityImage: cityImage,
             cityAssetName: cityImage == nil ? nil : cityAssetName,
             goldImage: goldImage,
@@ -689,7 +705,7 @@ final class CountryMapScoutCardNode: SKNode {
         #endif
 
         laneLabel.text = prepared.laneText
-        laneLabel.fontSize = prepared.metrics.footerSize
+        laneLabel.fontSize = prepared.laneFontSize
         laneLabel.position = CGPoint(x: layout.exposedLaneFrame.maxX, y: layout.exposedLaneFrame.midY)
 
         renderAction(
@@ -1157,6 +1173,10 @@ extension CountryMapScoutCardNode {
 
     var laneTextForTesting: String? {
         laneLabel.text
+    }
+
+    var laneFontSizeForTesting: CGFloat? {
+        laneLabel.text == nil ? nil : laneLabel.fontSize
     }
 
     var rewardTextForTesting: String? {

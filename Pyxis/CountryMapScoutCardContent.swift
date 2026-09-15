@@ -18,6 +18,11 @@ enum CountryMapScoutCardContent: Equatable {
         let exposedLane: BattleLane
         let goldReward: Int
         let flavorText: String
+        /// Concise tactical objective summary for cities whose authored siege
+        /// layout has support objectives (HPA-468 pilot), e.g.
+        /// `L Tower · C/R Gate` for Falconridge. `nil` for single-Keep cities;
+        /// the node then renders `Open: <exposed lane>`.
+        let tacticalFooter: String?
         let status: CountryMapScoutStatus
 
         var actionTitle: String? {
@@ -38,6 +43,7 @@ enum CountryMapScoutCardContent: Equatable {
             exposedLane: BattleLane,
             goldReward: Int,
             flavorText: String,
+            tacticalFooter: String? = nil,
             status: CountryMapScoutStatus = .attackable
         ) {
             self.cityNumber = cityNumber
@@ -46,6 +52,7 @@ enum CountryMapScoutCardContent: Equatable {
             self.exposedLane = exposedLane
             self.goldReward = goldReward
             self.flavorText = flavorText
+            self.tacticalFooter = tacticalFooter
             self.status = status
         }
 
@@ -99,8 +106,49 @@ enum CountryMapScoutCardContent: Equatable {
                 exposedLane: definition.laneDefenseProfile.exposedLane,
                 goldReward: KingdomGameState.goldReward(for: cityNumber),
                 flavorText: definition.flavorText,
+                tacticalFooter: tacticalFooter(for: definition.siegeLayout),
                 status: status
             )
         )
+    }
+
+    /// Derives the concise tactical footer from an authored siege layout:
+    /// one entry per support objective, lanes joined `/` and kinds abbreviated
+    /// (`L Tower · C/R Gate` for Falconridge). Single-Keep layouts have no
+    /// support objectives and derive `nil`. Route membership (each lane's
+    /// authored route containing the objective's stable ID) is the single
+    /// source for lane letters, so the footer always matches the routes
+    /// combat and the Battle scene render from.
+    static func tacticalFooter(for layout: CitySiegeLayout) -> String? {
+        let supportObjectives = layout.objectives.filter { $0.kind != .keep }
+        guard !supportObjectives.isEmpty else { return nil }
+        return supportObjectives.map { objective -> String in
+            let lanes = BattleLane.allCases.filter { lane in
+                layout.routes[lane]?.contains(objective.id) == true
+            }
+            let laneLetters = lanes.map(\.tacticalLetter).joined(separator: "/")
+            return "\(laneLetters) \(objective.kind.tacticalName)"
+        }
+        .joined(separator: " · ")
+    }
+}
+
+private extension BattleLane {
+    var tacticalLetter: String {
+        switch self {
+        case .left: return "L"
+        case .center: return "C"
+        case .right: return "R"
+        }
+    }
+}
+
+private extension CitySiegeLayout.ObjectiveKind {
+    var tacticalName: String {
+        switch self {
+        case .keep: return "Keep"
+        case .gate: return "Gate"
+        case .arrowTower: return "Tower"
+        }
     }
 }

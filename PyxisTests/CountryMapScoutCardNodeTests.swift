@@ -64,6 +64,69 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.overlayHitFrame == nil)
     }
 
+    @Test func falconridgeScoutRendersMeasuredTacticalFooterOnPhone() throws {
+        let spy = ScoutCardImageLoaderSpy(images: completeImageSet())
+        let node = CountryMapScoutCardNode(imageLoader: spy.load)
+        let layout = try scoutCardLayout(named: "small phone")
+        guard case .scout(let falconridge) = CountryMapScoutCardContent.project(from: KingdomGameState(
+            cityLevel: 3,
+            cityNumberInCountry: 3,
+            completedCityCount: 2
+        )) else {
+            Issue.record("Expected Falconridge Scout projection")
+            return
+        }
+
+        // Presented means the measured footer fit the existing lane frame —
+        // the lane guard fails closed otherwise.
+        #expect(node.apply(content: .scout(falconridge), layout: layout, isEntryEnabled: true) == .presented)
+        #expect(node.laneTextForTesting == "L Tower · C/R Gate")
+        let laneFontSize = try #require(node.laneFontSizeForTesting)
+        #expect(laneFontSize <= 13)
+        #expect(laneFontSize >= 8)
+    }
+
+    @Test func falconridgeFooterShrinksToFittedSizeOnPadWithoutFailingClosed() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = try scoutCardLayout(named: "narrow iPad")
+        guard case .scout(let falconridge) = CountryMapScoutCardContent.project(from: KingdomGameState(
+            cityLevel: 3,
+            cityNumberInCountry: 3,
+            completedCityCount: 2
+        )) else {
+            Issue.record("Expected Falconridge Scout projection")
+            return
+        }
+
+        #expect(node.apply(content: .scout(falconridge), layout: layout, isEntryEnabled: true) == .presented)
+        #expect(node.laneTextForTesting == "L Tower · C/R Gate")
+        let laneFontSize = try #require(node.laneFontSizeForTesting)
+        #expect(laneFontSize >= 8)
+        #expect(laneFontSize <= 11)
+    }
+
+    @Test func compactPhoneFalconridgeCardStillPresents() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 34, width: 343, height: 48),
+            layoutClass: .phone
+        )
+        guard case .scout(let falconridge) = CountryMapScoutCardContent.project(from: KingdomGameState(
+            cityLevel: 3,
+            cityNumberInCountry: 3,
+            completedCityCount: 2
+        )) else {
+            Issue.record("Expected Falconridge Scout projection")
+            return
+        }
+
+        #expect(node.apply(content: .scout(falconridge), layout: layout, isEntryEnabled: true) == .presented)
+        #expect(node.titleTextForTesting == falconridge.displayTitle)
+        #expect(node.attackTextForTesting == "RETURN")
+        #expect(node.attackHitFrame == layout.attackFrame)
+        #expect(node.laneTextForTesting == nil)
+    }
+
     @Test func footerReadbackAndVisibleTextIncludeTraitMultipliers() throws {
         let spy = ScoutCardImageLoaderSpy(images: completeImageSet())
         let node = CountryMapScoutCardNode(imageLoader: spy.load)

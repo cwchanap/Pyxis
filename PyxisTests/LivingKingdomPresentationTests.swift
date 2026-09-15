@@ -32,23 +32,69 @@ struct LivingKingdomPresentationTests {
     }
 
     @Test(arguments: [
-        (56, LivingKingdomPresentation.FortressStage.intact),
-        (55, .damaged),
-        (24, .damaged),
-        (23, .breached)
+        (46, LivingKingdomPresentation.FortressStage.intact),
+        (28, .intact),
+        (27, .damaged),
+        (12, .damaged),
+        (11, .breached),
+        (1, .breached),
+        (0, .conquered)
     ])
-    func cityThreeUsesRealIntegerBoundaries(
+    func cityThreeUsesKeepMaxFortySixBoundaries(
         remaining: Int,
         expected: LivingKingdomPresentation.FortressStage
     ) {
-        let maximum = KingdomGameState.cityMaxPower(for: 3)
-        #expect(maximum == 92)
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46)
+        let maximum = state.currentKeepMaxPower
+        #expect(maximum == 46)
         #expect(LivingKingdomPresentation.battle(
             cityNumber: 3,
             remainingHP: remaining,
             maxHP: maximum,
             hasPendingConquest: false
         ).stage == expected)
+    }
+
+    @Test func freshFalconridgeKeepProjectsIntactFortySixOfFortySix() {
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 46)
+
+        #expect(state.currentKeepMaxPower == 46)
+        #expect(state.currentKeepRemainingPower == 46)
+        #expect(LivingKingdomPresentation.battle(
+            cityNumber: 3,
+            remainingHP: state.currentKeepRemainingPower,
+            maxHP: state.currentKeepMaxPower,
+            hasPendingConquest: false
+        ).stage == .intact)
+    }
+
+    @Test func falconridgeSupportObjectiveDamageDoesNotChangeFortressStage() {
+        // Gate (23) and Tower (23) fully destroyed; the Keep stays untouched.
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 46,
+            supportDamage: [.gate: 23, .arrowTower: 23]
+        )
+
+        #expect(state.currentKeepRemainingPower == 46)
+        #expect(LivingKingdomPresentation.battle(
+            cityNumber: 3,
+            remainingHP: state.currentKeepRemainingPower,
+            maxHP: state.currentKeepMaxPower,
+            hasPendingConquest: false
+        ).stage == .intact)
+    }
+
+    @Test func nonPilotSingleKeepCitiesKeepMaxEqualsTotalCityPower() {
+        for city in Country1CityCatalog.cityRange where city != 3 {
+            let state = SiegeTestSupport.makeBattleState(
+                atCity: city,
+                keepRemaining: KingdomGameState.cityMaxPower(for: city)
+            )
+
+            #expect(state.currentKeepMaxPower == state.cityMaxPower)
+            #expect(state.currentKeepRemainingPower == state.cityMaxPower)
+        }
     }
 
     @Test func pendingConquestProjectsConqueredStageEvenWithPositiveHP() {
