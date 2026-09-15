@@ -1689,10 +1689,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             targetSize: CGSize(width: width, height: height),
             intactColor: SKColor(red: 0.55, green: 0.38, blue: 0.20, alpha: 1),
             ruinedColor: SKColor(red: 0.30, green: 0.24, blue: 0.18, alpha: 1),
-            isRuined: isRuined,
-            centered: true
+            isRuined: isRuined
         )
         structure.name = SiegeObjectiveNodeName.structure
+        // Bottom-center anchor per the HPA-476 contract: sink the structure
+        // so its base sits at the bottom of the authored span, leaving the
+        // rendered gate straddling the route line exactly as before.
+        structure.position = CGPoint(x: 0, y: -height / 2)
         container.addChild(structure)
 
         if isRuined {
@@ -1711,21 +1714,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     /// Builds one objective structure: the HPA-476 semantic asset when
     /// installed (bottom-center anchor, `-ruined` variant for destroyed
-    /// objectives), otherwise a procedural shape fallback. Canvas sizes are
-    /// HPA-476's call; this scene never pins pixel dimensions.
+    /// objectives), otherwise a procedural shape fallback that rises from
+    /// the node origin like bottom-anchored art. Canvas sizes are HPA-476's
+    /// call; this scene never pins pixel dimensions.
     private func makeSiegeStructure(
         assetName: String,
         targetSize: CGSize,
         intactColor: SKColor,
         ruinedColor: SKColor,
-        isRuined: Bool,
-        centered: Bool = false
+        isRuined: Bool
     ) -> SKNode {
         let variantName = isRuined ? assetName + "-ruined" : assetName
         if let image = UIImage(named: variantName) {
             let sprite = SKSpriteNode(texture: SKTexture(image: image))
             // Bottom-center anchor per the placeholder contract.
-            sprite.anchorPoint = CGPoint(x: 0.5, y: centered ? 0.5 : 0)
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
             let scale = min(
                 targetSize.width / max(1, image.size.width),
                 targetSize.height / max(1, image.size.height)
@@ -1734,14 +1737,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return sprite
         }
 
-        let rect = centered
-            ? CGRect(
-                x: -targetSize.width / 2,
-                y: -targetSize.height / 2,
-                width: targetSize.width,
-                height: targetSize.height
-            )
-            : CGRect(x: -targetSize.width / 2, y: 0, width: targetSize.width, height: targetSize.height)
+        let rect = CGRect(x: -targetSize.width / 2, y: 0, width: targetSize.width, height: targetSize.height)
         let shape = SKShapeNode(rect: rect, cornerRadius: 4)
         shape.fillColor = isRuined ? ruinedColor : intactColor
         shape.strokeColor = SKColor(white: 1.0, alpha: 0.25)
