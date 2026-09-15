@@ -100,6 +100,11 @@ struct KingdomGameState: Codable, Equatable {
 
     var gold: Int
     var cityLevel: Int
+    // HPA-468 Task 5.5: transitional scalar kept only for untouched
+    // HUD/fixture readers. Keep HP (`currentKeepRemainingPower`, derived from
+    // `siegeProgress`) is the sole conquest/liveness authority; this scalar
+    // no longer decides targets or conquest and must be deleted with Task 4's
+    // HUD re-feed.
     var cityRemainingPower: Int
     var siegeProgress: SiegeProgress
     var normalSoldierUpgradeLevel: Int
@@ -490,6 +495,11 @@ struct KingdomGameState: Codable, Equatable {
         }
     }
 
+    /// Applies live soldier attacks against their authored objectives
+    /// (HPA-468): unknown objective IDs are rejected, damage clamps to each
+    /// objective's remaining HP, and existing siege attribution records the
+    /// clamped amounts. Conquest finalizes exactly once when Keep HP reaches
+    /// zero — never off the legacy scalar.
     @discardableResult
     mutating func applyLiveSoldierAttacks(_ events: [SoldierAttackEvent]) -> AttackResult {
         guard stageStatus == .battleActive else {
@@ -499,11 +509,12 @@ struct KingdomGameState: Codable, Equatable {
         var totalApplied = 0
 
         for event in events {
-            let applied = min(max(0, event.appliedCityDamage), cityRemainingPower)
+            let applied = clampedObjectiveDamage(event.appliedCityDamage, objectiveID: event.objectiveID)
             guard applied > 0 else {
                 continue
             }
 
+            siegeProgress.damageByObjectiveID[event.objectiveID, default: 0] += applied
             mutateActiveSiegeSession { session in
                 session.recordAttack(
                     SoldierAttackEvent(
@@ -511,19 +522,20 @@ struct KingdomGameState: Codable, Equatable {
                         type: event.type,
                         source: event.source,
                         lane: event.lane,
+                        objectiveID: event.objectiveID,
                         appliedCityDamage: applied
                     )
                 )
             }
-            cityRemainingPower -= applied
             totalApplied += applied
 
-            if cityRemainingPower <= 0 {
+            if currentKeepRemainingPower <= 0 {
                 break
             }
         }
 
-        guard cityRemainingPower <= 0 else {
+        guard totalApplied > 0,
+              currentKeepRemainingPower <= 0 else {
             return AttackResult(
                 attackApplied: true,
                 damageDealt: totalApplied,
@@ -532,12 +544,7 @@ struct KingdomGameState: Codable, Equatable {
             )
         }
 
-        let reward = currentGoldReward
-        let cityKey = currentCityKey
-        ensureSession()
-        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: cityKey))
-            .finalized(conquestMode: .live, goldEarned: reward)
-        let completion = completeCurrentCity(with: result)
+        let completion = finalizeConquestWhenKeepDestroyed(conquestMode: .live)
 
         return AttackResult(
             attackApplied: true,
@@ -687,41 +694,48 @@ struct KingdomGameState: Codable, Equatable {
         }
     }
 
-    /// Applies abstract building-spawn damage with per-type idle attribution.
+    /// Applies abstract building-spawn damage with per-type idle attribution
+    /// (HPA-468 §3.6): each spawn becomes one trait-adjusted damage budget
+    /// spent down the selected route — the first living objective absorbs up
+    /// to its remaining HP and the remainder spills only after it dies.
+    /// Conquest is keyed on Keep HP alone. The 8-hour cap, 1/10 rate,
+    /// no-buildings/no-progress rule, at-most-one-city conquest, and reward/
+    /// report semantics live in the callers and are unchanged.
     /// Returns (totalApplied, conquered, goldEarned).
     private mutating func applyAbstractBuildingSpawnDamage(
         _ spawns: [BuildingSpawn],
         conquestMode: BattleConquestMode
     ) -> (applied: Int, conquered: Bool, goldEarned: Int) {
         var appliedTotal = 0
+        var damageByObjectiveID = siegeProgress.damageByObjectiveID
 
         for spawn in spawns {
-            guard cityRemainingPower > 0 else { break }
-
             let power = traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
-            let applied = min(max(0, power), cityRemainingPower)
+            guard power > 0 else { continue }
+
+            let (spentDamage, appliedByObjectiveID) = currentSiegeLayout.spendDamageBudget(
+                power,
+                along: siegeProgress.selectedLane,
+                maxPowers: currentSiegeMaxPowers,
+                damageByObjectiveID: damageByObjectiveID
+            )
+            damageByObjectiveID = spentDamage
+
+            let applied = appliedByObjectiveID.values.reduce(0, +)
             guard applied > 0 else { continue }
 
             mutateActiveSiegeSession { session in
                 session.recordIdleDamage(type: spawn.soldierType, appliedDamage: applied)
             }
-            cityRemainingPower -= applied
             appliedTotal += applied
         }
+        siegeProgress.damageByObjectiveID = damageByObjectiveID
 
-        guard cityRemainingPower <= 0 else {
+        guard appliedTotal > 0 else {
             return (appliedTotal, false, 0)
         }
 
-        let reward = currentGoldReward
-        let cityKey = currentCityKey
-        ensureSession()
-        let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: cityKey))
-            .finalized(
-                conquestMode: conquestMode,
-                goldEarned: reward
-            )
-        let completion = completeCurrentCity(with: result)
+        let completion = finalizeConquestWhenKeepDestroyed(conquestMode: conquestMode)
         return (appliedTotal, completion.awarded, completion.goldEarned)
     }
 
@@ -851,23 +865,26 @@ struct KingdomGameState: Codable, Equatable {
             return 0
         }
 
-        let maxPowers = currentSiegeMaxPowers
-        guard maxPowers[objectiveID] != nil else {
-            return 0
-        }
-
-        var damageByObjectiveID = siegeProgress.damageByObjectiveID
-        let remaining = max(0, (maxPowers[objectiveID] ?? 0) - (damageByObjectiveID[objectiveID] ?? 0))
-        let applied = min(requestedDamage, remaining)
+        let applied = clampedObjectiveDamage(requestedDamage, objectiveID: objectiveID)
         guard applied > 0 else {
             return 0
         }
 
-        damageByObjectiveID[objectiveID, default: 0] += applied
-        siegeProgress.damageByObjectiveID = damageByObjectiveID
+        siegeProgress.damageByObjectiveID[objectiveID, default: 0] += applied
 
         finalizeConquestWhenKeepDestroyed(conquestMode: .live)
         return applied
+    }
+
+    /// Damage actually absorbed by `objectiveID`, clamped to its remaining
+    /// HP; unknown IDs absorb nothing.
+    private func clampedObjectiveDamage(_ requestedDamage: Int, objectiveID: String) -> Int {
+        let maxPowers = currentSiegeMaxPowers
+        guard let maxPower = maxPowers[objectiveID] else {
+            return 0
+        }
+        let remaining = max(0, maxPower - (siegeProgress.damageByObjectiveID[objectiveID] ?? 0))
+        return min(max(0, requestedDamage), remaining)
     }
 
     /// Spends an abstract (idle) damage budget down `lane`'s authored route
@@ -898,9 +915,9 @@ struct KingdomGameState: Codable, Equatable {
     /// optional structures are never fabricated destroyed. Later calls are
     /// no-ops via the stage gate in `completeCurrentCity`.
     @discardableResult
-    private mutating func finalizeConquestWhenKeepDestroyed(conquestMode: BattleConquestMode) -> Bool {
+    private mutating func finalizeConquestWhenKeepDestroyed(conquestMode: BattleConquestMode) -> CompletionResult {
         guard stageStatus == .battleActive, currentKeepRemainingPower <= 0 else {
-            return false
+            return CompletionResult(awarded: false, goldEarned: 0)
         }
 
         let reward = currentGoldReward
@@ -908,7 +925,7 @@ struct KingdomGameState: Codable, Equatable {
         ensureSession()
         let result = (activeSiegeSession ?? ActiveSiegeSession(cityKey: cityKey))
             .finalized(conquestMode: conquestMode, goldEarned: reward)
-        return completeCurrentCity(with: result).awarded
+        return completeCurrentCity(with: result)
     }
 
     @discardableResult
@@ -1005,6 +1022,22 @@ struct KingdomGameState: Codable, Equatable {
         currentSiegeLayout.keepRemainingPower(
             maxPowers: currentSiegeMaxPowers,
             damageByObjectiveID: siegeProgress.damageByObjectiveID
+        )
+    }
+
+    /// Ephemeral current-siege snapshot for the live combat simulator
+    /// (HPA-468): the authored layout plus each objective's remaining HP,
+    /// rebuilt from persisted progress on every read. Combat never writes
+    /// objective damage itself; `applyLiveSoldierAttacks` owns that.
+    var currentSiegeSnapshot: BattleCombatState.SiegeSnapshot {
+        let layout = currentSiegeLayout
+        let maxPowers = currentSiegeMaxPowers
+        return BattleCombatState.SiegeSnapshot(
+            layout: layout,
+            objectiveRemainingPower: layout.remainingPower(
+                maxPowers: maxPowers,
+                damageByObjectiveID: siegeProgress.damageByObjectiveID
+            )
         )
     }
 

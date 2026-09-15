@@ -10,6 +10,11 @@ struct SoldierAttackEvent: Equatable {
     let type: SoldierType
     let source: SoldierSpawnSource
     let lane: BattleLane
+    /// The authored objective this attack landed on (HPA-468). Transitional
+    /// empty default exists only for untouched compile-continuity callers;
+    /// Task 5.5 removes it.
+    var objectiveID: String = ""
+    // HPA-468 Task 5.5: rename `appliedCityDamage` to `appliedDamage`.
     let appliedCityDamage: Int
 }
 
@@ -80,6 +85,15 @@ struct BattleCombatState: Equatable {
         }
     }
 
+    /// Ephemeral per-tick siege input (HPA-468): the authored layout plus
+    /// each objective's current remaining HP, projected by `KingdomGameState`.
+    /// `tick` may mutate a local copy to prevent same-tick overkill; the
+    /// persisted damage stays in `KingdomGameState`.
+    struct SiegeSnapshot: Equatable {
+        let layout: CitySiegeLayout
+        let objectiveRemainingPower: [String: Int]
+    }
+
     struct Soldier: Equatable, Identifiable {
         let id: SoldierID
         let type: SoldierType
@@ -107,7 +121,6 @@ struct BattleCombatState: Equatable {
     }
 
     struct TickResult: Equatable {
-        var cityDamage: Int = 0
         var didReachConquest = false
         var soldierAttacks: [SoldierAttackEvent] = []
         var towerShots: [TowerShot] = []
@@ -133,10 +146,6 @@ struct BattleCombatState: Equatable {
         self.init(configuration: configuration, seed: UInt64.random(in: .min ... .max))
     }
 
-    init(cityLevel: Int) {
-        self.init(configuration: .live(cityLevel: cityLevel))
-    }
-
     var livingSoldierCount: Int {
         soldiers.filter(\.isAlive).count
     }
@@ -145,23 +154,21 @@ struct BattleCombatState: Equatable {
         soldiers.filter { $0.isAlive && $0.source == source }.count
     }
 
-    @discardableResult
-    mutating func spawnSoldier(attackPower: Int) -> SoldierID {
-        spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: attackPower)
-    }
-
+    /// Every spawn carries an explicit lane (HPA-468 §3.4): production and
+    /// tests pass `siegeProgress.selectedLane`. There is no random-lane
+    /// fallback; RNG is reserved for true randoms such as choosing among
+    /// multiple occupied defensive-fire lanes.
     @discardableResult
     mutating func spawnSoldier(
         type: SoldierType,
         source: SoldierSpawnSource,
         level: Int,
         attackPower: Int,
-        lane: BattleLane? = nil
+        lane: BattleLane
     ) -> SoldierID {
         let id = nextSoldierID
         nextSoldierID += 1
 
-        let assignedLane = lane ?? (BattleLane.allCases.randomElement(using: &rng) ?? .center)
         let clampedLevel = max(1, level)
         let maxHP = maxHP(for: type, level: clampedLevel)
         soldiers.append(
@@ -170,7 +177,7 @@ struct BattleCombatState: Equatable {
                 type: type,
                 source: source,
                 level: clampedLevel,
-                lane: assignedLane,
+                lane: lane,
                 maxHP: maxHP,
                 currentHP: maxHP,
                 defense: max(0, configuration.soldierDefense),
@@ -190,18 +197,27 @@ struct BattleCombatState: Equatable {
         soldiers.first { $0.id == id }
     }
 
+    /// Advances one combat tick against the ephemeral siege snapshot.
+    /// Soldiers target the first living objective along their own route,
+    /// stop at `target.visualProgress - attackRange`, and mutate a local
+    /// copy of the objective HP so same-tick attacks can never overkill one
+    /// objective. `didReachConquest` means the local Keep reached zero; the
+    /// persisted damage is applied by `KingdomGameState` from the returned
+    /// events.
     @discardableResult
-    mutating func tick(deltaTime rawDeltaTime: Double, cityRemainingHP: Int) -> TickResult {
+    mutating func tick(deltaTime rawDeltaTime: Double, siege snapshot: SiegeSnapshot) -> TickResult {
         let deltaTime = clampedDeltaTime(rawDeltaTime)
-        guard deltaTime > 0, cityRemainingHP > 0 else {
+        let keepID = snapshot.layout.keepObjective.id
+        guard deltaTime > 0, snapshot.objectiveRemainingPower[keepID, default: 0] > 0 else {
             return TickResult()
         }
 
         var result = TickResult()
-        var remainingCityHP = max(0, cityRemainingHP)
+        var objectiveRemaining = snapshot.objectiveRemainingPower
 
         towerCooldownRemaining = max(0, towerCooldownRemaining - deltaTime)
-        if towerCooldownRemaining <= 0, let targetIndex = towerTargetIndex() {
+        if towerCooldownRemaining <= 0,
+           let targetIndex = defensiveFireTargetIndex(snapshot: snapshot, objectiveRemaining: objectiveRemaining) {
             let damage = damageAgainstSoldier(soldiers[targetIndex])
             soldiers[targetIndex].currentHP = max(0, soldiers[targetIndex].currentHP - damage)
             let soldierID = soldiers[targetIndex].id
@@ -224,31 +240,39 @@ struct BattleCombatState: Equatable {
         }
 
         for index in soldiers.indices where soldiers[index].isAlive {
-            advanceMovement(forSoldierAt: index, deltaTime: deltaTime)
+            let targetID = snapshot.layout.routes[soldiers[index].lane]?
+                .first { objectiveRemaining[$0, default: 0] > 0 }
+            let targetProgress = targetID.flatMap { snapshot.layout.objective(id: $0)?.visualProgress }
 
-            guard isInAttackRange(soldiers[index]) else {
+            advanceMovement(forSoldierAt: index, targetProgress: targetProgress, deltaTime: deltaTime)
+
+            guard let targetID,
+                  let targetProgress,
+                  isInAttackRange(soldiers[index], objectiveProgress: targetProgress) else {
                 continue
             }
 
             soldiers[index].attackCooldownRemaining -= deltaTime
 
             if soldiers[index].attackCooldownRemaining <= 0 {
-                let appliedDamage = min(soldiers[index].attackPower, remainingCityHP)
-                result.cityDamage += appliedDamage
-                result.soldierAttacks.append(
-                    SoldierAttackEvent(
-                        soldierID: soldiers[index].id,
-                        type: soldiers[index].type,
-                        source: soldiers[index].source,
-                        lane: soldiers[index].lane,
-                        appliedCityDamage: appliedDamage
+                let appliedDamage = min(soldiers[index].attackPower, objectiveRemaining[targetID, default: 0])
+                if appliedDamage > 0 {
+                    objectiveRemaining[targetID, default: 0] -= appliedDamage
+                    result.soldierAttacks.append(
+                        SoldierAttackEvent(
+                            soldierID: soldiers[index].id,
+                            type: soldiers[index].type,
+                            source: soldiers[index].source,
+                            lane: soldiers[index].lane,
+                            objectiveID: targetID,
+                            appliedCityDamage: appliedDamage
+                        )
                     )
-                )
-                remainingCityHP -= appliedDamage
-                soldiers[index].attackCooldownRemaining += attackInterval(forSoldier: soldiers[index])
+                    soldiers[index].attackCooldownRemaining += attackInterval(forSoldier: soldiers[index])
+                }
             }
 
-            if remainingCityHP <= 0 {
+            if objectiveRemaining[keepID, default: 0] <= 0 {
                 result.didReachConquest = true
                 break
             }
@@ -341,29 +365,50 @@ struct BattleCombatState: Equatable {
         }
     }
 
-    private mutating func advanceMovement(forSoldierAt index: Int, deltaTime: Double) {
-        guard !isInAttackRange(soldiers[index]) else {
+    private mutating func advanceMovement(forSoldierAt index: Int, targetProgress: Double?, deltaTime: Double) {
+        guard let targetProgress else {
             return
         }
 
-        let attackPosition = max(0, 1.0 - soldiers[index].attackRange)
+        let stopPosition = max(0, targetProgress - soldiers[index].attackRange)
+        guard soldiers[index].position < stopPosition else {
+            return
+        }
+
         soldiers[index].position = min(
-            attackPosition,
+            stopPosition,
             soldiers[index].position + soldiers[index].movementSpeed * deltaTime
         )
     }
 
-    private func isInAttackRange(_ soldier: Soldier) -> Bool {
-        soldier.position >= 1.0 - soldier.attackRange
+    private func isInAttackRange(_ soldier: Soldier, objectiveProgress: Double) -> Bool {
+        soldier.position >= max(0, objectiveProgress - soldier.attackRange)
     }
 
     private func attackInterval(forSoldier soldier: Soldier) -> Double {
         1.0 / max(0.1, soldier.attackSpeed)
     }
 
-    private mutating func towerTargetIndex() -> Int? {
+    /// Foremost living soldier among the defensive fire's covered, in-range
+    /// lanes (HPA-468 §3.3). The source must still be alive; range is
+    /// source-relative: `position >= max(0, sourceProgress - towerAttackRange)`.
+    /// RNG is consumed only when several occupied lanes force a real choice.
+    private mutating func defensiveFireTargetIndex(
+        snapshot: SiegeSnapshot,
+        objectiveRemaining: [String: Int]
+    ) -> Int? {
+        let sourceID = snapshot.layout.defensiveFire.sourceObjectiveID
+        guard objectiveRemaining[sourceID, default: 0] > 0,
+              let source = snapshot.layout.objective(id: sourceID) else {
+            return nil
+        }
+
+        let coveredLanes = Set(snapshot.layout.defensiveFire.coveredLanes)
+        let threshold = max(0, source.visualProgress - configuration.towerAttackRange)
         let inRangeIndices = soldiers.indices.filter {
-            soldiers[$0].isAlive && isInTowerRange(soldiers[$0])
+            soldiers[$0].isAlive
+                && coveredLanes.contains(soldiers[$0].lane)
+                && soldiers[$0].position >= threshold
         }
         guard !inRangeIndices.isEmpty else {
             return nil
@@ -381,10 +426,6 @@ struct BattleCombatState: Equatable {
         return inRangeIndices
             .filter { soldiers[$0].lane == targetLane }
             .max { soldiers[$0].position < soldiers[$1].position }
-    }
-
-    private func isInTowerRange(_ soldier: Soldier) -> Bool {
-        soldier.position >= 1.0 - configuration.towerAttackRange
     }
 
     private func damageAgainstSoldier(_ soldier: Soldier) -> Int {

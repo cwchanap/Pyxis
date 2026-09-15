@@ -40,6 +40,36 @@ struct BattleResultModelsTests {
         ])
     }
 
+    @Test func objectiveAwareAttackEventsStillAttributeByTypeSourceLane() {
+        var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 3))
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: "falconridge.ridge-gate",
+                appliedCityDamage: 3
+            )
+        )
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 2,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: "falconridge.keep",
+                appliedCityDamage: 4
+            )
+        )
+
+        // Objective identity routes the damage; siege attribution stays
+        // keyed by type/source/lane and merges across objectives.
+        #expect(session.appliedDamage == [
+            SiegeDamageAttribution(type: .infantry, source: .manual, lane: .center, damage: 7)
+        ])
+    }
+
     @Test func markersDoNotFlipFromDamageAlone() {
         var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 2))
         session.recordAttack(

@@ -1618,7 +1618,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 type: spawn.soldierType,
                 source: .building,
                 level: spawn.level,
-                attackPower: state.traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
+                attackPower: state.traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level),
+                lane: state.siegeProgress.selectedLane
             )
             if let soldier = combat.soldier(id: soldierID) {
                 state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
@@ -1660,7 +1661,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // tick hasn't authorized. Building spawn resolution also uses the raw
         // `deltaTime` so production reflects real elapsed time during stalls.
         decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
-        let result = combat.tick(deltaTime: deltaTime, cityRemainingHP: state.cityRemainingPower)
+        let result = combat.tick(deltaTime: deltaTime, siege: state.currentSiegeSnapshot)
         feedback.emitAutomaticCombat(result)
         applyCombatResult(result)
         syncSoldierNodes()
@@ -1829,7 +1830,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             attackPower: state.traitAdjustedSoldierAttackPower(
                 for: selectedManualSoldierType,
                 level: manualSoldierLevel
-            )
+            ),
+            lane: state.siegeProgress.selectedLane
         )
         if let soldier = combat.soldier(id: soldierID) {
             state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
