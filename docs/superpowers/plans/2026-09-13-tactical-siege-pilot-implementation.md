@@ -11,9 +11,27 @@
 - Do not create another Linear issue for implementation.
 - HPA-476 remains the only image-generation/art-production task; HPA-468 uses procedural placeholders.
 - Do not edit `project.pbxproj`; synchronized source groups pick up files automatically.
-- Keep rules/layout math in pure Swift values and keep SpriteKit as renderer/input owner.
-- Old development saves may reset. Do not add migration or compatibility layers.
-- Do not preserve a scalar HP authority or RNG lane-spawn path merely to reduce test churn.
+- Keep gameplay/layout rules in pure Swift values and SpriteKit as renderer/input owner.
+- Old development saves may reset; no migration/compatibility framework.
+- Final production must have one Keep authority and one selected-lane spawn path.
+- **Every checkpoint must compile the app target.** Temporary scalar fields may remain only until the final cleanup task so intermediate test gates are real; they are not final compatibility APIs.
+
+## Task 0 — Freeze the balance baseline before changing combat
+
+Before implementation changes the City 3 loop, record one current-`main` Falconridge run with a fixed camp/loadout that can be reproduced on the feature branch.
+
+Record:
+
+- camp/buildings/upgrades;
+- route is irrelevant on current `main` because production lane assignment is random;
+- active battle elapsed time from existing result/session data;
+- soldier losses from existing result/session data.
+
+This is not a release gate by itself. It provides the quantitative reference needed because the authored 46/23/23 layout has 69 raw route HP versus today's 92 scalar HP while source-relative Tower fire begins earlier.
+
+Do not add telemetry or a benchmark harness. A reproducible DEBUG/manual setup + compact note in the PR is enough.
+
+---
 
 ## Task 1 — Add the fail-closed authored siege model
 
@@ -25,227 +43,214 @@
 - Create `PyxisTests/SiegeStateTests.swift`
 - Modify `PyxisTests/Country1CityCatalogTests.swift`
 
-### 1.1 Red tests: authored invariants and route math
+### 1.1 Red tests: construction and route math
 
 Cover:
 
-- exactly one Keep is required;
-- objective IDs are unique/non-empty;
-- weights are positive;
-- objective and route progress are within `0...1`;
-- each route is non-empty, references existing objective IDs, and ends at the one Keep;
-- default lane has a route;
-- defensive-fire source exists and coverage lanes contain no duplicates;
-- invalid authored layouts precondition/fail immediately rather than silently normalizing;
-- `singleKeep(defaultLane:)` creates a valid one-Keep layout for all three routes;
-- max-HP allocation sums exactly to `KingdomGameState.cityMaxPower(for:)` and gives integer remainder to Keep;
-- first-live-step lookup respects ordered blockers;
-- damage-budget spend carries spillover only after the current route objective dies.
+- exactly one Keep;
+- objective IDs unique/non-empty;
+- positive durability weights;
+- objective `visualProgress` within `0...1`;
+- routes contain exactly all three `BattleLane` values;
+- every route non-empty, references existing IDs, ends at the one Keep, and is non-decreasing by referenced objective progress;
+- default lane is valid;
+- defensive-fire source exists; coverage is non-empty and duplicate-free;
+- invalid authored layouts fail immediately;
+- `.singleKeep(defaultLane:)` emits valid total three-lane content;
+- max-HP allocation sums exactly to `cityMaxPower` and remainder goes to Keep;
+- first-live-target lookup respects route order;
+- damage-budget spend spills only after the current objective dies.
 
-Falconridge catalog pins:
+Falconridge pins:
 
-- objective IDs: `falconridge.keep`, `falconridge.arrow-tower`, `falconridge.ridge-gate`;
-- HP allocation: Keep 46 / Tower 23 / Gate 23;
-- left: Tower `0.68` → Keep `1.0`;
-- center/right: Gate `0.58` → Keep `1.0`;
+- `falconridge.keep`, `falconridge.arrow-tower`, `falconridge.ridge-gate`;
+- 46 / 23 / 23 allocation from total 92;
+- left route Tower → Keep;
+- center/right routes Gate → Keep;
+- objective positions: Tower `0.68`, Gate `0.58`, Keep `1.0`;
 - default center;
-- Tower source covers all three lanes;
-- other 14 cities use `singleKeep`.
+- Tower fire covers all three lanes;
+- other 14 cities use `.singleKeep`.
 
-### 1.2 Implement only the needed pure values
+### 1.2 Implement the minimum values
 
-`SiegeState.swift` owns:
+`CitySiegeLayout.routes` is `[BattleLane: [String]]`: ordered stable objective IDs only. Do **not** add `RouteStep.progress`; resolve geometry from `Objective.visualProgress`.
 
-- `CitySiegeLayout` + nested objective/route/defensive-fire values;
-- invariant-checking initializer;
+Keep stable string IDs. Do **not** key persistence by `ObjectiveKind`: repeated Gates/Towers are allowed by the ticket/future rollout, so kind is category, not identity.
+
+`SiegeState.swift` owns only:
+
+- `CitySiegeLayout` + nested objective/defensive-fire values;
+- invariant-checking init;
 - `.singleKeep(defaultLane:)`;
 - `SiegeProgress: Codable, Equatable`;
-- pure max/remaining HP, first-live-step, and route-budget-spend helpers.
+- pure HP allocation/remaining, first-live-target, and route-budget helpers.
 
-Use `[BattleLane]` for authored defensive coverage. Do not add a graph, registry, protocol hierarchy, repository, or `SiegeEngine`.
+No graph, registry, service, protocol hierarchy, second repository, or engine.
 
 ### 1.3 Extend the catalog
 
-Add `siegeLayout` to `CityDefinition`. `Country1CityCatalog` stays the only authored Country 1 location for these layouts.
+Add `siegeLayout` to `CityDefinition`. `Country1CityCatalog` remains the only Country 1 authoring site.
 
-**Gate:** `SiegeStateTests` + `Country1CityCatalogTests` green before persistence/combat work.
+**Gate:** app target builds; `SiegeStateTests` + `Country1CityCatalogTests` green.
 
 ---
 
-## Task 2 — Replace scalar city HP with persisted siege progress and Keep authority
+## Task 2 — Add siege persistence/Keep authority **without deleting old scalar readers yet**
+
+This task is intentionally additive so its gate can run. The old scalar is a temporary intra-PR bridge only and is deleted in Task 5.5.
 
 **Files**
 
 - Modify `Pyxis/KingdomGameState.swift`
-- Modify `Pyxis/BattleResultModels.swift`
-- Create one small test-only helper, e.g. `PyxisTests/SiegeTestSupport.swift`
+- Create `PyxisTests/SiegeTestSupport.swift`
 - Modify `PyxisTests/KingdomGameStateTests.swift`
 - Modify `PyxisTests/KingdomGameStoreTests.swift`
-- Mechanically update direct scalar-HP fixture sites, including `BattleSceneTests`, `CountryMapSceneTests`, `BuildingViewSceneTests`, and later `ForgedVisualFixture`
 
-`KingdomGameStore.swift` itself is a generic JSON encoder/decoder and should not gain siege-specific logic. The schema work belongs in `KingdomGameState.CodingKeys`/decode/init normalization; store tests pin the round trip.
+`KingdomGameStore.swift` stays generic JSON plumbing; schema work lives in `KingdomGameState.CodingKeys`/init/decode normalization.
 
-### 2.1 Red tests: persisted authority
+### 2.1 Add test support before mechanical migration
 
-Cover:
+Create one test-only helper that can build current-city states by:
 
-- fresh City 3 defaults to center with zero objective damage;
-- `siegeProgress` is encoded/decoded through `KingdomGameState.CodingKeys`;
-- unknown saved objective IDs are discarded and damage clamps to objective max;
-- `currentKeepRemainingPower` / `currentKeepMaxPower` are derived from the authored Keep;
+- Keep remaining HP;
+- optional support-objective damage;
+- optional selected lane.
+
+The helper resolves stable IDs from the current authored layout instead of spreading `"*.keep"` literals. If tests need aggregate objective remaining, calculate it **in this test support file**, not as a production API.
+
+### 2.2 Add `siegeProgress` and Keep projections
+
+Add and test:
+
+- fresh city default lane + zero damage;
+- explicit `CodingKeys` encode/decode of `siegeProgress`;
+- unknown saved IDs discarded and damage clamped;
+- `currentKeepRemainingPower` / `currentKeepMaxPower`;
+- next-city entry resets to the next layout;
+- pending result keeps progress long enough for restored Battle presentation.
+
+Leave current `cityRemainingPower` storage/readers temporarily in place **only so untouched Battle/HUD/fixture code compiles**. It is not used as the new conquest authority and is not part of the final design.
+
+### 2.3 Add explicit lane-selection result
+
+Add:
+
+```swift
+enum AssaultLaneSelectionResult: Equatable {
+    case unavailable
+    case unchanged(idleProgress: IdleProgressResult)
+    case selected(idleProgress: IdleProgressResult)
+    case conqueredDuringSettlement(IdleProgressResult)
+}
+```
+
+`selectAssaultLane(_:at:)` owns settle-before-select:
+
+- settle armed inactive time using old lane first;
+- if Keep is conquered, leave selection unchanged and return `.conqueredDuringSettlement`;
+- otherwise return `.unchanged` or `.selected` explicitly;
+- no armed interval means no synthetic work.
+
+### 2.4 Add objective-aware state mutation helpers
+
+Add the objective mutation/validation paths needed by Task 3, with model tests for:
+
 - Gate/Tower damage does not change Keep HP;
-- Keep zero completes immediately even with live support objectives;
-- support objectives are not fabricated as destroyed on conquest;
-- reward/stage/pending result finalize exactly once;
-- pending-result state retains objective damage long enough for truthful restored Battle presentation;
-- next-city entry creates fresh progress for the next layout.
+- Keep zero finalizes exactly once despite live support structures;
+- support structures are not fabricated as destroyed;
+- idle route spending respects blockers/spillover;
+- old-lane settlement is used before selection changes.
 
-### 2.2 Remove scalar HP compatibility from production
+Do not remove the old scalar field yet.
 
-Remove independently encoded/mutable `cityRemainingPower` and update production call sites instead of retaining it as a compatibility property.
-
-Keep:
-
-- `cityMaxPower` as the existing total durability **budget** used to allocate objective max HP;
-- `currentKeepRemainingPower` / `currentKeepMaxPower` as the player/win-facing HP authority.
-
-A debug/test-only total-objective remaining projection is acceptable if it materially simplifies assertions. It must not drive gameplay or UI.
-
-Use one shared test helper to build states by **Keep remaining HP** plus optional support-objective damage, so tests do not repeat stable objective IDs. Do not replace one scalar literal with hundreds of `"*.keep"` literals.
-
-Run a repository search for direct `cityRemainingPower` reads/writes and classify every remaining one. No production win/tick/HUD/Living-Kingdom reader should remain.
-
-### 2.3 Make attack events objective-aware
-
-Change `SoldierAttackEvent` from `appliedCityDamage` to:
-
-- `objectiveID`;
-- `appliedDamage`.
-
-`ActiveSiegeSession.recordAttack` continues to aggregate actual type/source/lane damage only; no per-objective report rows are added.
-
-### 2.4 Apply live damage by objective, win by Keep
-
-`KingdomGameState.applyLiveSoldierAttacks`:
-
-1. validates objective ID against current layout;
-2. clamps to that objective's remaining HP;
-3. records actual applied damage;
-4. updates `SiegeProgress`;
-5. after each event checks **Keep remaining HP**;
-6. finalizes exactly once when Keep reaches zero and stops processing further attacks.
-
-Never use total remaining structure durability as the conquest guard.
-
-### 2.5 Route idle/Camp/Map damage through the selected lane
-
-Replace scalar subtraction in `applyAbstractBuildingSpawnDamage`.
-
-For each `BuildingSpawn`:
-
-- compute current trait-adjusted attack power;
-- spend it through the selected lane's ordered route;
-- spill only after an objective dies;
-- record actual applied total via existing idle attribution;
-- stop immediately if Keep reaches zero, regardless of surviving optional objectives.
-
-Keep unchanged: 8-hour cap, `idleBuildingProductionScale == 10`, no-buildings/no-progress rule, at-most-one-city conquest, pending-first report, and deliberate Camp conquest routing.
-
-### 2.6 Add one settle-before-select mutation
-
-Add `KingdomGameState.selectAssaultLane(_:at:)` (exact return shape may reuse `IdleProgressResult`).
-
-Contract:
-
-- if inactive/offscreen time is armed, settle it under the old selected lane first;
-- if that settlement conquers Keep, do not change selection;
-- otherwise persist the new lane;
-- an ordinary Battle tap with no armed interval creates no extra production.
-
-This is the only production write path for selected lane.
-
-**Gate:** state/store tests prove coding, normalization, Keep-only victory, old-lane settlement, spillover, and exactly-once reward.
+**Gate:** app target builds; `KingdomGameStateTests` + `KingdomGameStoreTests` green.
 
 ---
 
-## Task 3 — Make `BattleCombatState` objective-aware with explicit selected lanes
+## Task 3 — Make combat and live/idle damage objective-aware while preserving compile continuity
 
 **Files**
 
 - Modify `Pyxis/BattleCombatState.swift`
+- Modify `Pyxis/KingdomGameState.swift`
+- Modify `Pyxis/BattleResultModels.swift`
+- Modify `Pyxis/BattleScene.swift` only for the minimum tick/spawn call-site switch required here
 - Modify `PyxisTests/BattleCombatStateTests.swift`
-- Modify `PyxisTests/BattleResultModelsTests.swift` where event field names change
+- Modify `PyxisTests/BattleResultModelsTests.swift`
+- Modify `PyxisTests/KingdomGameStateTests.swift`
+- Modify `PyxisTests/ActiveSiegeLifecycleTests.swift`
 
 ### 3.1 Tick an ephemeral siege snapshot
 
-Replace `tick(deltaTime:cityRemainingHP:)` with a tick input that contains the current authored layout + remaining objective HP/Keep identity.
+Replace the live simulator's scalar target input with an ephemeral current-siege snapshot containing:
 
-`BattleCombatState` may mutate a local copy during one tick to avoid overkill races; persisted HP remains in `KingdomGameState`.
+- authored layout;
+- objective remaining HP;
+- Keep identity.
 
-`TickResult.didReachConquest` means **local Keep remaining HP reached zero**, never “sum of objective HP reached zero.”
+`BattleCombatState` may mutate a local copy during a tick to prevent same-tick overkill; persisted state remains in `KingdomGameState`.
 
-### 3.2 Red tests: target/range/order
+`TickResult.didReachConquest` means local Keep reached zero.
 
-Cover:
+During this task, keep any legacy event/scalar field still required by untouched readers only long enough for compilation; mark it for Task 5.5 deletion. Do not let it decide targets or conquest.
 
-- left soldier stops in range of Tower, not Keep;
-- center/right soldier stops at Gate while Gate lives;
-- destroyed current target allows later movement/attacks toward the next route step;
-- events carry objective ID + clamped applied damage;
-- two same-tick soldiers cannot overkill one objective;
-- Keep reaching zero sets conquest even if Tower/Gate remain;
-- existing soldier lane does not change when selected lane changes;
+### 3.2 Target by objective identity; position by objective
+
+Tests pin:
+
+- left soldier stops at Tower, center/right at Gate;
+- target position is referenced objective's `visualProgress`;
+- destroyed target allows continuation to next ID;
+- same-tick attacks cannot overkill one objective;
+- Keep-zero conquest works with surviving optional structures;
+- deployed soldier lane remains stable;
 - manual/building source does not change route targeting.
 
-### 3.3 Make defensive fire source-relative
+### 3.3 Source-relative defensive fire
 
-Replace the unconditional tower branch with the layout's live defensive-fire source.
-
-Range contract:
+Replace the unconditional global tower branch:
 
 ```text
 inRange = soldier.position >= max(0, sourceObjective.visualProgress - towerAttackRange)
 ```
 
-Pin deterministic cases:
+Pin:
 
-- Falconridge Tower at `0.68` with range `0.55` starts coverage at `0.13`;
-- a left-route Archer attacking the Tower is still in Tower range;
-- dead Falconridge Tower produces no later shot;
-- non-pilot Keep source at `1.0` preserves the current `1.0 - towerAttackRange` threshold;
-- target selection remains foremost living soldier in an authored covered occupied lane;
-- lane defense multiplier still scales incoming Tower/Keep fire.
+- Falconridge source `0.68`, range `0.55` → threshold `0.13`;
+- a left-route Archer attacking Tower is still inside coverage;
+- dead Tower emits no later shot;
+- non-pilot Keep source `1.0` preserves current threshold;
+- covered-lane/foremost-target/current lane-multiplier behavior remains.
 
-Do not add a second shooter or a special ranged immunity.
+### 3.4 Remove production random-lane behavior
 
-### 3.4 Remove production RNG spawn assignment
+Make production/test spawn lane explicit. `BattleScene` manual + building-produced spawns pass `state.siegeProgress.selectedLane`.
 
-Require explicit lane for production/test soldier spawning. Both BattleScene production sources pass `state.siegeProgress.selectedLane`:
+No optional/random production overload remains. RNG stays only for true random choices such as choosing among multiple occupied defensive-fire lanes.
 
-- manual Deploy;
-- building-produced spawn conversion.
+Pin City 1:
 
-Do not retain an optional/random spawn overload as a second behavior. Combat RNG remains only for actual random choices still in the model (for example multiple occupied defensive-fire lanes).
-
-Add non-pilot model/scene tests:
-
-- City 1 fresh/default spawn uses its standard lane;
-- selecting City 1's exposed lane causes new spawns to use exposed lane and receive its existing `0.80×` incoming defensive-fire multiplier;
-- a soldier deployed before selection stays in its original lane.
+- default standard-lane spawn;
+- selecting exposed lane makes **new** spawns use it and receive current `0.80×` incoming multiplier;
+- already-deployed soldiers do not move.
 
 ### 3.5 Pin trait independence
 
-After Falconridge's Arrow Tower objective is destroyed:
+After Falconridge Tower objective dies:
 
-- defensive fire is disabled;
-- `CityDefenseTrait.arrowTower` remains active for soldier→Gate/Keep damage;
-- e.g. Archer/Mage remain disadvantaged at `0.80×`, Infantry/Cavalry favorable at `1.25×`.
+- defensive fire is off;
+- `.arrowTower` city-wide soldier damage multiplier remains active against Gate/Keep.
 
-**Gate:** combat tests prove Keep liveness, source-relative fire, no RNG spawn path, non-pilot lane behavior, and trait independence.
+### 3.6 Route idle/Camp/Map budgets through the same helper
+
+`applyAbstractBuildingSpawnDamage` uses selected route targeting/spillover, not scalar subtraction. Preserve 8-hour cap, 1/10 production, no-buildings/no-progress, at-most-one-city conquest, reward/report semantics.
+
+**Gate:** app target builds; combat/result/state/lifecycle focused suites green.
 
 ---
 
-## Task 4 — Reuse Forged lane chips and switch Battle HP presentation to Keep
+## Task 4 — Reuse Forged lane chips and switch all Battle player-facing HP to Keep
 
 **Files**
 
@@ -256,61 +261,49 @@ After Falconridge's Arrow Tower objective is destroyed:
 - Modify `PyxisTests/BattleHUDContentTests.swift`
 - Modify `PyxisTests/BattleHUDNodeTests.swift`
 - Modify `PyxisTests/BattleSceneTests.swift`
+- Modify `PyxisTests/BattleSceneCoverageTests.swift`
 
-### 4.1 Add one lane hit geometry contract
+### 4.1 Add lane hit frames in the existing geometry authority
 
-Keep current `laneChipFrames` as 26pt visual frames. Add `laneChipHitFrames: [BattleLane: CGRect]`, derived from them and expanded/clamped to at least 44×44 inside `battlefieldFrame`.
+Keep 26pt visual `laneChipFrames`; add `laneChipHitFrames` expanded/clamped to 44×44+ inside battlefield, mirroring `medallionHitFrames`.
 
-Tests pin:
-
-- three visual + three hit frames;
-- every hit frame contains its visual frame;
-- hit frames are at least 44×44 and contained in battlefield;
-- they do not overlap unrelated HUD controls.
-
-No scene-local duplicate geometry.
+Tests pin three visual/hit frames, containment, minimum size, corresponding visual containment, and no unrelated HUD overlap.
 
 ### 4.2 Extend HUD content/action
 
-`BattleHUDContent`:
+`BattleHUDContent` gains selected lane and Keep current/max. `BattleHUDNode.Action` gains `.selectLane`.
 
-- add selected assault lane;
-- replace aggregate city HP fields with `keepRemainingPower` / `keepMaxPower`;
-- progress bar renders Keep HP only.
+- all three lanes selectable;
+- OPEN/HELD role visuals preserved;
+- exactly selected lane gets procedural flag / `ASSAULT` treatment.
 
-`BattleHUDNode.Action` adds `.selectLane(BattleLane)`.
+### 4.3 Route selection through model result
 
-Presentation:
+`BattleScene` handles the explicit `AssaultLaneSelectionResult`:
 
-- exposed/fortified keep OPEN / HELD treatment;
-- standard lane remains visually neutral when unselected;
-- exactly selected lane gets one procedural flag + `ASSAULT` treatment;
-- all three lane hit frames are selectable.
+- `.conqueredDuringSettlement` → existing fresh-idle/pending-result path;
+- `.selected` / `.unchanged` → save/refresh as appropriate;
+- `.unavailable` → no mutation.
 
-### 4.3 Route lane input through state
+Pin no fallthrough from Settings, Deploy, medallions, tabs, info frames, and conquest Continue.
 
-`BattleScene.handleBattleHUDTouch` routes `.selectLane` to `selectAssaultLane`, saves state, and refreshes HUD/objective nodes.
+### 4.4 Switch player HP readers now
 
-If settle-before-select conquers the Keep, reuse the existing fresh-idle/pending-result flow. No lane-specific result screen.
+Move all Battle player-facing readers to Keep current/max:
 
-Pin no-fallthrough for Settings, Deploy, medallions, tabs, income/city tooltip frames, and conquest Continue.
+- top HUD progress;
+- Keep sprite HP bar;
+- city tooltip.
 
-### 4.4 Remove the global HP story from Battle UI
+Gate/Tower hits must not change Keep displays.
 
-Update all player-facing readers in the same task:
+The temporary old scalar may still exist only for remaining non-Battle fixture/test compile continuity until Task 5.5.
 
-- top HUD progress = Keep current/max;
-- `layoutCityHPBar` = Keep current/max;
-- `showCityInfoTooltip` says Keep HP current/max;
-- no Gate/Tower hit changes these Keep displays.
-
-Gate/Tower get their own objective HP labels in Task 5.
-
-**Gate:** Battle layout/HUD/scene tests prove 44pt selection, persistence, Keep-only HP presentation, and input isolation.
+**Gate:** app target builds; Battle layout/HUD/scene/coverage suites green.
 
 ---
 
-## Task 5 — Render objectives, keep Living Kingdom truthful, and fit Scout copy
+## Task 5 — Render objectives, Living Kingdom, Scout, and fixtures
 
 **Files**
 
@@ -318,167 +311,241 @@ Gate/Tower get their own objective HP labels in Task 5.
 - Modify `Pyxis/LivingKingdomPresentation.swift`
 - Modify `Pyxis/CountryMapScoutCardContent.swift`
 - Modify `Pyxis/CountryMapScoutCardNode.swift`
-- Modify `Pyxis/CountryMapScoutCardLayout.swift` only if the measured footer cannot fit within the current frame at the approved minimum font
+- Modify `Pyxis/CountryMapScoutCardLayout.swift` only if measured copy cannot fit existing frame at approved minimum
 - Modify `Pyxis/ForgedVisualFixture.swift`
 - Modify `PyxisTests/BattleSceneTests.swift`
 - Modify `PyxisTests/LivingKingdomPresentationTests.swift`
 - Modify `PyxisTests/CountryMapScoutCardContentTests.swift`
 - Modify `PyxisTests/CountryMapScoutCardTextLayoutTests.swift`
 - Modify `PyxisTests/CountryMapScoutCardNodeTests.swift`
+- Modify `PyxisTests/CountryMapScoutCardAcceptanceTests.swift`
 - Modify `PyxisTests/ForgedVisualFixtureTests.swift`
+- Modify `PyxisTests/SoldierRuntimeGeometryTests.swift` where combat fixture HP changes affect setup
 
-### 5.1 Add local procedural Falconridge nodes
+### 5.1 Procedural Falconridge objectives
 
-Keep `enemy-city` as Keep. Add private BattleScene builders only for:
+Keep `enemy-city` as Keep. Add local private scene builders for:
 
-- Ridge Gate;
-- Arrow Tower;
-- objective name/HP treatment;
-- ruined Gate/Tower treatment;
-- live-Tower coverage overlay.
+- Arrow Tower + HP/ruin;
+- Ridge Gate + HP/ruin;
+- live-Tower coverage treatment.
 
-Use `BattlefieldLayout.point(forLane:position:)` + authored progress. Do not add a scene-object framework.
+All placement reads `Objective.visualProgress`.
 
-Rebuild from persisted progress on redraw/relaunch; destroyed objectives stay ruined and a dead Tower has no coverage treatment.
+For the shared Gate:
 
-### 5.2 Living Kingdom uses Keep current/max
+- derive route lanes containing its stable ID;
+- render one barrier spanning center/right at `0.58`, sized from existing battlefield lane geometry;
+- ruined state spans the same approaches.
 
-Change/rename the Battle projection inputs so callers pass Keep remaining + Keep max, not aggregate durability budget.
+Do not add duplicate Gate state or a generic scene-object framework.
+
+### 5.2 Correct defensive-fire projectile origin
+
+Spawn the projectile visual from the actual defensive-fire source objective/node. Falconridge shots leave the Tower at `0.68`, not `enemyGatePoints[lane]`. Non-pilot Keep-source visuals remain equivalent.
+
+### 5.3 Living Kingdom uses Keep only
+
+Pass Keep remaining/max into the existing presentation projection.
 
 Tests pin:
 
-- Falconridge starts intact at `46/46`;
-- damaging only Gate/Tower does not change fortress stage;
-- City 3 integer threshold tests use Keep max 46;
-- Keep thresholds drive intact/damaged/breached/conquered;
-- non-pilot one-Keep city thresholds remain equivalent to HPA-478.
+- fresh Falconridge = intact `46/46`;
+- Gate/Tower-only damage does not change fortress stage;
+- City 3 threshold tests use Keep max 46;
+- Keep thresholds drive damage/breach/conquest;
+- non-pilot one-Keep behavior stays equivalent.
 
-Update `ForgedVisualFixture.battleState` / `conquestState` to seed siege progress/Keep HP instead of assigning `cityRemainingPower`. Pin the fixtures with their existing tests.
+### 5.4 Scout footer is measured
 
-### 5.3 Scout hint is measured, not blindly swapped
+Falconridge projects concise tactical footer (`L Tower · C/R Gate` or shorter measured equivalent); other cities keep `Open: <lane>`.
 
-`CountryMapScoutCardContent.Scout` may carry one optional tactical footer. Falconridge projects concise copy such as:
+Use existing fitter/measurement and fail-closed card path. Add compact-phone node/text-layout/acceptance coverage proving Falconridge card still presents.
 
-`L Tower · C/R Gate`
+### 5.5 Migrate deterministic fixtures
 
-Other cities retain `Open: <lane>`.
+`ForgedVisualFixture.battleState` / `conquestState` and remaining scene/controller fixture helpers seed `SiegeProgress`/Keep HP through `SiegeTestSupport` patterns rather than writing the scalar.
 
-In `CountryMapScoutCardNode.prepareScout`:
+### 5.6 HPA-476 placeholder contract
 
-- measure the selected footer against `layout.exposedLaneFrame`;
-- fit Falconridge tactical copy with `SingleLineTextFitter` (or the existing equivalent) down to an explicit small minimum;
-- preserve the current fail-closed behavior if required content genuinely cannot fit;
-- if the concise copy still cannot fit at the floor, adjust the footer frame within `CountryMapScoutCardLayout` rather than shipping a disappearing card.
+No generated image files. Keep only future semantic contracts:
 
-Tests must include the supported compact-phone geometry and prove the Falconridge card presents with its tactical footer.
+- `siege-gate` — bottom-center anchor, intact/ruined;
+- `siege-arrow-tower` — bottom-center anchor, intact/ruined;
+- `siege-assault-flag` — bottom-center anchor, selected.
 
-### 5.4 Lock HPA-476 placeholder contract
+Do **not** pin source pixel dimensions before final art exists; HPA-476 chooses real canvas sizes from actual render needs.
 
-No generated files in HPA-468. Procedural placeholders use these future names/contracts:
-
-- `siege-gate` — 256×160 source contract, bottom-center, intact/ruined;
-- `siege-arrow-tower` — 256×320, bottom-center, intact/ruined;
-- `siege-assault-flag` — 128×160, bottom-center, selected.
-
-**Gate:** scene/Living-Kingdom/Scout/fixture tests prove truthful Keep HP, ruins, Tower coverage removal, compact Scout fit, and no generated art.
+**Gate:** app target builds; Battle/Living Kingdom/Scout/fixture focused suites green; compact-phone Falconridge Scout passes.
 
 ---
 
-## Task 6 — Regression, gameplay comparison, and evidence
+## Task 5.5 — Delete transitional scalar/event residue and prove zero references
 
-### 6.1 Focused automated pass
+This is part of HPA-468, not a follow-up PR.
 
-Run focused suites first with parallel testing disabled:
+### 5.5.1 Delete final compatibility residue
+
+Remove from production:
+
+- `cityRemainingPower` storage/init/CodingKeys/reads;
+- `SoldierAttackEvent.appliedCityDamage` transitional alias/name in favor of `appliedDamage`;
+- `BattleCombatState.TickResult.cityDamage`.
+
+No total-objective remaining production projection is added. Test-only aggregate verification stays in `SiegeTestSupport`.
+
+### 5.5.2 Migrate the real blast radius
+
+Explicitly search/migrate affected suites, including:
+
+- `KingdomGameStateTests`
+- `KingdomGameStoreTests`
+- `BattleCombatStateTests`
+- `BattleResultModelsTests`
+- `BattleSceneTests`
+- `BattleSceneCoverageTests`
+- `BattleHUDNodeTests`
+- `CountryMapSceneTests`
+- `BuildingViewSceneTests`
+- `GameViewControllerTests`
+- `ActiveSiegeLifecycleTests`
+- `CountryMapScoutCardAcceptanceTests`
+- `CountryMapScoutCardContentTests`
+- `ForgedVisualFixtureTests`
+- `DevJumpStateTests`
+- `SoldierRuntimeGeometryTests`
+- `AutomaticCombatFeedbackSchedulerTests`
+- `DefaultGameplayFeedbackCoordinatorTests`
+
+Use repository search to catch any additional reference rather than assuming this list is exhaustive.
+
+### 5.5.3 Hard cleanup gate
+
+Require:
 
 ```bash
-xcodebuild test \
-  -project Pyxis.xcodeproj \
-  -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -parallel-testing-enabled NO \
-  -only-testing:PyxisTests/SiegeStateTests \
-  -only-testing:PyxisTests/Country1CityCatalogTests \
-  -only-testing:PyxisTests/KingdomGameStateTests \
-  -only-testing:PyxisTests/KingdomGameStoreTests \
-  -only-testing:PyxisTests/BattleCombatStateTests \
-  -only-testing:PyxisTests/BattleChromeLayoutTests \
-  -only-testing:PyxisTests/BattleHUDContentTests \
-  -only-testing:PyxisTests/BattleHUDNodeTests \
-  -only-testing:PyxisTests/BattleSceneTests \
-  -only-testing:PyxisTests/LivingKingdomPresentationTests \
-  -only-testing:PyxisTests/CountryMapScoutCardContentTests \
-  -only-testing:PyxisTests/CountryMapScoutCardTextLayoutTests \
-  -only-testing:PyxisTests/CountryMapScoutCardNodeTests \
-  -only-testing:PyxisTests/ForgedVisualFixtureTests
+grep -R "cityRemainingPower\|appliedCityDamage" Pyxis PyxisTests
 ```
 
-Use an installed simulator if iPhone 17 is unavailable.
+returns no source references, and search for `cityDamage` confirms the removed `TickResult` field is gone (excluding unrelated prose/docs if any).
 
-### 6.2 Full gates
+Then run a full build + full test suite before Task 6 evidence. This is the point where the final architecture exists: no scalar shim, no old attack field, no write-only tick aggregate.
 
-```bash
-swiftlint lint
+---
 
-xcodebuild test \
-  -project Pyxis.xcodeproj \
-  -scheme Pyxis \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -parallel-testing-enabled NO
-```
+## Task 6 — Regression, balance comparison, and PR evidence
 
-Keep current Codecov project/patch target. Do not weaken coverage.
+### 6.1 Broad focused automated pass
 
-### 6.3 Required gameplay/manual evidence
+Run with parallel testing disabled. Include at least:
 
-Use existing DEBUG city jump/fixture tooling; no new dev-tools framework.
+- `SiegeStateTests`
+- `Country1CityCatalogTests`
+- `KingdomGameStateTests`
+- `KingdomGameStoreTests`
+- `BattleCombatStateTests`
+- `BattleResultModelsTests`
+- `ActiveSiegeLifecycleTests`
+- `AutomaticCombatFeedbackSchedulerTests`
+- `DefaultGameplayFeedbackCoordinatorTests`
+- `BattleChromeLayoutTests`
+- `BattleHUDContentTests`
+- `BattleHUDNodeTests`
+- `BattleSceneTests`
+- `BattleSceneCoverageTests`
+- `GameViewControllerTests`
+- `CountryMapSceneTests`
+- `BuildingViewSceneTests`
+- `CountryMapScoutCardContentTests`
+- `CountryMapScoutCardLayoutTests`
+- `CountryMapScoutCardNodeTests`
+- `CountryMapScoutCardTextLayoutTests`
+- `CountryMapScoutCardAcceptanceTests`
+- `LivingKingdomPresentationTests`
+- `ForgedVisualFixtureTests`
+- `DevJumpStateTests`
+- `SoldierRuntimeGeometryTests`
 
-1. **Falconridge tower-first / left**
-   - same camp/buildings/upgrades as center run;
-   - Tower falls before Keep is reachable;
-   - source-relative fire threatens the attack while Tower lives;
-   - no shots after Tower death;
-   - `.arrowTower` soldier damage trait still applies after Tower death;
-   - record active time/losses.
+Use `-parallel-testing-enabled NO` and an installed simulator.
 
-2. **Falconridge gate-first / center**
-   - same setup;
-   - Gate falls before Keep;
-   - Tower may survive Keep conquest;
-   - conquest happens immediately on Keep zero;
-   - record active time/losses.
+### 6.2 Full repository gates
 
-3. **State restoration**
-   - partially damage/destroy support objective, select another lane, leave/relaunch;
-   - objective state + selected lane survive.
+- `swiftlint lint`
+- full unit + UI test run with parallel testing disabled
+- Debug build
+- Release build if touched DEBUG fixture seams make compile-out relevant
+- existing Codecov project/patch target; do not weaken coverage
+- `git diff --check`
 
-4. **Offline blocking**
-   - arm idle progress with Gate alive;
-   - selected route consumes Gate first and spills to Keep only after Gate dies;
-   - Keep zero stops settlement even if Tower survives.
+### 6.3 Quantitative Falconridge gameplay comparison
 
-5. **Non-pilot unified path**
-   - City 1 starts on standard lane;
-   - switch to exposed lane and confirm new soldiers receive `0.80×` incoming defensive-fire pressure;
-   - already-deployed soldier stays in original lane;
-   - one-Keep conquest/report routing remains normal.
+From the **same camp/loadout** used for Task 0 baseline:
 
-6. **Layout/input**
-   - compact phone + portrait iPad;
-   - 44pt lane hit regions are usable;
-   - Gate/Tower labels fit;
-   - Falconridge Scout card presents/fits;
-   - Settings/tabs/Continue remain isolated.
+1. run Tower-first left;
+2. run Gate-first center;
+3. record active elapsed time + losses for both;
+4. verify Tower death noticeably stops subsequent defensive fire;
+5. verify Gate-first can conquer with Tower still alive.
 
-Add a compact evidence table to the PR body before marking ready. Do not create a separate QA doc unless the evidence genuinely cannot fit.
+The 46/23/23 allocation intentionally starts at 69 raw route damage versus the baseline 92, while Tower coverage starts earlier. Use the measurements to judge the actual trade.
+
+Retune Falconridge-only weights/fire **within total 92** when either condition holds:
+
+- a new route is an obvious free improvement over the current-main baseline (same-or-lower losses and same-or-faster elapsed time, with at least one strictly better); or
+- one new route clearly dominates the other on both elapsed time and losses without a meaningful countervailing advantage.
+
+Also retune if Tower destruction has no noticeable survival consequence. Do not add mechanics to fix balance.
+
+### 6.4 State/lifecycle evidence
+
+- partially damage Gate/Tower, change lane, leave/relaunch → damage/ruin/selection persist;
+- idle settlement with Gate alive → Gate consumes damage before Keep;
+- old-lane settlement occurs before a lane change;
+- settlement conquest returns `.conqueredDuringSettlement` and routes through existing pending Battle result exactly once.
+
+### 6.5 Non-pilot unified-path evidence
+
+Smoke City 1/2:
+
+- fresh standard lane;
+- selected exposed lane affects only new spawns and current `0.80×` defensive-fire pressure;
+- one-Keep objective path still conquers/reports normally.
+
+### 6.6 Layout/presentation evidence
+
+Smoke:
+
+- compact phone;
+- portrait iPad;
+- center/right shared Gate visibly spans both blocked approaches;
+- objective HP/ruins fit;
+- Tower projectile visibly starts at Tower;
+- lane hit targets remain usable;
+- Settings/tabs/report input unchanged;
+- Falconridge Scout card does not disappear.
+
+Add a compact evidence table to the PR before moving it out of draft. Do not create a separate QA artifact unless the evidence genuinely no longer fits the PR.
+
+## Risks and mitigations
+
+### Risk: intermediate branch stops compiling
+
+**Mitigation:** Task 2 is additive; Tasks 3–5 switch readers; Task 5.5 performs final deletion. Every task gate includes an app build.
+
+### Risk: Falconridge becomes materially easier/harder in a confusing way
+
+**Mitigation:** capture current-main baseline first, explicitly acknowledge 69-vs-92 raw route cost and earlier Tower coverage, compare same-camp elapsed/losses, and retune only Falconridge values inside the fixed 92 total.
+
+### Risk: shared Gate is mechanically correct but visually misleading
+
+**Mitigation:** Gate spans the exact lanes whose routes contain its ID; scene tests + compact-phone/iPad smoke happen before final gameplay evidence.
+
+### Risk: large symbol migration misses non-obvious tests
+
+**Mitigation:** add `SiegeTestSupport` before rewrites, list the known lifecycle/controller/feedback suites in focused gates, repository-search all references, and enforce Task 5.5 zero-reference/full-suite gate.
 
 ## Expected implementation footprint
 
-New production surface should remain close to:
+New production surface should remain close to one pure `SiegeState.swift` plus changes to existing catalog/state/combat/HUD/scene/Living-Kingdom/Scout owners. New test-only support is one small `SiegeTestSupport.swift`.
 
-- one pure `SiegeState.swift` value/helper file;
-- existing catalog/state/combat/result files;
-- existing Battle layout/HUD/scene;
-- existing Living Kingdom + Scout projections;
-- procedural BattleScene nodes only.
-
-Test support may add one small Keep-HP state helper. If implementation starts requiring a graph, pathfinder, second combat state/repository, compatibility HP authority, RNG spawn fork, scene router, or generic framework, stop and simplify before continuing.
+If implementation starts requiring a route graph, pathfinder, second combat state, per-objective repository, new router, generic scene-object framework, or additional PR, stop and simplify back to this authored ordered-route design.
