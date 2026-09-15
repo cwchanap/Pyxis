@@ -12,6 +12,18 @@ The player selects one of the existing three lanes. New manual and building-prod
 
 This is one implementation PR. The design and plan land first on the same branch; runtime code, tests, and gameplay evidence follow on that PR.
 
+## Review-locked rules
+
+The implementation must keep these boundaries explicit:
+
+1. **Keep HP is the only conquest/liveness/tick-stop authority.** Aggregate remaining durability is never a win predicate and is not a player-facing HP bar.
+2. **Every Country 1 city uses selected-lane spawning after this PR.** There is no production RNG lane-assignment path to preserve beside the new control.
+3. **`CitySiegeLayout` fails closed at construction.** Persisted progress may discard unknown IDs; authored catalog data may not silently tolerate a broken route.
+4. **Defensive fire range is source-relative.** A soldier is in range when its normalized position reaches `max(0, sourceProgress - towerAttackRange)`.
+5. **`CityDefenseTrait` is city-wide and independent of objective liveness.** Destroying Falconridge's Arrow Tower stops `DefensiveFire`; it does not remove the city's `.arrowTower` soldier damage multipliers.
+6. **Scout tactical copy must pass the existing fail-closed fit contract.** It is not accepted as an unchecked string substitution.
+7. **No compatibility aggregate or second spawn path is added just to reduce migration work.** Development-only saves/tests may break and should be updated directly.
+
 ## Product shape
 
 ### Falconridge uses three structures, not four
@@ -20,35 +32,35 @@ Use the lower end of HPA-468's allowed envelope:
 
 | Objective | Stable ID | Weight | Visual anchor | Purpose |
 | --- | --- | ---: | --- | --- |
-| Keep | `falconridge.keep` | 4 | center / enemy-city anchor | Conquest target |
-| Arrow Tower | `falconridge.arrow-tower` | 2 | left / 0.68 route progress | Optional defense; fires while alive |
-| Ridge Gate | `falconridge.ridge-gate` | 2 | center / 0.58 route progress | Shared blocker for center + right |
+| Keep | `falconridge.keep` | 4 | center / `1.0` | Conquest target |
+| Arrow Tower | `falconridge.arrow-tower` | 2 | left / `0.68` | Optional defensive-fire source |
+| Ridge Gate | `falconridge.ridge-gate` | 2 | center / `0.58` | Shared blocker for center + right |
 
-City 3's existing durability budget is 92. The 4:2:2 weights therefore resolve exactly to:
+City 3's existing durability budget is 92. The 4:2:2 weights resolve exactly to:
 
 - Keep: 46 HP
 - Arrow Tower: 23 HP
 - Ridge Gate: 23 HP
 
-No extra city HP is created. The objective max-HP resolver must always distribute the existing `cityMaxPower` budget exactly; any integer remainder for future layouts goes to the Keep.
+No extra city HP is created. The objective max-HP resolver always distributes the existing `cityMaxPower` budget exactly; any integer remainder for future layouts goes to the Keep.
 
 ### The three authored routes
 
-Falconridge keeps its existing lane profile: left is exposed, center is standard, right is fortified. The default selected lane is therefore center.
+Falconridge keeps its existing lane profile: left is exposed, center is standard, right is fortified. The default selected lane is center.
 
 - **Left — tower-first:** `Arrow Tower @ 0.68 → Keep @ 1.0`
 - **Center — gate-first:** `Ridge Gate @ 0.58 → Keep @ 1.0`
 - **Right — gate-first / dangerous:** `Ridge Gate @ 0.58 → Keep @ 1.0`
 
-The Arrow Tower covers all three lanes while alive. Existing lane defense multipliers still modify its damage, so the left route spends extra time destroying the Tower but benefits from exposed-lane fire, center reaches the Keep sooner while accepting continued Tower fire, and right is the highest-risk gate route.
+The Arrow Tower covers all three lanes while alive. Existing lane defense multipliers still modify its damage. Tower range originates at the Tower's authored progress `0.68`, not at the Keep: with the current `towerAttackRange == 0.55`, its fire threshold is `0.13`. This deliberately keeps ranged Tower attackers inside the Tower's threat envelope instead of creating a route-specific dead zone.
 
-The center/right sharing of one Gate deliberately proves that an objective can be reachable from more than one approach without introducing a graph or pathfinder.
+The center/right sharing of one Gate proves that an objective can be reachable from more than one approach without a graph or pathfinder.
 
-Gameplay acceptance compares **left (tower-first)** against **center (gate-first)** from the same camp setup. If one is an obvious free choice or Tower destruction produces no noticeable survival difference, tune only Falconridge's objective weights / Tower firing numbers in this PR. Do not add another mechanic to compensate.
+Gameplay acceptance compares **left (tower-first)** against **center (gate-first)** from the same camp setup. If one is an obvious free choice or Tower destruction produces no noticeable survival difference, tune only Falconridge's objective weights / existing defensive-fire numbers in this PR. Do not add another mechanic.
 
 ## Authored siege layout
 
-Add one pure authored value to `CityDefinition`, implemented as a compact `CitySiegeLayout` with nested value types rather than a new subsystem:
+Add one pure authored value to `CityDefinition`, implemented as a compact `CitySiegeLayout` with nested value types rather than a subsystem:
 
 ```swift
 struct CitySiegeLayout: Equatable {
@@ -83,26 +95,30 @@ struct CitySiegeLayout: Equatable {
 }
 ```
 
-Use an authored lane array rather than changing `BattleLane` to `Hashable` only to support a `Set`; tests can pin that coverage contains no duplicates.
+Use `[BattleLane]` for authored defensive coverage; do not change `BattleLane` only to introduce another collection type.
 
-The exact implementation may nest helpers differently, but keep these contracts:
+### Construction invariants
 
-- objective IDs are stable authored strings;
-- each lane is one ordered list, not a graph;
-- route progress is normalized 0...1 and is used by both combat range checks and scene placement;
-- every route ends at the same Keep;
-- one authored objective can appear in multiple route lists;
-- the defensive-fire source is an objective whose liveness gates firing;
-- the layout remains framework-free.
+`CitySiegeLayout.init` uses preconditions in the same spirit as `LaneDefenseProfile` so broken catalog content fails immediately:
 
-`Country1CityCatalog` owns the data. Falconridge gets the custom layout above. Every other Country 1 city gets `singleKeep(...)` through the same model:
+- objective IDs are unique and non-empty;
+- exactly one objective is `.keep`;
+- every durability weight is positive;
+- every objective `visualProgress` and every route-step `progress` is within `0...1`;
+- every route is non-empty, references only existing objective IDs, and ends at the one Keep;
+- `defaultLane` has a route;
+- `defensiveFire.sourceObjectiveID` exists;
+- `coveredLanes` contains no duplicates;
+- `singleKeep(defaultLane:)` constructs the only non-Falconridge shape and cannot emit an invalid layout.
+
+Persisted `SiegeProgress` remains forgiving: unknown saved objective IDs are discarded during normalization. Authored layout data is not forgiving.
+
+`Country1CityCatalog` owns all layout data. Falconridge gets the custom layout above. Every other Country 1 city gets `singleKeep(defaultLane: laneDefenseProfile.standardLane)`:
 
 - one Keep carrying 100% of the existing durability budget;
-- all three routes target that Keep;
+- all three routes target that Keep at progress `1.0`;
 - default lane = `laneDefenseProfile.standardLane`;
 - defensive fire source = the Keep, covering all three lanes.
-
-That preserves the current basic loop and current tower pressure for non-pilot cities while deleting the need for a legacy city-HP combat branch.
 
 ## Persisted siege progress
 
@@ -115,30 +131,38 @@ struct SiegeProgress: Codable, Equatable {
 }
 ```
 
-`KingdomGameState` owns one `siegeProgress` for the current/pending city. `KingdomGameStore` continues to serialize the whole state exactly once; there is no second repository or save owner.
+`KingdomGameState` owns one `siegeProgress` for the current/pending city. `KingdomGameStore` continues to JSON-code the whole state; there is no second repository.
 
 Rules:
 
 - Fresh active city: selected lane = authored default, objective damage = empty/zero.
-- Damage is clamped to the authored objective's max HP and unknown IDs are ignored when state is normalized.
-- Keep the final objective damage through `cityConqueredPendingMap` / final-country report so restored Battle presentation can still show which optional defenses survived.
+- Damage is clamped to authored objective max HP; unknown IDs are ignored when persisted state is normalized.
+- Keep final objective damage through `cityConqueredPendingMap` / final-country pending report so restored Battle presentation can show support structures honestly.
 - Starting the next city replaces it with that city's fresh progress.
-- Do not retain completed-city objective history.
-- Old development saves may reset. Do not add a migration version, converter, compatibility shim, or dual schema.
+- Do not retain completed-city objective history after the pending report flow no longer needs it.
+- `siegeProgress` is an explicit `KingdomGameState.CodingKeys` member and is normalized on init/decode.
+- Old development saves may reset. Do not add migration/version/converter/dual-schema logic.
 
-### Remove the mutable aggregate HP authority
+### Remove scalar city HP ownership
 
-`cityRemainingPower` must no longer be an independently encoded mutable pool.
+Do not keep `cityRemainingPower` as a production compatibility authority.
 
-Keep read-only projections where they reduce churn:
+The production model exposes:
 
-- `cityRemainingPower`: derived total remaining objective durability while the city is active; 0 after conquest.
-- `cityMaxPower`: unchanged existing city durability budget.
-- `currentKeepRemainingPower` and `currentKeepMaxPower`: derived from the Keep objective.
+- `currentKeepRemainingPower` — remaining HP of the one Keep;
+- `currentKeepMaxPower` — max HP allocated to the Keep;
+- existing `cityMaxPower` — total authored durability budget used for allocation/balance, not the conquest predicate.
 
-Tests/fixtures that need a damaged tactical city should construct objective damage explicitly instead of seeding one ambiguous aggregate HP number.
+A total-objective remaining projection may exist only for pure model tests/debugging if it genuinely simplifies verification. It must not drive conquest, combat tick continuation, idle loop continuation, Living Kingdom, HUD progress, Keep sprite HP, or the city tooltip.
 
-The Living Kingdom fortress stage must switch from aggregate city HP to **actual Keep HP**. Destroying a Gate or Tower must not visually damage the Keep. Non-pilot cities remain visually identical because their one Keep still owns the full budget.
+All player-facing battle HP becomes **Keep HP**:
+
+- Battle HUD progress bar = Keep remaining / Keep max;
+- Keep sprite HP bar = Keep remaining / Keep max;
+- city tooltip explicitly reports Keep HP;
+- Gate/Tower show their own identity + HP.
+
+For Falconridge, a fresh fortress is therefore `46/46`, not `46/92`. Living Kingdom thresholds use Keep max 46. Non-pilot cities remain visually equivalent because their Keep owns the entire durability budget.
 
 ## One targeting rule for live and idle combat
 
@@ -146,46 +170,60 @@ Use one small pure route helper next to the siege value types. It is not a servi
 
 It needs only two operations:
 
-1. Resolve the first living route step for a lane from authored routes + objective damage.
-2. Spend a positive damage budget on that route, carrying unused damage to the next route step when an objective falls.
+1. resolve the first living route step for a lane from authored routes + objective damage;
+2. spend a positive damage budget on that route, carrying unused damage to the next step when an objective falls.
 
-This is the shared rule used by:
+This rule is shared by:
 
-- live combat to know which objective a soldier should approach/attack;
-- idle/Camp/Map settlement to spend abstract building-produced damage.
+- live combat target selection;
+- idle/Camp/Map abstract building damage.
 
 No pathfinding, target registry, behavior tree, ECS, or generic effect system is introduced.
 
 ## Live combat ownership
 
-`BattleCombatState` remains the only live-actor simulator. It must **not** become a second persistence owner for objective HP.
+`BattleCombatState` remains the only live-actor simulator and never owns persisted objective HP.
 
-Per tick, `KingdomGameState` supplies an ephemeral pure snapshot of the current authored layout and remaining objective HP. `BattleCombatState` may mutate a local copy during that tick so multiple soldiers cannot over-damage a target, but that copy is discarded after the returned events are applied to `KingdomGameState`.
+Per tick, `KingdomGameState` supplies an ephemeral pure current-siege snapshot containing the layout and remaining objective HP. `BattleCombatState` may mutate a local copy during that tick so multiple soldiers cannot over-damage one target, then returns objective-aware events. The local copy is discarded after `KingdomGameState` applies those events.
 
 ### Soldier flow
 
-- Spawn uses an explicit lane from `state.siegeProgress.selectedLane` for both manual and building-produced soldiers.
-- Already deployed soldiers keep their current `Soldier.lane`.
+- Production spawn requires an explicit lane from `state.siegeProgress.selectedLane` for both manual and building-produced soldiers.
+- Remove the optional/random production lane fallback; deterministic tests pass lanes explicitly too.
+- The combat RNG remains only where it is still needed, such as choosing among multiple occupied defensive-fire lanes.
+- Already deployed soldiers keep their current `Soldier.lane` when selection changes.
 - Each soldier asks for the first living step in its own lane.
-- Movement stops at `targetProgress - soldier.attackRange` using the existing normalized movement/range model.
-- On attack, emit an objective-aware `SoldierAttackEvent` containing `objectiveID` and `appliedDamage`.
-- If an earlier attack in the same tick destroys the target, following soldiers may resolve/move toward the next step.
-- No direct building target command, retarget UI, arbitrary movement, or lane switch for deployed soldiers.
+- Movement stops at `targetProgress - soldier.attackRange`.
+- On attack, emit `SoldierAttackEvent` with `objectiveID` + actual `appliedDamage`.
+- If an earlier attack in the same tick destroys a target, following soldiers may resolve/move toward the next step.
+- No direct building-target command, retarget UI, arbitrary movement, or deployed-soldier lane switch.
 
-Rename the event's current `appliedCityDamage` wording to `appliedDamage`; `ActiveSiegeSession` still records the same type/source/lane damage attribution. The conquest report does not need a new structure-by-structure section in this ticket.
+`ActiveSiegeSession` continues to record type/source/lane damage attribution. The conquest report does not gain structure rows in this ticket.
 
 ### Defensive fire
 
-Replace the unconditional global tower with the layout's `DefensiveFire` source:
+Replace the unconditional global tower with the authored `DefensiveFire` source:
 
-- source objective must still be alive;
-- target soldier must be in an authored covered lane;
-- target the foremost living soldier in that lane, reusing current range/damage/cooldown behavior;
-- existing `LaneDefenseProfile` multipliers remain authoritative for lane-specific damage;
+- the source objective must be alive;
+- target soldier lane must be in `coveredLanes`;
+- fire range is **source-relative**: `soldier.position >= max(0, sourceProgress - towerAttackRange)`;
+- source progress comes from the source objective's authored visual progress;
+- reuse current cooldown, foremost-target selection, occupied-lane RNG selection, damage, and `LaneDefenseProfile` multiplier behavior;
 - once Falconridge's Arrow Tower is destroyed, it never fires again;
-- for non-pilot cities, the single Keep is the defensive-fire source, preserving current behavior on the unified path.
+- for non-pilot cities, the source is the Keep at `1.0`, so the current `1.0 - towerAttackRange` behavior is preserved.
 
 Do not run the old global tower beside this source.
+
+### Trait independence
+
+Falconridge still has `CityDefenseTrait.arrowTower`. That trait is a city-wide soldier→objective damage modifier and does not depend on whether the destructible Arrow Tower is alive.
+
+Destroying the objective:
+
+- **does:** stop defensive fire and remove Tower coverage presentation;
+- **does not:** change favorable/disadvantaged soldier multipliers for later Gate/Keep damage.
+
+This is intentional and must be pinned in model/combat tests.
 
 ## KingdomGameState mutations and settlement
 
@@ -195,79 +233,100 @@ Do not run the old global tower beside this source.
 
 `applyLiveSoldierAttacks` becomes objective-aware:
 
-- clamp each event against current remaining HP for its objective;
-- record only actually applied damage into `ActiveSiegeSession`;
+- validate objective ID against the current authored layout;
+- clamp against that objective's remaining HP;
+- record only actual applied damage into `ActiveSiegeSession`;
 - update `SiegeProgress.damageByObjectiveID`;
-- conquer immediately when the Keep reaches zero;
-- award exactly one existing city reward and finalize the existing pending Battle result;
+- after each event, check **Keep remaining HP**, never aggregate remaining durability;
+- when Keep reaches zero, finalize exactly one existing reward/result and stop processing attacks;
 - do not zero or fabricate damage on surviving support objectives.
 
 ### Idle/Camp/Map damage
 
-Keep existing building production, 8-hour cap, and 1/10 idle rate. Change only where generated attack power lands.
+Keep current building production, 8-hour cap, and 1/10 idle rate. Change only where generated attack power lands.
 
 For each resolved `BuildingSpawn`:
 
-1. calculate its existing trait-adjusted attack power;
-2. treat that number as a damage budget;
-3. spend it through the currently selected lane's ordered route;
-4. carry remaining budget forward if that spawn destroys an objective;
-5. record the actual applied total against that soldier type in existing idle attribution.
+1. calculate existing trait-adjusted attack power;
+2. spend it through the selected lane's ordered route;
+3. carry remaining budget forward if that spawn destroys an objective;
+4. record the spawn's actual applied total in existing idle attribution;
+5. stop immediately when **Keep remaining HP** reaches zero, even if another support objective is still alive.
 
-This preserves attribution without replaying frame-by-frame combat or fabricating offline soldier losses.
-
-A surviving Gate therefore prevents idle damage from reaching the Keep. A route that bypasses the Arrow Tower may conquer while the Tower survives.
+A surviving Gate prevents idle damage from reaching the Keep. A route that bypasses the Tower may conquer while the Tower survives. No frame-by-frame offline combat or fabricated losses are added.
 
 ### Lane changes settle the old lane first
 
-Expose one `KingdomGameState` lane-selection mutation rather than assigning `selectedLane` from the scene.
+Expose one `KingdomGameState.selectAssaultLane` mutation rather than assigning persisted selection from `BattleScene`.
 
-If an inactive interval is armed (`lastBackgroundedAt` / existing offscreen building-progress seam), resolve that interval **before** writing the new lane. The settlement therefore uses the previously stored lane. If settlement conquers the city, do not change the lane afterward.
+If an inactive interval is armed, resolve it **before** writing the new lane. That settlement therefore uses the old stored lane. If it conquers the Keep, do not change the lane afterward.
 
-Ordinary in-Battle lane taps with no armed inactive interval do not synthesize extra production.
+Ordinary in-Battle lane taps with no armed interval do not synthesize production.
+
+## Country-wide lane control
+
+The assault selector is a Country 1 control, not Falconridge-only chrome.
+
+- Every fresh city defaults to `laneDefenseProfile.standardLane`.
+- Every subsequent manual/building production spawn uses the currently selected lane.
+- Selecting the exposed lane changes incoming defensive-fire pressure through the existing `0.80×` lane multiplier.
+- Selecting the fortified lane uses the existing `1.25×` multiplier.
+- Already-deployed soldiers stay where they were spawned.
+
+Non-pilot acceptance explicitly pins City 1: default spawns use its standard lane; selecting its exposed lane changes only new spawns and applies exposed-lane defensive-fire damage. There is no hidden RNG spawn behavior retained for “legacy pressure.”
 
 ## Battle UI and input
 
-Reuse the existing Forged `BattleHUDNode` lane chips and keep `BattleChromeLayout` as the only geometry authority; do not add another command bar.
+Reuse the existing Forged `BattleHUDNode` lane chips and keep `BattleChromeLayout` as the sole geometry authority.
 
-The current lane-chip visuals are 26pt high, so do not treat those visual rectangles as touch targets. Add `laneChipHitFrames` to `BattleChromeLayout`, derived from each visual `laneChipFrame`, expanded/clamped to at least 44×44 inside the battlefield. This mirrors the existing medallion visual-frame / hit-frame pattern.
+The current chip visuals are 26pt high. Add `laneChipHitFrames`, derived from those visual frames and expanded/clamped to at least 44×44 inside the battlefield, mirroring the existing medallion visual/hit-frame pattern.
 
 Changes:
 
-- `BattleHUDContent` adds selected assault lane.
+- `BattleHUDContent` carries `keepRemainingPower`, `keepMaxPower`, and selected assault lane; remove aggregate `cityRemainingPower` / `cityMaxPower` HP presentation fields.
 - `BattleHUDNode.Action` adds `.selectLane(BattleLane)`.
-- all three lane-entrance hit regions are active even when the standard lane has no OPEN/HELD role chip.
-- retain existing OPEN / HELD treatment for exposed/fortified lanes; do not invent another role taxonomy for the standard lane.
-- exactly the selected lane shows the small procedural assault flag and `ASSAULT` treatment, satisfying the single-visible-flag requirement.
-- `BattleHUDNode.action(at:)` resolves lane selection from `laneChipHitFrames`.
-- `BattleScene.handleBattleHUDTouch` routes selection through the model mutation and persists it.
-- lane selection is consumed before scene-level fallback handling, so Deploy, unit medallions, Settings, tabs, income/city tooltips, and conquest UI cannot accidentally change the lane.
+- all three lane hit regions are active, including the standard lane;
+- preserve OPEN / HELD role treatment for exposed/fortified lanes;
+- exactly the selected lane shows one small procedural assault flag + `ASSAULT` treatment;
+- `BattleHUDNode.action(at:)` resolves lane selection from `laneChipHitFrames`;
+- `BattleScene` routes the action through the model mutation and persists it;
+- Deploy, unit medallions, Settings, tabs, info tooltips, and conquest Continue must not fall through into lane selection.
 
-No new Settings surface or separate lane picker.
+No second lane picker or command strip.
 
 ## Objective presentation
 
-Keep the existing semantic `enemy-city` node as the Keep. Add only local `BattleScene` nodes for Falconridge's Gate/Tower and their HP labels.
+Keep semantic `enemy-city` as the Keep. Add only local `BattleScene` nodes for Falconridge Gate/Tower and their HP treatment.
 
-- Keep HP bar and Living Kingdom treatment read actual Keep health.
+- Keep HP bar and Living Kingdom use actual Keep health.
 - Gate/Tower show readable identity + HP.
-- Destroyed Gate/Tower switches to a clearly ruined procedural placeholder and loses its HP fill.
-- While the Tower is alive, covered lane paths receive a restrained coverage treatment; the treatment disappears with the Tower.
-- Objective nodes are rebuilt from persisted state, so tab changes and relaunches do not resurrect defenses.
+- Destroyed Gate/Tower switch to clearly ruined procedural placeholders.
+- Tower coverage treatment disappears when the Tower dies.
+- Objective nodes rebuild from persisted state, so tab changes/relaunch do not resurrect defenses.
+- city tooltip uses `Keep HP current/max`; it never reports total remaining structure HP as if it were the win target.
 
-Do not create a reusable scene-object framework in this ticket. Small private BattleScene builders are sufficient for three structures.
+Do not add a reusable scene-object framework.
 
 ## Scout hint
 
-Keep the existing Scout card. For Falconridge only, replace the generic secondary route hint with concise tactical copy derived from the authored layout, e.g.:
+Keep the existing Scout card and action. Add one optional tactical footer string projected from Falconridge's authored layout, using concise copy such as:
 
-`Left: silence Tower · Center: break Gate`
+`L Tower · C/R Gate`
 
-Keep the existing defense trait, reward, flavor, and action. Do not add a new inspector or tactical detail screen.
+For non-pilot cities the current `Open: <lane>` footer remains unchanged.
+
+This is a fit contract, not only content:
+
+- `CountryMapScoutCardNode.prepareScout` measures the chosen footer against the existing `exposedLaneFrame`;
+- Falconridge tactical copy uses `SingleLineTextFitter` (or the same existing text-fit primitive) down to a small explicit minimum, rather than assuming the normal footer font fits;
+- supported compact-phone tests must prove the tactical footer fits and the card still presents;
+- if the approved concise copy cannot fit even at the minimum, adjust the footer layout within `CountryMapScoutCardLayout`; do not let the Scout card silently disappear.
+
+Do not add a new inspector or tactical detail screen.
 
 ## HPA-476 placeholder / art handoff
 
-HPA-468 creates **procedural placeholders only**. Reserve these future asset contracts so HPA-476 can replace visuals without changing gameplay IDs or layout logic:
+HPA-468 creates **procedural placeholders only**. Reserve these future contracts:
 
 | Runtime asset contract | Source canvas | Anchor | States |
 | --- | --- | --- | --- |
@@ -275,7 +334,7 @@ HPA-468 creates **procedural placeholders only**. Reserve these future asset con
 | `siege-arrow-tower` | 256×320 | bottom-center `(0.5, 0)` | `intact`, `ruined` |
 | `siege-assault-flag` | 128×160 | bottom-center `(0.5, 0)` | selected only |
 
-Runtime sizing stays relative to `BattlefieldLayout.structureHeight`; source pixels do not dictate scene points. HPA-476 owns generation, polish, and final replacement art. HPA-468 must not add generated images or animation frames.
+Runtime sizing stays relative to `BattlefieldLayout.structureHeight`; source pixels do not dictate scene points. HPA-476 owns generation/polish/final replacement art. HPA-468 must not add generated images or animation frames.
 
 ## Deliberate cuts
 
@@ -292,6 +351,8 @@ Not in HPA-468:
 - new report screen or target inspector;
 - telemetry;
 - save migration/backward compatibility;
+- compatibility aggregate HP path;
+- production RNG lane-spawn path;
 - generic combat engine, target registry, VFX manager, ECS, or cross-tab combat runtime;
 - final image/animation production.
 
@@ -300,13 +361,18 @@ Not in HPA-468:
 HPA-468 is done when:
 
 - Falconridge supports selecting a lane and visibly dismantling its authored objectives.
-- New manual + building soldiers use the selected lane; existing soldiers do not move lanes.
-- Tower destruction visibly and mechanically stops Tower fire.
+- Keep remaining HP is the only conquest/liveness/tick-stop authority.
+- HUD, Keep sprite bar, tooltip, and Living Kingdom all use Keep current/max HP.
+- New manual + building soldiers in every Country 1 city use the selected lane; existing soldiers do not move lanes.
+- City 1 proves default-standard, exposed-lane `0.80×`, and no movement of an already-deployed soldier.
+- Tower source-relative range is deterministic and Falconridge ranged Tower attackers are covered by the authored Tower.
+- Tower destruction visibly and mechanically stops fire but does not remove Falconridge's city-wide `.arrowTower` damage multipliers.
 - Gate blocking applies identically to live and abstract idle damage.
 - Keep destruction ends the siege while a support objective may survive.
-- Non-pilot cities still play through the same objective path as one-Keep layouts.
+- `CitySiegeLayout` rejects invalid authored routes at construction.
 - objective damage and selected lane survive save/load, tab changes, background/foreground, and relaunch.
-- Living Kingdom fortress damage follows Keep HP, not Gate/Tower damage.
+- Living Kingdom thresholds use Keep max 46 for Falconridge and remain unchanged for one-Keep cities.
+- Falconridge Scout tactical footer fits on supported compact phone geometry without disabling the card.
 - pending-first report and deliberate Camp conquest routing remain unchanged.
-- the left tower-first vs center gate-first Falconridge runs from the same camp setup produce a meaningful, non-free trade-off.
+- the left tower-first vs center gate-first runs from the same camp setup produce a meaningful, non-free trade-off.
 - no final art is generated in this PR.
