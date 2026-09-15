@@ -236,7 +236,6 @@ struct BattleHUDNodeTests {
         )))
         let state = KingdomGameState(
             gold: 1_234,
-            cityRemainingPower: 42,
             cityNumberInCountry: 5,
             completedCityCount: 4
         )
@@ -287,7 +286,6 @@ struct BattleHUDNodeTests {
         )))
         let state = KingdomGameState(
             gold: 4_200,
-            cityRemainingPower: 46,
             cityNumberInCountry: 13,
             completedCityCount: 12
         )
@@ -312,7 +310,6 @@ struct BattleHUDNodeTests {
         // City 13 "Starveil Citadel" is the longest authored city name.
         let state = KingdomGameState(
             gold: 4_200,
-            cityRemainingPower: 46,
             cityNumberInCountry: 13,
             completedCityCount: 12
         )
@@ -437,7 +434,7 @@ struct BattleHUDNodeTests {
             sceneSize: CGSize(width: 393, height: 852),
             safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
         )))
-        let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 93)
         let content = BattleHUDContent.project(from: state, manualCount: 0)
         let node = BattleHUDNode()
         _ = node.apply(content: content, layout: layout)
@@ -445,18 +442,103 @@ struct BattleHUDNodeTests {
         let exposedLabel = try #require(
             node.childNode(withName: "battleLaneChipLabel-0") as? SKLabelNode
         )
-        let centerChip = try #require(
-            node.childNode(withName: "battleLaneChip-1")
+        let selectedLabel = try #require(
+            node.childNode(withName: "battleLaneChipLabel-1") as? SKLabelNode
         )
         let fortifiedLabel = try #require(
             node.childNode(withName: "battleLaneChipLabel-2") as? SKLabelNode
         )
 
+        // City 3's default assault lane is the standard center lane.
+        #expect(content.selectedLane == .center)
         #expect(exposedLabel.isHidden == false)
         #expect(exposedLabel.text == "OPEN")
-        #expect(centerChip.isHidden)
         #expect(fortifiedLabel.isHidden == false)
         #expect(fortifiedLabel.text == "HELD")
+        #expect(selectedLabel.isHidden == false)
+        #expect(selectedLabel.text == "ASSAULT")
+    }
+
+    @Test func allThreeLaneChipHitFramesReturnSelectLaneActions() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 93)
+        let node = BattleHUDNode()
+        _ = node.apply(content: .project(from: state, manualCount: 0), layout: layout)
+
+        for lane in BattleLane.allCases {
+            let hit = try #require(layout.laneChipHitFrames[lane])
+            #expect(node.action(at: CGPoint(x: hit.midX, y: hit.midY)) == .selectLane(lane))
+        }
+    }
+
+    @Test func exactlyTheSelectedLaneGetsTheAssaultFlagTreatment() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        // City 3: exposed left, fortified right, standard center — select left.
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 93,
+            selectedLane: .left
+        )
+        let node = BattleHUDNode()
+        _ = node.apply(content: .project(from: state, manualCount: 0), layout: layout)
+
+        let leftLabel = try #require(
+            node.childNode(withName: "battleLaneChipLabel-0") as? SKLabelNode
+        )
+        let centerLabel = try #require(
+            node.childNode(withName: "battleLaneChipLabel-1") as? SKLabelNode
+        )
+        let rightLabel = try #require(
+            node.childNode(withName: "battleLaneChipLabel-2") as? SKLabelNode
+        )
+        let leftFlag = try #require(
+            node.childNode(withName: "battleLaneChipFlag-0") as? SKShapeNode
+        )
+        let centerFlag = try #require(
+            node.childNode(withName: "battleLaneChipFlag-1") as? SKShapeNode
+        )
+        let rightFlag = try #require(
+            node.childNode(withName: "battleLaneChipFlag-2") as? SKShapeNode
+        )
+
+        // Exactly the selected lane carries the procedural flag / ASSAULT label.
+        #expect(leftLabel.text == "ASSAULT")
+        #expect(!leftLabel.isHidden)
+        #expect(!leftFlag.isHidden)
+        #expect(leftFlag.path != nil)
+        #expect(centerFlag.isHidden)
+        #expect(rightFlag.isHidden)
+        // Role treatment is preserved on the unselected lanes.
+        #expect(centerLabel.isHidden) // standard lane shows no chip when unselected
+        #expect(rightLabel.text == "HELD")
+        #expect(!rightLabel.isHidden)
+    }
+
+    @Test func selectedLaneChipFlagStayInsideItsVisualChipFrame() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 93)
+        let node = BattleHUDNode()
+        _ = node.apply(content: .project(from: state, manualCount: 0), layout: layout)
+
+        let visual = try #require(layout.laneChipFrames[.center])
+        let flag = try #require(
+            node.childNode(withName: "battleLaneChipFlag-1") as? SKShapeNode
+        )
+        let label = try #require(
+            node.childNode(withName: "battleLaneChipLabel-1") as? SKLabelNode
+        )
+
+        #expect(visual.contains(flag.frame))
+        #expect(visual.insetBy(dx: -2, dy: -2).contains(label.frame))
     }
 
     @Test func openAndHeldLaneChipsAndLockedMedallionsUseVectorMarkers() throws {

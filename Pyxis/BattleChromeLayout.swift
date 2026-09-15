@@ -54,6 +54,7 @@ struct BattleChromeLayout: Equatable {
     let battlefieldFrame: CGRect
     let battlefield: BattlefieldLayout
     let laneChipFrames: [BattleLane: CGRect]
+    let laneChipHitFrames: [BattleLane: CGRect]
     let tabBarFrame: CGRect
     let tabHitFrames: [CGRect]
     let isCompact: Bool
@@ -315,6 +316,19 @@ struct BattleChromeLayout: Equatable {
         }
 
         let laneChipFrames = laneFrames(in: battlefieldFrame)
+        // Lane hit targets expand around the visual chip center to clear
+        // 44×44, mirroring the medallion hit-frame derivation; containment
+        // inside the battlefield is guard-enforced below.
+        let laneChipHitFrames = laneChipFrames.mapValues { frame in
+            let hitWidth = max(44, frame.width)
+            let hitHeight = max(44, frame.height)
+            return CGRect(
+                x: frame.midX - hitWidth / 2,
+                y: frame.midY - hitHeight / 2,
+                width: hitWidth,
+                height: hitHeight
+            )
+        }
 
         let frames = [
             sceneFrame,
@@ -331,6 +345,7 @@ struct BattleChromeLayout: Equatable {
             tabBarFrame
         ] + medallionFrames + medallionHitFrames + tabHitFrames
             + Array(laneChipFrames.values)
+            + Array(laneChipHitFrames.values)
         guard frames.allSatisfy({
             $0.minX.isFinite
                 && $0.minY.isFinite
@@ -358,7 +373,10 @@ struct BattleChromeLayout: Equatable {
               medallionFrames.allSatisfy({ safeFrame.contains($0) }),
               medallionHitFrames.allSatisfy({ safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44 }),
               tabHitFrames.allSatisfy({ safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44 }),
-              laneChipFrames.values.allSatisfy({ battlefieldFrame.contains($0) })
+              laneChipFrames.values.allSatisfy({ battlefieldFrame.contains($0) }),
+              laneChipHitFrames.values.allSatisfy({
+                  battlefieldFrame.contains($0) && $0.width >= 44 && $0.height >= 44
+              })
         else {
             return nil
         }
@@ -379,6 +397,7 @@ struct BattleChromeLayout: Equatable {
             battlefieldFrame: battlefieldFrame,
             battlefield: battlefield,
             laneChipFrames: laneChipFrames,
+            laneChipHitFrames: laneChipHitFrames,
             tabBarFrame: tabBarFrame,
             tabHitFrames: tabHitFrames,
             isCompact: compact

@@ -77,4 +77,52 @@ struct BattleHUDContentTests {
         #expect(content.laneDefenseProfile.fortifiedLane == .right)
         #expect(content.laneDefenseProfile.role(for: .center) == .standard)
     }
+
+    @Test func freshStateProjectsDefaultLaneAndFullKeepHP() {
+        let state = KingdomGameState(cityNumberInCountry: 1)
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        #expect(content.selectedLane == state.currentCityDefinition.siegeLayout.defaultLane)
+        #expect(content.keepMaxPower == KingdomGameState.cityMaxPower(for: 1))
+        #expect(content.keepRemainingPower == content.keepMaxPower)
+    }
+
+    @Test func projectsSelectedLaneAndDamagedKeepHPFromSiegeProgress() {
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 13,
+            selectedLane: .right
+        )
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        #expect(content.selectedLane == .right)
+        #expect(content.keepRemainingPower == 13)
+        // City 3's authored layout splits the budget across keep/gate/tower;
+        // the HUD must project the Keep's authored share, not the city total.
+        let layout = state.currentCityDefinition.siegeLayout
+        let expectedMax = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)[layout.keepObjective.id]
+        #expect(content.keepMaxPower == expectedMax)
+    }
+
+    @Test func supportObjectiveDamageDoesNotChangeKeepDisplayProjection() {
+        // City 3's gate/tower absorb damage before the Keep; Keep displays
+        // must read Keep HP only (HPA-468).
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 13,
+            supportDamage: [.gate: 10, .arrowTower: 10]
+        )
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        // Keep display reads Keep HP only: gate/tower damage never moves it.
+        #expect(content.keepRemainingPower == 13)
+        // The 10-point hits landed on each support objective's route share.
+        let layout = state.currentCityDefinition.siegeLayout
+        let maxPowers = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        let supportRemaining = layout.objectives
+            .filter { $0.kind != .keep }
+            .map { max(0, (maxPowers[$0.id] ?? 0) - 10) }
+            .reduce(0, +)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 13 + supportRemaining)
+    }
 }

@@ -23,8 +23,9 @@ struct BattleHUDContent: Equatable {
     let cityNumber: Int
     let gold: Int
     let goldReward: Int
-    let cityRemainingPower: Int
-    let cityMaxPower: Int
+    let keepRemainingPower: Int
+    let keepMaxPower: Int
+    let selectedLane: BattleLane
     let laneDefenseProfile: LaneDefenseProfile
     let recommendation: RecommendedCampRecommendation
     let recommendationLevelText: String?
@@ -91,8 +92,9 @@ struct BattleHUDContent: Equatable {
             cityNumber: state.cityNumberInCountry,
             gold: state.gold,
             goldReward: state.currentGoldReward,
-            cityRemainingPower: state.cityRemainingPower,
-            cityMaxPower: state.cityMaxPower,
+            keepRemainingPower: state.currentKeepRemainingPower,
+            keepMaxPower: state.currentKeepMaxPower,
+            selectedLane: state.siegeProgress.selectedLane,
             laneDefenseProfile: state.currentCityLaneDefenseProfile,
             recommendation: recommendation,
             recommendationLevelText: recommendationLevelText,
@@ -145,6 +147,7 @@ final class BattleHUDNode: SKNode {
     enum Action: Equatable {
         case select(SoldierType)
         case deploy
+        case selectLane(BattleLane)
         case tab(GameplayTab)
         case requirement(soldierType: SoldierType, unlocksAtCity: Int?)
     }
@@ -168,6 +171,7 @@ final class BattleHUDNode: SKNode {
     private struct LaneChipBundle {
         let background: SKShapeNode
         let shield: SKShapeNode
+        let flag: SKShapeNode
         let label: SKLabelNode
     }
 
@@ -268,6 +272,7 @@ final class BattleHUDNode: SKNode {
         laneChips = Dictionary(uniqueKeysWithValues: BattleLane.allCases.map { lane in
             let background = SKShapeNode()
             let shield = SKShapeNode(path: Self.makeShieldPath())
+            let flag = SKShapeNode(path: Self.makeFlagPath())
             let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
             background.name = "battleLaneChip-\(lane.rawValue)"
             background.fillColor = GameUITheme.Color.panelFill.withAlphaComponent(0.92)
@@ -279,13 +284,20 @@ final class BattleHUDNode: SKNode {
             shield.lineWidth = 1.2
             shield.lineCap = .round
             shield.lineJoin = .round
+            flag.name = "battleLaneChipFlag-\(lane.rawValue)"
+            flag.fillColor = GameUITheme.Color.textPrimary
+            flag.strokeColor = GameUITheme.Color.textPrimary
+            flag.lineWidth = 1.2
+            flag.lineCap = .round
+            flag.lineJoin = .round
+            flag.isHidden = true
             label.name = "battleLaneChipLabel-\(lane.rawValue)"
             label.text = "OPEN"
             label.fontSize = 9
             label.fontColor = GameUITheme.Color.textPrimary
             label.horizontalAlignmentMode = .center
             label.verticalAlignmentMode = .center
-            return (lane, LaneChipBundle(background: background, shield: shield, label: label))
+            return (lane, LaneChipBundle(background: background, shield: shield, flag: flag, label: label))
         })
         super.init()
         name = "battleHUD"
@@ -413,6 +425,7 @@ final class BattleHUDNode: SKNode {
         for lane in BattleLane.allCases {
             addChild(laneChips[lane]!.background)
             addChild(laneChips[lane]!.shield)
+            addChild(laneChips[lane]!.flag)
             addChild(laneChips[lane]!.label)
         }
         addChild(tabBar)
@@ -436,6 +449,7 @@ final class BattleHUDNode: SKNode {
               layout.medallionHitFrames.count == medallions.count,
               layout.tabHitFrames.count == GameplayTab.allCases.count,
               layout.laneChipFrames.count == laneChips.count,
+              layout.laneChipHitFrames.count == laneChips.count,
               layout.battlefield.isVisible,
               layout.battlefieldFrame.height >= minimumBattlefieldHeight,
               layout.topBandFrame.contains(layout.incomeFrame),
@@ -450,8 +464,12 @@ final class BattleHUDNode: SKNode {
                   layout.safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44
               }),
               BattleLane.allCases.allSatisfy({
-                  guard let frame = layout.laneChipFrames[$0] else { return false }
+                  guard let frame = layout.laneChipFrames[$0],
+                        let hitFrame = layout.laneChipHitFrames[$0] else { return false }
                   return layout.battlefieldFrame.contains(frame)
+                      && layout.battlefieldFrame.contains(hitFrame)
+                      && hitFrame.width >= 44
+                      && hitFrame.height >= 44
               })
         else {
             return failApply()
@@ -596,8 +614,8 @@ final class BattleHUDNode: SKNode {
         cityHPLabel.text = nil
         cityHPLabel.isHidden = true
         cityProgressBar.update(size: cityProgressBarSize)
-        cityProgressBar.update(progress: CGFloat(content.cityRemainingPower)
-            / CGFloat(max(1, content.cityMaxPower)))
+        cityProgressBar.update(progress: CGFloat(content.keepRemainingPower)
+            / CGFloat(max(1, content.keepMaxPower)))
         cityProgressBar.position = CGPoint(
             x: layout.isCompact
                 ? cityFrame.maxX - cityProgressBarSize.width / 2
@@ -844,19 +862,20 @@ final class BattleHUDNode: SKNode {
             )
             let bundle = laneChips[lane]!
             let role = content.laneDefenseProfile.role(for: lane)
+            let isSelected = lane == content.selectedLane
             let chipText: String?
             let chipColor: SKColor
             switch role {
             case .exposed:
-                chipText = "OPEN"
+                chipText = isSelected ? "ASSAULT" : "OPEN"
                 chipColor = GameUITheme.Color.hpFill
                 bundle.background.fillTexture = Self.openLaneTexture
             case .fortified:
-                chipText = "HELD"
+                chipText = isSelected ? "ASSAULT" : "HELD"
                 chipColor = GameUITheme.Color.danger
                 bundle.background.fillTexture = Self.heldLaneTexture
             case .standard:
-                chipText = nil
+                chipText = isSelected ? "ASSAULT" : nil
                 chipColor = GameUITheme.Color.textPrimary
                 bundle.background.fillTexture = nil
             }
@@ -871,22 +890,36 @@ final class BattleHUDNode: SKNode {
                 cornerHeight: 4,
                 transform: nil
             )
-            bundle.background.fillColor = chipText == nil ? .clear : .white
+            bundle.background.fillColor = chipText == nil
+                ? .clear
+                : (bundle.background.fillTexture == nil
+                    ? GameUITheme.Color.panelFill.withAlphaComponent(0.92)
+                    : .white)
             bundle.background.strokeColor = chipColor.withAlphaComponent(0.75)
             bundle.background.lineWidth = 1.5
             bundle.background.isHidden = chipText == nil
+            bundle.shield.isHidden = isSelected || chipText == nil
+            bundle.shield.strokeColor = chipColor
             bundle.shield.fillColor = role == .fortified
                 ? chipColor.withAlphaComponent(0.9)
                 : .clear
-            bundle.shield.strokeColor = chipColor
             bundle.shield.position = CGPoint(
                 x: chipFrame.minX + 11,
                 y: chipFrame.midY
             )
-            bundle.shield.isHidden = chipText == nil
+            bundle.flag.isHidden = !isSelected
+            bundle.flag.strokeColor = chipColor
+            bundle.flag.fillColor = chipColor.withAlphaComponent(0.9)
+            bundle.flag.position = CGPoint(
+                x: chipFrame.minX + 12,
+                y: chipFrame.midY
+            )
             bundle.label.text = chipText
             bundle.label.fontColor = chipColor
-            bundle.label.position = CGPoint(x: chipFrame.midX + 5, y: chipFrame.midY)
+            bundle.label.position = CGPoint(
+                x: isSelected ? chipFrame.midX + 6 : chipFrame.midX + 5,
+                y: chipFrame.midY
+            )
             bundle.label.isHidden = chipText == nil
         }
         tabBar.apply(
@@ -921,6 +954,9 @@ final class BattleHUDNode: SKNode {
         }
         if let tab = tabBar.tab(at: point) {
             return .tab(tab)
+        }
+        for lane in BattleLane.allCases where layout.laneChipHitFrames[lane]?.contains(point) == true {
+            return .selectLane(lane)
         }
         return nil
     }
@@ -978,6 +1014,18 @@ final class BattleHUDNode: SKNode {
             control2: CGPoint(x: -4, y: -3)
         )
         path.addLine(to: CGPoint(x: -4, y: 3))
+        path.closeSubpath()
+        return path
+    }
+
+    /// Procedural assault pennant: pole plus triangle flag.
+    private static func makeFlagPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: -6))
+        path.addLine(to: CGPoint(x: 0, y: 6))
+        path.move(to: CGPoint(x: 0, y: 6))
+        path.addLine(to: CGPoint(x: 8, y: 3.5))
+        path.addLine(to: CGPoint(x: 0, y: 1))
         path.closeSubpath()
         return path
     }
