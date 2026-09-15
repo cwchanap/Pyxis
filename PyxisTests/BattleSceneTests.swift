@@ -4770,6 +4770,11 @@ struct BattleSceneTests {
         #expect(frame.minX <= centerPoint.x)
         #expect(frame.maxX >= rightPoint.x)
         #expect(frame.minY <= centerPoint.y && frame.maxY >= centerPoint.y)
+        // Bottom-center anchor contract (HPA-476): the gate structure is
+        // bottom-anchored and sunk half a gate height so its frame still
+        // straddles the container origin (the route line it barriers).
+        let structure = try #require(gate.childNode(withName: "siegeStructure"))
+        #expect(abs(structure.frame.midY) < 0.5)
         // Exactly two pilot objective nodes exist: tower + gate (no keep).
         #expect(scene.siegeObjectiveNodeCountForTesting == 2)
         #expect(scene.siegeObjectiveNodeForTesting(.keep) == nil)
