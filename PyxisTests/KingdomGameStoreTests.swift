@@ -45,6 +45,27 @@ struct KingdomGameStoreTests {
         #expect(loaded.normalSoldierAttackPower == KingdomGameState.normalSoldierAttackPower(for: 3))
     }
 
+    @Test func saveAndLoadRoundTripsSiegeProgress() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let saved = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 30,
+            keepRemaining: 42,
+            supportDamage: [.gate: 4, .arrowTower: 6],
+            selectedLane: .right
+        )
+
+        store.save(saved)
+        let loaded = store.load()
+
+        #expect(loaded == saved)
+        #expect(loaded.siegeProgress.selectedLane == .right)
+        #expect(loaded.currentKeepRemainingPower == 42)
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: loaded))
+        #expect(loaded.siegeProgress.damageByObjectiveID[gateID] == 4)
+    }
+
     @Test func saveAndLoadRoundTripsPendingMapState() throws {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")
