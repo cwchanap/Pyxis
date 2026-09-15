@@ -38,6 +38,29 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let cityHPBarBackground = "cityHPBarBackground"
         static let cityHPBarFill = "cityHPBarFill"
         static let livingKingdomBattlefieldTreatment = "livingKingdomBattlefieldTreatment"
+        static let defensiveFireProjectile = "defensiveFireProjectile"
+    }
+
+    /// HPA-476 placeholder contract: the semantic asset names future siege
+    /// art will author. No image files ship yet — the objective builders
+    /// probe these names first and fall back to procedural shapes, so the
+    /// contract is the name plus its anchor semantics only. All siege
+    /// objectives anchor bottom-center (`anchorPoint` 0.5, 0); destroyed
+    /// objectives use the `-ruined` variant. Canvas pixel sizes are
+    /// intentionally unpinned until HPA-476 picks real canvas sizes from
+    /// actual render needs.
+    enum SiegeObjectiveAssetContract {
+        static let gate = "siege-gate"
+        static let arrowTower = "siege-arrow-tower"
+        static let assaultFlag = "siege-assault-flag"
+    }
+
+    private enum SiegeObjectiveNodeName {
+        static let prefix = "siegeObjective-"
+        static let structure = "siegeStructure"
+        static let ruin = "siegeRuin"
+        static let hpFill = "siegeHPFill"
+        static let coveragePrefix = "siegeCoverage-"
     }
 
     private enum EffectStyle {
@@ -129,6 +152,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     )
     private var laneNodes: [SKShapeNode] = []
     private var laneIndicatorNodes: [SKNode] = []
+    /// Procedural pilot-objective containers keyed by stable objective ID
+    /// (HPA-468). Rebuilt by `syncSiegeObjectiveNodes`; empty for single-Keep
+    /// cities, whose only objective stays the `enemy-city` sprite.
+    private var siegeObjectiveNodes: [String: SKNode] = [:]
     private var pendingAnimatedRemovalSoldierIDs: Set<BattleCombatState.SoldierID> = []
 
     /// Remaining time (in seconds) of each soldier's authored hit-reaction
@@ -1097,6 +1124,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             setBattlefieldHidden(true)
             removeLaneNodes()
             removeLaneIndicatorNodes()
+            removeSiegeObjectiveNodes()
             layoutMilestoneCityAccent()
             return
         }
@@ -1156,6 +1184,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         layoutCityHPBar()
         drawLanePaths()
         layoutLaneIndicators()
+        syncSiegeObjectiveNodes()
         syncSoldierNodes()
         layoutMilestoneCityAccent()
         if let transitionFX = effectsLayer.childNode(withName: EffectName.livingKingdomTransitionFX)
@@ -1520,6 +1549,288 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         laneIndicatorNodes.removeAll()
     }
 
+    // MARK: Falconridge siege objective visuals (HPA-468 pilot)
+
+    /// Rebuilds the procedural pilot-objective visuals from the current
+    /// siege snapshot. Local to BattleScene on purpose: the Keep stays the
+    /// `enemy-city` sprite, and these builders are the only scene objects —
+    /// no duplicate objective state, no generic scene-object framework.
+    /// Every placement reads `Objective.visualProgress` through the shared
+    /// battlefield lane geometry.
+    private func syncSiegeObjectiveNodes() {
+        removeSiegeObjectiveNodes()
+        guard battlefieldLayout.isVisible else {
+            return
+        }
+
+        let snapshot = state.currentSiegeSnapshot
+        let layout = snapshot.layout
+        let remaining = snapshot.objectiveRemainingPower
+        let maxPowers = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+
+        for objective in layout.objectives where objective.kind != .keep {
+            let node: SKNode
+            switch objective.kind {
+            case .arrowTower:
+                node = makeArrowTowerObjective(
+                    objective,
+                    remainingPower: remaining[objective.id, default: 0],
+                    maxPower: maxPowers[objective.id, default: 0]
+                )
+            case .gate:
+                node = makeGateObjective(
+                    objective,
+                    layout: layout,
+                    remainingPower: remaining[objective.id, default: 0],
+                    maxPower: maxPowers[objective.id, default: 0]
+                )
+            case .keep:
+                continue
+            }
+            environmentLayer.addChild(node)
+            siegeObjectiveNodes[objective.id] = node
+        }
+
+        // Live-tower coverage treatment: a quiet danger tint on each covered
+        // lane's in-range band, present only while the source tower lives.
+        if let source = layout.objective(id: layout.defensiveFire.sourceObjectiveID),
+           source.kind != .keep,
+           remaining[source.id, default: 0] > 0 {
+            for lane in layout.defensiveFire.coveredLanes {
+                environmentLayer.addChild(makeCoverageNode(for: lane, source: source))
+            }
+        }
+    }
+
+    private func removeSiegeObjectiveNodes() {
+        for node in environmentLayer.children where isSiegeObjectiveNode(node) {
+            node.removeFromParent()
+        }
+        siegeObjectiveNodes.removeAll()
+    }
+
+    private func isSiegeObjectiveNode(_ node: SKNode) -> Bool {
+        guard let name = node.name else { return false }
+        return name.hasPrefix(SiegeObjectiveNodeName.prefix)
+            || name.hasPrefix(SiegeObjectiveNodeName.coveragePrefix)
+    }
+
+    /// Arrow Tower at its authored progress: bottom-center anchored
+    /// structure with an HP bar, or a rubble ruin once destroyed.
+    private func makeArrowTowerObjective(
+        _ objective: CitySiegeLayout.Objective,
+        remainingPower: Int,
+        maxPower: Int
+    ) -> SKNode {
+        let container = SKNode()
+        container.name = SiegeObjectiveNodeName.prefix + objective.id
+        container.position = point(forLane: objective.visualLane, position: objective.visualProgress)
+        container.zPosition = 3
+
+        let width = max(16, battlefieldLayout.lanePathWidth * 0.36)
+        let height = width * 1.8
+        let isRuined = remainingPower <= 0
+        let structure = makeSiegeStructure(
+            assetName: SiegeObjectiveAssetContract.arrowTower,
+            targetSize: CGSize(width: width, height: height),
+            intactColor: SKColor(red: 0.45, green: 0.42, blue: 0.40, alpha: 1),
+            ruinedColor: SKColor(red: 0.30, green: 0.26, blue: 0.22, alpha: 1),
+            isRuined: isRuined
+        )
+        structure.name = SiegeObjectiveNodeName.structure
+        container.addChild(structure)
+
+        if isRuined {
+            container.addChild(makeRuinMarker(width: width))
+        } else {
+            addObjectiveHPBar(
+                to: container,
+                width: width,
+                bottomY: height + 3,
+                remaining: remainingPower,
+                maximum: maxPower
+            )
+        }
+        return container
+    }
+
+    /// The shared Ridge Gate: ONE barrier spanning every route lane whose
+    /// authored route contains the gate's stable ID (center + right for
+    /// Falconridge), sized from the existing battlefield lane geometry. The
+    /// ruined state spans the same approaches.
+    private func makeGateObjective(
+        _ objective: CitySiegeLayout.Objective,
+        layout: CitySiegeLayout,
+        remainingPower: Int,
+        maxPower: Int
+    ) -> SKNode {
+        let container = SKNode()
+        container.name = SiegeObjectiveNodeName.prefix + objective.id
+        let isRuined = remainingPower <= 0
+        let progress = objective.visualProgress
+        let spannedLanes = BattleLane.allCases.filter { lane in
+            layout.routes[lane]?.contains(objective.id) == true
+        }
+        let xs = spannedLanes.map { point(forLane: $0, position: progress).x }
+        let halfLane = battlefieldLayout.lanePathWidth / 2
+        let spanMinX = (xs.min() ?? 0) - halfLane
+        let spanMaxX = (xs.max() ?? 0) + halfLane
+        let basePoint = point(forLane: objective.visualLane, position: progress)
+        container.position = CGPoint(
+            x: (spanMinX + spanMaxX) / 2,
+            y: basePoint.y
+        )
+        container.zPosition = 3
+
+        let width = spanMaxX - spanMinX
+        let height = max(10, battlefieldLayout.lanePathWidth * 0.5)
+        let structure = makeSiegeStructure(
+            assetName: SiegeObjectiveAssetContract.gate,
+            targetSize: CGSize(width: width, height: height),
+            intactColor: SKColor(red: 0.55, green: 0.38, blue: 0.20, alpha: 1),
+            ruinedColor: SKColor(red: 0.30, green: 0.24, blue: 0.18, alpha: 1),
+            isRuined: isRuined,
+            centered: true
+        )
+        structure.name = SiegeObjectiveNodeName.structure
+        container.addChild(structure)
+
+        if isRuined {
+            container.addChild(makeRuinMarker(width: min(48, width * 0.3)))
+        } else {
+            addObjectiveHPBar(
+                to: container,
+                width: min(64, width * 0.4),
+                bottomY: height / 2 + 3,
+                remaining: remainingPower,
+                maximum: maxPower
+            )
+        }
+        return container
+    }
+
+    /// Builds one objective structure: the HPA-476 semantic asset when
+    /// installed (bottom-center anchor, `-ruined` variant for destroyed
+    /// objectives), otherwise a procedural shape fallback. Canvas sizes are
+    /// HPA-476's call; this scene never pins pixel dimensions.
+    private func makeSiegeStructure(
+        assetName: String,
+        targetSize: CGSize,
+        intactColor: SKColor,
+        ruinedColor: SKColor,
+        isRuined: Bool,
+        centered: Bool = false
+    ) -> SKNode {
+        let variantName = isRuined ? assetName + "-ruined" : assetName
+        if let image = UIImage(named: variantName) {
+            let sprite = SKSpriteNode(texture: SKTexture(image: image))
+            // Bottom-center anchor per the placeholder contract.
+            sprite.anchorPoint = CGPoint(x: 0.5, y: centered ? 0.5 : 0)
+            let scale = min(
+                targetSize.width / max(1, image.size.width),
+                targetSize.height / max(1, image.size.height)
+            )
+            sprite.size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            return sprite
+        }
+
+        let rect = centered
+            ? CGRect(
+                x: -targetSize.width / 2,
+                y: -targetSize.height / 2,
+                width: targetSize.width,
+                height: targetSize.height
+            )
+            : CGRect(x: -targetSize.width / 2, y: 0, width: targetSize.width, height: targetSize.height)
+        let shape = SKShapeNode(rect: rect, cornerRadius: 4)
+        shape.fillColor = isRuined ? ruinedColor : intactColor
+        shape.strokeColor = SKColor(white: 1.0, alpha: 0.25)
+        shape.lineWidth = 1
+        return shape
+    }
+
+    /// Small rubble cluster marking a destroyed objective.
+    private func makeRuinMarker(width: CGFloat) -> SKNode {
+        let ruin = SKNode()
+        ruin.name = SiegeObjectiveNodeName.ruin
+        let rubbleColor = SKColor(red: 0.24, green: 0.20, blue: 0.16, alpha: 1)
+        for (index, offset) in [-0.32, 0.0, 0.34].enumerated() {
+            let stone = SKShapeNode(circleOfRadius: width * (index == 1 ? 0.16 : 0.11))
+            stone.fillColor = rubbleColor
+            stone.strokeColor = .clear
+            stone.position = CGPoint(x: width * offset, y: width * 0.08)
+            ruin.addChild(stone)
+        }
+        return ruin
+    }
+
+    /// Objective HP bar (background + fill) hovering above the structure.
+    /// Shapes attach directly to the objective container so the fill is
+    /// reachable by name for tests and stays aligned with the structure.
+    private func addObjectiveHPBar(
+        to container: SKNode,
+        width: CGFloat,
+        bottomY: CGFloat,
+        remaining: Int,
+        maximum: Int
+    ) {
+        let barHeight: CGFloat = 4
+        let barY = bottomY
+        let percent = min(max(CGFloat(remaining) / CGFloat(max(1, maximum)), 0), 1)
+
+        let background = SKShapeNode()
+        background.name = "siegeHPBackground"
+        background.fillColor = SKColor(white: 0.05, alpha: 0.9)
+        background.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        background.lineWidth = 1
+        background.zPosition = 1
+        background.path = CGPath(
+            roundedRect: CGRect(x: -width / 2, y: barY, width: width, height: barHeight),
+            cornerWidth: barHeight / 2,
+            cornerHeight: barHeight / 2,
+            transform: nil
+        )
+        container.addChild(background)
+
+        let fill = SKShapeNode()
+        fill.name = SiegeObjectiveNodeName.hpFill
+        fill.fillColor = SKColor(red: 0.85, green: 0.33, blue: 0.20, alpha: 1)
+        fill.strokeColor = .clear
+        fill.zPosition = 2
+        fill.path = CGPath(
+            roundedRect: CGRect(
+                x: -width / 2,
+                y: barY,
+                width: max(1, width * percent),
+                height: barHeight
+            ),
+            cornerWidth: barHeight / 2,
+            cornerHeight: barHeight / 2,
+            transform: nil
+        )
+        container.addChild(fill)
+    }
+
+    /// Quiet danger tint over the band of `lane` inside the live source's
+    /// defensive-fire range (`source.visualProgress - range ... progress`).
+    private func makeCoverageNode(for lane: BattleLane, source: CitySiegeLayout.Objective) -> SKNode {
+        let range = max(0, min(1, combat.configuration.towerAttackRange))
+        let from = point(forLane: lane, position: max(0, source.visualProgress - range))
+        let to = point(forLane: lane, position: source.visualProgress)
+        let width = battlefieldLayout.lanePathWidth * 0.5
+        let node = SKShapeNode(rect: CGRect(
+            x: from.x - width / 2,
+            y: from.y,
+            width: width,
+            height: max(0, to.y - from.y)
+        ))
+        node.name = SiegeObjectiveNodeName.coveragePrefix + String(lane.rawValue)
+        node.fillColor = SKColor(red: 0.90, green: 0.25, blue: 0.15, alpha: 0.10)
+        node.strokeColor = .clear
+        node.zPosition = 1.5
+        return node
+    }
+
     private func setBattlefieldHidden(_ isHidden: Bool) {
         environmentLayer.isHidden = isHidden
         soldierLayer.isHidden = isHidden
@@ -1545,6 +1856,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         } else {
             layoutCityHPBar()
             applyLivingKingdomStaticPresentation()
+            syncSiegeObjectiveNodes()
             applyBattleHUD()
         }
         presentFeedbackTooltipIfNeeded()
@@ -2477,13 +2789,31 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             shape.strokeColor = .clear
             shot = shape
         }
-        shot.position = battlefieldLayout.enemyGatePoints[bundle.lane] ?? enemyCityImpactPoint
+        shot.name = BattlefieldNodeName.defensiveFireProjectile
+        shot.position = defensiveFireProjectileOrigin(forTargetLane: bundle.lane)
         shot.zPosition = GameUITheme.Z.effects
         effectsLayer.addChild(shot)
 
         let move = SKAction.move(to: target, duration: 0.12)
         let remove = SKAction.removeFromParent()
         shot.run(SKAction.sequence([move, remove]))
+    }
+
+    /// Scene-space origin for defensive-fire projectile visuals (HPA-468):
+    /// shots leave the actual source objective node — the Falconridge arrow
+    /// tower at its authored 0.68 progress — rather than the lane gate
+    /// point. Keep-source layouts (every non-pilot city) keep the pre-siege
+    /// per-lane gate spawn, which is the fortress itself, so those visuals
+    /// remain equivalent.
+    private func defensiveFireProjectileOrigin(forTargetLane lane: BattleLane) -> CGPoint {
+        let layout = state.currentSiegeLayout
+        let sourceID = layout.defensiveFire.sourceObjectiveID
+        if let source = layout.objective(id: sourceID),
+           source.kind != .keep,
+           let node = siegeObjectiveNodes[sourceID] {
+            return node.position
+        }
+        return battlefieldLayout.enemyGatePoints[lane] ?? enemyCityImpactPoint
     }
 
     /// Scene-space point where a tower projectile should connect with a
@@ -3430,6 +3760,42 @@ extension BattleScene {
             }
             return (role: role, position: node.position)
         }
+    }
+
+    /// The procedural scene node for a pilot objective kind, or nil when the
+    /// city has no such objective (single-Keep layouts, or the Keep itself,
+    /// which stays the `enemy-city` sprite).
+    func siegeObjectiveNodeForTesting(_ kind: CitySiegeLayout.ObjectiveKind) -> SKNode? {
+        guard let id = state.currentSiegeLayout.objectives.first(where: { $0.kind == kind })?.id else {
+            return nil
+        }
+        return siegeObjectiveNodes[id]
+    }
+
+    /// Number of pilot objective containers currently built (tower + gate
+    /// for Falconridge; zero for non-pilot cities).
+    var siegeObjectiveNodeCountForTesting: Int {
+        siegeObjectiveNodes.count
+    }
+
+    /// Lanes currently showing the live-tower coverage treatment.
+    var siegeCoveredLanesForTesting: [BattleLane] {
+        environmentLayer.children.compactMap { node -> BattleLane? in
+            guard let name = node.name,
+                  name.hasPrefix(SiegeObjectiveNodeName.coveragePrefix) else {
+                return nil
+            }
+            return BattleLane(rawValue: Int(String(name.dropFirst(SiegeObjectiveNodeName.coveragePrefix.count))) ?? -1)
+        }
+    }
+
+    /// Scene-space origin of the most recent defensive-fire projectile
+    /// visual. Projectile actions never advance without a render loop, so
+    /// tests read the captured spawn position.
+    var defensiveFireProjectileOriginForTesting: CGPoint? {
+        effectsLayer.children.first {
+            $0.name == BattlefieldNodeName.defensiveFireProjectile
+        }?.position
     }
 
     var soldierLanePlacementsForTesting: [(lane: BattleLane, nodePosition: CGPoint)] {

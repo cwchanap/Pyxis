@@ -143,10 +143,40 @@ struct CountryMapScoutCardContentTests {
                             defenseTrait: definition.defenseTrait,
                             exposedLane: definition.laneDefenseProfile.exposedLane,
                             goldReward: KingdomGameState.goldReward(for: nextCityNumber),
-                            flavorText: definition.flavorText
+                            flavorText: definition.flavorText,
+                            tacticalFooter: nextCityNumber == 3 ? "L Tower · C/R Gate" : nil
                         )
                     )
             )
+        }
+    }
+
+    @Test
+    func falconridgeScoutProjectsConciseTacticalFooter() {
+        let state = KingdomGameState(
+            cityLevel: 3,
+            cityNumberInCountry: 3,
+            completedCityCount: 2
+        )
+
+        guard case .scout(let scout) = CountryMapScoutCardContent.project(from: state) else {
+            Issue.record("Expected Falconridge Scout projection")
+            return
+        }
+
+        #expect(scout.tacticalFooter == "L Tower · C/R Gate")
+
+        for cityNumber in Country1CityCatalog.cityRange where cityNumber != 3 {
+            let other = KingdomGameState(
+                cityLevel: cityNumber,
+                cityNumberInCountry: cityNumber,
+                completedCityCount: cityNumber - 1
+            )
+            guard case .scout(let plain) = CountryMapScoutCardContent.project(from: other) else {
+                Issue.record("Expected Scout projection for city \(cityNumber)")
+                continue
+            }
+            #expect(plain.tacticalFooter == nil)
         }
     }
 
@@ -194,6 +224,7 @@ struct CountryMapScoutCardContentTests {
                             exposedLane: item.exposedLane,
                             goldReward: KingdomGameState.goldReward(for: item.cityNumber),
                             flavorText: definition.flavorText,
+                            tacticalFooter: item.cityNumber == 3 ? "L Tower · C/R Gate" : nil,
                             status: .current
                         )
                     )

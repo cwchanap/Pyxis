@@ -13,10 +13,15 @@ struct SoldierRuntimeGeometryTests {
 
         let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
         let cityState = CityBattleState(slots: [1: CityBuilding(type: .barracks)])
-        let state = KingdomGameState(
+        var state = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 10_000,
             cityBattleStates: [cityKey.storageKey: cityState]
+        )
+        // Keep HP is the sole liveness authority (HPA-468); seed it through
+        // the shared siege support instead of the transitional scalar.
+        SiegeTestSupport.setKeepRemaining(
+            KingdomGameState.cityMaxPower(for: 1),
+            on: &state
         )
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(state)

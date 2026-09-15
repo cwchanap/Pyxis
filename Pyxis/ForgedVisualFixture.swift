@@ -57,10 +57,11 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         case .battle, .battleBlocked:
             return Self.battleState()
         case .battleDamaged, .battleBreached:
-            // City 1 max HP = 20: 12 is the damaged threshold, 5 the breached one.
+            // City 1 Keep max = 20 (single-Keep share of the 20 total):
+            // 12 is the damaged threshold, 5 the breached one.
             return Self.battleState(
                 cityNumber: 1,
-                remainingPower: self == .battleBreached ? 5 : 12
+                keepRemaining: self == .battleBreached ? 5 : 12
             )
         case .battleEmberford:
             return DevJumpState.make(city: 7)
@@ -128,13 +129,47 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         return state
     }
 
+    /// Seeds current-city siege progress with the SiegeTestSupport pattern
+    /// (HPA-468): Keep HP is the sole conquest/liveness authority, damage
+    /// clamps to each objective's authored maximum, and the transitional
+    /// `cityRemainingPower` scalar is never written.
+    private static func seedSiegeProgress(
+        keepRemaining: Int,
+        supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:],
+        on state: inout KingdomGameState
+    ) {
+        let layout = state.currentCityDefinition.siegeLayout
+        let maxPowers = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        func clamp(_ raw: Int, toMax maxPower: Int) -> Int {
+            min(max(0, raw), maxPower)
+        }
+
+        let keepID = layout.keepObjective.id
+        let keepMax = maxPowers[keepID, default: 0]
+        let keepDamage = clamp(keepMax - keepRemaining, toMax: keepMax)
+        if keepDamage > 0 {
+            state.siegeProgress.damageByObjectiveID[keepID] = keepDamage
+        }
+        for (kind, damage) in supportDamage {
+            guard let objectiveID = layout.objectives.first(where: { $0.kind == kind })?.id else {
+                continue // no such support objective in this layout
+            }
+            let clamped = clamp(damage, toMax: maxPowers[objectiveID, default: 0])
+            if clamped > 0 {
+                state.siegeProgress.damageByObjectiveID[objectiveID] = clamped
+            }
+        }
+    }
+
     private static func battleState(
         cityNumber: Int = 3,
-        remainingPower: Int? = nil
+        keepRemaining: Int? = nil
     ) -> KingdomGameState {
         var state = DevJumpState.make(city: cityNumber)
         state.gold = 4_200
-        state.cityRemainingPower = remainingPower ?? state.cityMaxPower
+        if let keepRemaining {
+            seedSiegeProgress(keepRemaining: keepRemaining, on: &state)
+        }
         state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: [
             1: CityBuilding(type: .barracks, level: 2),
             2: CityBuilding(type: .archeryRange)
@@ -148,7 +183,14 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         guard mode == .live else {
             let backgroundAt = Date(timeIntervalSince1970: 1_000)
             let cityKey = state.currentCityKey
-            state.cityRemainingPower = 1
+            // Nearly-dead City 3 for the pilot layout: the Ridge Gate is
+            // already destroyed so the idle budget lands on the Keep at 1 HP
+            // and the single seeded spawn conquers (idle attribution = 1).
+            seedSiegeProgress(
+                keepRemaining: 1,
+                supportDamage: [.gate: Int.max],
+                on: &state
+            )
             state.cityBattleStates[cityKey.storageKey] = CityBattleState(
                 slots: [
                     1: CityBuilding(type: .barracks),

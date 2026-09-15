@@ -67,6 +67,9 @@ struct ForgedVisualFixtureTests {
             1: CityBuilding(type: .barracks, level: 2),
             2: CityBuilding(type: .archeryRange, level: 1)
         ])
+        // Fresh Falconridge: intact Keep at its authored 46/46 share.
+        #expect(state.currentKeepMaxPower == 46)
+        #expect(state.currentKeepRemainingPower == 46)
     }
 
     @Test("DEBUG damaged/breached fixtures pin City 1 living-kingdom thresholds")
@@ -74,14 +77,16 @@ struct ForgedVisualFixtureTests {
         let damaged = ForgedVisualFixture.battleDamaged.makeState()
         #expect(damaged.cityNumberInCountry == 1)
         #expect(damaged.cityMaxPower == 20)
-        #expect(damaged.cityRemainingPower == 12)
+        #expect(damaged.currentKeepMaxPower == 20)
+        #expect(damaged.currentKeepRemainingPower == 12)
         #expect(damaged.stageStatus == .battleActive)
         #expect(damaged.pendingBattleResult == nil)
 
         let breached = ForgedVisualFixture.battleBreached.makeState()
         #expect(breached.cityNumberInCountry == 1)
         #expect(breached.cityMaxPower == 20)
-        #expect(breached.cityRemainingPower == 5)
+        #expect(breached.currentKeepMaxPower == 20)
+        #expect(breached.currentKeepRemainingPower == 5)
         #expect(breached.stageStatus == .battleActive)
         #expect(breached.pendingBattleResult == nil)
     }
@@ -99,7 +104,7 @@ struct ForgedVisualFixtureTests {
             #expect(state.cityNumberInCountry == landmark.cityNumber)
             #expect(state.stageStatus == .battleActive)
             #expect(state.pendingBattleResult == nil)
-            #expect(state.cityRemainingPower == state.cityMaxPower)
+            #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
             #expect(
                 Country1CityCatalog.definition(for: landmark.cityNumber).visualFamily
                     == landmark.family
@@ -307,7 +312,9 @@ struct ForgedVisualFixtureTests {
         ))
         let battle = try #require(view.scene as? BattleScene)
         #expect(battle.feedbackTextForTesting == "Buildings dealt 36 idle damage.")
-        #expect(battle.cityRemainingPowerForTesting == 56)
+        // Objective-aware idle settlement (HPA-468): 36 damage spends down the
+        // selected center route — Gate absorbs 23, Keep absorbs 13 → 33/46.
+        #expect(battle.keepRemainingPowerForTesting == 33)
         #expect(battle.gameStateForTesting.pendingBattleResult == nil)
         #expect(store.load().lastBackgroundedAt == nil)
         #expect(

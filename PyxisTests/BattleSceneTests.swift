@@ -4711,6 +4711,184 @@ struct BattleSceneTests {
         }
     }
 
+    // MARK: - Falconridge siege objective visuals (HPA-468 Task 5)
+
+    /// Falconridge (City 3) battle state with optional Keep/support damage.
+    private func falconridgeState(
+        keepRemaining: Int = 46,
+        supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:]
+    ) -> KingdomGameState {
+        SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: keepRemaining,
+            supportDamage: supportDamage
+        )
+    }
+
+    /// Scene-space point for `progress` along `lane`, derived from the
+    /// scene's own gate geometry rather than duplicating layout math.
+    private func lanePoint(
+        _ scene: BattleScene,
+        lane: BattleLane,
+        progress: Double
+    ) -> CGPoint {
+        guard let castle = scene.castleGatePointForTesting(lane: lane),
+              let enemy = scene.enemyGatePointForTesting(lane: lane) else {
+            return .zero
+        }
+        let clamped = CGFloat(min(max(progress, 0), 1))
+        return CGPoint(
+            x: castle.x + (enemy.x - castle.x) * clamped,
+            y: castle.y + (enemy.y - castle.y) * clamped
+        )
+    }
+
+    @Test("Falconridge renders a procedural arrow tower at its authored progress")
+    func falconridgeRendersArrowTowerAtAuthoredProgress() throws {
+        let scene = makeScene(store: try makeStore(initialState: falconridgeState()))
+        let tower = try #require(scene.siegeObjectiveNodeForTesting(.arrowTower))
+
+        #expect(tower.name == "siegeObjective-falconridge.arrow-tower")
+        let expected = lanePoint(scene, lane: .left, progress: 0.68)
+        #expect(abs(tower.position.x - expected.x) < 0.5)
+        #expect(abs(tower.position.y - expected.y) < 0.5)
+        #expect(tower.childNode(withName: "siegeStructure") != nil)
+        #expect(tower.childNode(withName: "siegeHPFill") != nil)
+        #expect(tower.childNode(withName: "siegeRuin") == nil)
+    }
+
+    @Test("Falconridge renders one shared ridge gate spanning center and right")
+    func falconridgeRendersOneSharedGateSpanningCenterAndRight() throws {
+        let scene = makeScene(store: try makeStore(initialState: falconridgeState()))
+        let gate = try #require(scene.siegeObjectiveNodeForTesting(.gate))
+        let frame = try #require(sceneFrameInTest(for: gate))
+
+        let centerPoint = lanePoint(scene, lane: .center, progress: 0.58)
+        let rightPoint = lanePoint(scene, lane: .right, progress: 0.58)
+
+        // One barrier spans both approaches at the authored progress.
+        #expect(frame.minX <= centerPoint.x)
+        #expect(frame.maxX >= rightPoint.x)
+        #expect(frame.minY <= centerPoint.y && frame.maxY >= centerPoint.y)
+        // Exactly two pilot objective nodes exist: tower + gate (no keep).
+        #expect(scene.siegeObjectiveNodeCountForTesting == 2)
+        #expect(scene.siegeObjectiveNodeForTesting(.keep) == nil)
+    }
+
+    @Test("Non-pilot cities render no siege objective nodes or coverage")
+    func nonPilotCityRendersNoSiegeObjectivesOrCoverage() throws {
+        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks()))
+
+        #expect(scene.siegeObjectiveNodeCountForTesting == 0)
+        #expect(scene.siegeCoveredLanesForTesting.isEmpty)
+    }
+
+    @Test("Destroyed objectives render ruins spanning the same approaches")
+    func destroyedObjectivesRenderRuinsSpanningSameApproaches() throws {
+        let intact = makeScene(store: try makeStore(initialState: falconridgeState()))
+        let destroyed = makeScene(store: try makeStore(initialState: falconridgeState(
+            keepRemaining: 46,
+            supportDamage: [.arrowTower: 23, .gate: 23]
+        )))
+
+        // The ruined gate spans exactly the intact gate's approaches.
+        let intactGate = try #require(intact.siegeObjectiveNodeForTesting(.gate))
+        let intactFrame = try #require(sceneFrameInTest(for: intactGate))
+        let ruinedGate = try #require(destroyed.siegeObjectiveNodeForTesting(.gate))
+        let ruinedFrame = try #require(sceneFrameInTest(for: ruinedGate))
+        #expect(abs(ruinedFrame.minX - intactFrame.minX) < 0.5)
+        #expect(abs(ruinedFrame.maxX - intactFrame.maxX) < 0.5)
+        // The ruined barrier sits at the same authored route position.
+        #expect(abs(ruinedGate.position.y - intactGate.position.y) < 0.5)
+
+        // Ruined tower: ruin marker visible, HP fill removed.
+        let tower = try #require(destroyed.siegeObjectiveNodeForTesting(.arrowTower))
+        let ruin = try #require(tower.childNode(withName: "siegeRuin"))
+        #expect(!ruin.isHidden)
+        #expect(tower.childNode(withName: "siegeHPFill") == nil)
+
+        // Support-objective destruction alone never changes the fortress stage.
+        #expect(destroyed.livingKingdomBattlePresentationForTesting.stage == .intact)
+    }
+
+    @Test("A live arrow tower projects coverage over its covered lanes")
+    func liveTowerProjectsCoverageOverCoveredLanes() throws {
+        let live = makeScene(store: try makeStore(initialState: falconridgeState()))
+        #expect(Set(live.siegeCoveredLanesForTesting) == Set(BattleLane.allCases))
+
+        let deadTower = makeScene(store: try makeStore(initialState: falconridgeState(
+            supportDamage: [.arrowTower: 23]
+        )))
+        #expect(deadTower.siegeCoveredLanesForTesting.isEmpty)
+
+        let nonPilot = makeScene(store: try makeStore(initialState: stateWithBarracks()))
+        #expect(nonPilot.siegeCoveredLanesForTesting.isEmpty)
+    }
+
+    @Test("Falconridge defensive fire leaves the tower node, not the lane gate point")
+    func falconridgeDefensiveFireLeavesTheTowerNode() throws {
+        let scene = makeScene(store: try makeStore(initialState: falconridgeState()))
+        let towerPosition = try #require(
+            scene.siegeObjectiveNodeForTesting(.arrowTower)
+        ).position
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.defensiveFireProjectileOriginForTesting != nil }
+
+        let origin = try #require(scene.defensiveFireProjectileOriginForTesting)
+        #expect(abs(origin.x - towerPosition.x) < 0.5)
+        #expect(abs(origin.y - towerPosition.y) < 0.5)
+        let centerGate = try #require(scene.enemyGatePointForTesting(lane: .center))
+        #expect(abs(origin.y - centerGate.y) > 1)
+    }
+
+    @Test("Non-pilot defensive fire keeps the per-lane gate origin")
+    func nonPilotDefensiveFireKeepsLaneGateOrigin() throws {
+        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(keepRemaining: 100)))
+        let lane = scene.gameStateForTesting.siegeProgress.selectedLane
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.defensiveFireProjectileOriginForTesting != nil }
+
+        let origin = try #require(scene.defensiveFireProjectileOriginForTesting)
+        let gate = try #require(scene.enemyGatePointForTesting(lane: lane))
+        #expect(abs(origin.x - gate.x) < 0.5)
+        #expect(abs(origin.y - gate.y) < 0.5)
+    }
+
+    @Test("Falconridge fortress stage tracks Keep HP only")
+    func falconridgeFortressStageTracksKeepHPOnly() throws {
+        func stage(for state: KingdomGameState) throws -> LivingKingdomPresentation.FortressStage {
+            makeScene(store: try makeStore(initialState: state))
+                .livingKingdomBattlePresentationForTesting.stage
+        }
+
+        #expect(try stage(for: falconridgeState()) == .intact)
+        #expect(try stage(for: falconridgeState(
+            supportDamage: [.gate: 23, .arrowTower: 23]
+        )) == .intact)
+        #expect(try stage(for: falconridgeState(keepRemaining: 27)) == .damaged)
+        #expect(try stage(for: falconridgeState(keepRemaining: 11)) == .breached)
+    }
+
+    @Test("HPA-476 placeholder contract pins semantic asset names without shipping art")
+    func siegeObjectiveAssetContractPinsSemanticNames() {
+        #expect(BattleScene.SiegeObjectiveAssetContract.gate == "siege-gate")
+        #expect(BattleScene.SiegeObjectiveAssetContract.arrowTower == "siege-arrow-tower")
+        #expect(BattleScene.SiegeObjectiveAssetContract.assaultFlag == "siege-assault-flag")
+
+        let contractNames = [
+            BattleScene.SiegeObjectiveAssetContract.gate,
+            BattleScene.SiegeObjectiveAssetContract.gate + "-ruined",
+            BattleScene.SiegeObjectiveAssetContract.arrowTower,
+            BattleScene.SiegeObjectiveAssetContract.arrowTower + "-ruined",
+            BattleScene.SiegeObjectiveAssetContract.assaultFlag
+        ]
+        for name in contractNames {
+            #expect(UIImage(named: name) == nil, "Unexpected placeholder art installed: \(name)")
+        }
+    }
+
     @Test("A live hit inside the damaged stage requests no Living Kingdom transition")
     func liveHitWithinDamagedStageRequestsNoTransition() throws {
         let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(keepRemaining: 12)))
