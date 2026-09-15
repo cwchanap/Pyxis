@@ -43,10 +43,7 @@ enum SiegeTestSupport {
     /// optional damage applied to support objectives (clamped to each
     /// objective's authored maximum) and an optional selected lane.
     ///
-    /// Undamaged objectives carry no damage entry. The transitional
-    /// `cityRemainingPower` scalar (a frozen compatibility leftover, deleted
-    /// in Task 5.5) is aligned to the same Keep value so untouched fixture
-    /// readers observe the same boundary this helper advertises.
+    /// Undamaged objectives carry no damage entry.
     static func makeBattleState(
         atCity cityNumber: Int = 1,
         gold: Int = 0,
@@ -86,7 +83,6 @@ enum SiegeTestSupport {
             selectedLane: selectedLane ?? layout.defaultLane,
             damageByObjectiveID: damageByObjectiveID
         )
-        state.cityRemainingPower = state.currentKeepRemainingPower
         return state
     }
 

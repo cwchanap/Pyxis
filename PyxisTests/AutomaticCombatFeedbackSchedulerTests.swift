@@ -224,7 +224,8 @@ struct AutomaticCombatFeedbackSchedulerTests {
                 type: type,
                 source: .manual,
                 lane: .center,
-                appliedCityDamage: 1
+                objectiveID: "siege-session",
+                appliedDamage: 1
             )
         }
 
@@ -296,21 +297,24 @@ struct AutomaticCombatFeedbackSchedulerTests {
                 type: .siege,
                 source: .manual,
                 lane: .left,
-                appliedCityDamage: 2
+                objectiveID: "siege-session",
+                appliedDamage: 2
             ),
             SoldierAttackEvent(
                 soldierID: 2,
                 type: .archer,
                 source: .building,
                 lane: .center,
-                appliedCityDamage: 2
+                objectiveID: "siege-session",
+                appliedDamage: 2
             ),
             SoldierAttackEvent(
                 soldierID: 3,
                 type: .infantry,
                 source: .manual,
                 lane: .right,
-                appliedCityDamage: 2
+                objectiveID: "siege-session",
+                appliedDamage: 2
             )
         ]
         result.damagedSoldierIDs = [90, 91]

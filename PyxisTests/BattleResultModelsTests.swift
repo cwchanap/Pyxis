@@ -49,7 +49,7 @@ struct BattleResultModelsTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: "falconridge.ridge-gate",
-                appliedCityDamage: 3
+                appliedDamage: 3
             )
         )
         session.recordAttack(
@@ -59,7 +59,7 @@ struct BattleResultModelsTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: "falconridge.keep",
-                appliedCityDamage: 4
+                appliedDamage: 4
             )
         )
 
@@ -78,7 +78,8 @@ struct BattleResultModelsTests {
                 type: .mage,
                 source: .manual,
                 lane: .right,
-                appliedCityDamage: 5
+                objectiveID: "siege-session",
+                appliedDamage: 5
             )
         )
 
@@ -94,7 +95,8 @@ struct BattleResultModelsTests {
                 type: .cavalry,
                 source: .manual,
                 lane: .center,
-                appliedCityDamage: 4
+                objectiveID: "siege-session",
+                appliedDamage: 4
             )
         )
         session.recordAttack(
@@ -103,7 +105,8 @@ struct BattleResultModelsTests {
                 type: .infantry,
                 source: .manual,
                 lane: .left,
-                appliedCityDamage: 4
+                objectiveID: "siege-session",
+                appliedDamage: 4
             )
         )
 
@@ -325,7 +328,8 @@ struct BattleResultModelsTests {
                 type: .infantry,
                 source: .manual,
                 lane: .left,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
         session.recordAttack(
@@ -334,7 +338,8 @@ struct BattleResultModelsTests {
                 type: .infantry,
                 source: .building,
                 lane: .right,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
 
@@ -353,7 +358,8 @@ struct BattleResultModelsTests {
                 type: .mage,
                 source: .manual,
                 lane: .center,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
 
@@ -403,7 +409,8 @@ struct BattleResultModelsTests {
                 type: .infantry,
                 source: .manual,
                 lane: .left,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
         session.recordAttack(
@@ -412,7 +419,8 @@ struct BattleResultModelsTests {
                 type: .infantry,
                 source: .building,
                 lane: .center,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
 
@@ -423,7 +431,8 @@ struct BattleResultModelsTests {
                 type: .archer,
                 source: .manual,
                 lane: .left,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
         session.recordAttack(
@@ -432,7 +441,8 @@ struct BattleResultModelsTests {
                 type: .archer,
                 source: .building,
                 lane: .center,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
         session.recordAttack(
@@ -441,7 +451,8 @@ struct BattleResultModelsTests {
                 type: .archer,
                 source: .manual,
                 lane: .right,
-                appliedCityDamage: Int.max
+                objectiveID: "siege-session",
+                appliedDamage: Int.max
             )
         )
 

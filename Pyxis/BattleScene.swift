@@ -4084,12 +4084,6 @@ extension BattleScene {
         state.currentKeepRemainingPower
     }
 
-    /// Transitional scalar reader kept only for non-Battle fixture/test
-    /// compile continuity until Task 5.5 deletes the scalar (HPA-468).
-    var cityRemainingPowerForTesting: Int {
-        state.cityRemainingPower
-    }
-
     var livingKingdomBattlePresentationForTesting: LivingKingdomPresentation.Battle {
         livingKingdomBattlePresentation
     }

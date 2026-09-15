@@ -169,13 +169,8 @@ struct BuildingViewSceneTests {
     @Test("Camp settlement retains pending conquest until the requested route")
     func settlementLeavesPendingResultInCamp() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 5,
-            completedCityCount: 4
-        )
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 100, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let store = try makeStore(initialState: state)
         let feedback = BuildingViewFeedbackRecorder()
@@ -200,13 +195,8 @@ struct BuildingViewSceneTests {
     @Test("Camp upgrade conquest stays on camp with a pointer to the pending report")
     func upgradeSettlementConquestStaysOnCampWithPointer() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 1_000,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 5,
-            completedCityCount: 4
-        )
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 1_000, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         _ = state.buildBuilding(.archeryRange, inSlot: 2, at: start)
         let store = try makeStore(initialState: state)
@@ -230,11 +220,8 @@ struct BuildingViewSceneTests {
     @Test("Camp layout gate conquest stays unrouted while paused and routes once on resume")
     func campLayoutGateConquestRoutesOnceOnResume() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start
-        )
+        var state = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let store = try makeStore(initialState: state)
         let router = RouteSpy()
@@ -258,11 +245,8 @@ struct BuildingViewSceneTests {
     @Test("Camp pending conquest foregrounded under a paused gate routes once on resume")
     func campPendingConquestForegroundedUnderPausedGateRoutesOnResume() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start
-        )
+        var state = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let store = try makeStore(initialState: state)
         let router = RouteSpy()
@@ -284,11 +268,8 @@ struct BuildingViewSceneTests {
     @Test("Camp pending conquest gate-resumed while backgrounded routes once on foreground")
     func campPendingConquestResumedWhileBackgroundedRoutesOnForeground() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start
-        )
+        var state = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let store = try makeStore(initialState: state)
         let router = RouteSpy()
@@ -310,13 +291,8 @@ struct BuildingViewSceneTests {
     @Test("Camp deliberate build conquest does not auto-route on gate pause/resume")
     func deliberateBuildConquestDoesNotAutoRouteOnGateResume() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 5,
-            completedCityCount: 4
-        )
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 100, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let store = try makeStore(initialState: state)
         let router = RouteSpy()
@@ -340,13 +316,8 @@ struct BuildingViewSceneTests {
     @Test("Camp deliberate build conquest does not auto-route on background/foreground")
     func deliberateBuildConquestDoesNotAutoRouteOnForegroundReturn() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 5,
-            completedCityCount: 4
-        )
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 100, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let store = try makeStore(initialState: state)
         let router = RouteSpy()
@@ -368,13 +339,8 @@ struct BuildingViewSceneTests {
     @Test("Camp deliberate upgrade conquest does not auto-route on background/foreground")
     func deliberateUpgradeConquestDoesNotAutoRouteOnForegroundReturn() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 1_000,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 5,
-            completedCityCount: 4
-        )
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 1_000, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         _ = state.buildBuilding(.archeryRange, inSlot: 2, at: start)
         let store = try makeStore(initialState: state)
@@ -491,11 +457,8 @@ struct BuildingViewSceneTests {
     @Test("Camp conquest feedback is fresh once across redraw and remount")
     func campConquestFeedbackDoesNotRepeatAfterRedrawOrRemount() throws {
         let start = Date.distantPast
-        var state = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start
-        )
+        var state = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
+        state.lastBackgroundedAt = start
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         let feedback = BuildingViewFeedbackRecorder()
         let router = RouteSpy()

@@ -10,7 +10,6 @@ struct CountryMapScoutCardContentTests {
     @Test func selectedCityProjectionUsesStatusWithoutMutatingState() {
         let state = KingdomGameState(
             cityLevel: 3,
-            cityRemainingPower: 500,
             cityNumberInCountry: 3,
             completedCityCount: 2,
             stageStatus: .battleActive
@@ -91,7 +90,6 @@ struct CountryMapScoutCardContentTests {
         let state = KingdomGameState(
             gold: 15,
             cityLevel: 1,
-            cityRemainingPower: 0,
             countryNumber: 1,
             cityNumberInCountry: 1,
             completedCityCount: 1,
@@ -122,7 +120,6 @@ struct CountryMapScoutCardContentTests {
             let nextCityNumber = completedCityCount + 1
             let state = KingdomGameState(
                 cityLevel: completedCityCount,
-                cityRemainingPower: 0,
                 cityNumberInCountry: completedCityCount,
                 completedCityCount: completedCityCount,
                 stageStatus: .cityConqueredPendingMap

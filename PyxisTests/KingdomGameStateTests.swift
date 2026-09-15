@@ -365,7 +365,7 @@ struct KingdomGameStateTests {
     }
 
     @Test func currentCityLaneDefenseProfileUsesAuthoredProgression() {
-        let cityOne = KingdomGameState(gold: 0, cityRemainingPower: 10)
+        let cityOne = KingdomGameState(gold: 0)
         #expect(
             cityOne.currentCityLaneDefenseProfile
                 == LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right)
@@ -373,7 +373,6 @@ struct KingdomGameStateTests {
 
         let cityFive = KingdomGameState(
             gold: 0,
-            cityRemainingPower: 10,
             cityNumberInCountry: 5,
             completedCityCount: 4
         )
@@ -395,7 +394,6 @@ struct KingdomGameStateTests {
         {
           "gold": -25,
           "cityLevel": 0,
-          "cityRemainingPower": -9,
           "normalSoldierUpgradeLevel": 0,
           "lastBackgroundedAt": null,
           "countryNumber": 0,
@@ -409,7 +407,6 @@ struct KingdomGameStateTests {
 
         #expect(state.gold == 0)
         #expect(state.cityLevel == 1)
-        #expect(state.cityRemainingPower == 1)
         #expect(state.normalSoldierUpgradeLevel == 1)
         #expect(state.lastBackgroundedAt == nil)
         #expect(state.countryNumber == 1)
@@ -423,7 +420,6 @@ struct KingdomGameStateTests {
         {
           "gold": 40,
           "cityLevel": 4,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 2
         }
         """.data(using: .utf8)!
@@ -435,7 +431,6 @@ struct KingdomGameStateTests {
         #expect(state.cityNumberInCountry == 4)
         #expect(state.completedCityCount == 3)
         #expect(state.stageStatus == .battleActive)
-        #expect(state.cityRemainingPower == 12)
     }
 
     @Test func decodingOldTwoUnitBuildingSaveStillSucceeds() throws {
@@ -443,7 +438,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 2,
-          "cityRemainingPower": 20,
           "normalSoldierUpgradeLevel": 4,
           "countryNumber": 1,
           "cityNumberInCountry": 2,
@@ -482,7 +476,6 @@ struct KingdomGameStateTests {
         {
           "gold": 40,
           "cityLevel": 4,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 2,
           "countryNumber": 1,
           "cityNumberInCountry": 4,
@@ -495,7 +488,6 @@ struct KingdomGameStateTests {
 
         #expect(state.gold == 40)
         #expect(state.cityLevel == 4)
-        #expect(state.cityRemainingPower == 12)
         #expect(state.normalSoldierUpgradeLevel == 2)
         #expect(state.countryNumber == 1)
         #expect(state.cityNumberInCountry == 4)
@@ -508,7 +500,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 1,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
@@ -591,7 +582,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 1,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
@@ -655,7 +645,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 1,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
@@ -740,7 +729,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 3,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 3,
@@ -799,7 +787,6 @@ struct KingdomGameStateTests {
     @Test func pendingMapStateIncludesCurrentCityInCompletedCount() {
         let state = KingdomGameState(
             cityLevel: 4,
-            cityRemainingPower: 0,
             countryNumber: 1,
             cityNumberInCountry: 4,
             completedCityCount: 1,
@@ -817,7 +804,6 @@ struct KingdomGameStateTests {
     @Test func activeBattleNormalizesAwayFromCompletedCity() {
         let state = KingdomGameState(
             cityLevel: 2,
-            cityRemainingPower: 11,
             countryNumber: 1,
             cityNumberInCountry: 2,
             completedCityCount: 5,
@@ -828,7 +814,6 @@ struct KingdomGameStateTests {
         #expect(state.cityLevel == 6)
         #expect(state.completedCityCount == 5)
         #expect(state.stageStatus == .battleActive)
-        #expect(state.cityRemainingPower == 11)
         #expect(state.mapStatus(for: 5) == .completed)
         #expect(state.mapStatus(for: 6) == .unlocked)
     }
@@ -1101,7 +1086,6 @@ struct KingdomGameStateTests {
     @Test func buildingIsUnavailableOutsideActiveBattle() {
         var state = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1123,7 +1107,7 @@ struct KingdomGameStateTests {
         // When called without an explicit date, buildBuilding must still set
         // lastBuildingProgressResolvedAt so that later idle resolution does not
         // fall back to lastBackgroundedAt and credit time before the building existed.
-        var state = KingdomGameState(gold: 100, cityRemainingPower: 10_000)
+        var state = KingdomGameState(gold: 100)
 
         let before = Date()
         #expect(state.buildBuilding(.barracks, inSlot: 1) == .built(cost: 15, remainingGold: 85))
@@ -1214,7 +1198,6 @@ struct KingdomGameStateTests {
 
         var pausedState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1337,14 +1320,14 @@ struct KingdomGameStateTests {
     }
 
     @Test func startingCurrentActiveCityDoesNotResetHP() {
-        var state = KingdomGameState(cityLevel: 2, cityRemainingPower: 17, cityNumberInCountry: 2, completedCityCount: 1)
+        var state = SiegeTestSupport.makeBattleState(atCity: 2, keepRemaining: 42)
 
         let result = state.startCityFromMap(2)
 
         #expect(result == .entered(country: 1, city: 2))
         #expect(state.cityNumberInCountry == 2)
         #expect(state.cityLevel == 2)
-        #expect(state.cityRemainingPower == 17)
+        #expect(state.currentKeepRemainingPower == 42)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -1412,7 +1395,6 @@ struct KingdomGameStateTests {
     @Test func upgradeIsRejectedWhenBattleIsPausedForMap() {
         let original = KingdomGameState(
             gold: 30,
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1556,7 +1538,6 @@ struct KingdomGameStateTests {
         #expect(state.lastBackgroundedAt == nil)
         #expect(state.gold == 100)
         #expect(state.completedCityCount == 15)
-        #expect(state.cityRemainingPower == 0)
         #expect(state.stageStatus == .countryComplete)
     }
 
@@ -2315,7 +2296,7 @@ struct KingdomGameStateTests {
         source: SoldierSpawnSource = .manual,
         lane: BattleLane = .center,
         objectiveID: String,
-        _ appliedCityDamage: Int
+        _ appliedDamage: Int
     ) -> SoldierAttackEvent {
         SoldierAttackEvent(
             soldierID: soldierID,
@@ -2323,7 +2304,7 @@ struct KingdomGameStateTests {
             source: source,
             lane: lane,
             objectiveID: objectiveID,
-            appliedCityDamage: appliedCityDamage
+            appliedDamage: appliedDamage
         )
     }
 

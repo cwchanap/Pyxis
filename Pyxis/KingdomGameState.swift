@@ -100,12 +100,6 @@ struct KingdomGameState: Codable, Equatable {
 
     var gold: Int
     var cityLevel: Int
-    // HPA-468 Task 5.5: transitional scalar kept only for untouched
-    // HUD/fixture readers. Keep HP (`currentKeepRemainingPower`, derived from
-    // `siegeProgress`) is the sole conquest/liveness authority; this scalar
-    // no longer decides targets or conquest and must be deleted with Task 4's
-    // HUD re-feed.
-    var cityRemainingPower: Int
     var siegeProgress: SiegeProgress
     var normalSoldierUpgradeLevel: Int
     var lastBackgroundedAt: Date?
@@ -120,7 +114,6 @@ struct KingdomGameState: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case gold
         case cityLevel
-        case cityRemainingPower
         case siegeProgress
         case normalSoldierUpgradeLevel
         case lastBackgroundedAt
@@ -151,7 +144,6 @@ struct KingdomGameState: Codable, Equatable {
     init(
         gold: Int = 15,
         cityLevel: Int = 1,
-        cityRemainingPower: Int? = nil,
         siegeProgress: SiegeProgress? = nil,
         normalSoldierUpgradeLevel: Int = 1,
         lastBackgroundedAt: Date? = nil,
@@ -223,12 +215,6 @@ struct KingdomGameState: Codable, Equatable {
         }
         self.cityBattleStates = normalizedCityBattleStates
 
-        if resolvedStatus == .battleActive {
-            self.cityRemainingPower = max(1, cityRemainingPower ?? Self.cityMaxPower(for: normalizedCityLevel))
-        } else {
-            self.cityRemainingPower = max(0, cityRemainingPower ?? 0)
-        }
-
         self.siegeProgress = Self.normalizedSiegeProgress(
             siegeProgress,
             layout: Country1CityCatalog.definition(for: normalizedCityNumber).siegeLayout,
@@ -273,7 +259,6 @@ struct KingdomGameState: Codable, Equatable {
         self.init(
             gold: try container.decodeIfPresent(Int.self, forKey: .gold) ?? 0,
             cityLevel: try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1,
-            cityRemainingPower: try container.decodeIfPresent(Int.self, forKey: .cityRemainingPower),
             siegeProgress: (try? container.decodeIfPresent(SiegeProgress.self, forKey: .siegeProgress)) ?? nil,
             normalSoldierUpgradeLevel: try container.decodeIfPresent(Int.self, forKey: .normalSoldierUpgradeLevel) ?? 1,
             lastBackgroundedAt: try container.decodeIfPresent(Date.self, forKey: .lastBackgroundedAt),
@@ -434,7 +419,6 @@ struct KingdomGameState: Codable, Equatable {
 
         cityNumberInCountry = cityNumber
         cityLevel = completedCityCount + 1
-        cityRemainingPower = cityMaxPower
         siegeProgress = SiegeProgress(
             selectedLane: currentCityDefinition.siegeLayout.defaultLane,
             damageByObjectiveID: [:]
@@ -509,7 +493,7 @@ struct KingdomGameState: Codable, Equatable {
         var totalApplied = 0
 
         for event in events {
-            let applied = clampedObjectiveDamage(event.appliedCityDamage, objectiveID: event.objectiveID)
+            let applied = clampedObjectiveDamage(event.appliedDamage, objectiveID: event.objectiveID)
             guard applied > 0 else {
                 continue
             }
@@ -523,7 +507,7 @@ struct KingdomGameState: Codable, Equatable {
                         source: event.source,
                         lane: event.lane,
                         objectiveID: event.objectiveID,
-                        appliedCityDamage: applied
+                        appliedDamage: applied
                     )
                 )
             }
@@ -1203,7 +1187,6 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         gold += result.goldEarned
-        cityRemainingPower = 0
         cityBattleStates.removeValue(forKey: currentCityKey.storageKey)
         activeSiegeSession = nil
         pendingBattleResult = result
