@@ -35,7 +35,39 @@ enum Country1CityCatalog {
             conquestTitle: "Falconridge Silenced",
             defenseTrait: .arrowTower,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .left),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    .init(
+                        id: "falconridge.keep",
+                        kind: .keep,
+                        durabilityWeight: 4,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "falconridge.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 2,
+                        visualLane: .left,
+                        visualProgress: 0.68
+                    ),
+                    .init(
+                        id: "falconridge.ridge-gate",
+                        kind: .gate,
+                        durabilityWeight: 2,
+                        visualLane: .center,
+                        visualProgress: 0.58
+                    )
+                ],
+                routes: [
+                    .left: ["falconridge.arrow-tower", "falconridge.keep"],
+                    .center: ["falconridge.ridge-gate", "falconridge.keep"],
+                    .right: ["falconridge.ridge-gate", "falconridge.keep"]
+                ],
+                defaultLane: .center,
+                defensiveFire: .init(sourceObjectiveID: "falconridge.arrow-tower", coveredLanes: BattleLane.allCases)
+            )
         ),
         CityDefinition(
             cityNumber: 4,

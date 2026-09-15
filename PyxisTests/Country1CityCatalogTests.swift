@@ -16,6 +16,7 @@ struct Country1CityCatalogTests {
         let fortifiedLane: BattleLane
         let exposedLane: BattleLane
         let visualFamily: CityVisualFamily
+        let siegeLayout: CitySiegeLayout?
 
         init(
             _ cityNumber: Int,
@@ -25,7 +26,8 @@ struct Country1CityCatalogTests {
             _ defenseTrait: CityDefenseTrait,
             _ fortifiedLane: BattleLane,
             _ exposedLane: BattleLane,
-            _ visualFamily: CityVisualFamily
+            _ visualFamily: CityVisualFamily,
+            siegeLayout: CitySiegeLayout? = nil
         ) {
             self.cityNumber = cityNumber
             self.name = name
@@ -35,6 +37,7 @@ struct Country1CityCatalogTests {
             self.fortifiedLane = fortifiedLane
             self.exposedLane = exposedLane
             self.visualFamily = visualFamily
+            self.siegeLayout = siegeLayout
         }
 
         var definition: CityDefinition {
@@ -48,15 +51,55 @@ struct Country1CityCatalogTests {
                     fortifiedLane: fortifiedLane,
                     exposedLane: exposedLane
                 ),
-                visualFamily: visualFamily
+                visualFamily: visualFamily,
+                siegeLayout: siegeLayout
             )
         }
     }
 
+    /// The authored Falconridge tactical siege layout, shared by the
+    /// fixture entry and the dedicated pin test.
+    private static let falconridgeSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "falconridge.keep", kind: .keep, durabilityWeight: 4, visualLane: .center, visualProgress: 1.0),
+            .init(
+                id: "falconridge.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 2,
+                visualLane: .left,
+                visualProgress: 0.68
+            ),
+            .init(
+                id: "falconridge.ridge-gate",
+                kind: .gate,
+                durabilityWeight: 2,
+                visualLane: .center,
+                visualProgress: 0.58
+            )
+        ],
+        routes: [
+            .left: ["falconridge.arrow-tower", "falconridge.keep"],
+            .center: ["falconridge.ridge-gate", "falconridge.keep"],
+            .right: ["falconridge.ridge-gate", "falconridge.keep"]
+        ],
+        defaultLane: .center,
+        defensiveFire: .init(sourceObjectiveID: "falconridge.arrow-tower", coveredLanes: BattleLane.allCases)
+    )
+
     private static let expectedDefinitions: [ExpectedDefinition] = [
         .init(1, name: "Willowford", flavorText: "A quiet crossing where the campaign begins.", conquestTitle: "Willowford Secured", .standardWatch, .left, .right, .frontier),
         .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left, .frontier),
-        .init(3, name: "Falconridge", flavorText: "Arrow towers command the high ridge road.", conquestTitle: "Falconridge Silenced", .arrowTower, .right, .left, .frontier),
+        .init(
+            3,
+            name: "Falconridge",
+            flavorText: "Arrow towers command the high ridge road.",
+            conquestTitle: "Falconridge Silenced",
+            .arrowTower,
+            .right,
+            .left,
+            .frontier,
+            siegeLayout: falconridgeSiegeLayout
+        ),
         .init(4, name: "Bramblegate", flavorText: "Iron spikes guard a narrow frontier gate.", conquestTitle: "Bramblegate Broken", .spikedGate, .left, .right, .frontier),
         .init(5, name: "Highcrest", flavorText: "A proud hill fortress crowns the frontier.", conquestTitle: "Highcrest Falls", .arrowTower, .center, .left, .frontier),
         .init(6, name: "Granite Pass", flavorText: "Stone walls seal the mountain road ahead.", conquestTitle: "Granite Pass Open", .stoneWall, .right, .center, .frontier),
@@ -158,6 +201,19 @@ struct Country1CityCatalogTests {
         let actualDefinitions = Country1CityCatalog.definitions
         for definition in actualDefinitions {
             #expect(definition.displayTitle == "City \(definition.cityNumber) · \(definition.name)")
+        }
+    }
+
+    @Test func falconridgeAuthorsTheTacticalSiegeLayout() {
+        #expect(Country1CityCatalog.definition(for: 3).siegeLayout == Self.falconridgeSiegeLayout)
+    }
+
+    @Test func nonPilotCitiesUseSingleKeepDefaultedToTheirStandardLane() {
+        for definition in Country1CityCatalog.definitions where definition.cityNumber != 3 {
+            #expect(
+                definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
+                "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"
+            )
         }
     }
 
