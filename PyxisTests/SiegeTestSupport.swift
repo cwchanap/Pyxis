@@ -44,10 +44,9 @@ enum SiegeTestSupport {
     /// objective's authored maximum) and an optional selected lane.
     ///
     /// Undamaged objectives carry no damage entry. The transitional
-    /// `cityRemainingPower` scalar (still the settlement authority until
-    /// Task 3.6 rewires idle spending) is aligned to the same Keep value so
-    /// bridge-era settlement observes the conquest boundary this helper
-    /// advertises.
+    /// `cityRemainingPower` scalar (a frozen compatibility leftover, deleted
+    /// in Task 5.5) is aligned to the same Keep value so untouched fixture
+    /// readers observe the same boundary this helper advertises.
     static func makeBattleState(
         atCity cityNumber: Int = 1,
         gold: Int = 0,
@@ -89,6 +88,20 @@ enum SiegeTestSupport {
         )
         state.cityRemainingPower = state.currentKeepRemainingPower
         return state
+    }
+
+    /// Aligns an already-constructed state's siege progress so the current
+    /// city's Keep sits at `keepRemaining` HP (clamped to `0...currentKeepMaxPower`).
+    /// Suites that build states with buildings/sessions use this after
+    /// constructing the state instead of the deprecated scalar.
+    static func setKeepRemaining(_ keepRemaining: Int, on state: inout KingdomGameState) {
+        let layout = state.currentCityDefinition.siegeLayout
+        let keepID = layout.keepObjective.id
+        let keepMax = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)[keepID] ?? 0
+        let keepDamage = clampedDamage(keepMax - keepRemaining, toMax: keepMax)
+        if keepDamage > 0 {
+            state.siegeProgress.damageByObjectiveID[keepID] = keepDamage
+        }
     }
 
     private static func clampedDamage(_ rawDamage: Int, toMax maxPower: Int) -> Int {

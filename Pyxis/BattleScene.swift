@@ -419,6 +419,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             selectManualSoldierType(soldierType)
         case .deploy:
             spawnSoldier()
+        case .selectLane(let lane):
+            selectAssaultLane(lane)
         case .tab(let tab):
             requestGameplayTab(tab)
         case let .requirement(soldierType, unlocksAtCity):
@@ -1025,8 +1027,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var livingKingdomBattlePresentation: LivingKingdomPresentation.Battle {
         LivingKingdomPresentation.battle(
             cityNumber: state.currentCityKey.cityNumber,
-            remainingHP: state.cityRemainingPower,
-            maxHP: state.cityMaxPower,
+            remainingHP: state.currentKeepRemainingPower,
+            maxHP: state.currentKeepMaxPower,
             hasPendingConquest: state.pendingBattleResult != nil
         )
     }
@@ -1306,7 +1308,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let height: CGFloat = 7
         let topLimitY = battlefieldLayout.frame.maxY - height - 2
         let y = min(topLimitY, cityFrame.maxY + 4)
-        let percent = min(max(CGFloat(state.cityRemainingPower) / CGFloat(max(1, state.cityMaxPower)), 0), 1)
+        let percent = min(max(CGFloat(state.currentKeepRemainingPower)
+            / CGFloat(max(1, state.currentKeepMaxPower)), 0), 1)
         let backgroundRect = CGRect(
             x: cityFrame.midX - width / 2,
             y: y,
@@ -1326,7 +1329,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             cornerHeight: height / 2,
             transform: nil
         )
-        if state.cityRemainingPower > 0 {
+        if state.currentKeepRemainingPower > 0 {
             cityHPBarFill.path = CGPath(
                 roundedRect: fillRect,
                 cornerWidth: height / 2,
@@ -1865,8 +1868,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func showCityInfoTooltip() {
         showTooltip(
             "\(state.displayCityTitle) | \(state.currentCityDefenseTrait.displayName) | HP "
-                + "\(CompactNumberFormatter.string(from: state.cityRemainingPower))/"
-                + CompactNumberFormatter.string(from: state.cityMaxPower)
+                + "\(CompactNumberFormatter.string(from: state.currentKeepRemainingPower))/"
+                + CompactNumberFormatter.string(from: state.currentKeepMaxPower)
         )
     }
 
@@ -2804,20 +2807,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if result.elapsedSeconds > 0 {
             if result.conqueredCities > 0 {
-                feedbackSettingsController?.setSettingsAccessibilityActionable(false)
-                closeFeedbackSettings(focusTarget: .systemDefault)
-                emitFreshOutcomeFeedback(
+                presentFreshIdleConquest(
                     goldEarned: result.goldEarned,
                     conqueredCities: result.conqueredCities
                 )
-                clearLiveCombat()
-                // The conquest popup communicates the result; clear any stale
-                // feedback so the tooltip doesn't present behind the overlay and
-                // linger after the popup closes. Mirrors the live-combat conquest
-                // path. Clearing (rather than just not setting) also covers a
-                // stale message left over from before backgrounding.
-                feedbackText = ""
-            } else if result.damageDealt > 0 {
+                return
+            }
+            if result.damageDealt > 0 {
                 feedbackText = "Buildings dealt \(CompactNumberFormatter.string(from: result.damageDealt)) idle damage."
             } else {
                 // A real credited return that produced no damage stays silent:
@@ -2827,9 +2823,48 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         redraw()
+    }
 
-        if result.conqueredCities > 0 {
-            _ = presentPendingConquestReport(origin: .freshIdle, resetsContinueState: true)
+    /// Presents a just-settled fresh idle conquest through the same
+    /// transaction as a foreground return (HPA-468): outcome feedback, live
+    /// combat teardown, refresh, then the pending conquest report.
+    private func presentFreshIdleConquest(goldEarned: Int, conqueredCities: Int) {
+        feedbackSettingsController?.setSettingsAccessibilityActionable(false)
+        closeFeedbackSettings(focusTarget: .systemDefault)
+        emitFreshOutcomeFeedback(
+            goldEarned: goldEarned,
+            conqueredCities: conqueredCities
+        )
+        clearLiveCombat()
+        // The conquest popup communicates the result; clear any stale
+        // feedback so the tooltip doesn't present behind the overlay and
+        // linger after the popup closes. Mirrors the live-combat conquest
+        // path. Clearing (rather than just not setting) also covers a
+        // stale message left over from before backgrounding.
+        feedbackText = ""
+
+        redraw()
+
+        _ = presentPendingConquestReport(origin: .freshIdle, resetsContinueState: true)
+    }
+
+    /// Settle-before-select lane routing (HPA-468): the model result decides
+    /// the transaction. `.unavailable` mutates nothing; a settlement conquest
+    /// presents the pending report via the fresh-idle path; a selection (or a
+    /// no-op) persists and refreshes the HUD.
+    private func selectAssaultLane(_ lane: BattleLane) {
+        switch state.selectAssaultLane(lane, at: Date()) {
+        case .unavailable:
+            return
+        case .conqueredDuringSettlement(let idleProgress):
+            store.save(state)
+            presentFreshIdleConquest(
+                goldEarned: idleProgress.goldEarned,
+                conqueredCities: idleProgress.conqueredCities
+            )
+        case .selected, .unchanged:
+            store.save(state)
+            redraw(shouldLayout: false)
         }
     }
 
@@ -3681,6 +3716,14 @@ extension BattleScene {
         didMove(to: view)
     }
 
+    /// Keep HP is the sole conquest/liveness authority (HPA-468); Battle
+    /// player-facing reads go through this accessor.
+    var keepRemainingPowerForTesting: Int {
+        state.currentKeepRemainingPower
+    }
+
+    /// Transitional scalar reader kept only for non-Battle fixture/test
+    /// compile continuity until Task 5.5 deletes the scalar (HPA-468).
     var cityRemainingPowerForTesting: Int {
         state.cityRemainingPower
     }
@@ -3741,14 +3784,18 @@ extension BattleScene {
         resetFeedbackTooltipDedupeToken()
     }
 
-    /// True when the city HP bar fill is hidden because `cityRemainingPower`
-    /// has reached 0 (the fill path is nulled to avoid rendering a sliver).
+    /// True when the city HP bar fill is hidden because the Keep's remaining
+    /// power has reached 0 (the fill path is nulled to avoid rendering a sliver).
     var isCityHPBarFillHiddenForTesting: Bool {
         cityHPBarFill.path == nil
     }
 
     var cityHPBarFrameForTesting: CGRect? {
         sceneFrame(for: cityHPBarBackground)
+    }
+
+    var cityHPBarFillFrameForTesting: CGRect? {
+        sceneFrame(for: cityHPBarFill)
     }
 
     /// Number of times `layoutCityHPBar` has run since scene creation. Tests

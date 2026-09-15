@@ -122,6 +122,63 @@ struct BattleChromeLayoutTests {
         #expect(layout.battlefieldFrame.height >= 424)
     }
 
+    @Test func laneChipHitFramesPinThreeExpandedTargetsInsideTheBattlefield() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+
+        #expect(layout.laneChipHitFrames.count == BattleLane.allCases.count)
+        for lane in BattleLane.allCases {
+            let visual = try #require(layout.laneChipFrames[lane])
+            let hit = try #require(layout.laneChipHitFrames[lane])
+            // Visual chips keep their authored 26pt height.
+            #expect(visual.height == 26)
+            // Hit targets expand around the visual center and clear 44×44.
+            #expect(hit.width >= 44)
+            #expect(hit.height >= 44)
+            #expect(abs(hit.midX - visual.midX) < 0.001)
+            #expect(abs(hit.midY - visual.midY) < 0.001)
+            #expect(hit.contains(visual))
+            // Everything stays inside the battlefield.
+            #expect(layout.battlefieldFrame.contains(hit))
+        }
+    }
+
+    @Test func compactLaneChipHitFramesStayInsideTheBattlefield() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: .zero
+        )))
+
+        #expect(layout.isCompact)
+        #expect(layout.laneChipHitFrames.count == BattleLane.allCases.count)
+        #expect(layout.laneChipHitFrames.values.allSatisfy {
+            $0.width >= 44 && $0.height >= 44 && layout.battlefieldFrame.contains($0)
+        })
+    }
+
+    @Test func laneChipHitFramesNeverOverlapUnrelatedHUDChrome() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+
+        let unrelatedFrames = [
+            layout.deployFrame,
+            layout.tabBarFrame,
+            layout.incomeFrame,
+            layout.cityProgressFrame,
+            layout.recommendationFrame,
+            layout.settingsFrame
+        ] + layout.medallionHitFrames + layout.tabHitFrames
+        for hit in layout.laneChipHitFrames.values {
+            for frame in unrelatedFrames {
+                #expect(!hit.intersects(frame))
+            }
+        }
+    }
+
     @Test func impossibleSafeContentFailsClosed() {
         let layout = BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 375, height: 667),
