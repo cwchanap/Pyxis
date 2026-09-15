@@ -148,7 +148,7 @@ struct ActiveSiegeSession: Codable, Equatable {
     }
 
     mutating func recordAttack(_ event: SoldierAttackEvent) {
-        guard event.appliedCityDamage > 0 else {
+        guard event.appliedDamage > 0 else {
             return
         }
 
@@ -157,7 +157,7 @@ struct ActiveSiegeSession: Codable, Equatable {
                 type: event.type,
                 source: event.source,
                 lane: event.lane,
-                damage: event.appliedCityDamage
+                damage: event.appliedDamage
             )
         )
         appliedDamage = saturatingNormalizedDamageAttribution(appliedDamage)

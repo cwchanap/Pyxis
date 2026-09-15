@@ -130,9 +130,8 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     }
 
     /// Seeds current-city siege progress with the SiegeTestSupport pattern
-    /// (HPA-468): Keep HP is the sole conquest/liveness authority, damage
-    /// clamps to each objective's authored maximum, and the transitional
-    /// `cityRemainingPower` scalar is never written.
+    /// (HPA-468): Keep HP is the sole conquest/liveness authority and damage
+    /// clamps to each objective's authored maximum.
     private static func seedSiegeProgress(
         keepRemaining: Int,
         supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:],

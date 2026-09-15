@@ -24,7 +24,6 @@ struct KingdomGameStoreTests {
         let saved = KingdomGameState(
             gold: 42,
             cityLevel: 4,
-            cityRemainingPower: 123,
             normalSoldierUpgradeLevel: 3,
             lastBackgroundedAt: backgroundDate,
             countryNumber: 1,
@@ -72,7 +71,6 @@ struct KingdomGameStoreTests {
         let saved = KingdomGameState(
             gold: 8,
             cityLevel: 2,
-            cityRemainingPower: 0,
             normalSoldierUpgradeLevel: 2,
             countryNumber: 1,
             cityNumberInCountry: 2,
@@ -92,7 +90,7 @@ struct KingdomGameStoreTests {
     @Test func liveConquestPendingResultSurvivesRelaunch() throws {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")
-        var saved = KingdomGameState(gold: 0, cityRemainingPower: 5)
+        var saved = SiegeTestSupport.makeBattleState(gold: 0, keepRemaining: 5)
         saved.recordSoldierDeployment(type: .archer, source: .manual, lane: .right)
         saved.recordActiveBattleTime(1.5)
         _ = saved.applyLiveSoldierAttacks([
@@ -101,7 +99,8 @@ struct KingdomGameStoreTests {
                 type: .archer,
                 source: .manual,
                 lane: .right,
-                appliedCityDamage: 5
+                objectiveID: try #require(SiegeTestSupport.objectiveID(for: .keep, in: saved)),
+                appliedDamage: 5
             )
         ])
         let expectedPending = try #require(saved.pendingBattleResult)
@@ -118,7 +117,7 @@ struct KingdomGameStoreTests {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")
         let backgroundDate = Date(timeIntervalSinceReferenceDate: 20_000)
-        var saved = KingdomGameState(gold: 10, cityRemainingPower: 20)
+        var saved = KingdomGameState(gold: 10)
         saved.recordSoldierDeployment(type: .mage, source: .building, lane: .left)
         saved.recordActiveBattleTime(2.5)
         let expectedSession = try #require(saved.activeSiegeSession)
@@ -156,7 +155,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 64,
           "cityLevel": 1,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 3,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
@@ -193,7 +191,6 @@ struct KingdomGameStoreTests {
 
         #expect(loaded.gold == 64)
         #expect(loaded.normalSoldierUpgradeLevel == 3)
-        #expect(loaded.cityRemainingPower == 12)
         #expect(loaded.cityBattleStateForCurrentCity.occupiedSlotCount == 1)
         #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .barracks)
         #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 1)?.level == 2)
@@ -209,7 +206,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 64,
           "cityLevel": 1,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 3,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
@@ -258,7 +254,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 64,
           "cityLevel": 1,
-          "cityRemainingPower": 12,
           "normalSoldierUpgradeLevel": 3,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
@@ -275,7 +270,6 @@ struct KingdomGameStoreTests {
 
         #expect(loaded.gold == 64)
         #expect(loaded.normalSoldierUpgradeLevel == 3)
-        #expect(loaded.cityRemainingPower == 12)
         #expect(loaded.stageStatus == .battleActive)
         #expect(loaded.activeSiegeSession == nil)
     }
@@ -287,7 +281,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 72,
           "cityLevel": 1,
-          "cityRemainingPower": 0,
           "normalSoldierUpgradeLevel": 4,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
@@ -304,7 +297,6 @@ struct KingdomGameStoreTests {
 
         #expect(loaded.gold == 72)
         #expect(loaded.normalSoldierUpgradeLevel == 4)
-        #expect(loaded.cityRemainingPower == 0)
         #expect(loaded.stageStatus == .cityConqueredPendingMap)
         #expect(loaded.pendingBattleResult == nil)
     }

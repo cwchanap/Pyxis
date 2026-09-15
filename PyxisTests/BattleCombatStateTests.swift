@@ -261,7 +261,7 @@ struct BattleCombatStateTests {
         let soldier = try #require(combat.soldier(id: id))
         // Stop position is the referenced objective's visualProgress minus range.
         #expect(soldier.position == max(0, 1.0 - 0.20))
-        #expect(secondTick.soldierAttacks.map(\.appliedCityDamage) == [3])
+        #expect(secondTick.soldierAttacks.map(\.appliedDamage) == [3])
         #expect(secondTick.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.singleKeepID])
     }
 
@@ -309,14 +309,14 @@ struct BattleCombatStateTests {
                 source: .manual,
                 lane: .left,
                 objectiveID: SiegeFixtures.towerID,
-                appliedCityDamage: 3
+                appliedDamage: 3
             )
         ])
 
         // Next tick resolves the next route objective: the Keep.
         let keepAttack = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.falconridgeSnapshot(towerRemaining: 0))
         #expect(keepAttack.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.keepID])
-        #expect(keepAttack.soldierAttacks.map(\.appliedCityDamage) == [5])
+        #expect(keepAttack.soldierAttacks.map(\.appliedDamage) == [5])
     }
 
     @Test func sameTickAttacksCannotOverkillOneObjective() throws {
@@ -351,7 +351,7 @@ struct BattleCombatStateTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: SiegeFixtures.gateID,
-                appliedCityDamage: 3
+                appliedDamage: 3
             ),
             SoldierAttackEvent(
                 soldierID: second,
@@ -359,7 +359,7 @@ struct BattleCombatStateTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: SiegeFixtures.keepID,
-                appliedCityDamage: 5
+                appliedDamage: 5
             )
         ])
         #expect(!result.didReachConquest)
@@ -452,14 +452,14 @@ struct BattleCombatStateTests {
         let snapshot = SiegeFixtures.singleKeepSnapshot(keepRemaining: 20)
 
         let firstTick = combat.tick(deltaTime: 0.1, siege: snapshot)
-        #expect(firstTick.soldierAttacks.map(\.appliedCityDamage) == [4])
+        #expect(firstTick.soldierAttacks.map(\.appliedDamage) == [4])
         #expect(firstTick.soldierAttacks.map(\.soldierID) == [id])
 
         let cooldownTick = combat.tick(deltaTime: 0.2, siege: snapshot)
         #expect(cooldownTick.soldierAttacks.isEmpty)
 
         let secondAttackTick = combat.tick(deltaTime: 0.3, siege: snapshot)
-        #expect(secondAttackTick.soldierAttacks.map(\.appliedCityDamage) == [4])
+        #expect(secondAttackTick.soldierAttacks.map(\.appliedDamage) == [4])
         #expect(secondAttackTick.soldierAttacks.map(\.soldierID) == [id])
     }
 
@@ -481,7 +481,7 @@ struct BattleCombatStateTests {
 
         let result = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 3))
 
-        #expect(result.soldierAttacks.map(\.appliedCityDamage) == [3])
+        #expect(result.soldierAttacks.map(\.appliedDamage) == [3])
         #expect(result.didReachConquest)
     }
 
@@ -511,7 +511,7 @@ struct BattleCombatStateTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: SiegeFixtures.singleKeepID,
-                appliedCityDamage: 3
+                appliedDamage: 3
             )
         ])
         #expect(result.didReachConquest)
@@ -845,7 +845,7 @@ struct BattleCombatStateTests {
         let damageTick = combat.tick(deltaTime: 0.1, siege: snapshot)
         #expect(damageTick.damagedSoldierIDs == [id])
         #expect(damageTick.soldierLosses.isEmpty)
-        #expect(damageTick.soldierAttacks.map(\.appliedCityDamage) == [3])
+        #expect(damageTick.soldierAttacks.map(\.appliedDamage) == [3])
         #expect(damageTick.soldierAttacks.map(\.soldierID) == [id])
         #expect(try #require(combat.soldier(id: id)).currentHP == 1)
 

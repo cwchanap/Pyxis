@@ -364,11 +364,8 @@ struct GameViewControllerTests {
 
     @Test func ordinaryForegroundPreservesReadySoundOutputForFreshIdleConquest() throws {
         let start = Date(timeIntervalSinceNow: -1_000)
-        var initialState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start
-        )
+        var initialState = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
+        initialState.lastBackgroundedAt = start
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
             cost: 15,
             remainingGold: 85
@@ -405,11 +402,8 @@ struct GameViewControllerTests {
 
     @Test func sceneDelegatePreflightsForegroundBeforeMountedBattleEmitsIdleConquest() throws {
         let start = Date(timeIntervalSinceNow: -1_000)
-        var initialState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start
-        )
+        var initialState = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
+        initialState.lastBackgroundedAt = start
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
             cost: 15,
             remainingGold: 85
@@ -575,7 +569,7 @@ struct GameViewControllerTests {
 
     @Test func sharedAccessibilityAdapterRebindsAnActionableMapAfterBattleConquest() throws {
         let backgroundAt = Date(timeIntervalSince1970: 1_000)
-        var initialState = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        var initialState = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: backgroundAt)
             == .built(cost: 15, remainingGold: 85))
         let store = try makeStore(initialState: initialState)
@@ -610,7 +604,6 @@ struct GameViewControllerTests {
 
     @Test func mapUnavailableIsDistinctFromSupportedGeometry() throws {
         let store = try makeStore(initialState: .init(
-            cityRemainingPower: 0,
             stageStatus: .cityConqueredPendingMap
         ))
         let controller = makeGameViewController(store: store)
@@ -628,7 +621,6 @@ struct GameViewControllerTests {
 
     @Test func mapUnavailableReasonDoesNotPersistIntoBattleScene() throws {
         let store = try makeStore(initialState: .init(
-            cityRemainingPower: 100,
             stageStatus: .battleActive
         ))
         let controller = makeGameViewController(store: store)
@@ -668,7 +660,6 @@ struct GameViewControllerTests {
         // CountryMapSceneTests.narrowPadScoutCardFitFailureDoesNotLatchAndRecoversOnWiderResize,
         // which injects a .pad environment override directly into the scene.
         let store = try makeStore(initialState: .init(
-            cityRemainingPower: 0,
             cityNumberInCountry: 8,
             completedCityCount: 8,
             stageStatus: .cityConqueredPendingMap
@@ -707,7 +698,6 @@ struct GameViewControllerTests {
 
     @Test func battleRequestWithoutSKViewReturnsFalse() throws {
         let store = try makeStore(initialState: .init(
-            cityRemainingPower: 0,
             stageStatus: .cityConqueredPendingMap
         ))
         let controller = makeGameViewController(store: store)
@@ -727,7 +717,6 @@ struct GameViewControllerTests {
         let savedState = KingdomGameState(
             gold: 77,
             cityLevel: 4,
-            cityRemainingPower: 321,
             cityNumberInCountry: 4,
             completedCityCount: 3,
             stageStatus: .battleActive
@@ -748,7 +737,7 @@ struct GameViewControllerTests {
         let battle = try #require(view.scene as? BattleScene)
         #expect(battle.goldForTesting == savedState.gold)
         #expect(battle.cityLevelForTesting == savedState.cityLevel)
-        #expect(battle.cityRemainingPowerForTesting == savedState.cityRemainingPower)
+        #expect(battle.keepRemainingPowerForTesting == savedState.currentKeepRemainingPower)
     }
 
     @Test func safeAreaInsetsDidChangeRefreshesBattleSceneLayout() throws {
@@ -799,7 +788,6 @@ struct GameViewControllerTests {
 
     @Test func conqueredStateWithoutPendingStillUsesMap() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 3,
             completedCityCount: 3,
             stageStatus: .cityConqueredPendingMap
@@ -853,11 +841,8 @@ struct GameViewControllerTests {
 
     @Test func campMapExitSettlesBeforePendingFirstRouting() throws {
         let start = Date(timeIntervalSinceNow: -1_000)
-        var initialState = KingdomGameState(
-            gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start
-        )
+        var initialState = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 1)
+        initialState.lastBackgroundedAt = start
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
             cost: 15,
             remainingGold: 85
@@ -883,13 +868,15 @@ struct GameViewControllerTests {
 
     @Test func countryMapBattleTabExitRestoresASettledIdleConquestReport() throws {
         let start = Date(timeIntervalSinceNow: -1_000)
-        var initialState = KingdomGameState(
+        var initialState = SiegeTestSupport.makeBattleState(
+            atCity: 3,
             gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 3,
-            completedCityCount: 2
+            keepRemaining: 1,
+            // Falconridge's center route is gate→Keep; fell the gate so idle
+            // damage lands on the Keep.
+            supportDamage: [.gate: Int.max]
         )
+        initialState.lastBackgroundedAt = start
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
             cost: 15,
             remainingGold: 85
@@ -915,13 +902,13 @@ struct GameViewControllerTests {
 
     @Test func relaunchedControllerRestoresIdleConquestDamage() throws {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
-        var initialState = KingdomGameState(
+        var initialState = SiegeTestSupport.makeBattleState(
+            atCity: 3,
             gold: 100,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 3,
-            completedCityCount: 2
+            keepRemaining: 1,
+            supportDamage: [.gate: Int.max]
         )
+        initialState.lastBackgroundedAt = start
         #expect(initialState.buildBuilding(.barracks, inSlot: 1, at: start) == .built(
             cost: 15,
             remainingGold: 85
@@ -996,9 +983,9 @@ struct GameViewControllerTests {
 
     @Test func liveConquestFitFailureGatesControllerViaCallbackOnly() throws {
         // Start with an active battle (no pending result) and normal insets.
-        let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 1
-        ))
+        // Keep sits at 1 HP so the single spawned soldier's first attack
+        // conquers within the advanced combat window.
+        let store = try makeStore(initialState: SiegeTestSupport.makeBattleState(keepRemaining: 1))
         let controller = makeGameViewController(store: store)
         let view = SafeAreaOverridingSKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view

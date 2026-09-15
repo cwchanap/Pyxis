@@ -13,7 +13,7 @@ struct DevJumpStateTests {
             #expect(state.cityNumberInCountry == city)
             #expect(state.cityLevel == city)
             #expect(state.stageStatus == .battleActive)
-            #expect(state.cityRemainingPower == KingdomGameState.cityMaxPower(for: city))
+            #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
             #expect(state.gold == DevJumpState.gold)
             #expect(state.normalSoldierUpgradeLevel == DevJumpState.soldierLevel)
             #expect(state.cityBattleStates.isEmpty)

@@ -175,7 +175,6 @@ struct CountryMapSceneTests {
     @Test func selectedCurrentCityReturnRoutesToBattleWithoutRestarting() throws {
         let initialState = KingdomGameState(
             cityLevel: 3,
-            cityRemainingPower: 24,
             cityNumberInCountry: 3,
             completedCityCount: 2,
             stageStatus: .battleActive
@@ -196,10 +195,9 @@ struct CountryMapSceneTests {
 
     @Test("Selected current city RETURN settles nonlethal idle progress before routing")
     func selectedCurrentCityReturnSettlesNonlethalIdleProgressBeforeRouting() throws {
-        let start = Date.distantPast
+        let start = Date(timeIntervalSinceNow: -1_000) // bounded window: nonlethal settlement for city 3
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1_000,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -217,16 +215,16 @@ struct CountryMapSceneTests {
         let saved = store.load()
         #expect(saved.stageStatus == .battleActive)
         #expect(saved.lastBackgroundedAt == nil)
-        #expect(saved.cityRemainingPower < initialState.cityRemainingPower)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: saved)
+            < SiegeTestSupport.totalObjectiveRemainingPower(of: initialState))
         #expect(router.requestedTabs == [.battle])
     }
 
     @Test("Rejected current-city RETURN preserves the settled idle progress and re-arms")
     func rejectedCurrentCityReturnPreservesSettledIdleProgress() throws {
-        let start = Date.distantPast
+        let start = Date(timeIntervalSinceNow: -1_000) // bounded window: nonlethal settlement for city 3
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1_000,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -250,7 +248,8 @@ struct CountryMapSceneTests {
         #expect(saved.stageStatus == .battleActive)
         #expect(saved.cityNumberInCountry == 3)
         // The idle damage is preserved (not rolled back to the pre-entry state).
-        #expect(saved.cityRemainingPower < initialState.cityRemainingPower)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: saved)
+            < SiegeTestSupport.totalObjectiveRemainingPower(of: initialState))
         // Building progress is re-armed for the next backgrounding.
         #expect(saved.lastBackgroundedAt != nil)
         #expect(saved.cityBattleStateForCurrentCity.lastBuildingProgressResolvedAt
@@ -265,7 +264,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -319,7 +317,6 @@ struct CountryMapSceneTests {
         let feedback = CountryMapFeedbackRecorder()
         let preferences = RecordingFeedbackPreferencesManager()
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -352,7 +349,6 @@ struct CountryMapSceneTests {
         let feedback = CountryMapFeedbackRecorder()
         let initialState = KingdomGameState(
             cityLevel: 3,
-            cityRemainingPower: 50,
             cityNumberInCountry: 3,
             completedCityCount: 2,
             stageStatus: .battleActive
@@ -412,10 +408,9 @@ struct CountryMapSceneTests {
 
     @Test("Battle-tab exit settles nonlethal idle progress before routing")
     func battleTabExitSettlesNonlethalIdleProgressBeforeRouting() throws {
-        let start = Date.distantPast
+        let start = Date(timeIntervalSinceNow: -1_000) // bounded window: nonlethal settlement for city 3
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1_000,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -431,17 +426,17 @@ struct CountryMapSceneTests {
         let saved = countingStore.store.load()
         #expect(saved.stageStatus == .battleActive)
         #expect(saved.lastBackgroundedAt == nil)
-        #expect(saved.cityRemainingPower < initialState.cityRemainingPower)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: saved)
+            < SiegeTestSupport.totalObjectiveRemainingPower(of: initialState))
         #expect(router.requestedTabs == [.battle])
         #expect(countingStore.defaults.stateSaveCount == 1)
     }
 
     @Test("Rejected Battle-tab route re-arms settled building progress")
     func rejectedBattleTabRouteRearmsSettledBuildingProgress() throws {
-        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        let start = Date(timeIntervalSinceNow: -1_000) // bounded window: nonlethal settlement for city 3
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1_000,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -470,7 +465,6 @@ struct CountryMapSceneTests {
         let start = Date().addingTimeInterval(3_600)
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1_000,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -500,7 +494,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -525,7 +518,6 @@ struct CountryMapSceneTests {
     @Test("Country Map Settings gear wins over an overlapping scout attack")
     func countryMapGearPrecedesScoutAttack() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -548,7 +540,6 @@ struct CountryMapSceneTests {
     @Test("Country Map routing guard wins over Settings gear")
     func countryMapRoutingGuardPreventsOpeningSettings() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -569,7 +560,6 @@ struct CountryMapSceneTests {
     @Test("Country Map layout gate refuses a retained Settings accessibility activation")
     func countryMapLayoutGateRefusesRetainedAccessibilityGearActivation() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -619,7 +609,6 @@ struct CountryMapSceneTests {
     func countryMapTitleUsesLayoutFrameAndNeverShrinksToEightPoints() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 3,
-            cityRemainingPower: 50,
             cityNumberInCountry: 3,
             completedCityCount: 2,
             stageStatus: .battleActive
@@ -647,7 +636,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -702,15 +690,15 @@ struct CountryMapSceneTests {
     @Test("Final Country Map idle conquest routes to the pending report with one country outcome")
     func countryMapFinalIdleConquestEmitsExactlyOneCountryOutcome() throws {
         let start = Date.distantPast
-        var initialState = KingdomGameState(
+        // City 15's Keep is huge (~570k HP); pre-damage it to exactly the 100
+        // damage one barracks produces over the 10_000s foreground gap so the
+        // idle settlement conquers it.
+        var initialState = SiegeTestSupport.makeBattleState(
+            atCity: 15,
             gold: 100,
-            cityLevel: 15,
-            cityRemainingPower: 1,
-            lastBackgroundedAt: start,
-            cityNumberInCountry: 15,
-            completedCityCount: 14,
-            stageStatus: .battleActive
+            keepRemaining: 100
         )
+        initialState.lastBackgroundedAt = start
         _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
         let preferences = RecordingFeedbackPreferencesManager()
         let sound = RecordingGameplaySoundOutput()
@@ -747,7 +735,6 @@ struct CountryMapSceneTests {
 
     @Test func enteringUnlockedCitySavesStateAndRoutesToBattle() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -761,13 +748,12 @@ struct CountryMapSceneTests {
         #expect(saved.stageStatus == .battleActive)
         #expect(saved.cityNumberInCountry == 2)
         #expect(saved.cityLevel == 2)
-        #expect(saved.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
+        #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
         #expect(router.battleRequestCount == 1)
     }
 
     @Test func enteringLockedCityDoesNotMutateOrRoute() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -786,7 +772,6 @@ struct CountryMapSceneTests {
     @Test func completedCountryCityNodeShowsExactFeedbackWithoutMutationOrRoute() throws {
         let initialState = KingdomGameState(
             cityLevel: 15,
-            cityRemainingPower: 0,
             cityNumberInCountry: 15,
             completedCityCount: 15,
             stageStatus: .countryComplete
@@ -823,7 +808,6 @@ struct CountryMapSceneTests {
     @Test func completedCountryStartsWithConqueredCardContent() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 15,
-            cityRemainingPower: 0,
             cityNumberInCountry: 15,
             completedCityCount: 15,
             stageStatus: .countryComplete
@@ -839,7 +823,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1000,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -855,7 +838,8 @@ struct CountryMapSceneTests {
         let saved = store.load()
         #expect(saved.lastBackgroundedAt == nil)
         #expect(router.battleRequestCount == 1)
-        #expect(saved.cityRemainingPower < 1000)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: saved)
+            < SiegeTestSupport.totalObjectiveRemainingPower(of: initialState))
     }
 
     @Test("Entering the current city with a conquering idle settlement routes to the pending report")
@@ -863,7 +847,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var battleState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -889,7 +872,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -920,7 +902,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -949,7 +930,6 @@ struct CountryMapSceneTests {
         let start = Date.distantPast
         var initialState = KingdomGameState(
             gold: 100,
-            cityRemainingPower: 1,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
@@ -975,7 +955,6 @@ struct CountryMapSceneTests {
 
     @Test func mapShowsTraitForUnlockedCityInScoutCard() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 3,
             completedCityCount: 3,
             stageStatus: .cityConqueredPendingMap
@@ -991,7 +970,6 @@ struct CountryMapSceneTests {
 
     @Test func selectingCompletedCityShowsExactFeedback() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 3,
             completedCityCount: 3,
             stageStatus: .cityConqueredPendingMap
@@ -1005,7 +983,6 @@ struct CountryMapSceneTests {
 
     @Test func lockedFeedbackOverlaysUnchangedCardAndExpiresAtExactDuration() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1055,7 +1032,6 @@ struct CountryMapSceneTests {
 
     @Test func completedFeedbackCannotBeDismissedEarlyByTaps() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 3,
             completedCityCount: 3,
             stageStatus: .cityConqueredPendingMap
@@ -1079,7 +1055,6 @@ struct CountryMapSceneTests {
         // Pending City 5 completed -> City 6 (Granite Pass) unlocked.
         let initialState = KingdomGameState(
             cityLevel: 5,
-            cityRemainingPower: 0,
             cityNumberInCountry: 5,
             completedCityCount: 5,
             stageStatus: .cityConqueredPendingMap
@@ -1121,7 +1096,7 @@ struct CountryMapSceneTests {
         #expect(saved.stageStatus == .battleActive)
         #expect(saved.cityNumberInCountry == 6)
         #expect(saved.cityLevel == 6)
-        #expect(saved.cityRemainingPower == KingdomGameState.cityMaxPower(for: 6))
+        #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
         #expect(router.battleRequestCount == 1)
         #expect(scene.isRoutingToBattleForTesting)
     }
@@ -1129,7 +1104,6 @@ struct CountryMapSceneTests {
     @Test func bodyTapDoesNotShowFlavorForCountryCompleteCard() throws {
         let initialState = KingdomGameState(
             cityLevel: 15,
-            cityRemainingPower: 0,
             cityNumberInCountry: 15,
             completedCityCount: 15,
             stageStatus: .countryComplete
@@ -1147,7 +1121,6 @@ struct CountryMapSceneTests {
 
     @Test func blockingLockedFeedbackStillClearsAttackTarget() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1246,7 +1219,6 @@ struct CountryMapSceneTests {
     @Test func countryCompleteCardRemainsVisibleAfterIgnoredEntryRequest() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 15,
-            cityRemainingPower: 0,
             cityNumberInCountry: 15,
             completedCityCount: 15,
             stageStatus: .countryComplete
@@ -1266,7 +1238,6 @@ struct CountryMapSceneTests {
 
     @Test func didChangeSizePreservesActiveFeedbackAndRemainingDuration() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1287,7 +1258,6 @@ struct CountryMapSceneTests {
 
     @Test func startingAndReplacingFeedbackRebasesTheUpdateClock() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1313,7 +1283,6 @@ struct CountryMapSceneTests {
 
     @Test func layoutGatePauseDoesNotAdvanceFeedbackClock() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1339,7 +1308,6 @@ struct CountryMapSceneTests {
 
     @Test func backgroundPauseDoesNotAdvanceFeedbackClock() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1369,7 +1337,6 @@ struct CountryMapSceneTests {
 
     @Test func enteringCityUsesLatestStoredState() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1379,7 +1346,6 @@ struct CountryMapSceneTests {
         let scene = makeScene(store: store, router: router)
 
         store.save(KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 2,
             completedCityCount: 2,
             stageStatus: .cityConqueredPendingMap
@@ -1391,13 +1357,12 @@ struct CountryMapSceneTests {
         #expect(saved.stageStatus == .battleActive)
         #expect(saved.cityNumberInCountry == 3)
         #expect(saved.cityLevel == 3)
-        #expect(saved.cityRemainingPower == KingdomGameState.cityMaxPower(for: 3))
+        #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
         #expect(router.battleRequestCount == 1)
     }
 
     @Test func staleAttackRefreshesToAdvancedPendingMapWithoutSavingOrRouting() throws {
         let countingStore = try makeCountingStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1408,7 +1373,6 @@ struct CountryMapSceneTests {
         let staleAttackFrame = try #require(scene.scoutCardAttackHitFrameForTesting)
 
         let latestState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 3,
             completedCityCount: 3,
             stageStatus: .cityConqueredPendingMap
@@ -1447,7 +1411,6 @@ struct CountryMapSceneTests {
 
     @Test func enteringUnlockedCityWithoutRouterDoesNotMutateStore() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1543,7 +1506,6 @@ struct CountryMapSceneTests {
         let scene = makeScene(
             size: CGSize(width: 393, height: 852),
             store: try makeStore(initialState: .init(
-                cityRemainingPower: 0,
                 cityNumberInCountry: 1,
                 completedCityCount: 1,
                 stageStatus: .cityConqueredPendingMap
@@ -1582,7 +1544,6 @@ struct CountryMapSceneTests {
     @Test func mapLayoutKeepsTitleScoutCardAndAllCitiesVisible() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1610,7 +1571,6 @@ struct CountryMapSceneTests {
     @Test func countryMapBackdropContainsIllustratedRegion() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1630,7 +1590,6 @@ struct CountryMapSceneTests {
     @Test func cityNodesAlignToAuthoredBackdropPads() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1654,7 +1613,6 @@ struct CountryMapSceneTests {
     @Test func semanticSafeAreaInsetsPositionMapChrome() throws {
         let size = CGSize(width: 390, height: 844)
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1674,7 +1632,6 @@ struct CountryMapSceneTests {
 
     @Test func cityStateStylingDistinguishesCompletedUnlockedAndLocked() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 2,
             completedCityCount: 2,
             stageStatus: .cityConqueredPendingMap
@@ -1691,7 +1648,6 @@ struct CountryMapSceneTests {
 
     @Test func cityNodeCenterResolvesToCityNumber() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1705,7 +1661,6 @@ struct CountryMapSceneTests {
     @Test func allCityCentersHave44PointHitTargets() throws {
         let scene = makeScene(
             store: try makeStore(initialState: .init(
-                cityRemainingPower: 0,
                 completedCityCount: 1,
                 stageStatus: .cityConqueredPendingMap
             )),
@@ -1798,7 +1753,6 @@ struct CountryMapSceneTests {
         // must NOT permanently latch isMapUnavailable — widening the window must
         // let the layout recover.
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 8,
             completedCityCount: 8,
             stageStatus: .cityConqueredPendingMap
@@ -1834,7 +1788,6 @@ struct CountryMapSceneTests {
 
     @Test func cityLabelCenterResolvesToCityNumber() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1848,7 +1801,6 @@ struct CountryMapSceneTests {
     @Test func titleLabelFitsWithinPanelOnFirstLayout() throws {
         let size = CGSize(width: 375, height: 667)
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 5,
             completedCityCount: 4,
             stageStatus: .cityConqueredPendingMap
@@ -1869,7 +1821,6 @@ struct CountryMapSceneTests {
         let size = CGSize(width: 375, height: 667)
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 3,
-            cityRemainingPower: 50,
             cityNumberInCountry: 3,
             completedCityCount: 2,
             stageStatus: .battleActive
@@ -1888,7 +1839,6 @@ struct CountryMapSceneTests {
 
     @Test func touchesEndedEmptyTouchesDoesNothing() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1903,7 +1853,6 @@ struct CountryMapSceneTests {
 
     @Test func touchesEndedOnCityNodeSelectsUnlockedCityWithoutEntering() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1916,7 +1865,6 @@ struct CountryMapSceneTests {
 
         let saved = store.load()
         #expect(saved == KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1927,7 +1875,6 @@ struct CountryMapSceneTests {
 
     @Test func touchesEndedOnAttackEntersProjectedScoutCity() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1945,13 +1892,12 @@ struct CountryMapSceneTests {
         #expect(saved.stageStatus == .battleActive)
         #expect(saved.cityNumberInCountry == 2)
         #expect(saved.cityLevel == 2)
-        #expect(saved.cityRemainingPower == KingdomGameState.cityMaxPower(for: 2))
+        #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
         #expect(router.battleRequestCount == 1)
     }
 
     @Test func touchesEndedOutsideDoesNothing() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1966,7 +1912,6 @@ struct CountryMapSceneTests {
 
     @Test func acceptedTapsAcrossDifferentEntryTargetsRequestBattleOnce() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -1988,7 +1933,6 @@ struct CountryMapSceneTests {
 
     @Test func acceptedRoutingKeepsCardButDisablesEveryEntryTarget() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2017,7 +1961,6 @@ struct CountryMapSceneTests {
 
     @Test func missingRouterDiscardsEnteredMutationAndLeavesRetryEnabled() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2046,7 +1989,6 @@ struct CountryMapSceneTests {
 
     @Test func rejectedRouterRestoresPreEntryStateAndAllowsRetry() throws {
         let countingStore = try makeCountingStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2086,7 +2028,6 @@ struct CountryMapSceneTests {
 
     @Test func lockedCityNodeShowsExactFeedbackWithoutMutationOrRoute() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2106,7 +2047,6 @@ struct CountryMapSceneTests {
 
     @Test func completedCityNodeShowsExactFeedbackWithoutMutationOrRoute() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 2,
             completedCityCount: 2,
             stageStatus: .cityConqueredPendingMap
@@ -2127,7 +2067,6 @@ struct CountryMapSceneTests {
     @Test func countryCompleteExposesNoAttackTarget() throws {
         let store = try makeStore(initialState: KingdomGameState(
             cityLevel: 15,
-            cityRemainingPower: 0,
             cityNumberInCountry: 15,
             completedCityCount: 15,
             stageStatus: .countryComplete
@@ -2142,7 +2081,6 @@ struct CountryMapSceneTests {
         let router = RouteSpy()
         let scene = makeScene(
             store: try makeStore(initialState: .init(
-                cityRemainingPower: 0,
                 completedCityCount: 1,
                 stageStatus: .cityConqueredPendingMap
             )),
@@ -2160,7 +2098,6 @@ struct CountryMapSceneTests {
 
     @Test func transientOverlayConsumesBeforeCardAndMapTargets() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
         ))
@@ -2182,7 +2119,6 @@ struct CountryMapSceneTests {
 
     @Test func attackConsumesBeforeOverlappingCityNode() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2203,7 +2139,6 @@ struct CountryMapSceneTests {
 
     @Test func cardBodyConsumesBeforeOverlappingCityNode() throws {
         let initialState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2227,7 +2162,6 @@ struct CountryMapSceneTests {
 
     @Test func fitLabelWithZeroMaxWidthDoesNotCrash() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2244,7 +2178,6 @@ struct CountryMapSceneTests {
 
     @Test func fitLabelShrinksFontWhenLabelIsTooWide() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2392,7 +2325,6 @@ struct CountryMapSceneTests {
     func countryMapUpdateReturnsEarlyWhenFeedbackSettingsVisible() throws {
         let feedback = CountryMapFeedbackRecorder()
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2442,7 +2374,6 @@ struct CountryMapSceneTests {
     @Test("Country Map openFeedbackSettings is blocked while the layout gate is paused")
     func countryMapOpenFeedbackSettingsBlockedWhileLayoutGatePaused() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2461,7 +2392,6 @@ struct CountryMapSceneTests {
     func countryMapActivateFeedbackSettingsViaAccessibilityTogglesPreferences() throws {
         let preferences = RecordingFeedbackPreferencesManager()
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2522,7 +2452,6 @@ struct CountryMapSceneTests {
     func countryMapActivateFeedbackSettingsNoOpWhenNotVisible() throws {
         let preferences = RecordingFeedbackPreferencesManager()
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2588,7 +2517,6 @@ struct CountryMapSceneTests {
     @Test("Country Map applyIdleProgressFeedback returns early when no time elapsed")
     func countryMapApplyIdleProgressFeedbackEarlyReturnWhenNoElapsed() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2608,7 +2536,6 @@ struct CountryMapSceneTests {
     func countryMapHandleCityNodeTouchLockedCityEmitsInvalidAction() throws {
         let feedback = CountryMapFeedbackRecorder()
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2627,7 +2554,6 @@ struct CountryMapSceneTests {
     func countryMapHandleCityNodeTouchCompletedCityEmitsInvalidAction() throws {
         let feedback = CountryMapFeedbackRecorder()
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 2,
             completedCityCount: 2,
             stageStatus: .cityConqueredPendingMap
@@ -2644,7 +2570,6 @@ struct CountryMapSceneTests {
     @Test("Country Map advanceFeedback is a no-op when no transient feedback is active")
     func countryMapAdvanceFeedbackNoOpWithoutTransientFeedback() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2662,7 +2587,6 @@ struct CountryMapSceneTests {
     @Test("Country Map cityNumber returns nil for a point not on any city node")
     func countryMapCityNumberReturnsNilForEmptyPoint() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2676,7 +2600,6 @@ struct CountryMapSceneTests {
         // Tapping empty space must not produce any feedback or mutation.
         let feedback = CountryMapFeedbackRecorder()
         let store2 = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2705,7 +2628,6 @@ struct CountryMapSceneTests {
     @Test("Country Map visible feedback alpha reflects scout card feedback state")
     func countryMapVisibleFeedbackAlphaReflectsScoutCardState() throws {
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2735,7 +2657,6 @@ struct CountryMapSceneTests {
             state = KingdomGameState(stageStatus: .battleActive)
         } else {
             state = KingdomGameState(
-                cityRemainingPower: 0,
                 cityNumberInCountry: completedCityCount,
                 completedCityCount: completedCityCount,
                 stageStatus: .cityConqueredPendingMap
@@ -2967,7 +2888,6 @@ struct CountryMapSceneTests {
     func countryMapActivateFeedbackSettingsConsumedDoesNothing() throws {
         let preferences = RecordingFeedbackPreferencesManager()
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -2989,7 +2909,6 @@ struct CountryMapSceneTests {
     func countryMapAccessibilityAdapterUsesScreenCoordinatesWithWindow() throws {
         let window = UIWindow(frame: CGRect(x: 100, y: 200, width: 393, height: 852))
         let store = try makeStore(initialState: KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap

@@ -10,12 +10,9 @@ struct SoldierAttackEvent: Equatable {
     let type: SoldierType
     let source: SoldierSpawnSource
     let lane: BattleLane
-    /// The authored objective this attack landed on (HPA-468). Transitional
-    /// empty default exists only for untouched compile-continuity callers;
-    /// Task 5.5 removes it.
-    var objectiveID: String = ""
-    // HPA-468 Task 5.5: rename `appliedCityDamage` to `appliedDamage`.
-    let appliedCityDamage: Int
+    /// The authored objective this attack landed on (HPA-468).
+    var objectiveID: String
+    let appliedDamage: Int
 }
 
 struct SoldierLossEvent: Equatable {
@@ -265,7 +262,7 @@ struct BattleCombatState: Equatable {
                             source: soldiers[index].source,
                             lane: soldiers[index].lane,
                             objectiveID: targetID,
-                            appliedCityDamage: appliedDamage
+                            appliedDamage: appliedDamage
                         )
                     )
                     soldiers[index].attackCooldownRemaining += attackInterval(forSoldier: soldiers[index])

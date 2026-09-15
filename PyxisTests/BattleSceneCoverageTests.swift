@@ -46,7 +46,7 @@ struct BattleSceneCoverageTests {
     }
 
     @Test func zeroDeltaDoesNotConsumeAnActiveHitCountdown() throws {
-        let scene = try makeScene(initialState: stateWithBarracks(cityRemainingPower: 100))
+        let scene = try makeScene(initialState: stateWithBarracks())
         scene.spawnSoldierForTesting()
         scene.triggerFirstLiveSoldierAnimationForTesting("hit")
 
@@ -73,11 +73,10 @@ struct BattleSceneCoverageTests {
         return scene
     }
 
-    private func stateWithBarracks(cityRemainingPower: Int = 20) -> KingdomGameState {
+    private func stateWithBarracks() -> KingdomGameState {
         let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
         return KingdomGameState(
             gold: 100,
-            cityRemainingPower: cityRemainingPower,
             cityBattleStates: [
                 cityKey.storageKey: CityBattleState(
                     slots: [1: CityBuilding(type: .barracks)]

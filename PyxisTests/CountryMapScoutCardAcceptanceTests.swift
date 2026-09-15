@@ -105,7 +105,6 @@ struct CountryMapScoutCardAcceptanceTests {
 
         let pendingState = KingdomGameState(
             cityLevel: 4,
-            cityRemainingPower: 0,
             cityNumberInCountry: 4,
             completedCityCount: 4,
             stageStatus: .cityConqueredPendingMap
@@ -130,7 +129,6 @@ struct CountryMapScoutCardAcceptanceTests {
         }
 
         let entryState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
@@ -161,7 +159,6 @@ struct CountryMapScoutCardAcceptanceTests {
         }
 
         let feedbackState = KingdomGameState(
-            cityRemainingPower: 0,
             cityNumberInCountry: 2,
             completedCityCount: 2,
             stageStatus: .cityConqueredPendingMap
@@ -217,7 +214,6 @@ struct CountryMapScoutCardAcceptanceTests {
 
         let completeState = KingdomGameState(
             cityLevel: 15,
-            cityRemainingPower: 0,
             cityNumberInCountry: 15,
             completedCityCount: 15,
             stageStatus: .countryComplete
@@ -245,9 +241,6 @@ struct CountryMapScoutCardAcceptanceTests {
         for definition in Country1CityCatalog.definitions {
             let state = KingdomGameState(
                 cityLevel: definition.cityNumber,
-                cityRemainingPower: KingdomGameState.cityMaxPower(
-                    for: definition.cityNumber
-                ),
                 cityNumberInCountry: definition.cityNumber,
                 completedCityCount: definition.cityNumber - 1,
                 stageStatus: .battleActive
@@ -312,9 +305,6 @@ struct CountryMapScoutCardAcceptanceTests {
         let definition = Country1CityCatalog.definition(for: 7)
         let state = KingdomGameState(
             cityLevel: definition.cityNumber,
-            cityRemainingPower: KingdomGameState.cityMaxPower(
-                for: definition.cityNumber
-            ),
             cityNumberInCountry: definition.cityNumber,
             completedCityCount: definition.cityNumber - 1,
             stageStatus: .battleActive

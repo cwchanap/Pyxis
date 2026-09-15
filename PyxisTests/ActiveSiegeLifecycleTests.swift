@@ -12,7 +12,6 @@ struct ActiveSiegeLifecycleTests {
         let state = KingdomGameState(
             gold: 0,
             cityLevel: 1,
-            cityRemainingPower: 20,
             normalSoldierUpgradeLevel: 1
         )
 
@@ -27,7 +26,6 @@ struct ActiveSiegeLifecycleTests {
         let state = KingdomGameState(
             gold: 0,
             cityLevel: 2,
-            cityRemainingPower: 20,
             normalSoldierUpgradeLevel: 1,
             cityNumberInCountry: 2,
             completedCityCount: 1,
@@ -44,7 +42,6 @@ struct ActiveSiegeLifecycleTests {
         let state = KingdomGameState(
             gold: 8,
             cityLevel: 1,
-            cityRemainingPower: 20,
             normalSoldierUpgradeLevel: 1,
             stageStatus: .battleActive,
             pendingBattleResult: battleResult(cityNumber: 1, goldEarned: 8)
@@ -57,7 +54,6 @@ struct ActiveSiegeLifecycleTests {
         var state = KingdomGameState(
             gold: 10,
             cityLevel: 1,
-            cityRemainingPower: 0,
             normalSoldierUpgradeLevel: 1,
             cityNumberInCountry: 1,
             completedCityCount: 1,
@@ -81,7 +77,6 @@ struct ActiveSiegeLifecycleTests {
         var state = KingdomGameState(
             gold: 10,
             cityLevel: 1,
-            cityRemainingPower: 0,
             normalSoldierUpgradeLevel: 1,
             cityNumberInCountry: 1,
             completedCityCount: 1,
@@ -118,7 +113,7 @@ struct ActiveSiegeLifecycleTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: try #require(SiegeTestSupport.objectiveID(for: .keep, in: state)),
-                appliedCityDamage: 5
+                appliedDamage: 5
             )
         ])
 
@@ -143,7 +138,7 @@ struct ActiveSiegeLifecycleTests {
                 source: .manual,
                 lane: .left,
                 objectiveID: try #require(SiegeTestSupport.objectiveID(for: .keep, in: state)),
-                appliedCityDamage: 1
+                appliedDamage: 1
             )
         ])
         let pending = try #require(state.pendingBattleResult)
@@ -159,7 +154,6 @@ struct ActiveSiegeLifecycleTests {
         var state = KingdomGameState(
             gold: 0,
             cityLevel: 1,
-            cityRemainingPower: 20,
             normalSoldierUpgradeLevel: 1
         )
 
