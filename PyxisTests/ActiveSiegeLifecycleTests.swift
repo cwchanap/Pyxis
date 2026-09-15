@@ -108,12 +108,7 @@ struct ActiveSiegeLifecycleTests {
     }
 
     @Test func liveAttacksAttributeDamageAndFinalizePendingResult() throws {
-        var state = KingdomGameState(
-            gold: 0,
-            cityLevel: 1,
-            cityRemainingPower: 5,
-            normalSoldierUpgradeLevel: 1
-        )
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 5)
         state.recordSoldierDeployment(type: .infantry, source: .manual, lane: .center)
 
         let result = state.applyLiveSoldierAttacks([
@@ -122,6 +117,7 @@ struct ActiveSiegeLifecycleTests {
                 type: .infantry,
                 source: .manual,
                 lane: .center,
+                objectiveID: try #require(SiegeTestSupport.objectiveID(for: .keep, in: state)),
                 appliedCityDamage: 5
             )
         ])
@@ -139,18 +135,14 @@ struct ActiveSiegeLifecycleTests {
     }
 
     @Test func completeCurrentCityRejectsDuplicate() throws {
-        var state = KingdomGameState(
-            gold: 0,
-            cityLevel: 1,
-            cityRemainingPower: 1,
-            normalSoldierUpgradeLevel: 1
-        )
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 1)
         _ = state.applyLiveSoldierAttacks([
             SoldierAttackEvent(
                 soldierID: 1,
                 type: .infantry,
                 source: .manual,
                 lane: .left,
+                objectiveID: try #require(SiegeTestSupport.objectiveID(for: .keep, in: state)),
                 appliedCityDamage: 1
             )
         ])
@@ -194,7 +186,7 @@ struct ActiveSiegeLifecycleTests {
     @Test func idleConquestAttributesDamageByTypeAndMarksIdle() throws {
         let start = Date(timeIntervalSinceReferenceDate: 3_000)
         let end = start.addingTimeInterval(1_000)
-        var state = KingdomGameState(gold: 100, cityRemainingPower: 2)
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 2)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
         #expect(state.buildBuilding(.barracks, inSlot: 2, at: start) == .built(cost: 15, remainingGold: 70))
         state.recordActiveBattleTime(2)
@@ -216,7 +208,7 @@ struct ActiveSiegeLifecycleTests {
     @Test func settlementConquestAttributesDamageByTypeAndMarksIdle() throws {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         let settlement = start.addingTimeInterval(100)
-        var state = KingdomGameState(gold: 100, cityRemainingPower: 1)
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 1)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         let result = state.buildBuilding(.barracks, inSlot: 2, at: settlement)
