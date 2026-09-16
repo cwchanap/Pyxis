@@ -61,18 +61,18 @@ struct Country1CityCatalogTests {
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
         objectives: [
-            .init(id: "falconridge.keep", kind: .keep, durabilityWeight: 4, visualLane: .center, visualProgress: 1.0),
+            .init(id: "falconridge.keep", kind: .keep, durabilityWeight: 3, visualLane: .center, visualProgress: 1.0),
             .init(
                 id: "falconridge.arrow-tower",
                 kind: .arrowTower,
-                durabilityWeight: 2,
+                durabilityWeight: 4,
                 visualLane: .left,
                 visualProgress: 0.68
             ),
             .init(
                 id: "falconridge.ridge-gate",
                 kind: .gate,
-                durabilityWeight: 2,
+                durabilityWeight: 1,
                 visualLane: .center,
                 visualProgress: 0.58
             )
