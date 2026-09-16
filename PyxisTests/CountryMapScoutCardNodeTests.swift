@@ -6,7 +6,7 @@ import UIKit
 
 @MainActor
 struct CountryMapScoutCardNodeTests {
-    @Test func compactCardRendersIdentityAndStatusActionOnly() throws {
+    @Test func compactCardRendersIdentityLaneFooterAndStatusAction() throws {
         let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
         let layout = CountryMapScoutCardLayout.compute(
             in: CGRect(x: 16, y: 34, width: 343, height: 48),
@@ -25,6 +25,8 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.traitLineTextsForTesting.isEmpty)
         #expect(node.favorableItemsForTesting.isEmpty)
         #expect(node.disadvantagedItemsForTesting.isEmpty)
+        #expect(node.laneTextForTesting == "Open: Left")
+        #expect(node.laneFontSizeForTesting == 9)
 
         #expect(node.apply(
             content: .scout(testScout(status: .current)),
@@ -124,7 +126,36 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.titleTextForTesting == falconridge.displayTitle)
         #expect(node.attackTextForTesting == "RETURN")
         #expect(node.attackHitFrame == layout.attackFrame)
-        #expect(node.laneTextForTesting == nil)
+        // The Falconridge tactical footer PRESENTS on supported compact
+        // geometry: measured into the freed strip below the title row at the
+        // approved ≥8pt floor (HPA-468 acceptance).
+        #expect(node.laneTextForTesting == "L Tower · C/R Gate")
+        let compactLaneFontSize = try #require(node.laneFontSizeForTesting)
+        #expect(compactLaneFontSize >= 8)
+        #expect(compactLaneFontSize <= 9)
+    }
+
+    @Test func compactPhoneLaneFooterOverflowFailsClosed() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 34, width: 343, height: 48),
+            layoutClass: .phone
+        )
+        let starvedLaneLayout = replacing(
+            layout,
+            exposedLaneFrame: CGRect(
+                x: layout.exposedLaneFrame.minX,
+                y: layout.exposedLaneFrame.minY,
+                width: 1,
+                height: layout.exposedLaneFrame.height
+            )
+        )
+
+        #expect(node.apply(
+            content: .scout(testScout()),
+            layout: starvedLaneLayout,
+            isEntryEnabled: true
+        ) == .requiredContentDoesNotFit)
     }
 
     @Test func footerReadbackAndVisibleTextIncludeTraitMultipliers() throws {

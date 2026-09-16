@@ -15,7 +15,7 @@ struct SiegeStateTests {
     }
 
     /// Minimal two-objective pilot layout (Keep + Gate) for allocation and
-    /// spillover math that Falconridge's exact 4:2:2 split cannot express.
+    /// spillover math that Falconridge's exact 35/46/11 split cannot express.
     private static func makeKeepAndGateLayout() -> CitySiegeLayout {
         CitySiegeLayout(
             objectives: [
@@ -36,12 +36,30 @@ struct SiegeStateTests {
 
     // Authored invariant violations (zero or multiple keeps, empty/duplicate
     // IDs, non-positive weights, out-of-range progress, missing lanes, empty
-    // or dangling or backward routes, dangling fire source, repeated fire
-    // coverage) trap via `precondition` inside `CitySiegeLayout.init`,
-    // matching the LaneDefenseProfile house style. Traps cannot be
-    // intercepted in-process, so these suites pin every constructible-valid
-    // behavior instead; invalid catalog authoring crashes static
-    // initialization loudly instead of silently normalizing.
+    // or dangling or backward or ID-repeating routes, dangling fire source,
+    // repeated fire coverage) trap via `precondition` inside
+    // `CitySiegeLayout.init`, matching the LaneDefenseProfile house style.
+    // Traps cannot be intercepted in-process, so these suites pin every
+    // constructible-valid behavior instead; invalid catalog authoring
+    // crashes static initialization loudly instead of silently normalizing.
+
+    @Test("Valid layouts, including a Gate shared across routes, still construct")
+    func validLayoutsIncludingSharedGateAcrossRoutesStillConstruct() {
+        // Cross-route sharing stays legal: Falconridge's center and right
+        // routes reference the same Ridge Gate object.
+        let falconridge = Self.falconridge
+        #expect(falconridge.routes[.center]?.first == "falconridge.ridge-gate")
+        #expect(falconridge.routes[.center]?.first == falconridge.routes[.right]?.first)
+
+        // Every route keeps its IDs unique, so `spendDamageBudget` can never
+        // let a repeated ID re-absorb its full HP past the authored maximum.
+        for layout in [falconridge, Self.makeKeepAndGateLayout(),
+                       CitySiegeLayout.singleKeep(defaultLane: .right)] {
+            for route in layout.routes.values {
+                #expect(Set(route).count == route.count)
+            }
+        }
+    }
 
     @Test func singleKeepEmitsValidThreeLaneContent() {
         for defaultLane in BattleLane.allCases {

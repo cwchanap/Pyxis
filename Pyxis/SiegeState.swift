@@ -81,6 +81,13 @@ struct CitySiegeLayout: Equatable {
                 route.allSatisfy { progressByID[$0] != nil },
                 "CitySiegeLayout route for \(lane) references an unknown objective ID"
             )
+            // Duplicate IDs would let one objective appear twice in a route,
+            // and a once-snapshotted damage budget would then let the repeat
+            // re-absorb its full HP past the authored maximum.
+            precondition(
+                Set(route).count == route.count,
+                "CitySiegeLayout route for \(lane) must not repeat an objective ID"
+            )
             precondition(route.last == keepID, "CitySiegeLayout route for \(lane) must end at the keep")
             let routeProgress = route.map { progressByID[$0]! }
             precondition(
@@ -170,8 +177,10 @@ struct CitySiegeLayout: Equatable {
     /// Spends a positive damage budget down `lane`'s ordered route: each
     /// objective absorbs up to its remaining HP, and the remainder spills to
     /// the next objective only after the current one dies. Anything left
-    /// once the route (ending at the Keep) is exhausted is dropped. Returns
-    /// the updated damage map plus the per-objective damage actually applied.
+    /// once the route (ending at the Keep) is exhausted is dropped. Routes
+    /// are duplicate-free by construction, so no objective can absorb from
+    /// a single budget twice. Returns the updated damage map plus the
+    /// per-objective damage actually applied.
     func spendDamageBudget(
         _ budget: Int,
         along lane: BattleLane,

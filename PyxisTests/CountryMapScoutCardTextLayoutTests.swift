@@ -281,10 +281,7 @@ struct CountryMapScoutCardTextLayoutTests {
         fixture: CountryMapLayoutTestFixture
     ) throws {
         let cardLayout = try scoutCardLayout(for: fixture)
-        guard !cardLayout.isCompact else {
-            return
-        }
-        let footerSize: CGFloat = isPhoneLayout(fixture) ? 13 : 11
+        let footerSize: CGFloat = cardLayout.isCompact ? 9 : (isPhoneLayout(fixture) ? 13 : 11)
         let footer = try #require(CountryMapScoutCardContent.tacticalFooter(
             for: Country1CityCatalog.definition(for: 3).siegeLayout
         ))
@@ -302,6 +299,34 @@ struct CountryMapScoutCardTextLayoutTests {
                     ?? .greatestFiniteMagnitude
             }
         ) != nil, "\(fixture.name): Falconridge footer must fit at ≥8pt")
+    }
+
+    @Test func falconridgeTacticalFooterFitsTheCompactPhoneLaneFrame() throws {
+        // Compact phones present the Falconridge tactical footer in the
+        // freed strip below the title row (HPA-468 acceptance): the footer
+        // must fit the existing compact lane frame at the approved ≥8pt
+        // floor — at the full 9pt compact footer size here.
+        let cardLayout = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 34, width: 343, height: 48),
+            layoutClass: .phone
+        )
+        #expect(cardLayout.isCompact)
+        let footer = try #require(CountryMapScoutCardContent.tacticalFooter(
+            for: Country1CityCatalog.definition(for: 3).siegeLayout
+        ))
+
+        let fittedSize = CountryMapScoutCardTextLayout.fittedFontSize(
+            footer,
+            startingAt: 9,
+            minimum: 8,
+            maximumWidth: cardLayout.exposedLaneFrame.width,
+            measure: { text, size in
+                (try? width(text, fontName: GameUITheme.Font.medium, size: size))
+                    ?? .greatestFiniteMagnitude
+            }
+        )
+
+        #expect(fittedSize == 9)
     }
 
     @Test func syntheticFooterTitleAndRewardOverflowFailValidation() throws {

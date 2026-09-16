@@ -1834,6 +1834,91 @@ struct KingdomGameStateTests {
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
     }
 
+    @Test func decodingBattleActiveSaveWithDestroyedKeepRecoversAsNearlyConquered() throws {
+        // No real flow persists battleActive + a fully-damaged Keep (conquest
+        // finalizes exactly once), so this crafted shape would no-op combat
+        // forever. The forgiving-decode philosophy recovers it as
+        // nearly-conquered instead of inventing a conquest reward.
+        let data = Data("""
+        {
+          "gold": 25,
+          "cityLevel": 3,
+          "cityNumberInCountry": 3,
+          "completedCityCount": 2,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": {
+              "falconridge.keep": 999,
+              "falconridge.ridge-gate": 5
+            }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.pendingBattleResult == nil)
+        #expect(state.gold == 25) // no fabricated conquest reward
+        #expect(state.currentKeepMaxPower == 35)
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 34) // clamped to leave 1 HP
+        #expect(state.currentKeepRemainingPower == 1)
+        #expect(state.siegeProgress.damageByObjectiveID["falconridge.ridge-gate"] == 5)
+    }
+
+    @Test func decodedNearlyConqueredKeepStillTicksCombat() throws {
+        let data = Data("""
+        {
+          "cityLevel": 3,
+          "cityNumberInCountry": 3,
+          "completedCityCount": 2,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": { "falconridge.keep": 999 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+        #expect(state.currentKeepRemainingPower == 1)
+
+        // With a living (if barely) Keep, the combat tick's liveness guard
+        // passes and soldiers advance instead of no-oping forever.
+        var combat = BattleCombatState(configuration: .live(cityLevel: 3))
+        combat.spawnSoldier(
+            type: .infantry,
+            source: .manual,
+            level: 1,
+            attackPower: 5,
+            lane: state.siegeProgress.selectedLane
+        )
+
+        let result = combat.tick(deltaTime: 0.1, siege: state.currentSiegeSnapshot)
+
+        #expect(!result.didReachConquest)
+        #expect((combat.soldiers.first?.position ?? 0) > 0)
+    }
+
+    @Test func decodingPendingResultSaveKeepsDestroyedKeepForTruthfulPresentation() throws {
+        // Pending-result states legitimately carry a dead Keep (the conquest
+        // record), so the battleActive recovery clamp must not touch them.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        #expect(state.applyObjectiveDamage(35, toObjectiveID: keepID) == 35)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(decoded.stageStatus == .cityConqueredPendingMap)
+        #expect(decoded.pendingBattleResult != nil)
+        #expect(decoded.siegeProgress.damageByObjectiveID[keepID] == 35)
+        #expect(decoded.currentKeepRemainingPower == 0)
+    }
+
     @Test func keepProjectionsTrackObjectiveDamage() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
