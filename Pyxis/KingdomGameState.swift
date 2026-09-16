@@ -218,7 +218,8 @@ struct KingdomGameState: Codable, Equatable {
         self.siegeProgress = Self.normalizedSiegeProgress(
             siegeProgress,
             layout: Country1CityCatalog.definition(for: normalizedCityNumber).siegeLayout,
-            totalBudget: Self.cityMaxPower(for: normalizedCityLevel)
+            totalBudget: Self.cityMaxPower(for: normalizedCityLevel),
+            requiresLivingKeep: resolvedStatus == .battleActive
         )
 
         let normalizedCurrentCityKey = CityKey(
@@ -304,17 +305,30 @@ struct KingdomGameState: Codable, Equatable {
     /// Forgiving normalization of persisted siege progress (HPA-468):
     /// unknown objective IDs are discarded, damage clamps to authored
     /// maxima, and a missing progress falls back to the authored default
-    /// lane with zero damage.
+    /// lane with zero damage. When `requiresLivingKeep` is set (`.battleActive`),
+    /// a fully-damaged Keep is clamped to leave 1 HP: no real flow persists
+    /// that shape — conquest finalizes exactly once and moves the stage out
+    /// of `.battleActive` — so a dead-Keep-active save is a crafted/corrupt
+    /// save that would no-op combat forever. Recovery treats it as
+    /// nearly-conquered instead of fabricating a conquest reward.
     private static func normalizedSiegeProgress(
         _ progress: SiegeProgress?,
         layout: CitySiegeLayout,
-        totalBudget: Int
+        totalBudget: Int,
+        requiresLivingKeep: Bool
     ) -> SiegeProgress {
         let maxPowers = layout.maxPowerAllocation(totalBudget: totalBudget)
         var damageByObjectiveID: [String: Int] = [:]
         for (objectiveID, rawDamage) in progress?.damageByObjectiveID ?? [:] {
             guard let maxPower = maxPowers[objectiveID] else { continue }
             damageByObjectiveID[objectiveID] = min(max(0, rawDamage), maxPower)
+        }
+        if requiresLivingKeep {
+            let keepID = layout.keepObjective.id
+            let keepMaxPower = maxPowers[keepID] ?? 0
+            if keepMaxPower > 0, damageByObjectiveID[keepID, default: 0] >= keepMaxPower {
+                damageByObjectiveID[keepID] = keepMaxPower - 1
+            }
         }
         return SiegeProgress(
             selectedLane: progress?.selectedLane ?? layout.defaultLane,

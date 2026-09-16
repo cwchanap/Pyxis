@@ -2315,6 +2315,75 @@ struct BattleSceneTests {
         #expect(alpha == 1)
     }
 
+    @Test func gateHitFeedbackLandsOnTheGateNodeAndSparesTheKeep() throws {
+        // Falconridge center route: the shared Ridge Gate blocks before the
+        // Keep, so a fresh soldier's first hits strike the Gate. Its hit
+        // flash must run on the Gate node and its floating damage beside it
+        // — the Keep displays stay untouched (HPA-468 review C2).
+        let store = try makeStore(initialState: SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 35,
+            selectedLane: .center
+        ))
+        let scene = makeScene(store: store, combatSeed: 1)
+        let keep = try #require(firstNode(named: "enemy-city", in: scene))
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 1.6)
+
+        // The Keep took no damage in this window: every hit landed on the Gate.
+        #expect(store.load().currentKeepRemainingPower == 35)
+        let gate = try #require(scene.siegeObjectiveNodeForTesting(.gate))
+        #expect(gate.action(forKey: "cityHitFeedback") != nil)
+        #expect(keep.action(forKey: "cityHitFeedback") == nil)
+
+        // Frozen actions keep every floating label at its spawn point:
+        // beside the Gate structure, never at the Keep.
+        let gateFrame = gate.calculateAccumulatedFrame()
+        let labelPoints = scene.floatingFeedbackPositionsForTesting
+        #expect(!labelPoints.isEmpty)
+        for point in labelPoints {
+            #expect(abs(point.x - gateFrame.midX) < 1)
+            #expect(abs(point.y - (gateFrame.midY - 20)) < 1)
+        }
+    }
+
+    @Test func keepHitFeedbackReturnsToTheKeepOnceTheFalconridgeGateFalls() throws {
+        // With the Ridge Gate one hit from ruin and the Arrow Tower already
+        // destroyed (no defensive fire), the killing blow flashes the Gate
+        // and the following hits flash the Keep itself — Keep damage
+        // legitimately targets the Keep displays (HPA-468 review C2).
+        let store = try makeStore(initialState: SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 35,
+            supportDamage: [.gate: 10, .arrowTower: 46],
+            selectedLane: .center
+        ))
+        let scene = makeScene(store: store, combatSeed: 1)
+        let keep = try #require(firstNode(named: "enemy-city", in: scene))
+
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.6)
+
+        let gate = try #require(scene.siegeObjectiveNodeForTesting(.gate))
+        #expect(keep.action(forKey: "cityHitFeedback") != nil) // the follow-up hits
+        #expect(store.load().currentKeepRemainingPower < 35)
+        #expect(store.load().stageStatus == .battleActive) // damaged, not conquered
+
+        // Both placements appear: a gate label centered on the Gate (its
+        // flash ran on the then-current node before later keep-hit batches
+        // rebuilt the objective nodes), and a keep label centered on the
+        // Keep's column at its canonical below-the-city damage spot (same
+        // clearance the Keep-damage feedback contract pins elsewhere).
+        let gateFrame = gate.calculateAccumulatedFrame()
+        let keepFrame = try #require(scene.enemyCityFrameForTesting)
+        let labelPoints = scene.floatingFeedbackPositionsForTesting
+        #expect(labelPoints.contains { abs($0.x - gateFrame.midX) < 1 })
+        #expect(labelPoints.contains {
+            abs($0.x - keepFrame.midX) < 1 && $0.y + 14 <= keepFrame.minY - 4
+        })
+    }
+
     @Test func cityDamageDoesNotCreateScalingImpactEffect() throws {
         let store = try makeStore(
             initialState: stateWithBarracks(

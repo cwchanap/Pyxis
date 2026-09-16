@@ -2047,7 +2047,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         let conqueredCity = damageResult.conqueredCities > 0
-        let damageText = CompactNumberFormatter.string(from: damageResult.damageDealt)
         let damageColor = result.soldierAttacks.allSatisfy {
             state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
         }
@@ -2071,12 +2070,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         if conqueredCity {
             if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
-                playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint, color: damageColor)
-                playCityConquestFeedback()
+                playObjectiveAttackFeedback(result.soldierAttacks, color: damageColor, isConquest: true)
             }
         } else {
-            playFloatingFeedback(text: "-\(damageText)", at: enemyCityImpactPoint, color: damageColor)
-            playCityHitFeedback()
+            playObjectiveAttackFeedback(result.soldierAttacks, color: damageColor, isConquest: false)
         }
     }
 
@@ -2596,44 +2593,101 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    private func playCityHitFeedback() {
-        guard let enemyCityNode else {
+    /// Presentation target for one damaged objective (HPA-468): the Keep
+    /// keeps its `enemy-city` sprite and impact point; support objectives
+    /// resolve to their own container node and structure frame. A support
+    /// hit never falls back to the Keep — that would visually damage it.
+    private func objectiveFeedbackTarget(for objectiveID: String) -> (node: SKNode?, impactPoint: CGPoint) {
+        guard let objective = state.currentSiegeLayout.objective(id: objectiveID),
+              objective.kind != .keep else {
+            return (enemyCityNode, enemyCityImpactPoint)
+        }
+        let node = siegeObjectiveNodes[objectiveID]
+        let frame = node?.calculateAccumulatedFrame()
+        let impactPoint: CGPoint
+        if let frame, frame.width > 0, frame.height > 0 {
+            impactPoint = CGPoint(x: frame.midX, y: frame.midY)
+        } else {
+            impactPoint = point(forLane: objective.visualLane, position: objective.visualProgress)
+        }
+        return (node, impactPoint)
+    }
+
+    /// Plays attack feedback per damaged objective (HPA-468): each
+    /// objective's floating damage, impact flash, and hit flash land on that
+    /// objective's own presentation target, so Gate/Tower hits never touch
+    /// Keep displays. Presentation only — the same events were already
+    /// applied to the model above.
+    private func playObjectiveAttackFeedback(
+        _ events: [SoldierAttackEvent],
+        color: SKColor,
+        isConquest: Bool
+    ) {
+        var orderedObjectiveIDs = [String]()
+        var damageByObjectiveID = [String: Int]()
+        for event in events {
+            if damageByObjectiveID[event.objectiveID] == nil {
+                orderedObjectiveIDs.append(event.objectiveID)
+            }
+            damageByObjectiveID[event.objectiveID, default: 0] += event.appliedDamage
+        }
+
+        let keepID = state.currentSiegeLayout.keepObjective.id
+        for objectiveID in orderedObjectiveIDs {
+            let damage = damageByObjectiveID[objectiveID] ?? 0
+            guard damage > 0 else { continue }
+            let target = objectiveFeedbackTarget(for: objectiveID)
+            playFloatingFeedback(
+                text: "-\(CompactNumberFormatter.string(from: damage))",
+                at: target.impactPoint,
+                color: color
+            )
+            if isConquest, objectiveID == keepID {
+                playCityConquestFeedback(on: target.node, impactPoint: target.impactPoint)
+            } else {
+                playCityHitFeedback(on: target.node, impactPoint: target.impactPoint)
+            }
+        }
+    }
+
+    private func playCityHitFeedback(on target: SKNode?, impactPoint: CGPoint) {
+        guard let target else {
             return
         }
 
-        enemyCityNode.removeAction(forKey: "cityHitFeedback")
+        target.removeAction(forKey: "cityHitFeedback")
 
-        if let sprite = enemyCityNode as? SKSpriteNode {
+        if let sprite = target as? SKSpriteNode {
             let originalColor = sprite.color
             let originalBlendFactor = sprite.colorBlendFactor
             let flash = SKAction.colorize(with: .white, colorBlendFactor: 0.8, duration: 0.06)
             let restore = SKAction.colorize(with: originalColor, colorBlendFactor: originalBlendFactor, duration: 0.12)
             sprite.run(SKAction.sequence([flash, restore]), withKey: "cityHitFeedback")
         } else {
-            enemyCityNode.run(cityShakeAction(), withKey: "cityHitFeedback")
+            target.run(cityShakeAction(), withKey: "cityHitFeedback")
         }
 
-        playImpactFlash()
+        playImpactFlash(at: impactPoint)
     }
 
-    private func playCityConquestFeedback() {
-        guard let enemyCityNode else {
+    private func playCityConquestFeedback(on target: SKNode?, impactPoint: CGPoint) {
+        guard let target else {
             return
         }
 
-        enemyCityNode.removeAction(forKey: "cityConquestFeedback")
+        target.removeAction(forKey: "cityConquestFeedback")
 
-        if let sprite = enemyCityNode as? SKSpriteNode {
+        if let sprite = target as? SKSpriteNode {
             let originalColor = sprite.color
             let originalBlendFactor = sprite.colorBlendFactor
             let flash = SKAction.colorize(with: GameUITheme.Color.gold, colorBlendFactor: 0.65, duration: 0.09)
             let restore = SKAction.colorize(with: originalColor, colorBlendFactor: originalBlendFactor, duration: 0.18)
             sprite.run(SKAction.sequence([flash, restore]), withKey: "cityConquestFeedback")
         } else {
-            enemyCityNode.run(cityShakeAction(), withKey: "cityConquestFeedback")
+            target.run(cityShakeAction(), withKey: "cityConquestFeedback")
         }
 
-        playImpactFlash()
+        playImpactFlash(at: impactPoint)
     }
 
     /// Requests the one-shot Living Kingdom transition for the stage change
@@ -2698,7 +2752,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         fx.size = CGSize(width: fxHeight, height: fxHeight)
     }
 
-    private func playImpactFlash() {
+    private func playImpactFlash(at point: CGPoint) {
         let flash: SKNode
         if UIImage(named: BattleAssetName.hitFlash) != nil {
             let sprite = SKSpriteNode(imageNamed: BattleAssetName.hitFlash)
@@ -2711,7 +2765,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             shape.lineWidth = 2
             flash = shape
         }
-        flash.position = enemyCityImpactPoint
+        flash.position = point
         flash.zPosition = GameUITheme.Z.effects
         flash.setScale(1)
         effectsLayer.addChild(flash)
@@ -3988,6 +4042,15 @@ extension BattleScene {
 
     var floatingFeedbackCountForTesting: Int {
         effectsLayer.children.filter { $0.name == EffectName.floatingFeedback }.count
+    }
+
+    /// Scene-space positions of the floating damage labels. Projectile/label
+    /// actions never advance without a render loop, so tests read the
+    /// captured placement to prove feedback landed on the hit objective.
+    var floatingFeedbackPositionsForTesting: [CGPoint] {
+        effectsLayer.children
+            .filter { $0.name == EffectName.floatingFeedback }
+            .map(\.position)
     }
 
     var impactEffectScalesForTesting: [(x: CGFloat, y: CGFloat)] {

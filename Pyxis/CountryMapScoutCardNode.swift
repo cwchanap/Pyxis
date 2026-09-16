@@ -337,6 +337,22 @@ final class CountryMapScoutCardNode: SKNode {
             ) else {
                 return nil
             }
+            // Compact presents the tactical lane footer too (HPA-468): same
+            // measured fit contract with the 8pt floor, failing closed when
+            // even the floor cannot fit the existing lane frame.
+            let laneText = scout.tacticalFooter ?? "Open: \(scout.exposedLane.displayName)"
+            guard let laneFontSize = CountryMapScoutCardTextLayout.fittedFontSize(
+                laneText,
+                startingAt: metrics.footerSize,
+                minimum: 8,
+                maximumWidth: layout.exposedLaneFrame.width,
+                measure: { text, size in
+                    self.measure(fontName: GameUITheme.Font.medium, size: size)?(text)
+                        ?? .greatestFiniteMagnitude
+                }
+            ) else {
+                return nil
+            }
             return PreparedScout(
                 scout: scout,
                 metrics: metrics,
@@ -345,8 +361,8 @@ final class CountryMapScoutCardNode: SKNode {
                 traitLines: [],
                 favorableItems: [],
                 disadvantagedItems: [],
-                laneText: "",
-                laneFontSize: metrics.footerSize,
+                laneText: laneText,
+                laneFontSize: laneFontSize,
                 cityImage: nil,
                 cityAssetName: nil,
                 goldImage: nil,
@@ -662,7 +678,12 @@ final class CountryMapScoutCardNode: SKNode {
             traitLabels.forEach { $0.text = nil }
             favorableContainer.removeAllChildren()
             disadvantagedContainer.removeAllChildren()
-            laneLabel.text = nil
+            laneLabel.text = prepared.laneText
+            laneLabel.fontSize = prepared.laneFontSize
+            laneLabel.position = CGPoint(
+                x: layout.exposedLaneFrame.maxX,
+                y: layout.exposedLaneFrame.midY
+            )
             renderAction(
                 title: prepared.scout.actionTitle,
                 frame: layout.attackFrame,

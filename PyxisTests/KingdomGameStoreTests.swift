@@ -50,7 +50,7 @@ struct KingdomGameStoreTests {
         let saved = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 30,
-            keepRemaining: 42,
+            keepRemaining: 20,
             supportDamage: [.gate: 4, .arrowTower: 6],
             selectedLane: .right
         )
@@ -60,7 +60,7 @@ struct KingdomGameStoreTests {
 
         #expect(loaded == saved)
         #expect(loaded.siegeProgress.selectedLane == .right)
-        #expect(loaded.currentKeepRemainingPower == 42)
+        #expect(loaded.currentKeepRemainingPower == 20)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: loaded))
         #expect(loaded.siegeProgress.damageByObjectiveID[gateID] == 4)
     }

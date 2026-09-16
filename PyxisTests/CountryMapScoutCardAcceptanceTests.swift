@@ -521,12 +521,15 @@ struct CountryMapScoutCardAcceptanceTests {
         usesGoldFallback: Bool
     ) {
         if base.traitLines.isEmpty {
+            // Compact phone card: identity, the tactical lane footer (HPA-468
+            // — Falconridge presents "L Tower · C/R Gate", others "Open:"),
+            // and the status action.
             #expect(layoutClass == .phone)
             #expect(base.badge == "\(scout.cityNumber)")
             #expect(base.title == scout.displayTitle)
             #expect(base.favorable == nil)
             #expect(base.disadvantaged == nil)
-            #expect(base.lane == nil)
+            #expect(base.lane == (scout.tacticalFooter ?? "Open: \(scout.exposedLane.displayName)"))
             #expect(base.reward == nil)
             #expect(base.attack == scout.actionTitle)
             return

@@ -66,6 +66,16 @@ struct CountryMapScoutCardLayout: Equatable {
             width: max(0, attackFrame.minX - 8 - (badgeFrame.maxX + 4)),
             height: 22
         )
+        // Compact tactical lane footer (HPA-468): the freed strip below the
+        // title row carries the measured footer ("L Tower · C/R Gate" or
+        // "Open: <lane>") so Falconridge still presents it on compact
+        // phones. The Attack button stays clear to the right.
+        let exposedLaneFrame = CGRect(
+            x: contentFrame.minX,
+            y: contentFrame.minY,
+            width: max(0, attackFrame.minX - 8 - contentFrame.minX),
+            height: max(0, titleFrame.minY - contentFrame.minY)
+        )
         let emptyFrame = CGRect(x: contentFrame.minX, y: contentFrame.minY, width: 0, height: 0)
         let nonBlockingOverlayFrame = CGRect(
             x: informationRegionFrame.minX,
@@ -84,7 +94,7 @@ struct CountryMapScoutCardLayout: Equatable {
             traitLineFrames: [],
             favorableFrame: emptyFrame,
             disadvantagedFrame: emptyFrame,
-            exposedLaneFrame: emptyFrame,
+            exposedLaneFrame: exposedLaneFrame,
             attackFrame: attackFrame,
             overlayFrame: informationRegionFrame,
             nonBlockingOverlayFrame: nonBlockingOverlayFrame
