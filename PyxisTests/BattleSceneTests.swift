@@ -4715,7 +4715,7 @@ struct BattleSceneTests {
 
     /// Falconridge (City 3) battle state with optional Keep/support damage.
     private func falconridgeState(
-        keepRemaining: Int = 46,
+        keepRemaining: Int = 35,
         supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:]
     ) -> KingdomGameState {
         SiegeTestSupport.makeBattleState(
@@ -4792,8 +4792,8 @@ struct BattleSceneTests {
     func destroyedObjectivesRenderRuinsSpanningSameApproaches() throws {
         let intact = makeScene(store: try makeStore(initialState: falconridgeState()))
         let destroyed = makeScene(store: try makeStore(initialState: falconridgeState(
-            keepRemaining: 46,
-            supportDamage: [.arrowTower: 23, .gate: 23]
+            keepRemaining: 35,
+            supportDamage: [.arrowTower: 46, .gate: 11]
         )))
 
         // The ruined gate spans exactly the intact gate's approaches.
@@ -4822,7 +4822,7 @@ struct BattleSceneTests {
         #expect(Set(live.siegeCoveredLanesForTesting) == Set(BattleLane.allCases))
 
         let deadTower = makeScene(store: try makeStore(initialState: falconridgeState(
-            supportDamage: [.arrowTower: 23]
+            supportDamage: [.arrowTower: 46]
         )))
         #expect(deadTower.siegeCoveredLanesForTesting.isEmpty)
 
@@ -4870,10 +4870,10 @@ struct BattleSceneTests {
 
         #expect(try stage(for: falconridgeState()) == .intact)
         #expect(try stage(for: falconridgeState(
-            supportDamage: [.gate: 23, .arrowTower: 23]
+            supportDamage: [.gate: 11, .arrowTower: 46]
         )) == .intact)
-        #expect(try stage(for: falconridgeState(keepRemaining: 27)) == .damaged)
-        #expect(try stage(for: falconridgeState(keepRemaining: 11)) == .breached)
+        #expect(try stage(for: falconridgeState(keepRemaining: 20)) == .damaged)
+        #expect(try stage(for: falconridgeState(keepRemaining: 8)) == .breached)
     }
 
     @Test("HPA-476 placeholder contract pins semantic asset names without shipping art")

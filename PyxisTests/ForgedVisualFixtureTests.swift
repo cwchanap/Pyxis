@@ -67,9 +67,9 @@ struct ForgedVisualFixtureTests {
             1: CityBuilding(type: .barracks, level: 2),
             2: CityBuilding(type: .archeryRange, level: 1)
         ])
-        // Fresh Falconridge: intact Keep at its authored 46/46 share.
-        #expect(state.currentKeepMaxPower == 46)
-        #expect(state.currentKeepRemainingPower == 46)
+        // Fresh Falconridge: intact Keep at its authored 35/35 share.
+        #expect(state.currentKeepMaxPower == 35)
+        #expect(state.currentKeepRemainingPower == 35)
     }
 
     @Test("DEBUG damaged/breached fixtures pin City 1 living-kingdom thresholds")
@@ -313,14 +313,14 @@ struct ForgedVisualFixtureTests {
         let battle = try #require(view.scene as? BattleScene)
         #expect(battle.feedbackTextForTesting == "Buildings dealt 36 idle damage.")
         // Objective-aware idle settlement (HPA-468): 36 damage spends down the
-        // selected center route — Gate absorbs 23, Keep absorbs 13 → 33/46.
-        #expect(battle.keepRemainingPowerForTesting == 33)
+        // selected center route — Gate absorbs 11, Keep absorbs 25 → 10/35.
+        #expect(battle.keepRemainingPowerForTesting == 10)
         #expect(battle.gameStateForTesting.pendingBattleResult == nil)
         #expect(store.load().lastBackgroundedAt == nil)
         #expect(
             view.accessibilityValue ==
                 "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
-                + "family=frontier;fortress=intact;"
+                + "family=frontier;fortress=damaged;"
                 + "feedback=Buildings dealt 36 idle damage."
         )
     }

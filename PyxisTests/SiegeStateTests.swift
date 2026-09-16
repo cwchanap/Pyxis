@@ -71,19 +71,19 @@ struct SiegeStateTests {
 
         let keep = layout.objective(id: "falconridge.keep")
         #expect(keep?.kind == .keep)
-        #expect(keep?.durabilityWeight == 4)
+        #expect(keep?.durabilityWeight == 3)
         #expect(keep?.visualLane == .center)
         #expect(keep?.visualProgress == 1.0)
 
         let tower = layout.objective(id: "falconridge.arrow-tower")
         #expect(tower?.kind == .arrowTower)
-        #expect(tower?.durabilityWeight == 2)
+        #expect(tower?.durabilityWeight == 4)
         #expect(tower?.visualLane == .left)
         #expect(tower?.visualProgress == 0.68)
 
         let gate = layout.objective(id: "falconridge.ridge-gate")
         #expect(gate?.kind == .gate)
-        #expect(gate?.durabilityWeight == 2)
+        #expect(gate?.durabilityWeight == 1)
         // R3 (binding ruling): the Gate's visualLane is center; the
         // center/right span is derived from routes by the scene, not
         // authored metadata.
@@ -105,13 +105,13 @@ struct SiegeStateTests {
         #expect(Set(layout.defensiveFire.coveredLanes) == Set(BattleLane.allCases))
     }
 
-    @Test func falconridgeAllocatesCityMaxPowerNinetyTwoAs46And23And23() {
+    @Test func falconridgeAllocatesCityMaxPowerNinetyTwoAs35And46And11() {
         let allocation = Self.falconridge.maxPowerAllocation(totalBudget: 92)
 
         #expect(allocation == [
-            "falconridge.keep": 46,
-            "falconridge.arrow-tower": 23,
-            "falconridge.ridge-gate": 23
+            "falconridge.keep": 35,
+            "falconridge.arrow-tower": 46,
+            "falconridge.ridge-gate": 11
         ])
         #expect(allocation.values.reduce(0, +) == 92)
     }
@@ -129,7 +129,7 @@ struct SiegeStateTests {
             == "falconridge.ridge-gate")
 
         // Tower dead: left falls through to the Keep.
-        var damage = ["falconridge.arrow-tower": 23]
+        var damage = ["falconridge.arrow-tower": 46]
         #expect(layout.firstLiveObjectiveID(for: .left, maxPowers: maxPowers, damageByObjectiveID: damage)
             == "falconridge.keep")
 
@@ -140,9 +140,9 @@ struct SiegeStateTests {
 
         // Everything dead: no live target anywhere.
         damage = [
-            "falconridge.arrow-tower": 23,
-            "falconridge.ridge-gate": 23,
-            "falconridge.keep": 46
+            "falconridge.arrow-tower": 46,
+            "falconridge.ridge-gate": 11,
+            "falconridge.keep": 35
         ]
         #expect(layout.firstLiveObjectiveID(for: .left, maxPowers: maxPowers, damageByObjectiveID: damage) == nil)
         #expect(layout.firstLiveObjectiveID(for: .center, maxPowers: maxPowers, damageByObjectiveID: damage) == nil)
@@ -151,11 +151,11 @@ struct SiegeStateTests {
     // MARK: HP allocation and remaining power
 
     @Test func maxPowerAllocationSumsExactlyToBudgetAndRemainderGoesToKeep() {
-        // 4:2:2 of 93 floors to 46/23/23 (sum 92); the spare point goes to the Keep.
+        // 3:4:1 of 93 floors to 34/46/11 (sum 91); the spare points go to the Keep.
         let falconridgeAllocation = Self.falconridge.maxPowerAllocation(totalBudget: 93)
-        #expect(falconridgeAllocation["falconridge.keep"] == 47)
-        #expect(falconridgeAllocation["falconridge.arrow-tower"] == 23)
-        #expect(falconridgeAllocation["falconridge.ridge-gate"] == 23)
+        #expect(falconridgeAllocation["falconridge.keep"] == 36)
+        #expect(falconridgeAllocation["falconridge.arrow-tower"] == 46)
+        #expect(falconridgeAllocation["falconridge.ridge-gate"] == 11)
         #expect(falconridgeAllocation.values.reduce(0, +) == 93)
 
         // 1:2 of 10 floors to 3/6 (sum 9); the spare point goes to the Keep.
@@ -173,25 +173,25 @@ struct SiegeStateTests {
         let layout = Self.falconridge
         let maxPowers = layout.maxPowerAllocation(totalBudget: 92)
 
-        #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: [:]) == 46)
+        #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: [:]) == 35)
 
         // Gate/Tower damage never touches Keep HP.
         #expect(
             layout.keepRemainingPower(
                 maxPowers: maxPowers,
-                damageByObjectiveID: ["falconridge.ridge-gate": 23, "falconridge.arrow-tower": 23]
-            ) == 46
+                damageByObjectiveID: ["falconridge.ridge-gate": 11, "falconridge.arrow-tower": 46]
+            ) == 35
         )
 
-        #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: ["falconridge.keep": 20]) == 26)
+        #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: ["falconridge.keep": 20]) == 15)
 
         // Overkill damage clamps at zero, never negative.
         #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: ["falconridge.keep": 99]) == 0)
 
         let remaining = layout.remainingPower(maxPowers: maxPowers, damageByObjectiveID: ["falconridge.ridge-gate": 30])
         #expect(remaining == [
-            "falconridge.keep": 46,
-            "falconridge.arrow-tower": 23,
+            "falconridge.keep": 35,
+            "falconridge.arrow-tower": 46,
             "falconridge.ridge-gate": 0
         ])
     }
@@ -208,24 +208,24 @@ struct SiegeStateTests {
         #expect(spend.damageByObjectiveID == ["falconridge.arrow-tower": 10])
 
         // Exact kill: the blocker dies and nothing spills.
-        spend = layout.spendDamageBudget(23, along: .left, maxPowers: maxPowers, damageByObjectiveID: [:])
-        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 23])
-        #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: spend.damageByObjectiveID) == 46)
+        spend = layout.spendDamageBudget(46, along: .left, maxPowers: maxPowers, damageByObjectiveID: [:])
+        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 46])
+        #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: spend.damageByObjectiveID) == 35)
 
         // Overkill spills into the Keep only after the blocker dies.
-        spend = layout.spendDamageBudget(30, along: .left, maxPowers: maxPowers, damageByObjectiveID: [:])
-        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 23, "falconridge.keep": 7])
+        spend = layout.spendDamageBudget(50, along: .left, maxPowers: maxPowers, damageByObjectiveID: [:])
+        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 46, "falconridge.keep": 4])
 
-        // Full route: Tower 23 + Keep 46 = 69; excess past the Keep is dropped.
+        // Full route: Tower 46 + Keep 35 = 81; excess past the Keep is dropped.
         spend = layout.spendDamageBudget(100, along: .left, maxPowers: maxPowers, damageByObjectiveID: [:])
-        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 23, "falconridge.keep": 46])
+        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 46, "falconridge.keep": 35])
         #expect(layout.keepRemainingPower(maxPowers: maxPowers, damageByObjectiveID: spend.damageByObjectiveID) == 0)
 
         // Pre-damaged blocker absorbs only its remaining HP; remainder spills.
-        spend = layout.spendDamageBudget(20, along: .left, maxPowers: maxPowers, damageByObjectiveID: [
+        spend = layout.spendDamageBudget(45, along: .left, maxPowers: maxPowers, damageByObjectiveID: [
             "falconridge.arrow-tower": 10
         ])
-        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 13, "falconridge.keep": 7])
+        #expect(spend.appliedByObjectiveID == ["falconridge.arrow-tower": 36, "falconridge.keep": 9])
 
         // Zero budget is a no-op.
         spend = layout.spendDamageBudget(0, along: .left, maxPowers: maxPowers, damageByObjectiveID: [:])
@@ -238,7 +238,7 @@ struct SiegeStateTests {
     @Test func siegeProgressRoundTripsThroughCodable() throws {
         let progress = SiegeProgress(
             selectedLane: .right,
-            damageByObjectiveID: ["falconridge.keep": 5, "falconridge.ridge-gate": 23]
+            damageByObjectiveID: ["falconridge.keep": 5, "falconridge.ridge-gate": 11]
         )
 
         let data = try JSONEncoder().encode(progress)
