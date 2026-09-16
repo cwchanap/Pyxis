@@ -148,6 +148,8 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         let keepDamage = clamp(keepMax - keepRemaining, toMax: keepMax)
         if keepDamage > 0 {
             state.siegeProgress.damageByObjectiveID[keepID] = keepDamage
+        } else {
+            state.siegeProgress.damageByObjectiveID.removeValue(forKey: keepID)
         }
         for (kind, damage) in supportDamage {
             guard let objectiveID = layout.objectives.first(where: { $0.kind == kind })?.id else {

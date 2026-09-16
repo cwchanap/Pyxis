@@ -97,6 +97,8 @@ enum SiegeTestSupport {
         let keepDamage = clampedDamage(keepMax - keepRemaining, toMax: keepMax)
         if keepDamage > 0 {
             state.siegeProgress.damageByObjectiveID[keepID] = keepDamage
+        } else {
+            state.siegeProgress.damageByObjectiveID.removeValue(forKey: keepID)
         }
     }
 

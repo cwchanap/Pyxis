@@ -31,15 +31,15 @@ Use the lower end of HPA-468's allowed structure envelope:
 
 | Objective | Stable ID | Weight | Visual position | Purpose |
 | --- | --- | ---: | --- | --- |
-| Keep | `falconridge.keep` | 4 | center / `1.0` | conquest target |
-| Arrow Tower | `falconridge.arrow-tower` | 2 | left / `0.68` | destructible defensive-fire source |
-| Ridge Gate | `falconridge.ridge-gate` | 2 | spans center + right / `0.58` | shared blocker |
+| Keep | `falconridge.keep` | 3 | center / `1.0` | conquest target |
+| Arrow Tower | `falconridge.arrow-tower` | 4 | left / `0.68` | destructible defensive-fire source |
+| Ridge Gate | `falconridge.ridge-gate` | 1 | spans center + right / `0.58` | shared blocker |
 
-City 3's existing durability budget is 92. The required ticket contract is to redistribute that budget, not give each structure a full city's HP. The 4:2:2 allocation therefore remains:
+City 3's existing durability budget is 92. The required ticket contract is to redistribute that budget, not give each structure a full city's HP. The tuned 3:4:1 allocation lands on:
 
-- Keep: 46 HP
-- Arrow Tower: 23 HP
-- Ridge Gate: 23 HP
+- Keep: 35 HP
+- Arrow Tower: 46 HP
+- Ridge Gate: 11 HP
 
 Any integer allocation remainder for future layouts goes to the Keep.
 
@@ -47,11 +47,11 @@ Any integer allocation remainder for future layouts goes to the Keep.
 
 The new player-facing route cost is not the sum of every structure in the city. Each Falconridge route requires one blocker plus the Keep:
 
-- left: Tower 23 + Keep 46 = **69 damage**;
-- center: Gate 23 + Keep 46 = **69 damage**;
-- right: Gate 23 + Keep 46 = **69 damage**.
+- left: Tower 46 + Keep 35 = **81 damage**;
+- center: Gate 11 + Keep 35 = **46 damage**;
+- right: Gate 11 + Keep 35 = **46 damage**.
 
-Today's City 3 scalar requires 92 damage, so the initial authored route cost is about **25% lower**. That is an intentional pilot starting point under HPA-468's fixed 92 total-durability contract, not an invisible claim of balance parity.
+Today's City 3 scalar requires 92 damage, so the gate routes cost about **50% less** raw damage while the tower-first route costs about **12% less** and permanently disables defensive fire. That asymmetry is the intended route tradeoff under HPA-468's fixed 92 total-durability contract, not an invisible claim of balance parity.
 
 At the same time, source-relative Tower range increases exposure: the Tower is at `0.68`, so with current `towerAttackRange == 0.55` defensive fire begins at normalized progress `0.13`; the old Keep-relative source began at `0.45`. The pilot can therefore be cheaper in raw objective damage while exposing troops to defensive fire for longer.
 
@@ -173,7 +173,7 @@ All player-facing battle HP uses Keep current/max:
 - city tooltip;
 - Living Kingdom fortress stage.
 
-Gate/Tower use their own objective HP treatment. A fresh Falconridge fortress is `46/46`, not `46/92`, and Gate/Tower damage cannot visually damage the Keep.
+Gate/Tower use their own objective HP treatment. A fresh Falconridge fortress is `35/35`, not `35/92`, and Gate/Tower damage cannot visually damage the Keep.
 
 ## Shared route rule
 
@@ -305,7 +305,7 @@ Deleting `cityRemainingPower` before Battle/HUD/fixture readers move would make 
 
 ### Falconridge balance swing
 
-The fixed 92 allocation yields 69 raw route damage while source-relative fire starts much earlier. Capture the current-`main` City 3 baseline before implementation and compare elapsed time/losses from identical camp state after implementation. Retune only Falconridge weights/fire inside the 92 total if the new routes are free/dominant or Tower destruction is unnoticeable.
+The fixed 92 allocation yields 46–81 raw route damage depending on route while source-relative fire starts much earlier. Capture the current-`main` City 3 baseline before implementation and compare elapsed time/losses from identical camp state after implementation. Retune only Falconridge weights/fire inside the 92 total if the new routes are free/dominant or Tower destruction is unnoticeable.
 
 ### Shared-Gate legibility
 

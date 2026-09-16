@@ -27,7 +27,7 @@ Record:
 - active battle elapsed time from existing result/session data;
 - soldier losses from existing result/session data.
 
-This is not a release gate by itself. It provides the quantitative reference needed because the authored 46/23/23 layout has 69 raw route HP versus today's 92 scalar HP while source-relative Tower fire begins earlier.
+This is not a release gate by itself. It provides the quantitative reference needed because the authored 35/46/11 layout has 46–81 raw route HP depending on route versus today's 92 scalar HP while source-relative Tower fire begins earlier.
 
 Do not add telemetry or a benchmark harness. A reproducible DEBUG/manual setup + compact note in the PR is enough.
 
@@ -64,7 +64,7 @@ Cover:
 Falconridge pins:
 
 - `falconridge.keep`, `falconridge.arrow-tower`, `falconridge.ridge-gate`;
-- 46 / 23 / 23 allocation from total 92;
+- 35 / 46 / 11 allocation from total 92;
 - left route Tower → Keep;
 - center/right routes Gate → Keep;
 - objective positions: Tower `0.68`, Gate `0.58`, Keep `1.0`;
@@ -350,9 +350,9 @@ Pass Keep remaining/max into the existing presentation projection.
 
 Tests pin:
 
-- fresh Falconridge = intact `46/46`;
+- fresh Falconridge = intact `35/35`;
 - Gate/Tower-only damage does not change fortress stage;
-- City 3 threshold tests use Keep max 46;
+- City 3 threshold tests use Keep max 35;
 - Keep thresholds drive damage/breach/conquest;
 - non-pilot one-Keep behavior stays equivalent.
 
@@ -487,7 +487,7 @@ From the **same camp/loadout** used for Task 0 baseline:
 4. verify Tower death noticeably stops subsequent defensive fire;
 5. verify Gate-first can conquer with Tower still alive.
 
-The 46/23/23 allocation intentionally starts at 69 raw route damage versus the baseline 92, while Tower coverage starts earlier. Use the measurements to judge the actual trade.
+The 35/46/11 allocation intentionally starts at 46–81 raw route damage depending on route versus the baseline 92, while Tower coverage starts earlier. Use the measurements to judge the actual trade.
 
 Retune Falconridge-only weights/fire **within total 92** when either condition holds:
 
@@ -534,7 +534,7 @@ Add a compact evidence table to the PR before moving it out of draft. Do not cre
 
 ### Risk: Falconridge becomes materially easier/harder in a confusing way
 
-**Mitigation:** capture current-main baseline first, explicitly acknowledge 69-vs-92 raw route cost and earlier Tower coverage, compare same-camp elapsed/losses, and retune only Falconridge values inside the fixed 92 total.
+**Mitigation:** capture current-main baseline first, explicitly acknowledge 46–81-vs-92 raw route cost and earlier Tower coverage, compare same-camp elapsed/losses, and retune only Falconridge values inside the fixed 92 total.
 
 ### Risk: shared Gate is mechanically correct but visually misleading
 
