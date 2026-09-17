@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add Highcrest's one-Barracks / finite-Guard reinforcement pilot while preserving HPA-468's siege model, existing conquest semantics, and single-combat-simulator architecture.
+**Goal:** Add Highcrest's one-Barracks / finite-Guard reinforcement pilot while preserving HPA-468's siege model, Keep-only conquest semantics, and single live combat simulator.
 
-**Architecture:** Extend the existing siege value types with one Barracks objective kind and Highcrest-local Guard persistence/tuning. `KingdomGameState` owns the durable wave phase/reserve plus one shared chronological building/Guard settlement helper; `BattleCombatState` remains the sole live actor simulator; `BattleScene.advanceCombat` owns live integration, persistence, and procedural placeholder presentation.
+**Architecture:** Extend the existing siege value types with one Barracks objective kind and minimal Guard persistence. `KingdomGameState` owns one O(1) durable wave clock/reserve and reuses the existing `applyAbstractBuildingSpawnDamage` seam for approximate idle/Camp resolution. `BattleCombatState` remains the only live actor simulator; `BattleScene.advanceCombat` owns integration, persistence, and procedural placeholders.
 
 **Tech Stack:** Swift 5, Swift Testing, SpriteKit/UIKit, existing `KingdomGameStore` JSON persistence, Xcode/xcodebuild, SwiftLint.
 
@@ -14,18 +14,56 @@
 
 - One implementation PR for HPA-469; do not split foundation, persistence, combat, UI, art, or QA into child PRs.
 - Keep HP remains the only conquest/liveness authority.
-- Exact starting wave contract: 2 Guards / 6 seconds, max 4 living Guards **per reinforced lane**, 8 reserve globally across the siege.
-- Reserve is consumed only for Guards actually spawned; a cap-blocked wave does not queue a burst.
+- Starting reinforcement contract: 2 Guards / 6 seconds, 8 reserve globally. There is no active-Guard cap.
 - New Guards use the currently selected assault lane; existing Guards keep their assigned lane.
-- New/restored Guards start at Keep `visualProgress`, not Barracks `visualProgress`.
+- New/restored Guards start at Keep progress and may not move below the authored Barracks progress.
+- Soldiers and Guards use their own attack ranges independently; do not collapse combat to one shared contact distance.
 - Barracks destruction prevents future spawns but does not delete living Guards.
 - Keep existing 8-hour idle cap, 1/10 player building-production rate, no-buildings/no-progress behavior, at-most-one-city conquest, and exactly-once report/reward behavior.
-- Background idle and Camp/build-upgrade settlement share one private chronological resolver.
+- Reuse `applyAbstractBuildingSpawnDamage`; do not add a chronological building-production walker.
 - Preserve tower-first ordering inside `BattleCombatState.tick`; do not rewrite combat as a generic phase engine.
-- Guard-only ticks must persist Guard HP/wave state and participate in existing automatic melee/hit sounds.
+- Guard-only ticks must persist Guard HP/wave state and participate in existing automatic combat feedback.
+- Guard positions remain transient; persist lane + HP only.
 - No save migration, generic wave engine, enemy-AI framework, target registry, pathfinder, physics, new reward system, or generated art.
 - HPA-476 owns final `siege-barracks` / `siege-guard` art and animation production.
 - Run tests with parallel testing disabled.
+
+---
+
+### Task 0: Capture the pre-pilot Highcrest baseline
+
+**Files:**
+- Update PR body evidence only; no source file changes.
+
+**Interfaces:**
+- Produces the current-`main` reference used by Task 6 balance decisions.
+
+- [ ] **Step 1: Check out the exact implementation base in a clean worktree.**
+
+Use `main` at:
+
+```text
+76f5e6b836acab5e48f6c27ab107049e1811ba18
+```
+
+Do not use the HPA-469 branch for this measurement.
+
+- [ ] **Step 2: Use one deterministic representative camp/loadout.**
+
+Use the same fixed seed, buildings, building levels, soldier upgrade level, and manual-spawn policy that will be used for final HPA-469 comparisons. Record those inputs in the PR body before implementation starts.
+
+- [ ] **Step 3: Record the current City 5 result.**
+
+Capture:
+
+```text
+elapsed to conquest
+allied losses
+seed
+camp/loadout
+```
+
+This is the single-Keep Highcrest reference. No commit is required for measurement-only evidence.
 
 ---
 
@@ -35,7 +73,7 @@
 - Modify: `Pyxis/SiegeState.swift`
 - Modify: `Pyxis/Country1CityCatalog.swift`
 - Modify: `Pyxis/CityDefinition.swift`
-- Modify: `Pyxis/KingdomGameState.swift` at siege-progress initialization/normalization/Codable handling
+- Modify: `Pyxis/KingdomGameState.swift`
 - Modify: `Pyxis/CountryMapScoutCardContent.swift`
 - Modify: `PyxisTests/SiegeStateTests.swift`
 - Modify: `PyxisTests/Country1CityCatalogTests.swift`
@@ -48,15 +86,13 @@
 **Interfaces:**
 - Produces `CitySiegeLayout.ObjectiveKind.barracks`.
 - Produces `CitySiegeLayout.barracksObjective: Objective?` with an at-most-one authored invariant.
-- Produces `HighcrestGuardRules` with `maxActiveGuardsPerLane == 4` and the exact starting constants from the spec.
-- Produces `GuardSnapshot`, `GuardReinforcementProgress`, and `SiegeProgress.guardReinforcements`.
+- Produces top-level `HighcrestGuardRules` in `Country1CityCatalog.swift`.
+- Produces `GuardSnapshot`, `GuardReinforcementProgress`, and `SiegeProgress.guardReinforcements` in `SiegeState.swift`.
 - Highcrest authoring produces `highcrest.keep` and `highcrest.barracks` with 4:1 weights and left Barracks-first route.
-- `normalizedSiegeProgress` materializes/preserves Highcrest reinforcement state and forces non-Highcrest state to `nil`.
-- Scout tactical copy produces `L Barracks` from the authored route.
+- `normalizedSiegeProgress` preserves/clamps Highcrest reinforcement state and forces non-Highcrest state to `nil`.
+- Scout tactical copy produces `L Barracks` from authored route membership.
 
-- [ ] **Step 1: Add failing Highcrest layout and Scout tests.**
-
-Pin the real catalog rather than a duplicate test layout:
+- [ ] **Step 1: Add failing catalog/Scout tests.**
 
 ```swift
 @Test func highcrestAuthorsKeepAndBarracksPilot() {
@@ -79,9 +115,9 @@ Pin the real catalog rather than a duplicate test layout:
 }
 ```
 
-Also pin the existing defensive-fire source to `highcrest.keep` and add a compact Scout acceptance assertion proving `L Barracks` presents above the existing fail-closed font floor.
+Also assert defensive fire remains sourced from `highcrest.keep` across all lanes, and pin compact Scout presentation above the existing fail-closed font floor.
 
-- [ ] **Step 2: Run focused tests and verify they fail.**
+- [ ] **Step 2: Run the focused tests and verify failure.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -95,23 +131,9 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
 
 Expected: FAIL because `.barracks`, Highcrest custom layout, and Barracks Scout copy do not exist.
 
-- [ ] **Step 3: Add the minimal authored Guard values.**
-
-In `SiegeState.swift` add:
+- [ ] **Step 3: Add generic siege persistence types in `SiegeState.swift`.**
 
 ```swift
-enum HighcrestGuardRules {
-    static let guardsPerWave = 2
-    static let waveIntervalSeconds = 6.0
-    static let maxActiveGuardsPerLane = 4
-    static let totalReserve = 8
-    static let maxHP = 12
-    static let attackPower = 3
-    static let attackSpeed = 1.0
-    static let attackRange = 0.10
-    static let movementSpeed = 0.30
-}
-
 struct GuardSnapshot: Codable, Equatable {
     var lane: BattleLane
     var remainingHP: Int
@@ -124,11 +146,28 @@ struct GuardReinforcementProgress: Codable, Equatable {
 }
 ```
 
-Add `.barracks`, optional `barracksObjective`, and `guardReinforcements` on `SiegeProgress`. Keep stable IDs and all existing route invariants. Add a fail-closed `precondition` that authored layouts contain at most one `.barracks`.
+Add `.barracks`, optional `barracksObjective`, and `guardReinforcements` on `SiegeProgress`. Keep stable IDs and every existing route invariant. Add a fail-closed precondition that an authored layout contains at most one `.barracks`.
 
-- [ ] **Step 4: Author Highcrest and fix stale model documentation.**
+- [ ] **Step 4: Put Highcrest-only tuning beside Highcrest authoring.**
 
-Use exactly:
+In `Country1CityCatalog.swift`, near City 5:
+
+```swift
+enum HighcrestGuardRules {
+    static let guardsPerWave = 2
+    static let waveIntervalSeconds = 6.0
+    static let totalReserve = 8
+    static let maxHP = 12
+    static let attackPower = 3
+    static let attackSpeed = 1.0
+    static let attackRange = 0.10
+    static let movementSpeed = 0.30
+}
+```
+
+Do not put these City 5 tuning values in generic `SiegeState.swift`.
+
+- [ ] **Step 5: Author Highcrest.**
 
 ```swift
 siegeLayout: CitySiegeLayout(
@@ -148,11 +187,11 @@ siegeLayout: CitySiegeLayout(
 )
 ```
 
-Update `CityDefinition.siegeLayout` comments so they describe authored tactical layouts rather than claiming Falconridge is the only custom-layout city.
+Update the stale `CityDefinition.siegeLayout` comment so it describes authored tactical layouts rather than naming Falconridge as the only one.
 
-- [ ] **Step 5: Extend `normalizedSiegeProgress` rather than reconstructing away Guard state.**
+- [ ] **Step 6: Extend `normalizedSiegeProgress`.**
 
-Fresh Highcrest uses:
+Fresh Highcrest gets:
 
 ```swift
 GuardReinforcementProgress(
@@ -162,33 +201,40 @@ GuardReinforcementProgress(
 )
 ```
 
-Normalize persisted Highcrest state by:
+Normalize Highcrest by:
 
-- clamping reserve to `0...8`;
-- reducing elapsed into `0..<6`;
-- clamping HP to `1...12`;
-- retaining at most four Guards per lane and eight total, preserving order;
-- preserving lanes;
-- leaving Barracks-destroyed survivors intact;
-- returning `nil` reinforcement progress for every non-Highcrest city.
+```text
+reserve -> 0...8
+waveElapsedSeconds -> 0..<6
+Guard HP -> 1...12
+unresolvedGuards -> first 8 valid snapshots
+remainingReserve -> at most 8 - unresolvedGuards.count
+```
 
-Do not persist IDs or positions and do not add save versioning.
+Preserve Guard lanes and Barracks-destroyed survivors. Non-Highcrest cities normalize reinforcement progress to `nil`. Do not persist IDs or positions and do not add save versioning.
 
-- [ ] **Step 6: Add round-trip and normalization tests.**
+- [ ] **Step 7: Add round-trip tests.**
 
-Pin that JSON/store round-trip preserves elapsed phase, remaining reserve, Guard lanes, and HP; loading cannot heal a 5-HP Guard, restore reserve from 3 to 8, or drop Highcrest reinforcement progress. Also prove non-Highcrest state normalizes to `nil`.
+Round-trip a Highcrest save containing:
 
-- [ ] **Step 7: Add the closed enum Scout case.**
+```text
+waveElapsedSeconds = 4.5
+remainingReserve = 3
+left Guard = 5 HP
+right Guard = 9 HP
+```
 
-In `CountryMapScoutCardContent.swift`:
+Assert exact lane/HP/phase/reserve preservation. Also prove malformed values clamp and non-Highcrest reinforcement progress is removed.
+
+- [ ] **Step 8: Add the exhaustive Scout enum case.**
 
 ```swift
 case .barracks: return "Barracks"
 ```
 
-Keep route membership as the source of `L`; do not hard-code Highcrest copy in the view.
+Keep lane letters derived from routes; do not hard-code `L Barracks` in the view.
 
-- [ ] **Step 8: Run focused suites and commit.**
+- [ ] **Step 9: Run focused suites and commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -212,7 +258,7 @@ git commit -m "feat: author Highcrest Guard siege state"
 
 ---
 
-### Task 2: Add per-lane waves and one shared settlement path
+### Task 2: Add finite waves and reuse the existing abstract settlement seam
 
 **Files:**
 - Modify: `Pyxis/KingdomGameState.swift`
@@ -223,39 +269,27 @@ git commit -m "feat: author Highcrest Guard siege state"
 
 **Interfaces:**
 - Consumes `GuardReinforcementProgress`, `HighcrestGuardRules`, and `CitySiegeLayout.barracksObjective`.
-- Produces `advanceActiveGuardReinforcements(deltaTime:) -> [GuardSnapshot]` using an O(1) due-opportunity calculation rather than looping every six-second boundary.
-- Produces `synchronizeLiveGuardSnapshots(_:) -> Bool` to replace durable unresolved Guard lane/HP from the live simulator and report whether durable Guard state changed.
-- Produces one private `resolveCurrentCityBuildingSettlement(...)` used by both current settlement callers.
-- Keeps existing `resolveBuildingSpawns(in:effectiveActiveSeconds:)` as the only building-production mutation primitive.
+- Produces `advanceActiveGuardReinforcements(deltaTime:) -> [GuardSnapshot]` with O(1) due-opportunity arithmetic.
+- Produces `synchronizeLiveGuardSnapshots(_:) -> Bool` for live persistence.
+- Extends existing `applyAbstractBuildingSpawnDamage(_:elapsedSeconds:conquestMode:)`; no new settlement walker is introduced.
 
-- [ ] **Step 1: Add failing active-wave tests, including the lane-switch exploit.**
+- [ ] **Step 1: Add failing active-wave tests.**
 
 Pin:
 
 ```text
-5.9s -> 0 Guards, reserve 8
-+0.1s -> 2 right Guards, reserve 6
-+6.0s -> 4 right Guards, reserve 4
-+6.0s while right has 4 -> still 4 right, reserve 4
-switch left with 4 right still alive, +6.0s -> 2 left Guards, reserve 2
-blocked opportunities never consume reserve or queue >2 on the next opportunity
-Barracks destroyed, +60s -> no new Guards and reserve unchanged
+5.9s -> 0 Guards, reserve 8, phase 5.9
++0.1s -> 2 Guards on selected lane, reserve 6, phase 0
++6.0s -> 2 more Guards, reserve 4
++12.0s -> final 4 Guards, reserve 0
+later time -> no additional Guards
+Barracks dead -> no additional Guards
+Keep dead -> no additional Guards
 ```
 
-Also pin the review regression directly:
+Switch lanes before one wave and assert only newly created Guards use the new lane while earlier snapshots keep theirs.
 
-```swift
-@Test func oldLaneCapDoesNotSuppressNewLaneWave() {
-    // Seed four left Guards and reserve 8, select right, advance 6s.
-    // Expect four left + two right, reserve 6.
-}
-```
-
-Use the actual intended reserve fixture; do not infer reserve from living Guard count.
-
-- [ ] **Step 2: Implement the live scheduler without iterating empty boundaries.**
-
-For active Highcrest only:
+- [ ] **Step 2: Implement the O(1) scheduler.**
 
 ```swift
 let totalElapsed = progress.waveElapsedSeconds + max(0, deltaTime)
@@ -263,82 +297,86 @@ let dueOpportunities = Int(totalElapsed / HighcrestGuardRules.waveIntervalSecond
 progress.waveElapsedSeconds = totalElapsed.truncatingRemainder(
     dividingBy: HighcrestGuardRules.waveIntervalSeconds
 )
-```
-
-If Keep/Barracks is dead or reserve is zero, spawn none. Otherwise count unresolved Guards only on `siegeProgress.selectedLane` and compute:
-
-```swift
-let availableSlots = max(
-    0,
-    HighcrestGuardRules.maxActiveGuardsPerLane - livingOnSelectedLane
+let spawnCount = min(
+    progress.remainingReserve,
+    dueOpportunities * HighcrestGuardRules.guardsPerWave
 )
-let opportunityCapacity = dueOpportunities * HighcrestGuardRules.guardsPerWave
-let spawnCount = min(availableSlots, progress.remainingReserve, opportunityCapacity)
 ```
 
-Append exactly `spawnCount` full-HP snapshots on the selected lane and subtract exactly that reserve. This collapses thousands of cap-blocked opportunities to arithmetic while preserving the six-second phase.
+Append exactly `spawnCount` full-HP snapshots on `siegeProgress.selectedLane` and subtract exactly that reserve. Do not add active-cap, queue, or blocked-wave branches.
 
-- [ ] **Step 3: Add live-snapshot synchronization.**
-
-Add:
+- [ ] **Step 3: Add live Guard snapshot synchronization.**
 
 ```swift
 @discardableResult
 mutating func synchronizeLiveGuardSnapshots(_ snapshots: [GuardSnapshot]) -> Bool
 ```
 
-For active Highcrest, normalize the incoming lane/HP snapshots using the same per-lane/total limits as decode, compare with persisted `unresolvedGuards`, replace them, and return whether they changed. Other cities return `false`.
+For active Highcrest, normalize incoming lane/HP snapshots with the same 8-total limit as decode, compare with persisted `unresolvedGuards`, replace them, and return whether durable state changed. Other cities return `false`.
 
-- [ ] **Step 4: Add failing tests proving both settlement callers share Guard semantics.**
+- [ ] **Step 4: Add failing abstract-settlement tests for both callers.**
 
-Use deterministic building timers/dates to cover both:
+Cover background idle and a Camp build/upgrade settlement. Pin:
 
-- `resolveCurrentCityBuildingIdleProgress(at:)`;
-- `settleCurrentCityBuildingProgress(at:)` reached through a build/upgrade mutation.
-
-Pin:
-
-- a wave due before a player production event exists when that event resolves;
-- existing same-lane Guard HP absorbs production damage before structure damage;
-- a full selected-lane cap does not burn reserve;
-- repeated cap-blocked wave boundaries do not require iteration;
-- Barracks death suppresses later waves;
+- due window Guards are materialized before abstract player damage;
+- oldest same-lane Guard HP absorbs each building spawn's damage before structure damage;
+- Guard damage is not recorded as city damage;
+- Barracks already dead at window start creates no new Guards;
+- no player buildings means no Guard-wave advancement;
 - direct-route settlement can conquer Keep while Barracks remains alive;
-- no buildings returns no progress and does not advance Guard phase;
-- conquest remains at most one city and reward/report stay exactly once.
+- at-most-one-city conquest and exactly-once reward/report stay unchanged.
 
-- [ ] **Step 5: Add one shared private chronological settlement helper.**
+- [ ] **Step 5: Extend `applyAbstractBuildingSpawnDamage`, not production timing.**
 
-Both callers delegate to one helper shaped like:
+Change the signature to:
 
 ```swift
-private mutating func resolveCurrentCityBuildingSettlement(
+private mutating func applyAbstractBuildingSpawnDamage(
+    _ spawns: [BuildingSpawn],
     elapsedSeconds: Double,
-    cityState: inout CityBattleState,
-    conquestMode: ConquestMode
+    conquestMode: BattleConquestMode
 ) -> (applied: Int, conquered: Bool, goldEarned: Int)
 ```
 
-Do not add a public settlement type.
+When the current city has player buildings, call:
 
-The event loop advances to the next **player building-production event** or capped end. Compute the next production delay from each building's existing `spawnTimerElapsed` and `activeSpawnInterval(for:)`; convert the effective-active delay back to real settlement seconds with `idleBuildingProductionScale`.
+```swift
+_ = advanceActiveGuardReinforcements(deltaTime: elapsedSeconds)
+```
 
-For each segment:
+once before iterating `spawns`.
 
-1. call `advanceActiveGuardReinforcements(deltaTime:)` with that segment's real elapsed time; the scheduler itself collapses cap-blocked six-second opportunities;
-2. call `resolveBuildingSpawns(in:effectiveActiveSeconds:)` with `segment / idleBuildingProductionScale`;
-3. for each returned `BuildingSpawn`, spend trait-adjusted damage against oldest unresolved Guards on `siegeProgress.selectedLane` first;
-4. send only leftover damage to `currentSiegeLayout.spendDamageBudget(...)`;
-5. stop immediately on Keep conquest;
-6. once Barracks is dead, scheduler calls naturally produce no future Guards.
+For each `BuildingSpawn`:
 
-This is event-driven by real production work; it never walks 4,800 empty six-second slices.
+1. compute the existing trait-adjusted `power`;
+2. spend that budget against oldest unresolved Guards on `siegeProgress.selectedLane` first;
+3. remove dead Guard snapshots and retain partial HP;
+4. pass only leftover power to `currentSiegeLayout.spendDamageBudget`;
+5. record only structure-applied damage in `ActiveSiegeSession.recordIdleDamage` and `appliedTotal`.
 
-- [ ] **Step 6: Preserve no-buildings and caller-specific bookkeeping.**
+Do not calculate building spawn timestamps or duplicate `resolveBuildingSpawns` timing math.
 
-`resolveCurrentCityBuildingIdleProgress` keeps its `lastBackgroundedAt` clearing/result shape. `settleCurrentCityBuildingProgress` keeps build/upgrade timestamp semantics. If `occupiedSlotCount == 0`, preserve current no-buildings/no-progress behavior and do not advance Guard phase in isolation.
+- [ ] **Step 6: Update both existing callers with their already-known elapsed window.**
 
-- [ ] **Step 7: Run focused state/lifecycle suites and commit.**
+`settleCurrentCityBuildingProgress(at:)` passes its capped `elapsedSeconds`.
+
+`resolveCurrentCityBuildingIdleProgress(at:)` passes `Double(elapsedSeconds)`.
+
+If `occupiedSlotCount == 0`, preserve the current no-buildings/no-progress behavior and never advance Guard waves in isolation. If buildings exist but `spawns` is empty, still call the abstract damage seam so Guard phase advances consistently for that credited settlement window.
+
+- [ ] **Step 7: Pin live-to-settlement time ownership.**
+
+Add a lifecycle test:
+
+1. seed Highcrest with at least one player building;
+2. advance live Guard wave phase in Battle-equivalent state;
+3. call `markCurrentCityBuildingProgressInactive(at:)` at the transition time;
+4. settle a later Camp/Map window;
+5. assert only the post-transition elapsed interval advances Guard phase.
+
+Also pin the no-building variant: settlement does not advance Guard phase at all.
+
+- [ ] **Step 8: Run focused suites and commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -357,36 +395,36 @@ git commit -m "feat: settle finite Highcrest Guard waves"
 
 ---
 
-### Task 3: Extend `BattleCombatState` with fortress-spawned lane-local Guards
+### Task 3: Extend `BattleCombatState` with bounded lane-local Guards
 
 **Files:**
 - Modify: `Pyxis/BattleCombatState.swift`
 - Modify: `Pyxis/AutomaticCombatFeedbackScheduler.swift`
 - Modify: `PyxisTests/BattleCombatStateTests.swift`
 - Modify: `PyxisTests/AutomaticCombatFeedbackSchedulerTests.swift`
-- Modify: `PyxisTests/DefaultGameplayFeedbackCoordinatorTests.swift` only for concrete TickResult fixture compilation/behavior
+- Modify: `PyxisTests/DefaultGameplayFeedbackCoordinatorTests.swift`
 
 **Interfaces:**
-- Consumes `GuardSnapshot` and `HighcrestGuardRules`.
-- Produces `GuardID`, transient `Guard`, restore/spawn helpers, `guardSnapshots`, and Guard attack/hit/loss events.
-- New/restored Guard position is `siege.layout.keepObjective.visualProgress`.
-- `tick(deltaTime:siege:)` remains the only live combat tick and preserves its current tower-first section.
-- Automatic combat feedback maps Guard activity to existing melee/hit sound IDs only.
+- Consumes `GuardSnapshot`, `HighcrestGuardRules`, and `CitySiegeLayout.barracksObjective`.
+- Produces transient `GuardID`, `Guard`, restore/spawn helpers, `guardSnapshots`, and Guard attack/hit/loss events.
+- New/restored Guard position is Keep progress; Guard downward movement is clamped at Barracks progress.
+- `tick(deltaTime:siege:)` remains the only live combat tick and keeps the existing tower-first block.
+- `GuardHitEvent` carries the attacking `SoldierType`.
 
 - [ ] **Step 1: Write failing Guard-combat tests.**
 
-Pin with deterministic configuration/seed:
+Pin:
 
 - restored 5-HP Guard keeps lane/HP but starts at Keep progress;
-- a right-lane allied soldier already at `0.80` still meets a later Guard spawned at Keep progress and cannot pass it;
-- Guard and allied soldier move toward contact but never cross;
-- soldier attacks the nearest living Guard ahead before its structure objective;
-- Guard attacks the foremost allied soldier in its lane only;
-- Guard cannot target another lane or player castle;
-- dead Guard emits one loss and survivors resume structure movement;
-- Guard already on field remains functional after Barracks death;
-- Keep destruction returns conquest immediately without Guard cleanup;
-- an empty Guard roster keeps existing HPA-468 movement/attack/tower behavior unchanged.
+- a right-lane soldier already at `0.80` still meets a later Keep-spawned Guard;
+- Guard never moves below `highcrest.barracks` progress;
+- soldier and Guard movement never cross;
+- Guard attacks only the foremost soldier in its lane;
+- Guard never targets another lane or player castle;
+- dead Guard emits one loss and survivors resume structure targeting;
+- living Guard still functions after Barracks destruction;
+- Keep destruction wins immediately without Guard cleanup;
+- empty Guard roster preserves existing HPA-468 tower/movement/attack behavior.
 
 - [ ] **Step 2: Add the smallest transient Guard actor.**
 
@@ -403,32 +441,48 @@ struct Guard: Equatable, Identifiable {
 }
 ```
 
-Add one guard array and next-ID counter. Do not create an enemy protocol/base class.
+Add one Guard array and next-ID counter. Do not add an enemy protocol/base class.
 
-- [ ] **Step 3: Add restore/spawn/snapshot helpers with Keep progress.**
+- [ ] **Step 3: Add restore/spawn/snapshot helpers.**
 
-The restore/spawn API receives the current `SiegeSnapshot` so it can use:
+Restore/spawn receives the current `SiegeSnapshot` and starts at:
 
 ```swift
-let spawnProgress = snapshot.layout.keepObjective.visualProgress
+snapshot.layout.keepObjective.visualProgress
 ```
 
-`guardSnapshots` returns living Guards as lane + clamped HP only. It never exposes transient ID/position for persistence.
+The movement floor is derived from:
 
-- [ ] **Step 4: Insert Guard contact without moving the existing tower block.**
+```swift
+snapshot.layout.barracksObjective?.visualProgress ?? 0
+```
 
-Keep the current defensive-fire shot/cooldown resolution at the beginning of `tick`. After that block:
+`guardSnapshots` returns living lane + clamped HP only; position remains transient.
 
-1. resolve each soldier's first structure target and nearest living Guard ahead on its lane;
-2. move soldiers toward the nearer blocking Guard or normal structure stop point;
-3. move each Guard downward toward the foremost living allied soldier in its lane, clamping so it cannot cross;
-4. resolve living Guard attacks;
-5. resolve still-living allied attacks against a blocking Guard first, otherwise structure;
-6. prune deaths and emit events.
+- [ ] **Step 4: Preserve independent attack ranges.**
 
-Do not build a generic phase engine and do not move tower targeting after actor movement.
+For each soldier/Guard pair:
 
-- [ ] **Step 5: Add only the required TickResult events.**
+- soldier movement stops once distance is within `soldier.attackRange`;
+- Guard movement continues while distance exceeds `HighcrestGuardRules.attackRange`, subject to the Barracks floor and no-cross clamp;
+- soldier may attack as soon as its own range is satisfied;
+- Guard may attack only when its own range is satisfied.
+
+Add per-type tests for Infantry, Archer, Cavalry, Mage, and Siege. In particular, prove Archer/Mage/Siege can emit an attack before a still-closing Guard can retaliate.
+
+- [ ] **Step 5: Insert Guard combat without moving the tower block.**
+
+Keep existing defensive-fire resolution first. After that:
+
+1. resolve lane-local blockers;
+2. move soldiers/Guards under the independent-range rules;
+3. resolve living Guard attacks;
+4. resolve still-living soldier attacks against Guard blocker first, otherwise structure;
+5. prune dead actors and emit events.
+
+Do not add a phase framework and do not move tower targeting after actor movement.
+
+- [ ] **Step 6: Add the required TickResult events.**
 
 ```swift
 struct GuardAttackEvent: Equatable {
@@ -440,6 +494,7 @@ struct GuardAttackEvent: Equatable {
 struct GuardHitEvent: Equatable {
     let guardID: BattleCombatState.GuardID
     let soldierID: BattleCombatState.SoldierID
+    let type: SoldierType
     let appliedDamage: Int
 }
 
@@ -449,19 +504,20 @@ struct GuardLossEvent: Equatable {
 }
 ```
 
-`TickResult` gains `guardAttacks`, `guardHits`, and `guardLosses`. Guard damage must not become `SoldierAttackEvent` or battle-report city damage. Existing `damagedSoldierIDs` / `soldierLosses` still carry Guard-caused allied damage/death.
+Guard hits must not become `SoldierAttackEvent` or battle-report city damage. Guard-caused allied damage/death continues through `damagedSoldierIDs` / `soldierLosses`.
 
-- [ ] **Step 6: Make automatic combat feedback treat Guard combat as existing combat.**
+- [ ] **Step 7: Reuse the existing sound mapping precisely.**
 
 In `AutomaticCombatFeedbackScheduler.candidates(from:)`:
 
-- `guardAttacks` and `guardHits` may contribute existing `.attackMelee` / `.soldierHit` candidates;
-- keep existing rate limits/priority;
-- add no sound ID, category, queue, or replay behavior.
+- non-empty `guardAttacks` may add existing `.attackMelee`;
+- map each `guardHits.type` through existing `attackSound(for:)`;
+- do not add `.soldierHit` from `guardHits` because that event means the Guard was hit;
+- keep current `damagedSoldierIDs` / `soldierLosses` handling for Guard-caused allied hit/death.
 
-Add tests where `soldierAttacks` is empty but Guard events still yield the existing combat sound candidate.
+Add tests with empty `soldierAttacks` proving an Archer Guard hit yields `.attackRanged`, a Siege hit yields `.attackSiege`, and a Guard attack yields `.attackMelee`.
 
-- [ ] **Step 7: Run focused combat/feedback suites and commit.**
+- [ ] **Step 8: Run focused combat/feedback suites and commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -479,7 +535,7 @@ git commit -m "feat: add lane-local enemy Guard combat"
 
 ---
 
-### Task 4: Integrate Guard state/persistence and procedural presentation in `BattleScene`
+### Task 4: Integrate Guard persistence and procedural presentation in `BattleScene`
 
 **Files:**
 - Modify: `Pyxis/BattleScene.swift`
@@ -487,31 +543,30 @@ git commit -m "feat: add lane-local enemy Guard combat"
 - Modify: `PyxisTests/BattleSceneTests.swift`
 - Modify: `PyxisTests/BattleSceneCoverageTests.swift`
 - Modify: `PyxisTests/ForgedVisualFixtureTests.swift`
-- Modify: `PyxisTests/SoldierRuntimeGeometryTests.swift` only if shared actor geometry actually changes
 
 **Interfaces:**
-- Consumes `synchronizeLiveGuardSnapshots`, `advanceActiveGuardReinforcements`, combat Guard restore/spawn/snapshot helpers, and Guard TickResult events.
+- Consumes `synchronizeLiveGuardSnapshots`, `advanceActiveGuardReinforcements`, Guard combat restore/spawn/snapshot helpers, and Guard TickResult events.
 - Extends existing `SiegeObjectiveAssetContract` with `barracks = "siege-barracks"`.
-- Produces procedural `siege-barracks` and `siege-guard` placeholder presentation only; final art stays HPA-476.
+- Produces procedural `siege-barracks` / `siege-guard` placeholders only; final art remains HPA-476.
 
-- [ ] **Step 1: Add failing integration tests for Guard-only persistence and frame ordering.**
+- [ ] **Step 1: Add failing integration tests.**
 
 Pin:
 
-- a persisted 5-HP Guard reconstructs as 5 HP at Keep progress;
-- a tick where allies only damage a Guard updates `SiegeProgress` even though `result.soldierAttacks.isEmpty`;
-- Guard wave elapsed persists via the existing two-second progress-save cadence even when the current city has no player buildings;
-- a due wave is created only after current combat result/snapshots are applied;
-- Barracks destroyed in that tick prevents a due same-frame wave;
-- a non-pilot city creates no Guard/Barracks runtime nodes.
+- persisted 5-HP Guard reconstructs at Keep progress without healing;
+- Battle -> reconstruction deliberately resets position to Keep progress;
+- a tick where allies only damage a Guard updates `SiegeProgress` even when `result.soldierAttacks.isEmpty`;
+- Guard wave elapsed persists through the existing two-second save cadence even with no player buildings;
+- Barracks destroyed in the current combat tick prevents a same-frame wave;
+- non-pilot city creates no Guard/Barracks nodes.
 
-- [ ] **Step 2: Restore Guards when the scene creates/recreates combat.**
+- [ ] **Step 2: Restore Guards after creating combat.**
 
-After constructing `BattleCombatState`, read `state.siegeProgress.guardReinforcements?.unresolvedGuards` and restore each snapshot through the combat helper using `state.currentSiegeSnapshot`. Do not use Barracks progress as the actor position and do not reconstruct IDs.
+Read `state.siegeProgress.guardReinforcements?.unresolvedGuards` and restore each through the Task 3 helper using `state.currentSiegeSnapshot`. Do not reconstruct persisted IDs or positions.
 
-- [ ] **Step 3: Keep Guard synchronization outside `applyCombatResult`'s attack guard.**
+- [ ] **Step 3: Keep Guard synchronization outside `applyCombatResult`'s structure-attack guard.**
 
-`applyCombatResult` may keep its existing structure-attack early return, but `advanceCombat` must continue afterward. After `applyCombatResult(result)`:
+After `applyCombatResult(result)` in `advanceCombat`:
 
 ```swift
 let guardStateChanged = state.synchronizeLiveGuardSnapshots(combat.guardSnapshots)
@@ -523,63 +578,60 @@ for snapshot in spawnedGuards {
 }
 ```
 
-Use the actual helper name chosen in Task 3 consistently; do not hide these calls behind `!result.soldierAttacks.isEmpty`.
+If Keep conquest changed stage out of `.battleActive`, skip wave advancement.
 
-- [ ] **Step 4: Broaden the existing progress-save throttle instead of adding a second timer.**
+- [ ] **Step 4: Broaden the existing progress-save throttle.**
 
-Rename/generalize `buildingProgressSaveAccumulator` / `buildingProgressSaveInterval` only as much as needed so the current 2-second cadence applies when either:
+Generalize `buildingProgressSaveAccumulator` / `buildingProgressSaveInterval` only enough that the existing two-second cadence runs when either:
 
-- the city has building progress to persist; or
-- Highcrest Guard reinforcement progress is active.
+```text
+player building progress is active
+OR
+Highcrest Guard reinforcement progress is active
+```
 
-Keep immediate saves for real building spawns. Also save immediately when Guard snapshots change, Guards spawn, Guard losses occur, or structure damage mutates state. Do not save every render frame.
+Keep immediate saves when Guard snapshots change, Guards spawn/die, or structure state mutates. Do not save every frame and do not add a second timer.
 
-- [ ] **Step 5: Preserve live ordering exactly.**
-
-The final `advanceCombat` sequence is:
+- [ ] **Step 5: Preserve final frame order.**
 
 ```text
 record active time
 resolve/spawn player building units
 maintain existing persistence throttle
-combat.tick (tower-first remains inside tick)
+combat.tick (tower-first inside tick)
 feedback.emitAutomaticCombat(result)
 applyCombatResult(result)
-synchronize living Guard lane/HP snapshots
-advance due Guard waves with combat-clamped delta
-restore returned Guard snapshots into combat
-persist if durable Guard state changed/spawned
+synchronize living Guard snapshots
+advance due waves with combat-clamped delta
+restore new Guards into combat
+persist changed Guard state
 sync soldier + Guard nodes / HUD
 ```
 
-If Keep conquest changes stage out of `.battleActive`, skip subsequent wave creation.
+- [ ] **Step 6: Extend the existing asset contract and structure builder.**
 
-- [ ] **Step 6: Add the Barracks asset contract and local procedural Barracks rendering.**
-
-Extend existing `SiegeObjectiveAssetContract`:
+Add:
 
 ```swift
 static let barracks = "siege-barracks"
 ```
 
-Render one Barracks from the authored objective position with objective HP, intact state, ruined/disabled `SHUT DOWN` state, and compact `GUARDS N` reserve copy. Follow existing objective-node code; do not add a structure renderer framework.
+Reuse the existing siege structure/HP/ruin helpers for the authored Barracks objective. Render `GUARDS N` while active/reserve remains and `SHUT DOWN` after Barracks death.
 
 - [ ] **Step 7: Add structurally distinct Guard placeholders.**
 
-Build Guard nodes from a helmet/head + shield/body composition with enemy-facing posture. Do not identify them only by color. Map `guardAttacks`, `guardHits`, and `guardLosses` to short observational actions; model timing remains authoritative.
+Use a helmet/head + shield/body composition and enemy-facing orientation; do not rely only on tint. Map Guard attack/hit/loss events to short observational actions. Model timing remains authoritative.
 
-Document the HPA-476 handoff beside the existing objective contract:
+Document the HPA-476 runtime handoff beside the existing contract:
 
 ```text
 siege-barracks — bottom-center — intact, ruined/disabled
 siege-guard    — feet/bottom-center — resting, walk, attack, hit
 ```
 
-Defeat may stay a procedural fade.
+- [ ] **Step 8: Re-pin City 5 Forged fixtures.**
 
-- [ ] **Step 8: Extend Forged fixtures and re-pin existing City 5 assumptions.**
-
-Add only the Highcrest evidence states needed for capture: active Barracks/wave, damaged Guard, Barracks shut down with survivor, and final advance. Re-run existing City 5 Camp/Forged fixtures because Highcrest now has a custom siege layout; fix fixture assumptions rather than adding a second capture system.
+Add capture states for active wave, damaged Guard, Barracks shutdown with surviving Guard, and final advance. Re-run existing City 5 Camp/Forged fixtures because Highcrest now has a custom layout; fix their assumptions instead of adding another fixture framework.
 
 - [ ] **Step 9: Run focused scene suites and commit.**
 
@@ -593,57 +645,66 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
 
 git add Pyxis/BattleScene.swift Pyxis/ForgedVisualFixture.swift \
   PyxisTests/BattleSceneTests.swift PyxisTests/BattleSceneCoverageTests.swift \
-  PyxisTests/ForgedVisualFixtureTests.swift PyxisTests/SoldierRuntimeGeometryTests.swift
+  PyxisTests/ForgedVisualFixtureTests.swift
 git commit -m "feat: present Highcrest Barracks and Guards"
 ```
 
 ---
 
-### Task 5: Prove lifecycle reconstruction and non-pilot regression behavior
+### Task 5: Prove lifecycle reconstruction and non-pilot regressions
 
 **Files:**
-- Modify as required by concrete failures: `PyxisTests/KingdomGameStoreTests.swift`
-- Modify as required by concrete failures: `PyxisTests/ActiveSiegeLifecycleTests.swift`
-- Modify as required by concrete failures: `PyxisTests/BuildingViewSceneTests.swift`
-- Modify as required by concrete failures: `PyxisTests/CountryMapSceneTests.swift`
-- Modify as required by concrete failures: `PyxisTests/GameViewControllerTests.swift`
-- Modify as required by concrete failures: `PyxisTests/DevJumpStateTests.swift`
+- Modify: `PyxisTests/KingdomGameStoreTests.swift`
+- Modify: `PyxisTests/ActiveSiegeLifecycleTests.swift`
+- Modify: `PyxisTests/BuildingViewSceneTests.swift`
+- Modify: `PyxisTests/CountryMapSceneTests.swift`
+- Modify: `PyxisTests/GameViewControllerTests.swift`
+- Modify: `PyxisTests/DevJumpStateTests.swift`
 
 **Interfaces:**
-- No new production abstraction is expected here. This task closes lifecycle/routing gaps using the APIs introduced in Tasks 1–4.
+- No new production abstraction is introduced here. This task closes lifecycle/routing regressions around the APIs from Tasks 1–4.
 
-- [ ] **Step 1: Add a save/reload regression sequence.**
+- [ ] **Step 1: Add the save/reload regression sequence.**
 
-Seed Highcrest with:
+Seed:
 
 ```text
 waveElapsedSeconds = 4.5
 remainingReserve = 3
-Guard A: left / 5 HP
-Guard B: right / 9 HP
+left Guard = 5 HP
+right Guard = 9 HP
 Barracks damaged but alive
 ```
 
 Round-trip through `KingdomGameStore`, reconstruct Battle, and assert durable values remain exact while transient Guard IDs/positions are recreated at Keep progress.
 
-- [ ] **Step 2: Add tab/Camp/Map settlement coverage.**
+- [ ] **Step 2: Pin tab/Camp/Map lifecycle.**
 
-Prove leaving Battle and returning cannot heal Guards, refill reserve, or restart phase; Camp build/upgrade and background return both use the shared settlement semantics; settlement conquest still routes through the pending Battle result exactly once.
+Prove:
+
+- leaving Battle and returning cannot heal Guards, refill reserve, or restart phase;
+- Guard position reset to Keep is deliberate and does not change lane/HP;
+- live Battle wave time before `markCurrentCityBuildingProgressInactive` is not re-walked by the following settlement window;
+- Camp build/upgrade and background return both use the same abstract damage seam;
+- settlement conquest still routes through the pending Battle result exactly once.
 
 - [ ] **Step 3: Pin one non-pilot city.**
 
-Use City 1 or 2 to prove:
+Use City 1 or 2:
 
-- `guardReinforcements == nil`;
-- no Guard scheduler work occurs;
-- HPA-468 selected-lane spawn/objective combat and tower ordering remain unchanged;
-- existing conquest/report flow still passes.
+```text
+guardReinforcements == nil
+no Guard scheduler work
+HPA-468 selected-lane spawn/objective combat unchanged
+tower ordering unchanged
+existing conquest/report flow unchanged
+```
 
-- [ ] **Step 4: Re-smoke City 5 dev-jump/fixture flows.**
+- [ ] **Step 4: Re-smoke City 5 dev-jump/fixture materialization.**
 
-Because Highcrest changed from single-Keep to custom layout, verify DEBUG city jump and existing fixture state materialization normalize the fresh Highcrest Barracks/Guard progress correctly without special-case migration code.
+Verify fresh DEBUG jump to City 5 creates normalized Highcrest Barracks/Guard progress without migration or special checkpoint code.
 
-- [ ] **Step 5: Run broad affected suites and commit fixes only if needed.**
+- [ ] **Step 5: Run broad affected suites and commit.**
 
 ```bash
 xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
@@ -655,12 +716,10 @@ xcodebuild test -project Pyxis.xcodeproj -scheme Pyxis \
   -only-testing:PyxisTests/CountryMapSceneTests \
   -only-testing:PyxisTests/GameViewControllerTests \
   -only-testing:PyxisTests/DevJumpStateTests
-```
 
-If production/test fixes are required:
-
-```bash
-git add Pyxis PyxisTests
+git add PyxisTests/KingdomGameStoreTests.swift PyxisTests/ActiveSiegeLifecycleTests.swift \
+  PyxisTests/BuildingViewSceneTests.swift PyxisTests/CountryMapSceneTests.swift \
+  PyxisTests/GameViewControllerTests.swift PyxisTests/DevJumpStateTests.swift
 git commit -m "test: lock Highcrest Guard lifecycle"
 ```
 
@@ -669,58 +728,63 @@ git commit -m "test: lock Highcrest Guard lifecycle"
 ### Task 6: Balance, gameplay evidence, and final gates
 
 **Files:**
-- Modify if evidence triggers retuning: `Pyxis/SiegeState.swift`, `Pyxis/Country1CityCatalog.swift`
-- Modify matching tests for any exact tuned values
-- Update PR body with measured evidence; do not add a new evidence framework
+- Potentially modify: `Pyxis/Country1CityCatalog.swift` only if the evidence gate requires Highcrest-local retuning.
+- Modify matching exact-value tests when a tuning value changes.
+- Update PR body with final evidence.
 
-- [ ] **Step 1: Capture the deterministic Highcrest baseline on this PR's base.**
+- [ ] **Step 1: Run the baseline camp/loadout on right / standard direct.**
 
-Use `main` at `76f5e6b836acab5e48f6c27ab107049e1811ba18` with one fixed seed and representative camp/loadout. Record current City 5 elapsed time and allied losses under the existing single-Keep encounter so the new pilot has an honest reference.
-
-- [ ] **Step 2: Run the same camp/loadout on the right direct route.**
-
-Record:
+Use the exact Task 0 seed/loadout. Record:
 
 ```text
 elapsed to Keep conquest
 allied losses
 Guards spawned
-guards defeated
-Barracks remaining HP at conquest
+Guards defeated
+Barracks remaining HP
 ```
 
-Explicitly capture a later wave intercepting an army whose foremost soldier has already passed `0.62`; this is the regression for the reviewed spawn-behind failure.
+Capture a later wave intercepting an army whose foremost soldier has already passed `0.62`.
 
-- [ ] **Step 3: Run the same camp/loadout on the left Barracks-first route.**
+- [ ] **Step 2: Run the same camp/loadout on left / exposed Barracks-first.**
 
-Record the same fields plus Barracks shutdown time and prove no Guard appears after at least one full subsequent six-second opportunity.
+Record the same fields plus Barracks shutdown time. Prove no Guard appears after Barracks shutdown despite additional elapsed wave time.
 
-- [ ] **Step 4: Exercise the lane-switch cap case in running gameplay.**
+- [ ] **Step 3: Smoke center as the deliberate hard lane.**
 
-Create/retain old-lane Guards, switch assault lane, and prove the newly selected lane still receives reinforcement while reserve remains. Automated tests are the contract; this smoke confirms the behavior is visually understandable.
+Do not treat center as a parity target. Confirm only that its direct route functions and retains the existing fortified `1.25x` incoming tower pressure versus right's standard `1.0x`.
 
-- [ ] **Step 5: Retune only if the evidence gate triggers.**
+- [ ] **Step 4: Apply the narrow retune gate.**
 
-Retune only Highcrest objective weights and/or `HighcrestGuardRules` when:
+Retune only when:
 
-- one route is an obvious free choice on both elapsed time and losses;
-- both routes stall unreasonably;
-- Barracks shutdown has no visible consequence; or
-- direct-route Guard pressure is effectively irrelevant.
+```text
+one route is an obvious free choice on both elapsed time and losses
+OR both routes stall unreasonably
+OR Barracks shutdown has no visible consequence
+OR eight Guards by t=24s is too steep for the representative camp
+```
 
-Do not add another structure, enemy type, ability, wave framework, or reward to fix balance.
+Allowed knobs, in order:
 
-- [ ] **Step 6: Capture presentation evidence.**
+1. Highcrest objective weights;
+2. `HighcrestGuardRules.totalReserve`;
+3. `HighcrestGuardRules.waveIntervalSeconds`;
+4. existing local Guard HP/damage/speed numbers.
+
+Do not add an active cap, another structure, enemy type, ability, wave framework, or reward as the first balance response.
+
+- [ ] **Step 5: Capture presentation evidence.**
 
 Capture real running gameplay at:
 
-- existing 393×852 reference;
+- existing 393x852 reference;
 - one compact supported phone;
 - portrait iPad.
 
-Show Guard/direct-route intercept, active Barracks pressure, Barracks shutdown, survivor after shutdown, lane-switch reinforcement, final Keep conquest, and one non-pilot city. Verify Settings/tabs/assault flag/Spawn controls/objective HP/conquest report remain unobstructed.
+Show direct-route late-wave intercept, active Barracks pressure, Barracks shutdown, surviving Guard after shutdown, final Keep conquest, and one non-pilot city. Verify Settings/tabs/assault flag/Spawn controls/objective HP/conquest report remain unobstructed.
 
-- [ ] **Step 7: Run full gates.**
+- [ ] **Step 6: Run full gates.**
 
 ```bash
 swiftlint lint
@@ -736,26 +800,28 @@ xcodebuild -project Pyxis.xcodeproj -scheme Pyxis \
 git diff --check main...HEAD
 ```
 
-Keep the repository's existing lint/coverage policy; do not weaken gates for this ticket.
+Keep the repository's existing coverage policy; do not weaken gates.
 
-- [ ] **Step 8: Update the PR evidence section and commit final tuning/doc synchronization if required.**
+- [ ] **Step 7: Synchronize final shipped values.**
 
-The final PR body must state the shipped Highcrest weights/Guard constants and measured direct-vs-Barracks evidence. If values changed, update both spec/plan exact starting/shipped-value notes and their matching tests in the same final commit.
+If evidence changes Highcrest weights or Guard constants, update the spec, this plan's starting/shipped-value notes, exact-value tests, Linear HPA-469 description, and PR body in the same final commit.
 
 ```bash
 git add Pyxis PyxisTests docs/superpowers
-
 git commit -m "balance: finalize Highcrest Guard pilot"
 ```
 
-Skip the commit when no files changed.
+Skip this commit when no files changed.
 
 ---
 
 ## Review-risk checklist before implementation completion
 
-- **Spawn-behind:** Guards spawn/restore at Keep progress; a direct-route soldier past `0.62` still intercepts a wave.
-- **Lane-switch cap:** four old-lane Guards do not suppress a new-lane wave; reserve remains globally finite at eight.
-- **Guard-only save/feedback:** Guard HP and wave phase survive without structure hits; automatic Guard activity reuses existing melee/hit sounds.
-- **Dual settlement callers:** background idle and Camp/build-upgrade use the same private chronological helper.
-- **Closed enum/fixtures:** Scout `L Barracks`, `SiegeObjectiveAssetContract.barracks`, normalization, CityDefinition comments, and City 5 Forged fixtures are all explicitly updated.
+- **Spawn-behind:** Guards spawn/restore at Keep progress; a direct-route soldier past `0.62` still intercepts later waves.
+- **Spawn camping:** Guard downward movement clamps at authored Barracks progress.
+- **Range identity:** soldiers and Guards use their own attack ranges; ranged types receive earlier attack opportunities while Guards continue closing.
+- **Settlement duplication:** no chronological walker; both callers reuse `applyAbstractBuildingSpawnDamage`.
+- **Guard-only save/feedback:** Guard HP and wave phase survive without structure hits; sound mapping preserves attacking SoldierType.
+- **Live/settlement ownership:** `markCurrentCityBuildingProgressInactive` prevents already-counted live time from being credited again when buildings exist; no-buildings remains no-progress.
+- **Closed enum/fixtures:** Scout `L Barracks`, `SiegeObjectiveAssetContract.barracks`, normalization, CityDefinition comments, and City 5 Forged fixtures are explicitly covered.
+- **Transient position:** Guard position reset is intentional and symmetric with the existing transient allied combat roster; do not add Guard-only spatial persistence.
