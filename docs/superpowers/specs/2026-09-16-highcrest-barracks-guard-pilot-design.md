@@ -8,42 +8,44 @@
 
 Prove one enemy-reinforcement mechanic in City 5, Highcrest, without creating a second combat engine, generic wave system, or enemy-AI framework.
 
-Highcrest gets exactly one destructible Barracks and one enemy Guard type. While the Barracks lives, it periodically adds Guards to the currently selected assault lane. Guards approach from the enemy fortress, block allied soldiers, fight automatically, and remain after the Barracks is destroyed. Destroying the Barracks prevents all future Guard spawns; destroying the Keep still wins immediately.
+Highcrest gets exactly one destructible Barracks and one enemy Guard type. While the Barracks lives, it periodically sends a finite reserve of Guards into the currently selected assault lane. Guards approach from the enemy fortress, block allied soldiers, fight automatically, and remain after the Barracks is destroyed. Destroying the Barracks prevents future Guard spawns; destroying the Keep still wins immediately.
 
-This remains one implementation PR. Design, pure models, persistence, live combat, shared idle/Camp settlement, scene integration, tests, tuning, and gameplay evidence land together. HPA-476 remains the only final image/animation-production task.
+This remains one implementation PR. Design, pure models, persistence, live combat, idle/Camp settlement, scene integration, tests, tuning, and gameplay evidence land together. HPA-476 remains the only final image/animation-production task.
 
 ## Review-locked constraints
 
 1. Extend the HPA-468 seams: `CitySiegeLayout`, `SiegeProgress`, `BattleCombatState`, `KingdomGameState`, and `BattleScene`. Do not add a wave service, target registry, behavior tree, ECS, pathfinder, physics combat, or second simulator.
 2. Keep HP remains the only conquest/liveness authority.
 3. Barracks destruction only stops future reinforcement spawns. Existing Guards survive until defeated or Keep conquest.
-4. Guard production is finite: **2 Guards / 6 seconds, max 4 living Guards on the lane being reinforced, 8 total reserve across the siege**. Reserve is consumed only by Guards actually spawned.
-5. A lane-cap-blocked wave consumes no reserve and does not queue an extra burst. The six-second phase continues; the next attempt is the next aligned wave opportunity after capacity exists.
-6. New Guards use the assault lane selected when they spawn. Existing Guards never change lane after a later lane selection. Other-lane Guards do not consume the selected lane's four-Guard cap.
-7. New and restored Guards start at the Keep's authored `visualProgress` on their lane, not at the Barracks structure position. The Barracks stays the left-side shutdown objective; reinforcement actors come from the fortress so direct-route armies cannot walk past their spawn point.
-8. Opposing actors cannot pass through each other. Guards never attack the player's castle/camp, repair structures, steal resources, or reclaim cities.
-9. Idle/Camp/Map catch-up stays bounded and approximate. Reuse the existing 8-hour cap, 1/10 building-production rate, no-buildings/no-progress rule, at-most-one-city conquest, and exactly-once report/reward routing.
-10. Both background idle resolution and in-Camp/build-upgrade settlement use one shared private chronological settlement helper. Do not implement two Guard walkers.
-11. Guard-only combat changes must persist even when no `SoldierAttackEvent` hits a structure. Reuse existing save cadence rather than saving every frame.
-12. Development save breaks are acceptable. Do not add a migration or save-version layer.
-13. No generated art in HPA-469. Only procedural placeholders and stable runtime asset/action contracts are allowed.
+4. Guard production is finite: **2 Guards / 6 seconds, 8 total reserve across the siege**. There is no separate active-Guard cap. If this ramp is too steep, tune reserve or interval rather than adding cap semantics.
+5. Reserve is consumed only by Guards actually spawned and never replenishes during the siege.
+6. New Guards use the assault lane selected when they spawn. Existing Guards never change lane after a later lane selection.
+7. New and restored Guards start at the Keep's authored `visualProgress` on their lane, not at the Barracks structure position, so direct-route armies cannot permanently walk past future waves.
+8. Guards never advance below the Barracks line. The Barracks objective's `visualProgress` is the lower movement bound, so Guards defend the fortress side instead of camping the player spawn.
+9. Opposing actors cannot pass through each other. Guards never attack the player's castle/camp, repair structures, steal resources, or reclaim cities.
+10. Each actor keeps its own attack-range rule. Soldiers may begin attacking a Guard at their per-type range; the Guard continues closing until its own range is satisfied or the Barracks-line floor stops it. Ranged troops therefore keep their earlier first-strike window without making Guards unable to retaliate.
+11. Idle/Camp/Map catch-up remains deliberately approximate. Reuse the existing 8-hour cap, 1/10 player building-production rate, no-buildings/no-progress rule, at-most-one-city conquest, and exactly-once report/reward routing.
+12. Reuse `applyAbstractBuildingSpawnDamage` as the one shared abstract-damage seam already used by background idle and Camp/build-upgrade settlement. Do not add a second chronological production walker.
+13. Guard-only combat changes must persist even when no `SoldierAttackEvent` hits a structure. Reuse the existing BattleScene save cadence rather than saving every frame.
+14. Development save breaks are acceptable. Do not add a migration or save-version layer.
+15. No generated art in HPA-469. Only procedural placeholders and stable runtime asset/action contracts are allowed.
 
 ## Highcrest authored layout
 
-Use the smallest shape that makes the Barracks decision readable: **Keep + Barracks only**. Do not add another Gate or Arrow Tower merely to justify the encounter.
+Use the smallest readable shape: **Keep + Barracks only**. Do not add another Gate or Arrow Tower merely to justify the encounter.
 
-Highcrest already has the lane profile:
+Highcrest's existing lane profile is:
 
 - left = exposed;
 - center = fortified;
 - right = standard.
 
-Use right as the default lane, preserving the existing standard-lane default.
+Use right as the default lane, preserving today's standard-lane default.
 
 | Objective | Stable ID | Weight | Visual position | Purpose |
 | --- | --- | ---: | --- | --- |
 | Keep | `highcrest.keep` | 4 | center / `1.0` | conquest target and Guard actor spawn/restore progress |
-| Barracks | `highcrest.barracks` | 1 | left / `0.62` | optional reinforcement shutdown target |
+| Barracks | `highcrest.barracks` | 1 | left / `0.62` | optional reinforcement shutdown target and Guard movement floor |
 
 Routes:
 
@@ -51,19 +53,20 @@ Routes:
 - **Center / fortified:** `highcrest.keep`
 - **Right / standard:** `highcrest.keep`
 
-Highcrest's current City 5 durability budget is 427. The 4:1 starting weights allocate **342 Keep / 85 Barracks** while preserving the existing total budget exactly. The Barracks-first route therefore pays the full 427 damage but can permanently shut off Guard pressure; the direct routes pay 342 structure damage but leave the Barracks active until conquest.
+Highcrest's current City 5 durability budget is 427. The 4:1 starting weights allocate **342 Keep / 85 Barracks** while preserving the total exactly. The Barracks-first route therefore pays the full 427 structure damage but can shut off future Guard pressure; direct routes pay 342 structure damage and leave the Barracks active until conquest.
 
-Keep the existing `.arrowTower` city defense trait. For this pilot, `defensiveFire.sourceObjectiveID` remains `highcrest.keep`, which matches today's single-Keep behavior and avoids adding another structure.
+Keep the existing `.arrowTower` city defense trait. `defensiveFire.sourceObjectiveID` remains `highcrest.keep`, matching today's single-Keep defensive-fire origin without inventing another structure.
+
+The two direct routes intentionally are not equal difficulty: center is the existing fortified lane (`1.25x` incoming tower damage) while right is standard (`1.0x`). The pilot's balance comparison is therefore **right direct vs left Barracks-first**. Center remains the deliberate hard direct lane, not a third parity target.
 
 ## Highcrest-local reinforcement tuning
 
-Keep the mechanic local and explicit rather than data-driving a generic wave system.
+These are authored City 5 values, so keep them beside Highcrest in `Country1CityCatalog.swift`, not in generic `SiegeState.swift`:
 
 ```swift
 enum HighcrestGuardRules {
     static let guardsPerWave = 2
     static let waveIntervalSeconds = 6.0
-    static let maxActiveGuardsPerLane = 4
     static let totalReserve = 8
 
     static let maxHP = 12
@@ -74,7 +77,7 @@ enum HighcrestGuardRules {
 }
 ```
 
-These are starting values. The implementation PR may retune only these local Guard numbers and Highcrest's 4:1 durability weights if the required same-camp comparison shows an obvious stall or an irrelevant Barracks. Do not add another mechanic to solve balance.
+At the starting values the entire reserve can deploy by the fourth wave opportunity (`t = 24s`). That is intentional and simpler than an active-cap subsystem. If running evidence shows the pressure ramp is too steep, tune `totalReserve` and/or `waveIntervalSeconds`; do not add a cap, queue, or extra mechanic unless evidence later requires it.
 
 ## Authored siege model and Scout copy
 
@@ -84,22 +87,22 @@ Extend `CitySiegeLayout.ObjectiveKind` with only:
 case barracks
 ```
 
-Keep stable objective IDs as persistence identity. Add only a convenience lookup for the optional Barracks; do not add a generalized structure registry.
+Keep stable objective IDs as persistence identity. Add an optional Barracks lookup; do not add a generalized structure registry.
 
-Construction stays fail-closed:
+Construction remains fail-closed:
 
 - all HPA-468 layout invariants remain;
-- a pilot layout may contain **at most one** `.barracks` objective;
-- the Barracks lookup is optional so non-pilot cities remain valid;
+- an authored layout may contain at most one `.barracks` objective for this pilot;
+- non-pilot cities remain valid with no Barracks;
 - `CityDefinition` documentation must no longer claim Falconridge is the only custom-layout city.
 
-The existing Scout tactical footer derives from every non-Keep objective, so Highcrest must explicitly support the new closed enum case:
+The existing Scout tactical footer derives from every non-Keep objective. Add the exhaustive enum case so Highcrest renders:
 
 ```text
 L Barracks
 ```
 
-`CountryMapScoutCardContent.ObjectiveKind.tacticalName` adds `Barracks`, and the existing measured/fail-closed Scout acceptance path must prove the Highcrest footer presents at compact-phone geometry. Do not add another tutorial surface.
+Keep route membership as the source of `L`; do not hard-code Highcrest copy in the view. The existing measured/fail-closed compact Scout path must prove the footer presents.
 
 ## Persisted reinforcement progress
 
@@ -126,25 +129,29 @@ struct SiegeProgress: Codable, Equatable {
 
 Fresh Highcrest starts with elapsed `0`, reserve `8`, and no Guards. Other cities use `nil`.
 
-`KingdomGameState.normalizedSiegeProgress` remains the single forgiving normalization seam and must materialize the correct shape instead of accidentally dropping reinforcement progress when it reconstructs `SiegeProgress`.
+`KingdomGameState.normalizedSiegeProgress` remains the single forgiving normalization seam. For Highcrest it:
 
-Normalization rules:
+- clamps reserve to `0...8`;
+- normalizes elapsed into `0..<6`;
+- clamps Guard HP to `1...12`;
+- retains at most eight unresolved Guards total, preserving order and lanes;
+- clamps remaining reserve so `unresolvedGuards.count + remainingReserve <= 8`;
+- leaves Barracks-destroyed survivors intact;
+- creates fresh reinforcement progress on a fresh Highcrest siege;
+- forces non-Highcrest `guardReinforcements` to `nil`;
+- never fabricates waves in pending-result state.
 
-- reserve clamps to `0...8`;
-- wave elapsed normalizes into `0..<6`;
-- Guard HP clamps to `1...12`;
-- keep at most four persisted Guards per lane and at most eight unresolved Guards total, preserving order;
-- every Guard keeps its persisted lane;
-- Barracks destruction does not erase unresolved Guards or refill reserve;
-- entering the next city creates fresh siege/reinforcement progress;
-- non-Highcrest cities normalize `guardReinforcements` to `nil`;
-- pending-result state does not fabricate new waves.
+Persisted Guard IDs, positions, animation state, and projectiles are deliberately omitted. On scene reconstruction, each unresolved Guard receives a fresh transient ID and starts at Keep progress on its persisted lane.
 
-Persisted Guard IDs, positions, animation state, and projectiles are deliberately omitted. On scene reconstruction, each unresolved Guard receives a fresh transient ID and starts at `layout.keepObjective.visualProgress` on its persisted lane.
+### Why Guard position is not persisted
+
+Scene replacement currently rebuilds the entire transient `BattleCombatState`; allied soldiers are not spatially persisted either. HPA-469 persists Guard lane + HP specifically to prevent healing/reserve resets, not to introduce partial spatial continuity for only one side. Persisting enemy position alone would make reconstruction asymmetric and expand save semantics beyond this pilot.
+
+This means a Battle -> Camp/Map -> Battle transition reconstructs living Guards at Keep progress. That reset is accepted for this pilot and should be covered by reconstruction tests. A future shared cross-tab combat runtime, if ever justified, should solve actor spatial continuity for both sides together rather than adding Guard-only coordinates now.
 
 ## Live wave scheduling
 
-`KingdomGameState` owns the durable wave clock and reserve because scene replacement/relaunch must not grant free resets.
+`KingdomGameState` owns the durable wave clock and reserve because scene replacement/relaunch must not grant free reserve or clock resets.
 
 Add one focused mutation:
 
@@ -152,68 +159,72 @@ Add one focused mutation:
 mutating func advanceActiveGuardReinforcements(deltaTime: Double) -> [GuardSnapshot]
 ```
 
-It is available only for active Highcrest sieges with a living Keep and living Barracks. For each due six-second opportunity it:
+For an active Highcrest siege with a living Keep and Barracks:
 
-1. counts living unresolved Guards only on `siegeProgress.selectedLane`;
-2. computes available slots against `maxActiveGuardsPerLane`;
-3. appends `min(2, availableSlots, remainingReserve)` full-HP snapshots on the selected lane;
-4. consumes reserve only for appended Guards;
-5. advances the six-second phase even when the lane cap blocks a wave, so blocked waves do not queue;
-6. returns only newly appended snapshots so `BattleScene` can mirror them into transient combat.
+```swift
+let totalElapsed = progress.waveElapsedSeconds + max(0, deltaTime)
+let dueOpportunities = Int(totalElapsed / HighcrestGuardRules.waveIntervalSeconds)
+progress.waveElapsedSeconds = totalElapsed.truncatingRemainder(
+    dividingBy: HighcrestGuardRules.waveIntervalSeconds
+)
+let spawnCount = min(
+    progress.remainingReserve,
+    dueOpportunities * HighcrestGuardRules.guardsPerWave
+)
+```
 
-The reserve remains global. Therefore a lane switch can leave four Guards on the old lane while later waves reinforce the new lane, but at most eight Guards can ever spawn across the entire siege.
+Append exactly `spawnCount` full-HP snapshots on `siegeProgress.selectedLane`, subtract exactly that reserve, and return the new snapshots. If Keep/Barracks is dead or reserve is zero, spawn none. There is no active-cap branch, blocked-wave queue, or lane-switch cap rule.
 
 ### Live-frame ownership and persistence
 
-`BattleScene.advanceCombat(deltaTime:)` owns the integration order. Keep the existing player-building production behavior, then:
+`BattleScene.advanceCombat(deltaTime:)` owns integration order:
 
 ```text
 player building spawns
--> BattleCombatState.tick (tower fire still resolves first inside tick)
+-> BattleCombatState.tick (tower fire remains first inside tick)
 -> feedback.emitAutomaticCombat(result)
 -> apply structure/soldier/Guard result to KingdomGameState
 -> synchronize combat.guardSnapshots into SiegeProgress
 -> advance Guard waves with combat.clampedDeltaTime(deltaTime)
--> spawn returned Guards into BattleCombatState
+-> restore newly spawned Guards into BattleCombatState
 -> persist durable progress and sync nodes/HUD
 ```
 
-Guard snapshot synchronization and wave advancement must live outside `applyCombatResult`'s existing `soldierAttacks.isEmpty` early return. A tick where allies only damage Guards still needs Guard HP persisted.
+Guard snapshot synchronization and wave advancement must live outside `applyCombatResult`'s existing `soldierAttacks.isEmpty` early return. A tick where allies only damage Guards still persists Guard HP.
 
-Do not save every frame. Broaden the existing two-second BattleScene progress-save throttle so Guard wave elapsed state is covered even when there are no player buildings, while Guard HP changes, Guard deaths, structure hits, and actual Guard spawns save immediately through the existing mutation/persistence path.
+Do not save every frame. Broaden the existing two-second BattleScene progress-save throttle so Guard wave elapsed state is covered even when there are no player buildings. Guard HP changes, Guard deaths, structure hits, and actual Guard spawns save immediately.
 
-Barracks destruction during a tick is applied before wave advancement, so it cannot produce a same-frame late wave.
+Barracks destruction during a tick is applied before wave advancement, so it cannot emit a same-frame late wave.
 
 ## Guard combat in `BattleCombatState`
 
-Keep `BattleCombatState` as the only live actor simulator. Add one `Guard` actor array and transient `GuardID`; do not build an enemy hierarchy.
+Keep `BattleCombatState` as the only live actor simulator. Add one `Guard` array and transient `GuardID`; do not build an enemy hierarchy.
 
 A Guard stores only ID, lane, HP, position, and attack cooldown. Its combat numbers come from `HighcrestGuardRules`.
 
-### Spawn / restore progress
-
-Actors and structure geometry have separate jobs:
+### Spawn / restore and movement floor
 
 - Barracks renders at `highcrest.barracks.visualProgress == 0.62`;
-- newly spawned Guards start at `snapshot.layout.keepObjective.visualProgress` on the selected lane;
-- restored Guards also start at Keep progress because positions are intentionally not persisted;
-- a right/center army already past `0.62` must still meet later reinforcement waves near the Keep.
+- new/restored Guards start at `snapshot.layout.keepObjective.visualProgress`;
+- Guard movement downward clamps at `snapshot.layout.barracksObjective?.visualProgress ?? 0`;
+- a Guard with no allied target holds position and never marches toward the player castle;
+- direct-route soldiers already beyond `0.62` still meet later waves because Guards enter from Keep progress.
 
-Do not reuse the Barracks structure position as an actor spawn position.
+Derive the floor from authored Barracks geometry rather than duplicating `0.62` in Guard rules.
 
-### Lane-local contact rule
+### Independent attack ranges
 
-For each lane:
+There is no single shared contact distance.
 
-- a soldier considers only living Guards in its lane;
-- if a Guard lies between that soldier and its next structure objective, that Guard blocks the soldier;
-- the soldier stops at Guard range and attacks the Guard before the structure;
-- Guards move downward toward the foremost living allied soldier in their lane and stop in Guard attack range;
-- neither movement step may cross the opposing actor;
-- after the blocking Guard dies, surviving soldiers resume normal HPA-468 structure targeting;
-- Guards never acquire a target from another lane and never continue toward the player castle when their lane has no allied soldier.
+For a soldier/Guard pair on the same lane:
 
-Same-team spacing/formations remain out of scope.
+1. the soldier stops advancing once it is within **its own** per-type attack range and may attack;
+2. the Guard continues closing while outside **its own** `0.10` attack range, subject to the Barracks movement floor and no-pass-through clamp;
+3. therefore Archer/Mage/Siege can land earlier attacks while the Guard closes;
+4. if the Guard survives and can close far enough, it may retaliate from its own range;
+5. Infantry/Cavalry naturally begin much closer to the Guard.
+
+This preserves existing ranged identity without making a melee Guard permanently unable to reach ranged troops.
 
 ### Tick ordering
 
@@ -221,18 +232,18 @@ Preserve HPA-468's existing tower-first behavior. Do not rewrite the tick as a n
 
 Within `tick(deltaTime:siege:)`:
 
-1. resolve the existing defensive tower shot/cooldown exactly where it runs today;
-2. resolve lane-local soldier/Guard blocker movement;
+1. resolve the existing defensive tower shot/cooldown in its current position;
+2. resolve lane-local soldier/Guard movement using each actor's own range and the Guard floor;
 3. resolve living Guard attacks;
-4. resolve still-living allied attacks against a Guard blocker first, otherwise the first live structure on the route;
+4. resolve still-living allied attacks against a blocking Guard first, otherwise the first live structure on the route;
 5. prune dead Guards/soldiers and emit events;
 6. Keep death remains immediate conquest and stops later work.
 
-An actor killed earlier in the actor phase does not act later in the same tick. With `guards.isEmpty`, existing HPA-468 movement/attack behavior must remain unchanged.
+With `guards.isEmpty`, current HPA-468 behavior must remain unchanged.
 
 ### Small event surface
 
-Reuse existing `damagedSoldierIDs` and `soldierLosses` for allied hit/loss presentation. Add only what Guard rendering needs:
+Reuse existing `damagedSoldierIDs` and `soldierLosses` for Guard-caused allied hit/loss presentation. Add only what Guard rendering/attack feedback needs:
 
 ```swift
 struct GuardAttackEvent: Equatable {
@@ -244,6 +255,7 @@ struct GuardAttackEvent: Equatable {
 struct GuardHitEvent: Equatable {
     let guardID: BattleCombatState.GuardID
     let soldierID: BattleCombatState.SoldierID
+    let type: SoldierType
     let appliedDamage: Int
 }
 
@@ -255,172 +267,193 @@ struct GuardLossEvent: Equatable {
 
 `TickResult` adds `guardAttacks`, `guardHits`, and `guardLosses`. Structure-hit `SoldierAttackEvent` remains structure-only; Guard damage does not become city damage or battle-report damage.
 
-`AutomaticCombatFeedbackScheduler` treats Guard attack/hit activity as candidates for the existing melee/hit sound IDs. Do not add a new feedback category or sound asset.
+Automatic sound mapping remains small:
 
-## Shared idle / Camp / Map settlement
+- `guardAttacks` may contribute existing `.attackMelee`;
+- `guardHits` routes `type` through existing `attackSound(for:)` so Infantry/Cavalry use melee, Archer/Mage use ranged, and Siege uses siege;
+- Guard-caused soldier hit/death already flows through existing `damagedSoldierIDs` / `soldierLosses` and needs no extra hit/death mapping.
 
-Do not frame-simulate Guards offline and do not implement separate idle and Camp walkers.
+No new sound ID, category, queue, or replay behavior is added.
 
-Both `settleCurrentCityBuildingProgress(at:)` and `resolveCurrentCityBuildingIdleProgress(at:)` call one private chronological helper, for example:
+## Idle / Camp / Map approximation
+
+Do not frame-simulate Guards offline and do not add a chronological production event walker.
+
+Both existing settlement callers already converge on `applyAbstractBuildingSpawnDamage`. Extend that existing seam instead:
 
 ```swift
-private mutating func resolveCurrentCityBuildingSettlement(
+private mutating func applyAbstractBuildingSpawnDamage(
+    _ spawns: [BuildingSpawn],
     elapsedSeconds: Double,
-    cityState: inout CityBattleState,
-    conquestMode: ConquestMode
+    conquestMode: BattleConquestMode
 ) -> (applied: Int, conquered: Bool, goldEarned: Int)
 ```
 
-The helper reuses `resolveBuildingSpawns(in:effectiveActiveSeconds:)` as the production primitive and advances events in time order.
-
-### Event walk
-
-Relevant events are:
-
-- the next player building-production event;
-- the next **spawnable** Guard wave opportunity while Keep/Barracks live, reserve remains, and the selected lane has a free Guard slot;
-- Keep destruction;
-- the capped settlement end.
-
 Rules:
 
-1. retain the existing 8-hour real-time cap and 1/10 player building-production scaling;
-2. when time advances, keep the persisted Guard wave phase aligned to six-second opportunities;
-3. if the selected lane is at its Guard cap, arithmetically skip repeated blocked wave boundaries until the next player-production event or settlement end rather than iterating thousands of empty six-second slices;
-4. when a player `BuildingSpawn` resolves, spend its trait-adjusted damage against unresolved Guards on `siegeProgress.selectedLane`, oldest snapshot first;
-5. only after no same-lane Guard blocker remains may leftover damage continue through `CitySiegeLayout.spendDamageBudget` on the selected lane;
-6. at a spawnable wave opportunity, call the same `advanceActiveGuardReinforcements` rules used by live combat; do not copy cap/reserve logic into the settlement helper;
-7. if Barracks dies, resolve remaining production with no future Guard-wave events;
-8. stop immediately when Keep HP reaches zero and reuse the existing exactly-once conquest/reward/report path.
+1. callers keep the existing 8-hour cap and 1/10 building-production calculation;
+2. if the current city has no player buildings, preserve no-buildings/no-progress and do not advance Guard waves;
+3. when buildings exist, call `advanceActiveGuardReinforcements(deltaTime: elapsedSeconds)` once before applying the resolved building spawns;
+4. for each `BuildingSpawn`, spend its trait-adjusted damage against the oldest unresolved Guard on `siegeProgress.selectedLane` first, continuing through same-lane Guards until the budget is exhausted;
+5. only leftover damage continues through `CitySiegeLayout.spendDamageBudget` on the selected lane;
+6. only the structure-applied portion is recorded as idle city damage / battle-report attribution;
+7. Guard damage grants no reward and is not city damage;
+8. stop immediately when Keep reaches zero and reuse existing exactly-once conquest/reward/report behavior.
 
-The finite reserve bounds **successful Guard spawns to eight**, not the number of potential six-second boundaries. Do not claim “at most four checkpoints.”
+### Accepted approximation
 
-Preserve the existing no-buildings/no-progress rule: if there is no player building production to resolve, offline/Camp settlement does not advance Guard waves in isolation.
+All Guards due within the settlement window are materialized before that window's abstract player damage is applied. Compared with a chronological interleave, this can make Guards absorb damage slightly earlier and can allow Guards that a mid-window Barracks kill would have prevented.
 
-Lane-selection settlement still happens before changing `selectedLane`, so the shared helper resolves the old lane first; later live waves use the newly selected lane.
+The error is bounded: at the starting values only eight Guards exist and their total maximum HP is **96**. The approximation is therefore conservative/player-unfavorable by at most that finite defender pool, while avoiding a second copy of building spawn timing. Running balance evidence can tune reserve/interval if this pressure is too high.
+
+Both background idle and Camp/build-upgrade settlement use this same shared damage seam; there is no second Guard ruleset to drift.
+
+### Prevent live-time double counting
+
+Leaving active Battle already calls `markCurrentCityBuildingProgressInactive(at:)`, which re-arms settlement timing for cities with player buildings. Add a focused lifecycle test proving live Guard wave time already advanced in Battle is not advanced again by the next Camp/Map settlement window. When there are no player buildings, settlement remains no-progress and therefore cannot double-count Guard time.
 
 ## Presentation
 
 ### Barracks
 
-Add one local `BattleScene` procedural Barracks builder using the authored objective position. It has:
+Reuse the existing local siege-structure helpers rather than creating a structure renderer. Add Barracks handling with:
 
-- its own objective HP bar;
+- authored objective position;
+- objective HP bar;
 - intact state while spawning is possible;
 - obvious ruined/disabled state after destruction;
-- one compact attached reserve label while alive (`GUARDS 8` -> `GUARDS 0`) and `SHUT DOWN` after destruction.
+- compact attached `GUARDS N` while reserve remains and `SHUT DOWN` after destruction.
 
-No separate enemy-wave HUD or inspector is added.
+No separate wave HUD or inspector is added.
 
 ### Guards
 
-Use a procedural enemy silhouette structurally distinct from allied troops: helmet/head + shield/body composition, enemy-facing orientation, and separate node structure. Team recognition must not rely on tint alone.
+Use a procedural enemy silhouette structurally distinct from allied troops: helmet/head + shield/body composition, enemy-facing orientation, and separate node structure. Team recognition must not rely only on tint.
 
 Guard nodes observe model state only. Animation never controls attack timing or damage. Reduced-motion/static presentation remains understandable.
 
 ### Runtime art handoff to HPA-476
 
-Extend the existing `SiegeObjectiveAssetContract` rather than inventing an asset manifest:
+Extend existing `SiegeObjectiveAssetContract` rather than inventing a manifest:
 
 ```text
 siege-barracks — bottom-center — intact, ruined/disabled
 siege-guard    — feet/bottom-center — resting, walk, attack, hit
 ```
 
-Defeat may use a procedural fade and the Barracks spawn cue may remain procedural. HPA-476 chooses final source dimensions, generated art, frames, prompts, and polish under these names/contracts.
+Defeat may use a procedural fade and Barracks spawn cue may remain procedural. HPA-476 chooses final source dimensions, generated art, frames, prompts, and polish.
 
-Existing City 5 Forged/Camp fixtures must be re-smoked because Highcrest now has authored Barracks state. Do not let the new layout silently change unrelated fixture assumptions.
+Existing City 5 Forged/Camp fixtures must be re-smoked because Highcrest changes from single-Keep to authored Barracks state.
 
 ## Testing and evidence
 
-### Authored model / Scout tests
+### Baseline first
+
+Before Task 1 implementation, capture the current `main` Highcrest baseline with the representative deterministic camp/loadout. Record elapsed time and allied losses. Do not wait until final tuning to discover the pre-pilot reference.
+
+### Authored model / Scout
 
 Cover:
 
-- Highcrest layout IDs, routes, 4:1 allocation, standard default lane, one-Barracks invariant, and Barracks lookup;
-- `L Barracks` Scout copy through the existing compact measured/fail-closed path;
+- Highcrest IDs, routes, 4:1 allocation, right default, one-Barracks invariant/lookup;
+- `HighcrestGuardRules` authored beside Highcrest;
+- `L Barracks` through compact measured/fail-closed Scout presentation;
 - `SiegeObjectiveAssetContract.barracks == "siege-barracks"`;
 - non-Highcrest `guardReinforcements == nil`;
-- `normalizedSiegeProgress` preserves/clamps Highcrest reinforcement progress instead of dropping it.
+- normalization preserves/clamps Highcrest reinforcement progress instead of dropping it.
 
-### Wave / persistence tests
-
-Cover:
-
-- wave timing, finite reserve, per-selected-lane active cap, and selected-lane assignment;
-- **four left Guards + switch right + six seconds -> two right Guards, reserve decreases by two**;
-- cap-blocked wave consumes no reserve and does not queue a burst;
-- Barracks shutdown stops future waves while old Guards remain;
-- save/load round-trip preserves elapsed phase, reserve, lanes, and HP;
-- reconstruction starts persisted Guards at Keep progress without healing them.
-
-### Combat tests
+### Wave / persistence
 
 Cover:
 
-- right-lane army already past Barracks progress still intercepts a new Guard spawned at Keep progress;
-- opposing contact/range, no pass-through, automatic Guard/allied attacks, blocker death, and resume toward structures;
-- Guard cannot cross lanes or attack the player castle;
+- `5.9s -> 0`, `+0.1s -> 2`, another `6s -> 4`, `12s -> remaining reserve consumed` according to aligned opportunities;
+- lane changes affect only newly spawned Guards;
+- Barracks shutdown stops future spawns while living Guards remain;
+- save/load preserves elapsed phase, reserve, lanes, and HP;
+- reconstruction starts persisted Guards at Keep progress without healing them;
+- position reset on reconstruction is explicit and accepted; no Guard-only position persistence is added.
+
+### Combat
+
+Cover:
+
+- a direct-route soldier already past Barracks progress still intercepts a Keep-spawned Guard;
+- Guard never moves below Barracks progress;
+- opposing actors never pass through each other;
+- per-type range tests prove Archer/Mage/Siege can attack earlier while Guard continues closing to its own range;
+- Guard attacks only its own lane and never the player castle;
+- blocker death resumes structure movement;
 - tower shot order remains unchanged;
-- `guards.isEmpty` retains current HPA-468 behavior;
-- immediate Keep victory does not require Guard cleanup.
+- `guards.isEmpty` retains HPA-468 behavior;
+- Keep victory does not require Guard cleanup.
 
-### Idle/lifecycle tests
+### Idle / lifecycle
 
 Cover:
 
-- both background idle and Camp/build-upgrade settlement use the shared helper;
-- unresolved same-lane Guards absorb production damage before structures;
-- cap-blocked intervals collapse rather than iterating every six-second boundary;
-- Barracks destruction stops later offline waves;
-- no buildings means no offline progress or Guard-wave advancement;
+- both background idle and Camp/build-upgrade use the same `applyAbstractBuildingSpawnDamage` Guard absorption seam;
+- all due window Guards are spawned once before abstract damage, matching the documented approximation;
+- same-lane Guards absorb production damage before structures;
+- no buildings means no Guard-wave advancement;
+- Barracks shutdown prevents later windows from spawning Guards;
+- live Battle wave time is not re-applied by the next settlement window;
 - tab/relaunch reconstruction does not heal Guards, refill reserve, or restart wave phase;
 - exactly-once reward/report and at-most-one-city conquest remain unchanged.
 
-### BattleScene / feedback tests
+### BattleScene / feedback
 
 Cover:
 
-- Guard-only ticks synchronize HP to `SiegeProgress` even when `soldierAttacks` is empty;
-- Guard wave elapsed is covered by the existing two-second save throttle with no player building present;
-- Guard attacks/hits map to existing automatic melee/hit sounds;
-- Barracks destroyed in a combat tick cannot spawn a same-frame wave;
-- `siege-barracks` intact/shutdown placeholder states and Guard placeholders reconstruct correctly;
+- Guard-only ticks synchronize HP even when `soldierAttacks` is empty;
+- Guard wave elapsed is covered by the existing two-second save throttle even with no player buildings;
+- `guardAttacks` yields existing melee attack feedback;
+- `guardHits` uses its `SoldierType` and the existing attack-sound mapping;
+- Guard-caused allied hit/death needs no duplicate scheduler mapping;
+- Barracks destroyed during a combat tick cannot spawn a same-frame wave;
+- procedural Barracks/Guard nodes reconstruct correctly;
 - existing City 5 Forged/Camp fixtures still hold.
 
 ### Running evidence
 
-Capture Highcrest on the existing 393x852 reference, a compact supported phone, and portrait iPad. Show:
+Use one identical deterministic camp/loadout for:
 
-1. direct-route reinforcements meeting an army that has passed Barracks progress;
-2. pressure while the Barracks survives;
-3. Barracks-first destruction and `SHUT DOWN` state;
-4. no subsequent spawn after at least one full six-second interval;
-5. surviving Guards still fighting after shutdown;
-6. one lane switch demonstrating old-lane Guards do not suppress new-lane reinforcement;
-7. final Keep advance/conquest;
-8. one non-pilot city retaining HPA-468 behavior.
+1. **right / standard direct push**;
+2. **left / exposed Barracks-first**.
 
-Use one identical deterministic camp/loadout for a **right direct push** versus **left Barracks-first** comparison. Record elapsed time, allied losses, Guards spawned/defeated, and Barracks shutdown time. Retune only Highcrest weights or `HighcrestGuardRules` if one route is an obvious free choice, both routes stall, or Barracks destruction has no visible consequence.
+Record elapsed time, allied losses, Guards spawned/defeated, and Barracks shutdown time. Capture a later direct-route wave intercepting an army that has passed `0.62`.
+
+Center is the deliberate fortified hard lane and is not a balance-parity target; one smoke is sufficient to prove the lane still functions.
+
+Capture real gameplay at the existing 393x852 reference, one compact supported phone, and portrait iPad. Show active Guard pressure, Barracks shutdown, surviving Guard after shutdown, final Keep conquest, and one non-pilot city.
+
+Retune only Highcrest objective weights, `totalReserve`, `waveIntervalSeconds`, or the existing local Guard combat stats if one route is an obvious free choice, both routes stall, or Barracks shutdown has no visible consequence. Do not add an active cap or another mechanic as the first balance response.
 
 ## Risks resolved by this design
 
-### Spawn-behind on direct routes
+### Spawn-behind
 
-Barracks structure geometry is left/0.62, but Guard actors spawn/restore from Keep progress. Direct-route columns therefore cannot permanently outrun reinforcement waves.
+Guard actors spawn/restore at Keep progress while Barracks geometry stays left/0.62.
 
-### Lane-switch cap stranding
+### Spawn-point camping
 
-The four-Guard cap is per reinforced lane, while reserve is global. Old-lane Guards remain honest obstacles if the player returns, but they cannot disable reinforcement on a newly selected lane.
+Guard movement is clamped at the authored Barracks progress; they defend the fortress half and never push to the player spawn.
+
+### Ranged identity ambiguity
+
+Soldiers and Guards use their own ranges independently. Ranged troops gain earlier attack opportunities while a surviving Guard continues closing to its own range.
+
+### Duplicate settlement machinery
+
+Both settlement callers retain current production resolution and share the existing `applyAbstractBuildingSpawnDamage` extension. No production-timing walker is added.
 
 ### Guard-only state loss
 
-Guard snapshot synchronization sits in `advanceCombat`, outside the structure-attack early return, and the existing save cadence is broadened to include wave elapsed progress.
+Guard snapshot synchronization stays in `advanceCombat`, outside the structure-attack early return, and the existing save cadence is broadened to include wave elapsed progress.
 
-### Divergent idle vs Camp semantics
+### Deliberate position reset
 
-Both settlement callers use one private chronological helper and the same wave mutation. There is no second Guard ruleset to drift.
+Guard position remains transient for the same scene-lifecycle reason as allied soldier position. The pilot persists only the state needed to prevent healing/reserve resets.
 
 ## Deliberate cuts
 
-No additional enemy classes, multiple Barracks, enemy rewards, Guard loot/gold, formations, threat tables, pathfinding, physics, Guard attacks on the player castle, repairs, regeneration, resource theft, city reclamation, boss phases, generic wave configuration, runtime asset manifest, telemetry, save migration, per-city generated art, or HPA-475 hero/Rally work.
+No active-Guard cap, cap queue semantics, additional enemy classes, multiple Barracks, Guard position persistence, enemy rewards, Guard loot/gold, formations, threat tables, pathfinding, physics, Guard attacks on the player castle, repairs, regeneration, resource theft, city reclamation, boss phases, generic wave configuration, chronological idle combat simulation, runtime asset manifest, telemetry, save migration, per-city generated art, or HPA-475 hero/Rally work.
