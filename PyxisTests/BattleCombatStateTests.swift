@@ -1096,9 +1096,14 @@ struct BattleCombatStateTests {
 
     @Test func singleOccupiedLaneDoesNotConsumeRNG() throws {
         // When only one lane has soldiers in defensive-fire range, the lane
-        // short-circuit must NOT advance the RNG. Verify by aligning two
-        // same-seed states on an identical single-lane shot, then comparing
-        // their subsequent multi-lane random lane choice.
+        // short-circuit must NOT advance the RNG. stateA takes a real
+        // single-lane shot; same-seed stateB is the control and skips that
+        // tick entirely, so it never enters the lane-choice path. The states
+        // stay equivalent for the comparison: movement speed is 0 so
+        // positions match, and each comparison tick lasts the full tower
+        // interval so both towers fire despite A's post-shot cooldown. If
+        // the single-lane branch ever consumes RNG, A's stream sits a draw
+        // ahead of B's and the multi-lane choices below diverge.
         let config = BattleCombatState.Configuration(
             soldierMaxHP: 100,
             soldierDefense: 0,
@@ -1119,14 +1124,17 @@ struct BattleCombatStateTests {
 
         var stateB = BattleCombatState(configuration: config, seed: 42)
         _ = stateB.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
-        let shotB = stateB.tick(deltaTime: 0.1, siege: snapshot)
-        #expect(shotB.towerShots.count == 1)
+        // No single-lane tick for the control: B's RNG stays at the shared
+        // pre-shot position.
 
         // Both states now add two more occupied lanes and re-fire on the same
-        // tick. If the single-lane shots consumed no RNG, the seeded choice
-        // among three lanes is identical in both states.
-        var targetA: Set<BattleCombatState.SoldierID> = []
-        var targetB: Set<BattleCombatState.SoldierID> = []
+        // tick. If A's single-lane shot consumed no RNG, the seeded choice
+        // among three lanes is identical in both states; if it did, A's
+        // stream is offset from B's and the per-round choices diverge.
+        // Per-round comparison is required: aggregated sets stay equal even
+        // when the streams are offset, because both still cover the lanes.
+        var choicesA: [BattleCombatState.SoldierID] = []
+        var choicesB: [BattleCombatState.SoldierID] = []
         for _ in 0..<8 {
             _ = stateA.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
             _ = stateA.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
@@ -1135,19 +1143,15 @@ struct BattleCombatStateTests {
 
             let tickA = stateA.tick(deltaTime: 1.0, siege: snapshot)
             let tickB = stateB.tick(deltaTime: 1.0, siege: snapshot)
-            guard let chosenA = tickA.towerShots.first?.soldierID,
-                  let chosenB = tickB.towerShots.first?.soldierID else {
-                continue
-            }
-            targetA.insert(chosenA)
-            targetB.insert(chosenB)
+            choicesA.append(try #require(tickA.towerShots.first?.soldierID))
+            choicesB.append(try #require(tickB.towerShots.first?.soldierID))
         }
 
-        // Every round picked the same lane-side target in both states; over
-        // eight rounds the choice varied (both lanes exercised) while staying
+        // Every round picked the same target in both states; over eight
+        // rounds the choice varied (both lanes exercised) while staying
         // identical between the two states.
-        #expect(targetA == targetB)
-        #expect(targetA.count > 1)
+        #expect(choicesA == choicesB)
+        #expect(Set(choicesA).count > 1)
     }
 
     private struct ExpectedSoldierStats {
