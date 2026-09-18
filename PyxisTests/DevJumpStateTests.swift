@@ -22,5 +22,38 @@ struct DevJumpStateTests {
             #expect(state.lastBackgroundedAt == nil)
         }
     }
+
+    @Test("Fresh City 5 jump materializes normalized Guard progress with no special-casing")
+    func highcrestJumpMaterializesNormalizedGuardProgress() throws {
+        let state = DevJumpState.make(city: 5)
+        let layout = state.currentSiegeLayout
+
+        // Plain state materialization through the standard init
+        // normalization: fresh full-reserve Highcrest progress, living
+        // Barracks and Keep, no checkpoint or migration residue.
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshHighcrest())
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: HighcrestGuardRules.totalReserve,
+            unresolvedGuards: []
+        ))
+        #expect(state.siegeProgress.selectedLane == layout.defaultLane)
+        #expect(state.siegeProgress.damageByObjectiveID.isEmpty)
+        let barracksID = try #require(SiegeTestSupport.objectiveID(for: .barracks, in: state))
+        let maxPowers = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        #expect(state.currentSiegeSnapshot.objectiveRemainingPower[barracksID]
+            == maxPowers[barracksID])
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+
+        // Repeated jumps are deterministic (no hidden migration state).
+        #expect(DevJumpState.make(city: 5) == state)
+    }
+
+    @Test("Non-pilot city jumps carry no Guard state")
+    func nonPilotCityJumpCarriesNoGuardState() {
+        let state = DevJumpState.make(city: 1)
+
+        #expect(state.siegeProgress.guardReinforcements == nil)
+    }
 }
 #endif

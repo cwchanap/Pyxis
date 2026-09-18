@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import SpriteKit
 import Testing
 @testable import Pyxis
 
@@ -65,16 +66,21 @@ struct KingdomGameStoreTests {
         #expect(loaded.siegeProgress.damageByObjectiveID[gateID] == 4)
     }
 
-    @Test func saveAndLoadRoundTripsHighcrestGuardReinforcements() throws {
-        let defaults = try makeDefaults()
-        let store = KingdomGameStore(defaults: defaults, key: "state")
-        var saved = SiegeTestSupport.makeBattleState(
+    /// The Task 5 regression seed: mid-wave phase, partial reserve, two
+    /// damaged Guards, and a damaged-but-alive Barracks.
+    private static func makeHighcrestGuardSeedState() -> KingdomGameState {
+        let layout = Country1CityCatalog.definition(for: 5).siegeLayout
+        let barracksMax = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 5))[
+            layout.barracksObjective?.id ?? ""
+        ] ?? 0
+        var state = SiegeTestSupport.makeBattleState(
             atCity: 5,
             gold: 30,
             keepRemaining: 300,
+            supportDamage: [.barracks: barracksMax / 2],
             selectedLane: .left
         )
-        saved.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
             waveElapsedSeconds: 4.5,
             remainingReserve: 3,
             unresolvedGuards: [
@@ -82,6 +88,13 @@ struct KingdomGameStoreTests {
                 GuardSnapshot(lane: .right, remainingHP: 9)
             ]
         )
+        return state
+    }
+
+    @Test func saveAndLoadRoundTripsHighcrestGuardReinforcements() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let saved = Self.makeHighcrestGuardSeedState()
 
         store.save(saved)
         let loaded = store.load()
@@ -94,6 +107,43 @@ struct KingdomGameStoreTests {
             GuardSnapshot(lane: .left, remainingHP: 5),
             GuardSnapshot(lane: .right, remainingHP: 9)
         ])
+        // The Barracks reloads damaged but alive.
+        let barracksID = try #require(SiegeTestSupport.objectiveID(for: .barracks, in: loaded))
+        let maxPowers = loaded.currentSiegeLayout.maxPowerAllocation(totalBudget: loaded.cityMaxPower)
+        #expect(loaded.currentSiegeSnapshot.objectiveRemainingPower[barracksID]
+            == (maxPowers[barracksID] ?? 0) - ((maxPowers[barracksID] ?? 0) / 2))
+    }
+
+    @MainActor
+    @Test("Reloaded Highcrest Guard state reconstructs Battle Guards at Keep progress")
+    func reloadedHighcrestGuardStateReconstructsBattleAtKeepProgress() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let saved = Self.makeHighcrestGuardSeedState()
+
+        store.save(saved)
+        let loaded = store.load()
+
+        // Durable values survive the round trip exactly.
+        let durable = try #require(loaded.siegeProgress.guardReinforcements)
+        #expect(durable.waveElapsedSeconds == 4.5)
+        #expect(durable.remainingReserve == 3)
+        #expect(durable.unresolvedGuards == [
+            GuardSnapshot(lane: .left, remainingHP: 5),
+            GuardSnapshot(lane: .right, remainingHP: 9)
+        ])
+
+        // Battle reconstruction (the scene loads from the store itself)
+        // recreates both Guards at Keep progress with their persisted,
+        // unhealed HP and fresh transient IDs in persisted lane order.
+        let scene = BattleScene(size: CGSize(width: 390, height: 844), store: store)
+        let guards = scene.livingGuardsForTesting
+        #expect(guards.map(\.id) == [1, 2])
+        #expect(guards.map(\.lane) == [.left, .right])
+        #expect(guards.map(\.currentHP) == [5, 9])
+        let keepProgress = loaded.currentSiegeLayout.keepObjective.visualProgress
+        #expect(guards.map(\.position) == [keepProgress, keepProgress])
+        #expect(scene.gameStateForTesting.siegeProgress.guardReinforcements == durable)
     }
 
     @Test func saveAndLoadRoundTripsPendingMapState() throws {

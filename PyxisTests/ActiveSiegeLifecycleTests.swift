@@ -399,6 +399,155 @@ struct ActiveSiegeLifecycleTests {
         #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
     }
 
+    // MARK: Lifecycle reconstruction & non-pilot regressions (HPA-469 Task 5)
+
+    @Test func backgroundForegroundCycleCannotHealRefillOrRestartGuards() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 9_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 100,
+            keepRemaining: 300,
+            supportDamage: [.barracks: 20],
+            selectedLane: .left
+        )
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 4.5,
+            remainingReserve: 3,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 5),
+                GuardSnapshot(lane: .right, remainingHP: 9)
+            ]
+        )
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected build to succeed")
+            return
+        }
+
+        // Leaving Battle freezes Guard progress verbatim: no heal, no
+        // refill, no phase restart.
+        state.enterBackground(at: start)
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
+            waveElapsedSeconds: 4.5,
+            remainingReserve: 3,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 5),
+                GuardSnapshot(lane: .right, remainingHP: 9)
+            ]
+        ))
+
+        // Returning settles only the post-transition 1s window: the phase
+        // carries forward (4.5 → 5.5, no wave due), Guards keep their
+        // damaged HP, and the reserve stays partially spent.
+        let result = state.returnFromBackground(at: start.addingTimeInterval(1))
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
+            waveElapsedSeconds: 5.5,
+            remainingReserve: 3,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 5),
+                GuardSnapshot(lane: .right, remainingHP: 9)
+            ]
+        ))
+        #expect(result.damageDealt == 0)
+        #expect(result.conqueredCities == 0)
+        #expect(state.pendingBattleResult == nil)
+    }
+
+    @Test func settlementConquestPendingIsConsumedExactlyOnce() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 6_000)
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 100, keepRemaining: 1, selectedLane: .right)
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 0,
+            unresolvedGuards: []
+        )
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+        guard case .cityConqueredDuringSettlement = state.buildBuilding(
+            .barracks, inSlot: 2, at: start.addingTimeInterval(100)
+        ) else {
+            Issue.record("expected settlement conquest")
+            return
+        }
+
+        // The pending result exists exactly once and the second completion
+        // is refused without a second award.
+        let pending = try #require(state.pendingBattleResult)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        let gold = state.gold
+        #expect(state.completeCurrentCity(with: pending).awarded == false)
+        #expect(state.gold == gold)
+
+        // Acknowledging clears the pending result exactly once.
+        state.acknowledgePendingBattleResult()
+        #expect(state.pendingBattleResult == nil)
+        state.acknowledgePendingBattleResult()
+        #expect(state.pendingBattleResult == nil)
+        #expect(state.completeCurrentCity(with: pending).awarded == false)
+    }
+
+    @Test func nonPilotCityKeepsNilGuardStateAndUnchangedSiegeFlow() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 2, keepRemaining: 10, selectedLane: .right)
+
+        // Fresh entry carries no Guard scheduler state, and both the wave
+        // scheduler and the live-sync seam are no-ops that never materialize
+        // Guard state.
+        #expect(state.siegeProgress.guardReinforcements == nil)
+        #expect(state.advanceActiveGuardReinforcements(deltaTime: 60).isEmpty)
+        #expect(state.synchronizeLiveGuardSnapshots([
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP)
+        ]) == false)
+        #expect(state.siegeProgress.guardReinforcements == nil)
+
+        // The snapshot feeding combat keeps the unchanged single-keep shape:
+        // one objective whose defensive fire still covers every lane.
+        let snapshot = state.currentSiegeSnapshot
+        #expect(snapshot.objectiveRemainingPower.count == 1)
+        #expect(snapshot.layout.defensiveFire.coveredLanes == BattleLane.allCases)
+
+        // HPA-468 selected-lane objective combat is unchanged: the .right
+        // route spends straight into the Keep, and combat never creates
+        // Guard state.
+        state.recordSoldierDeployment(type: .infantry, source: .manual, lane: .right)
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        let keepMax = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)[keepID] ?? 0
+        let first = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .right,
+                objectiveID: keepID,
+                appliedDamage: 4
+            )
+        ])
+        #expect(first.conqueredCities == 0)
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == keepMax - 10 + 4)
+        #expect(state.siegeProgress.guardReinforcements == nil)
+
+        // The existing conquest/report flow is unchanged.
+        let conquest = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .right,
+                objectiveID: keepID,
+                appliedDamage: 10
+            )
+        ])
+        #expect(conquest.conqueredCities == 1)
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .live)
+        #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: 2))
+        #expect(pending.goldEarned == KingdomGameState.goldReward(for: 2))
+        #expect(state.gold == pending.goldEarned)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.activeSiegeSession == nil)
+        #expect(state.siegeProgress.guardReinforcements == nil)
+    }
+
     private func battleResult(
         cityNumber: Int,
         activeBattleSeconds: TimeInterval = 3,

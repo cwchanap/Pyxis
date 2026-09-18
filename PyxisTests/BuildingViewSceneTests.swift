@@ -604,6 +604,97 @@ struct BuildingViewSceneTests {
         ) == valid)
     }
 
+    // MARK: Highcrest Guard lifecycle through Camp (HPA-469 Task 5)
+
+    /// Highcrest battle state with durable Guard progress and an armed
+    /// building-progress interval anchored at `anchor`.
+    private func makeHighcrestGuardState(
+        guardProgress: GuardReinforcementProgress,
+        anchor: Date
+    ) -> KingdomGameState {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 100,
+            keepRemaining: 1_000,
+            selectedLane: .left
+        )
+        state.siegeProgress.guardReinforcements = guardProgress
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks)],
+            lastBuildingProgressResolvedAt: anchor
+        )
+        state.markCurrentCityBuildingProgressInactive(at: anchor)
+        return state
+    }
+
+    @Test("Camp foreground return carries Guard phase forward without healing or refilling")
+    func campForegroundReturnDoesNotHealRefillOrRestartGuards() throws {
+        let anchor = Date(timeIntervalSinceReferenceDate: 10_000)
+        let store = try makeStore(initialState: makeHighcrestGuardState(
+            guardProgress: GuardReinforcementProgress(
+                waveElapsedSeconds: 4.5,
+                remainingReserve: 3,
+                unresolvedGuards: [
+                    GuardSnapshot(lane: .left, remainingHP: 5),
+                    GuardSnapshot(lane: .right, remainingHP: 9)
+                ]
+            ),
+            anchor: anchor
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.sceneWillEnterForegroundForTesting(at: anchor.addingTimeInterval(1))
+
+        // Only the 1s post-transition window settled: the phase carries
+        // forward (4.5 → 5.5, no wave due), damaged Guards stay damaged, and
+        // the partial reserve stays partial.
+        let saved = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(saved == GuardReinforcementProgress(
+            waveElapsedSeconds: 5.5,
+            remainingReserve: 3,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 5),
+                GuardSnapshot(lane: .right, remainingHP: 9)
+            ]
+        ))
+        #expect(store.load().pendingBattleResult == nil)
+    }
+
+    @Test("Camp build settlement materializes due waves without healing damaged Guards")
+    func campBuildSettlementMaterializesDueWaveWithoutHealingGuards() throws {
+        // A 120s armed window guarantees exactly one spawn (10s interval at
+        // the 1/10 settlement rate) and a due wave regardless of wall-clock
+        // jitter between seeding and the build action. The seed is
+        // decode-stable: wave 5.5 < interval and reserve + guards = 8 total.
+        let anchor = Date(timeIntervalSinceNow: -120)
+        let store = try makeStore(initialState: makeHighcrestGuardState(
+            guardProgress: GuardReinforcementProgress(
+                waveElapsedSeconds: 5.5,
+                remainingReserve: HighcrestGuardRules.totalReserve - 1,
+                unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 5)]
+            ),
+            anchor: anchor
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        scene.selectSlotForTesting(2)
+        scene.buildSelectedSlotForTesting(.barracks)
+
+        // The due wave materialized in full before the spawn's damage was
+        // spent; the spawn's power drew the oldest damaged Guard down (never
+        // up) and never touched the Keep.
+        let saved = store.load()
+        let progress = try #require(saved.siegeProgress.guardReinforcements)
+        let power = saved.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
+        #expect(progress.remainingReserve == 0)
+        #expect(progress.unresolvedGuards.count == 8)
+        #expect(progress.unresolvedGuards.reduce(0) { $0 + $1.remainingHP }
+            == 5 + HighcrestGuardRules.maxHP * 7 - power)
+        #expect(progress.unresolvedGuards.first!.remainingHP < 5)
+        #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
+        #expect(saved.pendingBattleResult == nil)
+    }
+
     private func makeScene(
         size: CGSize = CGSize(width: 390, height: 844),
         store: KingdomGameStore,
