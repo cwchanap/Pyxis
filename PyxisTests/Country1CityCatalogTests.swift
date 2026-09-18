@@ -86,6 +86,22 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "falconridge.arrow-tower", coveredLanes: BattleLane.allCases)
     )
 
+    /// The authored Highcrest tactical siege layout (HPA-469 Guard pilot),
+    /// shared by the fixture entry and the dedicated pin test.
+    private static let highcrestSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 4, visualLane: .center, visualProgress: 1.0),
+            .init(id: "highcrest.barracks", kind: .barracks, durabilityWeight: 1, visualLane: .left, visualProgress: 0.62)
+        ],
+        routes: [
+            .left: ["highcrest.barracks", "highcrest.keep"],
+            .center: ["highcrest.keep"],
+            .right: ["highcrest.keep"]
+        ],
+        defaultLane: .right,
+        defensiveFire: .init(sourceObjectiveID: "highcrest.keep", coveredLanes: BattleLane.allCases)
+    )
+
     private static let expectedDefinitions: [ExpectedDefinition] = [
         .init(1, name: "Willowford", flavorText: "A quiet crossing where the campaign begins.", conquestTitle: "Willowford Secured", .standardWatch, .left, .right, .frontier),
         .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left, .frontier),
@@ -101,7 +117,17 @@ struct Country1CityCatalogTests {
             siegeLayout: falconridgeSiegeLayout
         ),
         .init(4, name: "Bramblegate", flavorText: "Iron spikes guard a narrow frontier gate.", conquestTitle: "Bramblegate Broken", .spikedGate, .left, .right, .frontier),
-        .init(5, name: "Highcrest", flavorText: "A proud hill fortress crowns the frontier.", conquestTitle: "Highcrest Falls", .arrowTower, .center, .left, .frontier),
+        .init(
+            5,
+            name: "Highcrest",
+            flavorText: "A proud hill fortress crowns the frontier.",
+            conquestTitle: "Highcrest Falls",
+            .arrowTower,
+            .center,
+            .left,
+            .frontier,
+            siegeLayout: highcrestSiegeLayout
+        ),
         .init(6, name: "Granite Pass", flavorText: "Stone walls seal the mountain road ahead.", conquestTitle: "Granite Pass Open", .stoneWall, .right, .center, .frontier),
         .init(7, name: "Emberford", flavorText: "Burning oil guards the bridge inland.", conquestTitle: "Emberford Secured", .burningOil, .left, .right, .ember),
         .init(8, name: "Greywall", flavorText: "Layered stone walls protect a busy town.", conquestTitle: "Greywall Falls", .stoneWall, .center, .left, .frontier),
@@ -208,8 +234,31 @@ struct Country1CityCatalogTests {
         #expect(Country1CityCatalog.definition(for: 3).siegeLayout == Self.falconridgeSiegeLayout)
     }
 
+    @Test func highcrestAuthorsKeepAndBarracksPilot() {
+        let definition = Country1CityCatalog.definition(for: 5)
+        let layout = definition.siegeLayout
+        let maxPower = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 5))
+
+        #expect(layout.defaultLane == .right)
+        #expect(layout.routes[.left] == ["highcrest.barracks", "highcrest.keep"])
+        #expect(layout.routes[.center] == ["highcrest.keep"])
+        #expect(layout.routes[.right] == ["highcrest.keep"])
+        #expect(layout.barracksObjective?.id == "highcrest.barracks")
+        #expect(maxPower["highcrest.keep"] == 342)
+        #expect(maxPower["highcrest.barracks"] == 85)
+    }
+
+    @Test func highcrestDefensiveFireStaysSourcedFromTheKeepAcrossAllLanes() {
+        let fire = Country1CityCatalog.definition(for: 5).siegeLayout.defensiveFire
+
+        #expect(fire.sourceObjectiveID == "highcrest.keep")
+        #expect(Set(fire.coveredLanes) == Set(BattleLane.allCases))
+    }
+
     @Test func nonPilotCitiesUseSingleKeepDefaultedToTheirStandardLane() {
-        for definition in Country1CityCatalog.definitions where definition.cityNumber != 3 {
+        // Cities 3 (Falconridge) and 5 (Highcrest) author tactical layouts.
+        for definition in Country1CityCatalog.definitions
+        where definition.cityNumber != 3 && definition.cityNumber != 5 {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"

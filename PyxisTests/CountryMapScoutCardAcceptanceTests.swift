@@ -389,6 +389,37 @@ struct CountryMapScoutCardAcceptanceTests {
         }
     }
 
+    @Test
+    func compactHighcrestScoutPresentsBarracksFooterAboveTheFailClosedFloor() throws {
+        // HPA-469: the Highcrest Barracks footer must present on supported
+        // compact phone geometry at or above the existing 8pt fail-closed
+        // floor — the measured fit contract may shrink it, never drop it.
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        let layout = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 34, width: 343, height: 48),
+            layoutClass: .phone
+        )
+        guard case .scout(let highcrest) = CountryMapScoutCardContent.project(
+            from: KingdomGameState(
+                cityLevel: 5,
+                cityNumberInCountry: 5,
+                completedCityCount: 4
+            )
+        ) else {
+            Issue.record("Expected Highcrest Scout projection")
+            return
+        }
+
+        #expect(node.apply(
+            content: .scout(highcrest),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.laneTextForTesting == "L Barracks")
+        let laneFontSize = try #require(node.laneFontSizeForTesting)
+        #expect(laneFontSize >= 8)
+    }
+
     private final class SceneHarness {
         let scene: CountryMapScene
         let store: KingdomGameStore

@@ -85,7 +85,22 @@ enum Country1CityCatalog {
             conquestTitle: "Highcrest Falls",
             defenseTrait: .arrowTower,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 4,
+                          visualLane: .center, visualProgress: 1.0),
+                    .init(id: "highcrest.barracks", kind: .barracks, durabilityWeight: 1,
+                          visualLane: .left, visualProgress: 0.62)
+                ],
+                routes: [
+                    .left: ["highcrest.barracks", "highcrest.keep"],
+                    .center: ["highcrest.keep"],
+                    .right: ["highcrest.keep"]
+                ],
+                defaultLane: .right,
+                defensiveFire: .init(sourceObjectiveID: "highcrest.keep", coveredLanes: BattleLane.allCases)
+            )
         ),
         CityDefinition(
             cityNumber: 6,
@@ -190,5 +205,51 @@ enum Country1CityCatalog {
     static func definitionIfPresent(for cityNumber: Int) -> CityDefinition? {
         guard cityRange.contains(cityNumber) else { return nil }
         return definitions[cityNumber - cityRange.lowerBound]
+    }
+}
+
+/// Highcrest-only Guard reinforcement tuning (HPA-469 pilot). These City 5
+/// values live beside the Highcrest authoring, not in generic siege state.
+enum HighcrestGuardRules {
+    static let guardsPerWave = 2
+    static let waveIntervalSeconds = 6.0
+    static let totalReserve = 8
+    static let maxHP = 12
+    static let attackPower = 3
+    static let attackSpeed = 1.0
+    static let attackRange = 0.10
+    static let movementSpeed = 0.30
+}
+
+extension GuardReinforcementProgress {
+    /// Fresh full-reserve progress for a newly entered Highcrest.
+    static func freshHighcrest() -> GuardReinforcementProgress {
+        GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: HighcrestGuardRules.totalReserve,
+            unresolvedGuards: []
+        )
+    }
+
+    /// Forgiving normalization for persisted Highcrest Guard state: elapsed
+    /// wraps into 0..<`waveIntervalSeconds`, reserve clamps to 0...8 and to
+    /// the 8-total budget against retained Guards, Guard HP clamps to
+    /// 1...12, and at most the first 8 snapshots are retained in order
+    /// (lanes preserved; no IDs or positions are persisted).
+    func normalizedForHighcrest() -> GuardReinforcementProgress {
+        let elapsed = max(0, waveElapsedSeconds)
+            .truncatingRemainder(dividingBy: HighcrestGuardRules.waveIntervalSeconds)
+        let guards = unresolvedGuards.prefix(HighcrestGuardRules.totalReserve).map { snapshot in
+            GuardSnapshot(
+                lane: snapshot.lane,
+                remainingHP: min(max(1, snapshot.remainingHP), HighcrestGuardRules.maxHP)
+            )
+        }
+        let reserveCeiling = HighcrestGuardRules.totalReserve - guards.count
+        return GuardReinforcementProgress(
+            waveElapsedSeconds: elapsed,
+            remainingReserve: min(max(0, remainingReserve), reserveCeiling),
+            unresolvedGuards: guards
+        )
     }
 }

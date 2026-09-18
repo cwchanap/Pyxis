@@ -16,6 +16,7 @@ struct CitySiegeLayout: Equatable {
         case keep
         case gate
         case arrowTower
+        case barracks
     }
 
     struct Objective: Equatable {
@@ -43,6 +44,12 @@ struct CitySiegeLayout: Equatable {
         objectives.first { $0.kind == .keep }!
     }
 
+    /// The optional single `.barracks` objective (HPA-469 Highcrest Guard
+    /// pilot), or nil for layouts without one. `init` enforces at-most-one.
+    var barracksObjective: Objective? {
+        objectives.first { $0.kind == .barracks }
+    }
+
     init(
         objectives: [Objective],
         routes: [BattleLane: [String]],
@@ -52,6 +59,10 @@ struct CitySiegeLayout: Equatable {
         let keeps = objectives.filter { $0.kind == .keep }
         precondition(keeps.count == 1, "CitySiegeLayout must contain exactly one keep objective")
         let keepID = keeps[0].id
+        precondition(
+            objectives.filter { $0.kind == .barracks }.count <= 1,
+            "CitySiegeLayout must contain at most one barracks objective"
+        )
         precondition(
             objectives.allSatisfy { !$0.id.isEmpty },
             "CitySiegeLayout objective IDs must be non-empty"
@@ -211,4 +222,33 @@ struct CitySiegeLayout: Equatable {
 struct SiegeProgress: Codable, Equatable {
     var selectedLane: BattleLane
     var damageByObjectiveID: [String: Int]
+    /// Highcrest Guard reinforcement state (HPA-469); nil for every
+    /// non-pilot city. Normalized by the owning game state.
+    var guardReinforcements: GuardReinforcementProgress?
+
+    init(
+        selectedLane: BattleLane,
+        damageByObjectiveID: [String: Int],
+        guardReinforcements: GuardReinforcementProgress? = nil
+    ) {
+        self.selectedLane = selectedLane
+        self.damageByObjectiveID = damageByObjectiveID
+        self.guardReinforcements = guardReinforcements
+    }
+}
+
+/// One unresolved Guard snapshot in persisted siege progress (HPA-469).
+/// Deliberately minimal — lane and remaining HP only; no IDs or positions.
+struct GuardSnapshot: Codable, Equatable {
+    var lane: BattleLane
+    var remainingHP: Int
+}
+
+/// Persisted Highcrest Guard reinforcement state (HPA-469). The forgiving
+/// half: the owning game state clamps values back into the authored tuning
+/// ranges (see `normalizedForHighcrest` beside the Highcrest authoring).
+struct GuardReinforcementProgress: Codable, Equatable {
+    var waveElapsedSeconds: Double
+    var remainingReserve: Int
+    var unresolvedGuards: [GuardSnapshot]
 }
