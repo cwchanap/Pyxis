@@ -49,9 +49,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// objectives use the `-ruined` variant. Canvas pixel sizes are
     /// intentionally unpinned until HPA-476 picks real canvas sizes from
     /// actual render needs.
+    ///
+    /// HPA-476 runtime handoff for the Highcrest pilot actors:
+    ///
+    /// ```text
+    /// siege-barracks — bottom-center — intact, ruined/disabled
+    /// siege-guard    — feet/bottom-center — resting, walk, attack, hit
+    /// ```
     enum SiegeObjectiveAssetContract {
         static let gate = "siege-gate"
         static let arrowTower = "siege-arrow-tower"
+        static let barracks = "siege-barracks"
         static let assaultFlag = "siege-assault-flag"
     }
 
@@ -77,6 +85,27 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let attack = "soldierAttackAnimation"
         static let hit = "soldierHitAnimation"
         static let delayedRemoval = "soldierDelayedRemoval"
+    }
+
+    private enum GuardNodeName {
+        static let root = "siege-guard"
+        static let visual = "guardVisual"
+        static let helmet = "guardHelmet"
+        static let head = "guardHead"
+        static let body = "guardBody"
+        static let shield = "guardShield"
+        static let statusLabel = "siegeBarracksStatus"
+    }
+
+    private enum GuardAnimationKey {
+        static let attack = "guardAttackAction"
+        static let hit = "guardHitAction"
+        static let loss = "guardLossAction"
+    }
+
+    private struct GuardNodeBundle {
+        let root: SKNode
+        let visual: SKNode
     }
 
     private struct SoldierNodeBundle {
@@ -117,6 +146,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
     #endif
     private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
+    private var guardNodes: [BattleCombatState.GuardID: GuardNodeBundle] = [:]
     private var didBuildInterface = false
     private var isObservingLifecycle = false
     private var selectedManualSoldierType: SoldierType = .infantry
@@ -279,6 +309,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             .contains(Self.freezeCombatLaunchArgument)
         #endif
         super.init(size: size)
+        restorePersistedGuardsIntoCombat()
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -295,6 +326,23 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         self.isCombatFrozen = ProcessInfo.processInfo.arguments.contains(Self.freezeCombatLaunchArgument)
         #endif
         super.init(coder: aDecoder)
+        restorePersistedGuardsIntoCombat()
+    }
+
+    /// Restores persisted Highcrest Guards into combat (HPA-469): only lane
+    /// + HP survive persistence, so each snapshot is reconstructed at Keep
+    /// progress with its persisted (possibly damaged) HP — deliberately no
+    /// clamp-to-max healing. Transient IDs and positions are always new; the
+    /// nodes appear via `syncGuardNodes`. Called wherever combat is (re)
+    /// constructed while the battle can still tick: scene init and the
+    /// foreground return (see `clearLiveCombat` for why it is excluded).
+    private func restorePersistedGuardsIntoCombat() {
+        guard let snapshots = state.siegeProgress.guardReinforcements?.unresolvedGuards else {
+            return
+        }
+        for snapshot in snapshots {
+            combat.restoreGuard(snapshot, siege: state.currentSiegeSnapshot)
+        }
     }
 
     private static func makeCombat(for state: KingdomGameState, seed: UInt64?) -> BattleCombatState {
@@ -1585,9 +1633,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                     maxPower: maxPowers[objective.id, default: 0]
                 )
             case .barracks:
-                // HPA-469: state and economy land first; the Barracks scene
-                // node arrives with the Guard scene-presentation task.
-                continue
+                node = makeBarracksObjective(
+                    objective,
+                    remainingPower: remaining[objective.id, default: 0],
+                    maxPower: maxPowers[objective.id, default: 0]
+                )
             case .keep:
                 continue
             }
@@ -1714,6 +1764,75 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
         }
         return container
+    }
+
+    /// The Highcrest Guard-pilot Barracks (HPA-469): bottom-center anchored
+    /// structure with an HP bar and a compact attached status label, or a
+    /// rubble ruin labeled SHUT DOWN once destroyed. Reuses the shared
+    /// siege structure/HP/ruin helpers — only the label is Barracks-specific.
+    private func makeBarracksObjective(
+        _ objective: CitySiegeLayout.Objective,
+        remainingPower: Int,
+        maxPower: Int
+    ) -> SKNode {
+        let container = SKNode()
+        container.name = SiegeObjectiveNodeName.prefix + objective.id
+        container.position = point(forLane: objective.visualLane, position: objective.visualProgress)
+        container.zPosition = 3
+
+        let width = max(18, battlefieldLayout.lanePathWidth * 0.42)
+        let height = width * 1.5
+        let isRuined = remainingPower <= 0
+        let structure = makeSiegeStructure(
+            assetName: SiegeObjectiveAssetContract.barracks,
+            targetSize: CGSize(width: width, height: height),
+            intactColor: SKColor(red: 0.42, green: 0.32, blue: 0.19, alpha: 1),
+            ruinedColor: SKColor(red: 0.28, green: 0.23, blue: 0.17, alpha: 1),
+            isRuined: isRuined
+        )
+        structure.name = SiegeObjectiveNodeName.structure
+        container.addChild(structure)
+
+        if isRuined {
+            container.addChild(makeRuinMarker(width: width))
+        } else {
+            addObjectiveHPBar(
+                to: container,
+                width: width * 0.8,
+                bottomY: height + 3,
+                remaining: remainingPower,
+                maximum: maxPower
+            )
+        }
+
+        let statusLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        statusLabel.name = GuardNodeName.statusLabel
+        statusLabel.fontSize = 9
+        statusLabel.fontColor = GameUITheme.Color.textSecondary
+        statusLabel.verticalAlignmentMode = .bottom
+        statusLabel.position = CGPoint(x: 0, y: height + 10)
+        statusLabel.text = barracksStatusText
+        container.addChild(statusLabel)
+        return container
+    }
+
+    /// Durable-state-driven Barracks status (HPA-469): `GUARDS <count>` while
+    /// the Barracks is alive and reserve remains, `SHUT DOWN` after its death,
+    /// no label once the reserve is spent. Recomputed from persisted state so
+    /// it can never drift from the synced Guard snapshots.
+    private var barracksStatusText: String {
+        let snapshot = state.currentSiegeSnapshot
+        guard let barracks = snapshot.layout.barracksObjective else {
+            return ""
+        }
+        guard snapshot.objectiveRemainingPower[barracks.id, default: 0] > 0 else {
+            return "SHUT DOWN"
+        }
+        guard let progress = state.siegeProgress.guardReinforcements,
+              progress.remainingReserve > 0 else {
+            return ""
+        }
+        return "GUARDS \(progress.unresolvedGuards.count)"
     }
 
     /// Builds one objective structure: the HPA-476 semantic asset when
@@ -1859,6 +1978,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             syncSiegeObjectiveNodes()
             applyBattleHUD()
         }
+        syncGuardNodes()
         presentFeedbackTooltipIfNeeded()
     }
 
@@ -1910,6 +2030,22 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         lastPresentedTooltipText = ""
     }
 
+    /// Durable-state-driven gate for the shared progress-save cadence
+    /// (HPA-469): true while Highcrest Guard reinforcement has something to
+    /// persist — the Barracks is alive and waves remain in reserve or Guards
+    /// are unresolved. No second timer: this only broadens the existing
+    /// two-second cadence condition.
+    private var isGuardReinforcementProgressActive: Bool {
+        guard let progress = state.siegeProgress.guardReinforcements,
+              let barracks = state.currentSiegeLayout.barracksObjective else {
+            return false
+        }
+        let barracksAlive = state.currentSiegeSnapshot
+            .objectiveRemainingPower[barracks.id, default: 0] > 0
+        return barracksAlive
+            && (progress.remainingReserve > 0 || !progress.unresolvedGuards.isEmpty)
+    }
+
     private func advanceCombat(deltaTime: TimeInterval) {
         guard state.stageStatus == .battleActive,
               !isConquestReportVisible,
@@ -1926,7 +2062,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         lastAdvanceCombatDeltaForTestingStorage = deltaTime
         #endif
 
-        let shouldSaveBuildingProgress = deltaTime > 0 && state.cityBattleStateForCurrentCity.occupiedSlotCount > 0
+        let shouldSaveProgress = deltaTime > 0
+            && (state.cityBattleStateForCurrentCity.occupiedSlotCount > 0 || isGuardReinforcementProgressActive)
         let buildingSpawns = state.resolveActiveBuildingSpawns(deltaTime: deltaTime)
         for spawn in buildingSpawns {
             let soldierID = combat.spawnSoldier(
@@ -1941,7 +2078,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             }
             createSoldierNode(id: soldierID)
         }
-        if shouldSaveBuildingProgress {
+        if shouldSaveProgress {
             if !buildingSpawns.isEmpty {
                 // A spawn fired — persist immediately to prevent duplicate-spawn
                 // on crash. Reset the throttle accumulator since we just saved.
@@ -1979,9 +2116,33 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let result = combat.tick(deltaTime: deltaTime, siege: state.currentSiegeSnapshot)
         feedback.emitAutomaticCombat(result)
         applyCombatResult(result)
+        synchronizeAndPersistHighcrestGuards(deltaTime: clampedDeltaTime)
+
         syncSoldierNodes()
+        syncGuardNodes()
         if !buildingSpawns.isEmpty {
             applyBattleHUD()
+        }
+    }
+
+    /// Per-tick Highcrest Guard persistence (HPA-469). Runs AFTER
+    /// `applyCombatResult` — outside its structure-attack guard — so a tick
+    /// where allies only damage a Guard (`soldierAttacks` empty) still syncs
+    /// living-Guard HP into SiegeProgress. A Keep conquered this tick
+    /// changed the stage: a dead Keep spawns nothing, so the wave advance is
+    /// skipped entirely. Any durable change (snapshots or new waves) saves
+    /// immediately; the broadened two-second cadence handles the rest.
+    private func synchronizeAndPersistHighcrestGuards(deltaTime: TimeInterval) {
+        let guardStateChanged = state.synchronizeLiveGuardSnapshots(combat.guardSnapshots)
+        var spawnedGuards: [GuardSnapshot] = []
+        if state.stageStatus == .battleActive {
+            spawnedGuards = state.advanceActiveGuardReinforcements(deltaTime: deltaTime)
+            for snapshot in spawnedGuards {
+                combat.restoreGuard(snapshot, siege: state.currentSiegeSnapshot)
+            }
+        }
+        if guardStateChanged || !spawnedGuards.isEmpty {
+            store.save(state)
         }
     }
 
@@ -2011,6 +2172,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         for towerShot in result.towerShots {
             playTowerShot(at: towerShot.soldierID)
         }
+
+        playGuardEventFeedback(for: result)
 
         for attack in result.soldierAttacks {
             playSoldierAttackFeedback(for: attack.soldierID)
@@ -2375,6 +2538,135 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         sprite.size = SoldierAnimationGeometry(type: type).frameSize(forBodyHeight: targetHeight)
     }
 
+    // MARK: Guard scene presentation (HPA-469)
+
+    /// Mirrors `syncSoldierNodes` for Guards: positions come from combat
+    /// state every tick, dead Guards drop their nodes, and the Barracks
+    /// status label tracks the durable Guard count. Presentation is purely
+    /// observational — the model remains the sole timing authority.
+    private func syncGuardNodes() {
+        let livingGuards = combat.guards.filter(\.isAlive)
+        let liveIDs = Set(livingGuards.map(\.id))
+
+        for id in Array(guardNodes.keys) where !liveIDs.contains(id) {
+            guardNodes[id]?.root.removeFromParent()
+            guardNodes.removeValue(forKey: id)
+        }
+
+        for guardActor in livingGuards {
+            let bundle = guardNodes[guardActor.id] ?? createGuardNode(id: guardActor.id)
+            bundle.root.position = point(forLane: guardActor.lane, position: guardActor.position)
+            bundle.root.setScale(soldierTargetHeight())
+        }
+
+        if let barracks = state.currentSiegeLayout.barracksObjective,
+           let container = siegeObjectiveNodes[barracks.id],
+           let label = container.childNode(withName: GuardNodeName.statusLabel) as? SKLabelNode {
+            label.text = barracksStatusText
+        }
+    }
+
+    /// Builds the procedural Guard placeholder: a helmet/head + shield/body
+    /// composition laid out in a unit-height space so the root's scale owns
+    /// on-screen size. The shield leads downward — toward the player castle —
+    /// so the pose reads enemy-facing without tint-only tricks. HPA-476 owns
+    /// the final `siege-guard` art.
+    private func createGuardNode(id: BattleCombatState.GuardID) -> GuardNodeBundle {
+        let root = SKNode()
+        root.name = GuardNodeName.root
+
+        let visual = SKNode()
+        visual.name = GuardNodeName.visual
+        root.addChild(visual)
+
+        let body = SKShapeNode(rect: CGRect(x: -0.16, y: 0.10, width: 0.32, height: 0.42), cornerRadius: 0.06)
+        body.name = GuardNodeName.body
+        body.fillColor = SKColor(red: 0.52, green: 0.20, blue: 0.16, alpha: 1)
+        body.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        body.lineWidth = 0.02
+        visual.addChild(body)
+
+        let shield = SKShapeNode(rect: CGRect(x: -0.13, y: 0.02, width: 0.26, height: 0.34), cornerRadius: 0.09)
+        shield.name = GuardNodeName.shield
+        shield.fillColor = SKColor(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
+        shield.strokeColor = SKColor(white: 1.0, alpha: 0.45)
+        shield.lineWidth = 0.02
+        shield.zPosition = 1
+        visual.addChild(shield)
+
+        let head = SKShapeNode(circleOfRadius: 0.11)
+        head.name = GuardNodeName.head
+        head.fillColor = SKColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)
+        head.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        head.lineWidth = 0.02
+        head.position = CGPoint(x: 0, y: 0.60)
+        visual.addChild(head)
+
+        let helmet = SKShapeNode(rect: CGRect(x: -0.13, y: 0.60, width: 0.26, height: 0.14), cornerRadius: 0.06)
+        helmet.name = GuardNodeName.helmet
+        helmet.fillColor = SKColor(red: 0.24, green: 0.27, blue: 0.32, alpha: 1)
+        helmet.strokeColor = SKColor(white: 1.0, alpha: 0.4)
+        helmet.lineWidth = 0.02
+        visual.addChild(helmet)
+
+        soldierLayer.addChild(root)
+        let bundle = GuardNodeBundle(root: root, visual: visual)
+        guardNodes[id] = bundle
+        return bundle
+    }
+
+    /// Maps Guard tick events to short observational actions (HPA-469).
+    /// Runs above `applyCombatResult`'s soldierAttacks early return so a
+    /// guard-only tick still presents; the model stays the sole timing
+    /// authority.
+    private func playGuardEventFeedback(for result: BattleCombatState.TickResult) {
+        for attack in result.guardAttacks {
+            playGuardAttackFeedback(for: attack.guardID)
+        }
+        for hit in result.guardHits {
+            playGuardHitFeedback(for: hit.guardID)
+        }
+        for loss in result.guardLosses {
+            playGuardLossFeedback(for: loss.guardID)
+        }
+    }
+
+    /// Short lunge toward the player castle and back. Decorative only.
+    private func playGuardAttackFeedback(for guardID: BattleCombatState.GuardID) {
+        guard let visual = guardNodes[guardID]?.visual else {
+            return
+        }
+        visual.removeAction(forKey: GuardAnimationKey.attack)
+        let lunge = SKAction.moveBy(x: 0, y: -6, duration: 0.08)
+        lunge.timingMode = .easeOut
+        let recover = SKAction.moveBy(x: 0, y: 6, duration: 0.14)
+        recover.timingMode = .easeIn
+        visual.run(SKAction.sequence([lunge, recover]), withKey: GuardAnimationKey.attack)
+    }
+
+    /// Brief alpha flash marking a soldier's hit on the Guard.
+    private func playGuardHitFeedback(for guardID: BattleCombatState.GuardID) {
+        guard let visual = guardNodes[guardID]?.visual else {
+            return
+        }
+        visual.removeAction(forKey: GuardAnimationKey.hit)
+        let flash = SKAction.fadeAlpha(to: 0.35, duration: 0.06)
+        let restore = SKAction.fadeAlpha(to: 1, duration: 0.12)
+        visual.run(SKAction.sequence([flash, restore]), withKey: GuardAnimationKey.hit)
+    }
+
+    /// Fade-out removal for a dead Guard. The node leaves `guardNodes`
+    /// immediately so per-tick sync never resurrects it; the fade action
+    /// removes it from the scene when done.
+    private func playGuardLossFeedback(for guardID: BattleCombatState.GuardID) {
+        guard let bundle = guardNodes.removeValue(forKey: guardID) else {
+            return
+        }
+        let fade = SKAction.fadeOut(withDuration: 0.18)
+        let remove = SKAction.removeFromParent()
+        bundle.root.run(SKAction.sequence([fade, remove]), withKey: GuardAnimationKey.loss)
+    }
+
     private func point(forLane lane: BattleLane, position: Double) -> CGPoint {
         battlefieldLayout.point(forLane: lane, position: position)
     }
@@ -2411,11 +2703,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private func clearLiveCombat() {
         combat = Self.makeCombat(for: state, seed: combatSeed)
+        // Deliberately no Guard restoration here: clearLiveCombat runs on
+        // conquest/idle-conquest (stage leaves .battleActive, so this combat
+        // never ticks again and nothing can sync it) and on background —
+        // where the foreground handler rehydrates persisted Guards into this
+        // fresh combat BEFORE the first tick can sync an empty roster over
+        // the post-idle-settlement durable state.
         lastUpdateTime = nil
 
         for id in Array(soldierNodes.keys) {
             removeSoldierNode(id: id, animated: false)
         }
+        for bundle in guardNodes.values {
+            bundle.root.removeFromParent()
+        }
+        guardNodes.removeAll()
         pendingAnimatedRemovalSoldierIDs.removeAll()
         soldierHitAnimationRemaining.removeAll()
 
@@ -3187,6 +3489,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let result = state.returnFromBackground(at: date)
 
         store.save(state)
+        // Combat was torn down on background, but Highcrest Guards are
+        // durable (HPA-469): rehydrate them from the post-idle-settlement
+        // state so the first tick's live-snapshot sync cannot overwrite
+        // `unresolvedGuards` with an empty roster. Skipped when the idle
+        // settlement conquered the city — that combat never ticks again.
+        if state.stageStatus == .battleActive {
+            restorePersistedGuardsIntoCombat()
+        }
         reconcileSelectedManualSoldierType()
 
         if result.elapsedSeconds > 0 {
@@ -4311,6 +4621,39 @@ extension BattleScene {
 
     var battleHUDTabBarFrameForTesting: CGRect {
         battleChromeLayout?.tabBarFrame ?? .zero
+    }
+
+    // MARK: Guard presentation testing accessors (HPA-469)
+
+    struct LivingGuardInfoForTesting {
+        let id: BattleCombatState.GuardID
+        let lane: BattleLane
+        let currentHP: Int
+        let position: Double
+    }
+
+    var livingGuardsForTesting: [LivingGuardInfoForTesting] {
+        combat.guards.filter(\.isAlive)
+            .map {
+                LivingGuardInfoForTesting(
+                    id: $0.id,
+                    lane: $0.lane,
+                    currentHP: $0.currentHP,
+                    position: $0.position
+                )
+            }
+    }
+
+    var guardNodeCountForTesting: Int {
+        guardNodes.count
+    }
+
+    var firstLivingGuardRootNodeForTesting: SKNode? {
+        combat.guards.filter(\.isAlive).first.flatMap { guardNodes[$0.id]?.root }
+    }
+
+    var firstLivingGuardVisualNodeForTesting: SKNode? {
+        combat.guards.filter(\.isAlive).first.flatMap { guardNodes[$0.id]?.visual }
     }
 
     func advanceCombatForTesting(deltaTime: TimeInterval) {

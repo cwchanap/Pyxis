@@ -17,6 +17,10 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     case battleRunewatch = "battle-runewatch"
     case battleCrownspire = "battle-crownspire"
     case returnDamage = "return-damage"
+    case battleHighcrestWave = "battle-highcrest-wave"
+    case battleHighcrestGuardDamaged = "battle-highcrest-guard-damaged"
+    case battleHighcrestShutdown = "battle-highcrest-shutdown"
+    case battleHighcrestFinal = "battle-highcrest-final"
 
     static let launchArgument = "-pyxis-forged-fixture"
 
@@ -28,7 +32,9 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             return .map
         case .battle, .battleBlocked, .conquestLive, .conquestIdle,
              .battleDamaged, .battleBreached, .battleEmberford, .battleRunewatch,
-             .battleCrownspire, .returnDamage:
+             .battleCrownspire, .returnDamage,
+             .battleHighcrestWave, .battleHighcrestGuardDamaged,
+             .battleHighcrestShutdown, .battleHighcrestFinal:
             return .battle
         }
     }
@@ -65,6 +71,9 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             )
         case .battleEmberford:
             return DevJumpState.make(city: 7)
+        case .battleHighcrestWave, .battleHighcrestGuardDamaged,
+             .battleHighcrestShutdown, .battleHighcrestFinal:
+            return Self.highcrestGuardFixtureState(for: self)
         case .battleRunewatch:
             return DevJumpState.make(city: 9)
         case .battleCrownspire:
@@ -78,6 +87,64 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         case .conquestLive, .conquestIdle:
             return Self.conquestState(mode: self == .conquestLive ? .live : .idle)
         }
+    }
+
+    /// Highcrest (City 5) Guard-pilot capture states (HPA-469): intact Keep,
+    /// durable Guards on the Barracks lane, optional Barracks shutdown damage.
+    private static func highcrestGuardFixtureState(for fixture: ForgedVisualFixture) -> KingdomGameState {
+        switch fixture {
+        case .battleHighcrestWave:
+            return highcrestGuardState(
+                guards: [
+                    GuardSnapshot(lane: .left, remainingHP: 12),
+                    GuardSnapshot(lane: .left, remainingHP: 12)
+                ],
+                reserve: 6
+            )
+        case .battleHighcrestGuardDamaged:
+            return highcrestGuardState(
+                guards: [
+                    GuardSnapshot(lane: .left, remainingHP: 12),
+                    GuardSnapshot(lane: .left, remainingHP: 5)
+                ],
+                reserve: 6
+            )
+        case .battleHighcrestShutdown:
+            return highcrestGuardState(
+                guards: [GuardSnapshot(lane: .left, remainingHP: 7)],
+                reserve: 6,
+                supportDamage: [.barracks: Int.max]
+            )
+        case .battleHighcrestFinal:
+            return highcrestGuardState(
+                guards: (1...8).map { GuardSnapshot(lane: .left, remainingHP: 13 - $0) },
+                reserve: 0
+            )
+        default:
+            preconditionFailure("Non-Highcrest fixture routed to the Guard-pilot mapper: \(fixture)")
+        }
+    }
+
+    /// Highcrest (City 5) Guard-pilot capture-state builder: intact Keep,
+    /// durable Guards on the Barracks lane, optional Barracks shutdown damage.
+    private static func highcrestGuardState(
+        guards: [GuardSnapshot],
+        reserve: Int,
+        supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:]
+    ) -> KingdomGameState {
+        var state = DevJumpState.make(city: 5)
+        seedSiegeProgress(
+            keepRemaining: KingdomGameState.cityMaxPower(for: 5),
+            supportDamage: supportDamage,
+            on: &state
+        )
+        state.siegeProgress.selectedLane = .left
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: reserve,
+            unresolvedGuards: guards
+        )
+        return state
     }
 
     private static func campState(occupied: Bool) -> KingdomGameState {

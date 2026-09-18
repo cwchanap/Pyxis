@@ -5185,6 +5185,387 @@ struct BattleSceneTests {
         // Keep 10 of max 20 → half-full fill.
         #expect(abs(fill.width - background.width * 0.5) < 1.0)
     }
+
+    // MARK: Highcrest Barracks + Guard presentation (HPA-469)
+
+    private static let highcrestKeepMax = highcrestMaxPowers().keep
+    private static let highcrestKeepProgress = Country1CityCatalog.definition(for: 5)
+        .siegeLayout.keepObjective.visualProgress
+
+    private static func highcrestMaxPowers() -> (keep: Int, barracks: Int) {
+        let layout = Country1CityCatalog.definition(for: 5).siegeLayout
+        let maxPowers = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 5))
+        return (
+            keep: maxPowers[layout.keepObjective.id] ?? 0,
+            barracks: maxPowers[layout.barracksObjective?.id ?? ""] ?? 0
+        )
+    }
+
+    /// Highcrest (City 5) battle state with durable Guard progress.
+    private func highcrestState(
+        keepRemaining: Int = BattleSceneTests.highcrestKeepMax,
+        supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:],
+        selectedLane: BattleLane = .left,
+        guardProgress: GuardReinforcementProgress = .freshHighcrest(),
+        slots: [Int: CityBuilding] = [:]
+    ) -> KingdomGameState {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 100,
+            keepRemaining: keepRemaining,
+            supportDamage: supportDamage,
+            selectedLane: selectedLane
+        )
+        state.siegeProgress.guardReinforcements = guardProgress
+        if !slots.isEmpty {
+            state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: slots)
+        }
+        return state
+    }
+
+    @Test("Persisted 5-HP Guard reconstructs at Keep progress without healing")
+    func persistedDamagedGuardRestoresAtKeepProgressWithoutHealing() throws {
+        var state = highcrestState()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 5)
+        ]
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        let guards = scene.livingGuardsForTesting
+        #expect(guards.count == 1)
+        let restored = try #require(guards.first)
+        #expect(restored.lane == .left)
+        // Persisted HP is honored verbatim — reconstruction never heals to max.
+        #expect(restored.currentHP == 5)
+        #expect(restored.position == BattleSceneTests.highcrestKeepProgress)
+    }
+
+    @Test("Battle reconstruction deliberately resets Guard position to Keep progress")
+    func reconstructionResetsGuardPositionToKeepProgress() throws {
+        var state = highcrestState()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ]
+        let firstScene = makeScene(store: try makeStore(initialState: state))
+        firstScene.spawnSoldierForTesting()
+        firstScene.advanceCombatForTesting(deltaTime: 0.2)
+
+        // The Guard closed on the soldier during live combat...
+        let moved = try #require(firstScene.livingGuardsForTesting.first)
+        #expect(moved.position < BattleSceneTests.highcrestKeepProgress)
+        #expect(moved.currentHP == 12)
+
+        // ...and Battle reconstruction deliberately rebuilds it at the Keep.
+        let secondScene = makeScene(store: try makeStore(initialState: firstScene.gameStateForTesting))
+        let restored = try #require(secondScene.livingGuardsForTesting.first)
+        #expect(restored.position == BattleSceneTests.highcrestKeepProgress)
+        #expect(restored.currentHP == 12)
+    }
+
+    @Test("A guard-only tick updates SiegeProgress even when soldierAttacks is empty")
+    func guardOnlyTickPersistsProgressWithoutStructureAttacks() throws {
+        let barracksMax = try Self.highcrestMaxPowers().barracks
+        var state = highcrestState(supportDamage: [.barracks: barracksMax - 2])
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ]
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+        scene.spawnSoldierForTesting()
+
+        let barracksID = try #require(
+            SiegeTestSupport.objectiveID(for: .barracks, in: scene.gameStateForTesting)
+        )
+        for _ in 0..<40 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            let persistedHP = store.load().siegeProgress.guardReinforcements?
+                .unresolvedGuards.first?.remainingHP ?? 12
+            if persistedHP < 12 {
+                break
+            }
+        }
+
+        // The Guard absorbed the soldier's attacks: HP synced into
+        // SiegeProgress (an immediate save outside applyCombatResult's
+        // soldierAttacks guard). The only structure hit is the single
+        // pre-contact strike from before the Guard reached its blocking
+        // floor; from first contact on, the Guard absorbs everything.
+        let persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persisted.unresolvedGuards == [GuardSnapshot(lane: .left, remainingHP: 11)])
+        #expect(store.load().siegeProgress.damageByObjectiveID[barracksID] == barracksMax - 1)
+        #expect(scene.gameStateForTesting.currentKeepRemainingPower == BattleSceneTests.highcrestKeepMax)
+    }
+
+    @Test("Guard wave elapsed persists through the two-second save cadence even with no player buildings")
+    func guardWaveElapsedPersistsThroughSaveCadenceWithoutBuildings() throws {
+        // No cityBattleState slots: the old building-only cadence never saved.
+        let store = try makeStore(initialState: highcrestState())
+        let scene = makeScene(store: store)
+
+        scene.advanceCombatForTesting(deltaTime: 2.1)
+
+        // The broadened two-second cadence fired at the 2s boundary, so the
+        // persisted wave clock reads the phase saved at that boundary.
+        let persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(abs(persisted.waveElapsedSeconds - 2.0) < 0.11)
+        #expect(persisted.unresolvedGuards.isEmpty)
+    }
+
+    @Test("Barracks destroyed in the current combat tick prevents a same-frame wave")
+    func barracksKillPreventsSameFrameWave() throws {
+        let barracksMax = Country1CityCatalog.definition(for: 5).siegeLayout
+            .maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 5))[
+            Country1CityCatalog.definition(for: 5).siegeLayout.barracksObjective!.id
+        ] ?? 0
+
+        // Discovery run: with fresh wave progress, find the deterministic tick
+        // where the soldier's first in-range attack kills the 1-HP Barracks.
+        func killTick(waveElapsedSeed: Double) -> Int? {
+            let store = try? makeStore(initialState: highcrestState(
+                supportDamage: [.barracks: barracksMax - 1],
+                guardProgress: GuardReinforcementProgress(
+                    waveElapsedSeconds: waveElapsedSeed,
+                    remainingReserve: 8,
+                    unresolvedGuards: []
+                )
+            ))
+            guard let store else {
+                return nil
+            }
+            let scene = makeScene(store: store)
+            scene.spawnSoldierForTesting()
+            guard let barracksID = SiegeTestSupport.objectiveID(for: .barracks, in: scene.gameStateForTesting) else {
+                return nil
+            }
+            func isBarracksDead() -> Bool {
+                (store.load().currentSiegeSnapshot.objectiveRemainingPower[barracksID] ?? 1) <= 0
+            }
+            #expect(!isBarracksDead())
+            for step in 0..<60 {
+                scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+                if isBarracksDead() {
+                    return step + 1
+                }
+            }
+            return nil
+        }
+
+        let tick = try #require(killTick(waveElapsedSeed: 0))
+        // Seed so the wave becomes due exactly on the kill tick (with a 0.05
+        // margin against float drift) and not one tick earlier.
+        let alignedSeed = 6.05 - Double(tick) * 0.1
+        let store = try makeStore(initialState: highcrestState(
+            supportDamage: [.barracks: barracksMax - 1],
+            guardProgress: GuardReinforcementProgress(
+                waveElapsedSeconds: alignedSeed,
+                remainingReserve: 8,
+                unresolvedGuards: []
+            )
+        ))
+        let scene = makeScene(store: store)
+        scene.spawnSoldierForTesting()
+
+        var killed = false
+        let barracksID = "highcrest.barracks"
+        for _ in 0..<60 where !killed {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            killed = (store.load().currentSiegeSnapshot.objectiveRemainingPower[barracksID] ?? 1) <= 0
+        }
+        #expect(killed)
+
+        // The wave was due exactly on the kill frame: wave clock had advanced
+        // up to the kill tick, but the dead Barracks blocked the same-frame
+        // spawn — and keeps blocking every later advance.
+        var persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(abs(persisted.waveElapsedSeconds - (alignedSeed + Double(tick - 1) * 0.1)) < 0.001)
+        #expect(persisted.unresolvedGuards.isEmpty)
+        #expect(persisted.remainingReserve == 8)
+
+        for _ in 0..<70 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        }
+        persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persisted.unresolvedGuards.isEmpty)
+        #expect(persisted.remainingReserve == 8)
+    }
+
+    @Test("Non-pilot city creates no Guard or Barracks nodes")
+    func nonPilotCityCreatesNoGuardOrBarracksNodes() throws {
+        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks()))
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 6.2)
+
+        #expect(scene.siegeObjectiveNodeForTesting(.barracks) == nil)
+        #expect(scene.siegeObjectiveNodeCountForTesting == 0)
+        #expect(scene.livingGuardsForTesting.isEmpty)
+        #expect(scene.guardNodeCountForTesting == 0)
+    }
+
+    @Test("Highcrest renders a procedural barracks with a GUARDS label at its authored progress")
+    func highcrestRendersBarracksWithGuardsLabel() throws {
+        let scene = makeScene(store: try makeStore(initialState: highcrestState()))
+        let barracks = try #require(scene.siegeObjectiveNodeForTesting(.barracks))
+
+        #expect(barracks.name == "siegeObjective-highcrest.barracks")
+        let expected = lanePoint(scene, lane: .left, progress: 0.62)
+        #expect(abs(barracks.position.x - expected.x) < 0.5)
+        #expect(abs(barracks.position.y - expected.y) < 0.5)
+        #expect(barracks.childNode(withName: "siegeStructure") != nil)
+        #expect(barracks.childNode(withName: "siegeHPFill") != nil)
+        let label = try #require(
+            barracks.childNode(withName: "siegeBarracksStatus") as? SKLabelNode
+        )
+        // Reserve remains with zero Guards resolved so far.
+        #expect(label.text == "GUARDS 0")
+    }
+
+    @Test("Guard waves spawn into combat and the label tracks the living count")
+    func wavesSpawnIntoCombatAndLabelTracksCount() throws {
+        let scene = makeScene(store: try makeStore(initialState: highcrestState()))
+
+        scene.advanceCombatForTesting(deltaTime: 6.1)
+
+        // One due wave: 2 full-HP Guards restored at Keep progress with nodes.
+        #expect(scene.livingGuardsForTesting.count == 2)
+        #expect(scene.guardNodeCountForTesting == 2)
+        for restored in scene.livingGuardsForTesting {
+            #expect(restored.currentHP == 12)
+            #expect(restored.position == BattleSceneTests.highcrestKeepProgress)
+        }
+        let label = try #require(
+            scene.siegeObjectiveNodeForTesting(.barracks)?.childNode(
+                withName: "siegeBarracksStatus"
+            ) as? SKLabelNode
+        )
+        #expect(label.text == "GUARDS 2")
+    }
+
+    @Test("Guard nodes are structurally distinct enemy-facing placeholders")
+    func guardNodesAreStructurallyDistinctEnemyFacingPlaceholders() throws {
+        var state = highcrestState()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ]
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        let root = try #require(scene.firstLivingGuardRootNodeForTesting)
+        #expect(root.name == "siege-guard")
+        // Procedural composition, never a tinted sprite.
+        #expect(!(root is SKSpriteNode))
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        let helmet = try #require(visual.childNode(withName: "guardHelmet"))
+        let shield = try #require(visual.childNode(withName: "guardShield"))
+        let body = try #require(visual.childNode(withName: "guardBody"))
+        // Enemy-facing: the shield leads toward the player castle (lower y).
+        #expect(shield.frame.midY < body.frame.midY)
+        #expect(helmet.frame.midY > body.frame.midY)
+    }
+
+    @Test("Barracks death shows SHUT DOWN and keeps surviving Guards")
+    func barracksDeathShowsShutdownWithSurvivingGuard() throws {
+        var state = highcrestState(supportDamage: [.barracks: Int.max])
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 7)
+        ]
+        let scene = makeScene(store: try makeStore(initialState: state))
+        let barracks = try #require(scene.siegeObjectiveNodeForTesting(.barracks))
+
+        #expect(barracks.childNode(withName: "siegeRuin") != nil)
+        #expect(barracks.childNode(withName: "siegeHPFill") == nil)
+        let label = try #require(
+            barracks.childNode(withName: "siegeBarracksStatus") as? SKLabelNode
+        )
+        #expect(label.text == "SHUT DOWN")
+        #expect(scene.livingGuardsForTesting.count == 1)
+        #expect(scene.guardNodeCountForTesting == 1)
+    }
+
+    @Test("Guard hit and loss events map to observational actions and persisted removal")
+    func guardHitAndLossMapToObservationalActions() throws {
+        // Level-5 soldier (power 5): the first contact hit wounds the Guard
+        // 12→7 with the hit action observable on a living Guard's node, and
+        // the third hit kills it — all within the step budget and before the
+        // Keep tower can chew through the soldier's HP. A one-hit kill would
+        // land the hit action and the loss in the same tick, where the
+        // post-tick lookup can never observe the action.
+        var state = highcrestState(slots: [1: CityBuilding(type: .barracks, level: 5)])
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ]
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+        scene.spawnSoldierForTesting()
+
+        var sawHitAction = false
+        for _ in 0..<50 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            if let visual = scene.firstLivingGuardVisualNodeForTesting {
+                sawHitAction = sawHitAction || visual.action(forKey: "guardHitAction") != nil
+            }
+            if scene.guardNodeCountForTesting == 0 {
+                break
+            }
+        }
+
+        #expect(sawHitAction)
+        // The Guard died: the fade-out removal cleared its node and the sync
+        // persisted the removal into SiegeProgress.
+        #expect(scene.guardNodeCountForTesting == 0)
+        let persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persisted.unresolvedGuards.isEmpty)
+    }
+
+    @Test("Guard attack events map to an observational lunge action")
+    func guardAttackMapsToObservationalAction() throws {
+        // Right lane bypasses the Barracks: the descending Guard meets the
+        // marching cavalry well above the Barracks floor. Cavalry's faster
+        // march closes the gap strictly inside the Guard's 0.10 attack range
+        // during descent (infantry parks exactly 0.12 below the floored
+        // Guard, leaving only a float-epsilon 0.10 boundary window), so the
+        // Guard's counterattack fires deterministically while it is alive.
+        var state = highcrestState(
+            selectedLane: .right,
+            slots: [1: CityBuilding(type: .stable, level: 7)]
+        )
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .right, remainingHP: 12)
+        ]
+        let scene = makeScene(store: try makeStore(initialState: state))
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnSoldierForTesting()
+
+        var sawAttackAction = false
+        for _ in 0..<30 where !sawAttackAction {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            if let visual = scene.firstLivingGuardVisualNodeForTesting {
+                sawAttackAction = visual.action(forKey: "guardAttackAction") != nil
+            }
+        }
+
+        #expect(sawAttackAction)
+    }
+
+    @Test("Living Guards survive a background and foreground cycle")
+    func guardsSurviveBackgroundForegroundCycle() throws {
+        var state = highcrestState()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 5)
+        ]
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        scene.enterForegroundForTesting(at: Date(timeIntervalSince1970: 1_002))
+
+        // The first tick after foreground syncs the live combat roster back
+        // into SiegeProgress; the persisted damaged Guard must survive it.
+        scene.advanceCombatForTesting(deltaTime: 0.1)
+
+        let persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persisted.unresolvedGuards == [GuardSnapshot(lane: .left, remainingHP: 5)])
+        #expect(scene.livingGuardsForTesting.count == 1)
+        #expect(scene.guardNodeCountForTesting == 1)
+    }
 }
 
 private extension CGRect {

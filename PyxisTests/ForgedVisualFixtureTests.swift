@@ -29,7 +29,11 @@ struct ForgedVisualFixtureTests {
             ("battle-emberford", .battleEmberford),
             ("battle-runewatch", .battleRunewatch),
             ("battle-crownspire", .battleCrownspire),
-            ("return-damage", .returnDamage)
+            ("return-damage", .returnDamage),
+            ("battle-highcrest-wave", .battleHighcrestWave),
+            ("battle-highcrest-guard-damaged", .battleHighcrestGuardDamaged),
+            ("battle-highcrest-shutdown", .battleHighcrestShutdown),
+            ("battle-highcrest-final", .battleHighcrestFinal)
         ]
 
         for (rawValue, fixture) in expected {
@@ -457,6 +461,102 @@ struct ForgedVisualFixtureTests {
             #expect(view.scene is CountryMapScene)
             #expect(view.accessibilityValue == expectedValue)
         }
+    }
+
+    @Test("DEBUG Highcrest fixtures pin active-wave, damaged-Guard, shutdown, and final states")
+    func highcrestFixturesPinGuardStates() throws {
+        let keepMax = Country1CityCatalog.definition(for: 5).siegeLayout
+            .maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 5))[
+                Country1CityCatalog.definition(for: 5).siegeLayout.keepObjective.id
+            ] ?? 0
+        let barracksMax = Country1CityCatalog.definition(for: 5).siegeLayout
+            .maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 5))[
+                Country1CityCatalog.definition(for: 5).siegeLayout.barracksObjective!.id
+            ] ?? 0
+        let barracksID = Country1CityCatalog.definition(for: 5).siegeLayout
+            .objectives.first { $0.kind == .barracks }!.id
+
+        let wave = ForgedVisualFixture.battleHighcrestWave.makeState()
+        #expect(wave.cityNumberInCountry == 5)
+        #expect(wave.stageStatus == .battleActive)
+        #expect(wave.pendingBattleResult == nil)
+        #expect(wave.siegeProgress.selectedLane == .left)
+        #expect(wave.currentKeepRemainingPower == keepMax)
+        #expect(wave.currentSiegeSnapshot.objectiveRemainingPower[barracksID] == barracksMax)
+        #expect(wave.siegeProgress.guardReinforcements?.remainingReserve == 6)
+        #expect(wave.siegeProgress.guardReinforcements?.unresolvedGuards == [
+            GuardSnapshot(lane: .left, remainingHP: 12),
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ])
+
+        let damaged = ForgedVisualFixture.battleHighcrestGuardDamaged.makeState()
+        #expect(damaged.currentKeepRemainingPower == keepMax)
+        #expect(damaged.siegeProgress.guardReinforcements?.unresolvedGuards == [
+            GuardSnapshot(lane: .left, remainingHP: 12),
+            GuardSnapshot(lane: .left, remainingHP: 5)
+        ])
+        #expect(damaged.siegeProgress.guardReinforcements?.remainingReserve == 6)
+
+        let shutdown = ForgedVisualFixture.battleHighcrestShutdown.makeState()
+        #expect(shutdown.currentKeepRemainingPower == keepMax)
+        #expect(shutdown.currentSiegeSnapshot.objectiveRemainingPower[barracksID] == 0)
+        #expect(shutdown.siegeProgress.guardReinforcements?.unresolvedGuards == [
+            GuardSnapshot(lane: .left, remainingHP: 7)
+        ])
+
+        let final = ForgedVisualFixture.battleHighcrestFinal.makeState()
+        #expect(final.currentKeepRemainingPower == keepMax)
+        let finalProgress = try #require(final.siegeProgress.guardReinforcements)
+        #expect(finalProgress.remainingReserve == 0)
+        #expect(finalProgress.unresolvedGuards.count == 8)
+        #expect(finalProgress.unresolvedGuards.allSatisfy { $0.lane == .left })
+    }
+
+    @Test("DEBUG Highcrest fixture hook projects Guard capture semantics")
+    func highcrestFixtureHookProjectsGuardSemantics() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 73))
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+
+        #expect(controller.installForgedVisualFixtureIfRequested(
+            in: view,
+            arguments: [
+                "Pyxis",
+                ForgedVisualFixture.launchArgument,
+                ForgedVisualFixture.battleHighcrestWave.rawValue
+            ]
+        ))
+        let battle = try #require(view.scene as? BattleScene)
+        #expect(view.accessibilityValue ==
+            "Battle;stage=battleActive;mode=normal;city=1-5;manualLiving=0;"
+                + "family=frontier;fortress=intact")
+        #expect(battle.guardNodeCountForTesting == 2)
+        let waveLabel = try #require(
+            battle.siegeObjectiveNodeForTesting(.barracks)?.childNode(
+                withName: "siegeBarracksStatus"
+            ) as? SKLabelNode
+        )
+        #expect(waveLabel.text == "GUARDS 2")
+
+        let shutdownStore = try makeStore(initialState: KingdomGameState(gold: 73))
+        let shutdownController = GameViewController(store: shutdownStore)
+        let shutdownView = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        #expect(shutdownController.installForgedVisualFixtureIfRequested(
+            in: shutdownView,
+            arguments: [
+                "Pyxis",
+                ForgedVisualFixture.launchArgument,
+                ForgedVisualFixture.battleHighcrestShutdown.rawValue
+            ]
+        ))
+        let shutdownBattle = try #require(shutdownView.scene as? BattleScene)
+        #expect(shutdownBattle.guardNodeCountForTesting == 1)
+        let shutdownLabel = try #require(
+            shutdownBattle.siegeObjectiveNodeForTesting(.barracks)?.childNode(
+                withName: "siegeBarracksStatus"
+            ) as? SKLabelNode
+        )
+        #expect(shutdownLabel.text == "SHUT DOWN")
     }
 
     private func makeStore(initialState: KingdomGameState) throws -> KingdomGameStore {
