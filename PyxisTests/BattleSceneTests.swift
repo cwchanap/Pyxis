@@ -4947,11 +4947,13 @@ struct BattleSceneTests {
 
     @Test("HPA-476 placeholder contract pins semantic asset names without shipping art")
     func siegeObjectiveAssetContractPinsSemanticNames() {
+        #expect(BattleScene.SiegeObjectiveAssetContract.barracks == "siege-barracks")
         #expect(BattleScene.SiegeObjectiveAssetContract.gate == "siege-gate")
         #expect(BattleScene.SiegeObjectiveAssetContract.arrowTower == "siege-arrow-tower")
         #expect(BattleScene.SiegeObjectiveAssetContract.assaultFlag == "siege-assault-flag")
 
         let contractNames = [
+            BattleScene.SiegeObjectiveAssetContract.barracks,
             BattleScene.SiegeObjectiveAssetContract.gate,
             BattleScene.SiegeObjectiveAssetContract.gate + "-ruined",
             BattleScene.SiegeObjectiveAssetContract.arrowTower,
@@ -5260,6 +5262,33 @@ struct BattleSceneTests {
         let restored = try #require(secondScene.livingGuardsForTesting.first)
         #expect(restored.position == BattleSceneTests.highcrestKeepProgress)
         #expect(restored.currentHP == 12)
+    }
+
+    @Test("Unpaired foreground does not duplicate the restored Guard roster")
+    func unpairedForegroundDoesNotDuplicateRestoredGuards() throws {
+        // UIKit fires willEnterForeground on initial app activation too —
+        // with no prior background. Scene init already restored the persisted
+        // Guards, so the foreground restore must be idempotent: appending the
+        // roster twice would persist duplicates on the next sync, and decode
+        // normalization would charge the phantom Guards against the finite
+        // reserve.
+        var state = highcrestState()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 5)
+        ]
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+        #expect(scene.livingGuardsForTesting.count == 1)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+
+        #expect(scene.livingGuardsForTesting.count == 1)
+
+        // The next live-snapshot sync persists exactly the restored roster.
+        scene.advanceCombatForTesting(deltaTime: 0.2)
+        let persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persisted.unresolvedGuards == [GuardSnapshot(lane: .left, remainingHP: 5)])
+        #expect(persisted.remainingReserve == HighcrestGuardRules.totalReserve - 1)
     }
 
     @Test("A guard-only tick updates SiegeProgress even when soldierAttacks is empty")

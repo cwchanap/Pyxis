@@ -17,7 +17,7 @@ This remains one implementation PR. Design, pure models, persistence, live comba
 1. Extend the HPA-468 seams: `CitySiegeLayout`, `SiegeProgress`, `BattleCombatState`, `KingdomGameState`, and `BattleScene`. Do not add a wave service, target registry, behavior tree, ECS, pathfinder, physics combat, or second simulator.
 2. Keep HP remains the only conquest/liveness authority.
 3. Barracks destruction only stops future reinforcement spawns. Existing Guards survive until defeated or Keep conquest.
-4. Guard production is finite: **2 Guards / 6 seconds, 8 total reserve across the siege**. There is no separate active-Guard cap. If this ramp is too steep, tune reserve or interval rather than adding cap semantics.
+4. Guard production is finite: **2 Guards / 20 seconds, 8 total reserve across the siege**. There is no separate active-Guard cap. If this ramp is too steep, tune reserve or interval rather than adding cap semantics.
 5. Reserve is consumed only by Guards actually spawned and never replenishes during the siege.
 6. New Guards use the assault lane selected when they spawn. Existing Guards never change lane after a later lane selection.
 7. New and restored Guards start at the Keep's authored `visualProgress` on their lane, not at the Barracks structure position, so direct-route armies cannot permanently walk past future waves.
@@ -132,7 +132,7 @@ Fresh Highcrest starts with elapsed `0`, reserve `8`, and no Guards. Other citie
 `KingdomGameState.normalizedSiegeProgress` remains the single forgiving normalization seam. For Highcrest it:
 
 - clamps reserve to `0...8`;
-- normalizes elapsed into `0..<6`;
+- normalizes elapsed into `0..<waveIntervalSeconds` (shipped interval: 20s);
 - clamps Guard HP to `1...12`;
 - retains at most eight unresolved Guards total, preserving order and lanes;
 - clamps remaining reserve so `unresolvedGuards.count + remainingReserve <= 8`;
@@ -366,7 +366,7 @@ Cover:
 
 Cover:
 
-- `5.9s -> 0`, `+0.1s -> 2`, another `6s -> 4`, `12s -> remaining reserve consumed` according to aligned opportunities;
+- `19.9s -> 0`, `+0.1s -> 2`, another `20s -> 4`, `80s -> remaining reserve consumed` according to aligned opportunities;
 - lane changes affect only newly spawned Guards;
 - Barracks shutdown stops future spawns while living Guards remain;
 - save/load preserves elapsed phase, reserve, lanes, and HP;
