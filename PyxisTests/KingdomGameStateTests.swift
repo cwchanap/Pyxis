@@ -1902,6 +1902,111 @@ struct KingdomGameStateTests {
         #expect((combat.soldiers.first?.position ?? 0) > 0)
     }
 
+    // MARK: Highcrest Guard reinforcement normalization (HPA-469)
+
+    /// A Highcrest battle-active save payload with the given raw
+    /// guardReinforcements JSON object (or none when nil).
+    private static func highcrestSaveData(guardsJSON: String?) -> Data {
+        let guardsSection = guardsJSON.map { ",\"guardReinforcements\":\($0)" } ?? ""
+        return Data("""
+        {
+          "cityLevel": 5,
+          "cityNumberInCountry": 5,
+          "completedCityCount": 4,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": {}\(guardsSection)
+          }
+        }
+        """.utf8)
+    }
+
+    @Test func decodingHighcrestWithoutGuardProgressSeedsFreshFullReserve() throws {
+        // Pre-feature saves carry no guard key; the forgiving seam seeds
+        // fresh full-reserve progress instead of versioning the save.
+        let state = try JSONDecoder().decode(
+            KingdomGameState.self,
+            from: Self.highcrestSaveData(guardsJSON: nil)
+        )
+
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: HighcrestGuardRules.totalReserve,
+            unresolvedGuards: []
+        ))
+    }
+
+    @Test func decodingHighcrestGuardsClampsMalformedValuesIntoAuthoredRanges() throws {
+        // Ten guards (over the 8 cap), HP outside 1...12, elapsed outside
+        // 0..<6, and reserve above every ceiling all clamp into range.
+        let guards = (0..<10).map { index in
+            "{\"lane\":\(index % 3),\"remainingHP\":\(index == 0 ? 0 : (index == 1 ? 99 : 4))}"
+        }
+        .joined(separator: ",")
+        let state = try JSONDecoder().decode(
+            KingdomGameState.self,
+            from: Self.highcrestSaveData(
+                guardsJSON: "{\"waveElapsedSeconds\":13.5,\"remainingReserve\":99,\"unresolvedGuards\":[\(guards)]}"
+            )
+        )
+
+        let normalized = try #require(state.siegeProgress.guardReinforcements)
+        #expect(normalized.unresolvedGuards.count == 8) // first 8 retained, in order
+        #expect(normalized.unresolvedGuards.map(\.lane) == [.left, .center, .right, .left, .center, .right, .left, .center])
+        #expect(normalized.unresolvedGuards.allSatisfy { (1...HighcrestGuardRules.maxHP).contains($0.remainingHP) })
+        #expect(normalized.remainingReserve == 0) // 8 retained guards consume the whole 8 budget
+        #expect(normalized.waveElapsedSeconds == 1.5) // 13.5 wraps into 0..<6
+    }
+
+    @Test func decodingNonHighcrestCitiesDropsGuardReinforcementProgress() throws {
+        let data = Data("""
+        {
+          "cityLevel": 3,
+          "cityNumberInCountry": 3,
+          "completedCityCount": 2,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": {},
+            "guardReinforcements": {
+              "waveElapsedSeconds": 1,
+              "remainingReserve": 3,
+              "unresolvedGuards": []
+            }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.guardReinforcements == nil)
+    }
+
+    @Test func startCityFromMapSeedsFreshHighcrestGuardsAndNilForOtherCities() {
+        var state = KingdomGameState(
+            cityNumberInCountry: 4,
+            completedCityCount: 4,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        #expect(state.startCityFromMap(5) == .entered(country: 1, city: 5))
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: HighcrestGuardRules.totalReserve,
+            unresolvedGuards: []
+        ))
+
+        state = KingdomGameState(
+            cityNumberInCountry: 2,
+            completedCityCount: 2,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        #expect(state.startCityFromMap(3) == .entered(country: 1, city: 3))
+        #expect(state.siegeProgress.guardReinforcements == nil)
+    }
+
     @Test func decodingPendingResultSaveKeepsDestroyedKeepForTruthfulPresentation() throws {
         // Pending-result states legitimately carry a dead Keep (the conquest
         // record), so the battleActive recovery clamp must not touch them.

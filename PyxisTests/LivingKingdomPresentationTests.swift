@@ -86,7 +86,9 @@ struct LivingKingdomPresentationTests {
     }
 
     @Test func nonPilotSingleKeepCitiesKeepMaxEqualsTotalCityPower() {
-        for city in Country1CityCatalog.cityRange where city != 3 {
+        // Cities 3 (Falconridge) and 5 (Highcrest) author tactical layouts;
+        // only the remaining single-Keep cities hold the full power budget.
+        for city in Country1CityCatalog.cityRange where city != 3 && city != 5 {
             let state = SiegeTestSupport.makeBattleState(
                 atCity: city,
                 keepRemaining: KingdomGameState.cityMaxPower(for: city)

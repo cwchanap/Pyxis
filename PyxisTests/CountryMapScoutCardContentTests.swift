@@ -141,11 +141,16 @@ struct CountryMapScoutCardContentTests {
                             exposedLane: definition.laneDefenseProfile.exposedLane,
                             goldReward: KingdomGameState.goldReward(for: nextCityNumber),
                             flavorText: definition.flavorText,
-                            tacticalFooter: nextCityNumber == 3 ? "L Tower · C/R Gate" : nil
+                            tacticalFooter: Self.expectedTacticalFooter(for: nextCityNumber)
                         )
                     )
             )
         }
+    }
+
+    @Test func highcrestScoutTeachesBarracksRoute() {
+        let layout = Country1CityCatalog.definition(for: 5).siegeLayout
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "L Barracks")
     }
 
     @Test
@@ -173,7 +178,7 @@ struct CountryMapScoutCardContentTests {
                 Issue.record("Expected Scout projection for city \(cityNumber)")
                 continue
             }
-            #expect(plain.tacticalFooter == nil)
+            #expect(plain.tacticalFooter == Self.expectedTacticalFooter(for: cityNumber))
         }
     }
 
@@ -221,7 +226,7 @@ struct CountryMapScoutCardContentTests {
                             exposedLane: item.exposedLane,
                             goldReward: KingdomGameState.goldReward(for: item.cityNumber),
                             flavorText: definition.flavorText,
-                            tacticalFooter: item.cityNumber == 3 ? "L Tower · C/R Gate" : nil,
+                            tacticalFooter: Self.expectedTacticalFooter(for: item.cityNumber),
                             status: .current
                         )
                     )
@@ -253,6 +258,21 @@ struct CountryMapScoutCardContentTests {
         #expect(BattleLane.left.displayName == "Left")
         #expect(BattleLane.center.displayName == "Center")
         #expect(BattleLane.right.displayName == "Right")
+    }
+}
+
+private extension CountryMapScoutCardContentTests {
+    /// Authored tactical footers per city: Falconridge's Tower/Gate split
+    /// and Highcrest's left-lane Barracks (HPA-469); single-Keep cities nil.
+    static func expectedTacticalFooter(for cityNumber: Int) -> String? {
+        switch cityNumber {
+        case 3:
+            return "L Tower · C/R Gate"
+        case 5:
+            return "L Barracks"
+        default:
+            return nil
+        }
     }
 }
 

@@ -65,6 +65,37 @@ struct KingdomGameStoreTests {
         #expect(loaded.siegeProgress.damageByObjectiveID[gateID] == 4)
     }
 
+    @Test func saveAndLoadRoundTripsHighcrestGuardReinforcements() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        var saved = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 30,
+            keepRemaining: 300,
+            selectedLane: .left
+        )
+        saved.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 4.5,
+            remainingReserve: 3,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 5),
+                GuardSnapshot(lane: .right, remainingHP: 9)
+            ]
+        )
+
+        store.save(saved)
+        let loaded = store.load()
+
+        #expect(loaded == saved)
+        let guards = try #require(loaded.siegeProgress.guardReinforcements)
+        #expect(guards.waveElapsedSeconds == 4.5)
+        #expect(guards.remainingReserve == 3)
+        #expect(guards.unresolvedGuards == [
+            GuardSnapshot(lane: .left, remainingHP: 5),
+            GuardSnapshot(lane: .right, remainingHP: 9)
+        ])
+    }
+
     @Test func saveAndLoadRoundTripsPendingMapState() throws {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")

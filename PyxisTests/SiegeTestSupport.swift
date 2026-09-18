@@ -79,9 +79,14 @@ enum SiegeTestSupport {
             }
         }
 
+        // Match `startCityFromMap` entry state: a freshly entered Highcrest
+        // carries fresh full-reserve Guard progress; other cities carry nil.
         state.siegeProgress = SiegeProgress(
             selectedLane: selectedLane ?? layout.defaultLane,
-            damageByObjectiveID: damageByObjectiveID
+            damageByObjectiveID: damageByObjectiveID,
+            guardReinforcements: layout.barracksObjective != nil
+                ? GuardReinforcementProgress.freshHighcrest()
+                : nil
         )
         return state
     }

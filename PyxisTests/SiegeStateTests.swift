@@ -264,4 +264,46 @@ struct SiegeStateTests {
 
         #expect(decoded == progress)
     }
+
+    // MARK: Highcrest Guard pilot persistence (HPA-469)
+
+    @Test func barracksObjectiveResolvesOnlyForAuthoredBarracksLayouts() {
+        #expect(Self.falconridge.barracksObjective == nil)
+        #expect(CitySiegeLayout.singleKeep(defaultLane: .left).barracksObjective == nil)
+
+        let highcrest = Country1CityCatalog.definition(for: 5).siegeLayout
+        #expect(highcrest.barracksObjective?.id == "highcrest.barracks")
+        #expect(highcrest.barracksObjective?.kind == .barracks)
+        #expect(highcrest.barracksObjective?.durabilityWeight == 1)
+        #expect(highcrest.barracksObjective?.visualLane == .left)
+        #expect(highcrest.barracksObjective?.visualProgress == 0.62)
+    }
+
+    @Test func siegeProgressRoundTripsGuardReinforcementsThroughCodable() throws {
+        let progress = SiegeProgress(
+            selectedLane: .left,
+            damageByObjectiveID: ["highcrest.barracks": 5],
+            guardReinforcements: GuardReinforcementProgress(
+                waveElapsedSeconds: 4.5,
+                remainingReserve: 3,
+                unresolvedGuards: [
+                    GuardSnapshot(lane: .left, remainingHP: 5),
+                    GuardSnapshot(lane: .right, remainingHP: 9)
+                ]
+            )
+        )
+
+        let data = try JSONEncoder().encode(progress)
+        let decoded = try JSONDecoder().decode(SiegeProgress.self, from: data)
+
+        #expect(decoded == progress)
+
+        // A pre-feature payload without the guard key decodes as nil; the
+        // owner (KingdomGameState normalization) then seeds fresh progress.
+        let legacy = try JSONDecoder().decode(
+            SiegeProgress.self,
+            from: Data(#"{"selectedLane":1,"damageByObjectiveID":{}}"#.utf8)
+        )
+        #expect(legacy.guardReinforcements == nil)
+    }
 }

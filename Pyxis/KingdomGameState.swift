@@ -311,6 +311,9 @@ struct KingdomGameState: Codable, Equatable {
     /// of `.battleActive` — so a dead-Keep-active save is a crafted/corrupt
     /// save that would no-op combat forever. Recovery treats it as
     /// nearly-conquered instead of fabricating a conquest reward.
+    /// Highcrest (the authored Barracks layout) additionally normalizes its
+    /// Guard reinforcement state into the authored tuning ranges (HPA-469);
+    /// every other city normalizes reinforcement progress to nil.
     private static func normalizedSiegeProgress(
         _ progress: SiegeProgress?,
         layout: CitySiegeLayout,
@@ -332,7 +335,11 @@ struct KingdomGameState: Codable, Equatable {
         }
         return SiegeProgress(
             selectedLane: progress?.selectedLane ?? layout.defaultLane,
-            damageByObjectiveID: damageByObjectiveID
+            damageByObjectiveID: damageByObjectiveID,
+            guardReinforcements: layout.barracksObjective != nil
+                ? (progress?.guardReinforcements?.normalizedForHighcrest()
+                    ?? GuardReinforcementProgress.freshHighcrest())
+                : nil
         )
     }
 
@@ -433,9 +440,13 @@ struct KingdomGameState: Codable, Equatable {
 
         cityNumberInCountry = cityNumber
         cityLevel = completedCityCount + 1
+        let entryLayout = currentCityDefinition.siegeLayout
         siegeProgress = SiegeProgress(
-            selectedLane: currentCityDefinition.siegeLayout.defaultLane,
-            damageByObjectiveID: [:]
+            selectedLane: entryLayout.defaultLane,
+            damageByObjectiveID: [:],
+            guardReinforcements: entryLayout.barracksObjective != nil
+                ? GuardReinforcementProgress.freshHighcrest()
+                : nil
         )
         stageStatus = .battleActive
         lastBackgroundedAt = nil

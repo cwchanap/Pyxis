@@ -1584,6 +1584,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                     remainingPower: remaining[objective.id, default: 0],
                     maxPower: maxPowers[objective.id, default: 0]
                 )
+            case .barracks:
+                // HPA-469: state and economy land first; the Barracks scene
+                // node arrives with the Guard scene-presentation task.
+                continue
             case .keep:
                 continue
             }
