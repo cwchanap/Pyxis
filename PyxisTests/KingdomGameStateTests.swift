@@ -2007,6 +2007,129 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.guardReinforcements == nil)
     }
 
+    // MARK: Highcrest Guard wave scheduling (HPA-469)
+
+    @Test func guardWavesSpawnFiniteWavesOnSelectedLane() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 1_000, selectedLane: .right)
+
+        let preWave = state.advanceActiveGuardReinforcements(deltaTime: 5.9)
+        #expect(preWave.isEmpty)
+        var progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+        #expect(progress.waveElapsedSeconds == 5.9)
+        #expect(progress.unresolvedGuards.isEmpty)
+
+        let firstWave = state.advanceActiveGuardReinforcements(deltaTime: 0.1)
+        #expect(firstWave == [
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP)
+        ])
+        progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.remainingReserve == 6)
+        #expect(progress.waveElapsedSeconds == 0)
+        #expect(progress.unresolvedGuards == firstWave)
+
+        let secondWave = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+        #expect(secondWave.count == 2)
+        progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.remainingReserve == 4)
+
+        let finalWave = state.advanceActiveGuardReinforcements(deltaTime: 12.0)
+        #expect(finalWave.count == 4)
+        progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.remainingReserve == 0)
+        #expect(progress.unresolvedGuards.count == 8)
+
+        #expect(state.advanceActiveGuardReinforcements(deltaTime: 60).isEmpty)
+        progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards.count == 8)
+    }
+
+    @Test func switchingLanesOnlyAffectsNewlySpawnedGuards() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 1_000, selectedLane: .right)
+        _ = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+
+        _ = state.selectAssaultLane(.left, at: Date(timeIntervalSinceReferenceDate: 1))
+
+        let wave = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+        #expect(wave.map(\.lane) == [.left, .left])
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards.map(\.lane) == [.right, .right, .left, .left])
+    }
+
+    @Test func deadBarracksStopsNewGuardWavesButKeepsLivingGuards() throws {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            keepRemaining: 1_000,
+            supportDamage: [.barracks: 1_000],
+            selectedLane: .right
+        )
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 5.9,
+            remainingReserve: HighcrestGuardRules.totalReserve,
+            unresolvedGuards: [GuardSnapshot(lane: .right, remainingHP: 4)]
+        )
+
+        #expect(state.advanceActiveGuardReinforcements(deltaTime: 6.0).isEmpty)
+
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards == [GuardSnapshot(lane: .right, remainingHP: 4)])
+        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+    }
+
+    @Test func deadKeepSpawnsNoNewGuards() throws {
+        // In-memory crafted dead-Keep-battle-active shape (production conquest
+        // never persists this); the Keep gate must still stop wave spawning.
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 0, selectedLane: .right)
+
+        #expect(state.advanceActiveGuardReinforcements(deltaTime: 6.0).isEmpty)
+
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards.isEmpty)
+        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+    }
+
+    @Test func nonPilotCitiesNeverAdvanceGuardWaves() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20)
+
+        #expect(state.advanceActiveGuardReinforcements(deltaTime: 60).isEmpty)
+        #expect(state.siegeProgress.guardReinforcements == nil)
+    }
+
+    // MARK: Highcrest live Guard snapshot sync (HPA-469)
+
+    @Test func synchronizeLiveGuardSnapshotsReplacesNormalizedSnapshotsAndReportsChange() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 1_000, selectedLane: .right)
+        _ = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+        let durable = try #require(state.siegeProgress.guardReinforcements).unresolvedGuards
+
+        // Idempotent sync of the same snapshots changes nothing.
+        #expect(state.synchronizeLiveGuardSnapshots(durable) == false)
+        #expect(try #require(state.siegeProgress.guardReinforcements).unresolvedGuards == durable)
+
+        // Live damage to one Guard persists into durable state.
+        var live = durable
+        live[0].remainingHP = 5
+        #expect(state.synchronizeLiveGuardSnapshots(live) == true)
+        #expect(try #require(state.siegeProgress.guardReinforcements).unresolvedGuards == live)
+        #expect(try #require(state.siegeProgress.guardReinforcements).remainingReserve == 6)
+
+        // Incoming snapshots normalize with the same 8-total rule as decode.
+        let overflow = Array(repeating: GuardSnapshot(lane: .left, remainingHP: 99), count: 10)
+        #expect(state.synchronizeLiveGuardSnapshots(overflow) == true)
+        let normalized = try #require(state.siegeProgress.guardReinforcements)
+        #expect(normalized.unresolvedGuards.count == 8)
+        #expect(normalized.unresolvedGuards.allSatisfy { $0.remainingHP == HighcrestGuardRules.maxHP })
+        #expect(normalized.remainingReserve == 0)
+    }
+
+    @Test func synchronizeLiveGuardSnapshotsIsNoOpForNonPilotCities() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20)
+
+        #expect(state.synchronizeLiveGuardSnapshots([GuardSnapshot(lane: .left, remainingHP: 5)]) == false)
+        #expect(state.siegeProgress.guardReinforcements == nil)
+    }
+
     @Test func decodingPendingResultSaveKeepsDestroyedKeepForTruthfulPresentation() throws {
         // Pending-result states legitimately carry a dead Keep (the conquest
         // record), so the battleActive recovery clamp must not touch them.

@@ -218,6 +218,187 @@ struct ActiveSiegeLifecycleTests {
         #expect(pending.mvpSoldierType == .infantry)
     }
 
+    // MARK: Abstract settlement Guard absorption (HPA-469)
+
+    @Test func backgroundSettlementMaterializesGuardsBeforeAbstractDamage() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 3_000)
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 100, keepRemaining: 1_000, selectedLane: .right)
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: start.addingTimeInterval(120))
+
+        // One idle spawn (10s active interval at the 1/10 idle rate over
+        // 120s) is fully absorbed by the oldest same-lane Guard; the full
+        // wave (8 Guards) materialized before any damage was spent.
+        let power = state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards == [
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP - power)
+        ] + Array(repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP), count: 7))
+        #expect(progress.remainingReserve == 0)
+        #expect(progress.waveElapsedSeconds == 0) // 120s wraps into the next phase
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower) // Guard damage is not city damage
+        #expect(result.damageDealt == 0)
+        #expect(result.conqueredCities == 0)
+        #expect(result.goldEarned == 0)
+        #expect(state.pendingBattleResult == nil)
+    }
+
+    @Test func backgroundSettlementAdvancesGuardPhaseWhenBuildingsYieldNoSpawns() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 3_500)
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 100, keepRemaining: 1_000, selectedLane: .right)
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: start.addingTimeInterval(6))
+
+        // Buildings exist but the 6s window yields no spawns — the Guard
+        // phase must still advance for the credited settlement window.
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards == Array(
+            repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            count: 2
+        ))
+        #expect(progress.remainingReserve == 6)
+        #expect(progress.waveElapsedSeconds == 0)
+        #expect(result.damageDealt == 0)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+    }
+
+    @Test func campBuildSettlementAdvancesGuardPhaseWhenSpawnsAreEmpty() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 4_000)
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 200, keepRemaining: 1_000, selectedLane: .right)
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        // The second build settles the 6s Camp window first: no spawns yet,
+        // but exactly one due wave materializes before the build lands.
+        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(6)) else {
+            Issue.record("expected second build to succeed")
+            return
+        }
+
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards == Array(
+            repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            count: 2
+        ))
+        #expect(progress.remainingReserve == 6)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+        #expect(state.pendingBattleResult == nil)
+    }
+
+    @Test func settlementWithDeadBarracksCreatesNoNewGuards() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 4_500)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 100,
+            keepRemaining: 1_000,
+            supportDamage: [.barracks: 1_000],
+            selectedLane: .right
+        )
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: start.addingTimeInterval(120))
+
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards.isEmpty)
+        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+        // The spawn's power spills straight down the direct .right route.
+        let power = state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - power)
+        #expect(result.conqueredCities == 0)
+    }
+
+    @Test func campSettlementCanConquerKeepWhileBarracksRemainsAlive() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 5_000)
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 100, keepRemaining: 1, selectedLane: .right)
+        // Reserve already spent: no Guards can absorb, so spawn power flows
+        // through the direct route straight into the dying Keep.
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 0,
+            unresolvedGuards: []
+        )
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        let result = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(100))
+
+        guard case .cityConqueredDuringSettlement = result else {
+            Issue.record("expected settlement conquest, got \(result)")
+            return
+        }
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .idle)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.currentKeepRemainingPower == 0)
+        let barracksID = try #require(SiegeTestSupport.objectiveID(for: .barracks, in: state))
+        #expect(state.siegeProgress.damageByObjectiveID[barracksID] == nil)
+    }
+
+    // MARK: Live-to-settlement Guard time ownership (HPA-469)
+
+    @Test func settlementCreditsOnlyThePostTransitionIntervalToGuardPhase() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 7_000)
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, gold: 200, keepRemaining: 1_000, selectedLane: .right)
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        // Live Battle time advanced the durable wave phase to 4.5s before
+        // the player left for Camp.
+        _ = state.advanceActiveGuardReinforcements(deltaTime: 4.5)
+        #expect(state.siegeProgress.guardReinforcements?.waveElapsedSeconds == 4.5)
+
+        let transition = start.addingTimeInterval(4.5)
+        state.markCurrentCityBuildingProgressInactive(at: transition)
+
+        // A later Camp build settles only the post-transition 6s interval.
+        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: transition.addingTimeInterval(6)) else {
+            Issue.record("expected second build to succeed")
+            return
+        }
+
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.waveElapsedSeconds == 4.5) // 4.5 + 6.0 wraps once to 4.5
+        #expect(progress.unresolvedGuards == Array(
+            repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            count: 2
+        ))
+        #expect(progress.remainingReserve == 6)
+    }
+
+    @Test func settlementDoesNotAdvanceGuardPhaseWithoutPlayerBuildings() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 8_000)
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 1_000, selectedLane: .right)
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: start.addingTimeInterval(120))
+
+        #expect(result.damageDealt == 0)
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.waveElapsedSeconds == 0)
+        #expect(progress.unresolvedGuards.isEmpty)
+        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+    }
+
     private func battleResult(
         cityNumber: Int,
         activeBattleSeconds: TimeInterval = 3,

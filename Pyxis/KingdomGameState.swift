@@ -703,27 +703,123 @@ struct KingdomGameState: Codable, Equatable {
         }
     }
 
+    /// Materializes due Highcrest Guard reinforcement waves (HPA-469) with
+    /// O(1) due-opportunity arithmetic: `waveElapsedSeconds` carries the
+    /// sub-interval phase, each elapsed interval becomes `guardsPerWave`
+    /// full-HP Guards on the currently selected lane drawn from the
+    /// remaining reserve. A dead Barracks or Keep stops new spawns; living
+    /// Guards are never touched. Returns the newly spawned snapshots in
+    /// order (oldest first).
+    mutating func advanceActiveGuardReinforcements(deltaTime: Double) -> [GuardSnapshot] {
+        guard stageStatus == .battleActive,
+              currentKeepRemainingPower > 0,
+              currentSiegeLayout.barracksObjective != nil,
+              var progress = siegeProgress.guardReinforcements else {
+            return []
+        }
+        if let barracks = currentSiegeLayout.barracksObjective {
+            let barracksRemaining = (currentSiegeMaxPowers[barracks.id] ?? 0)
+                - (siegeProgress.damageByObjectiveID[barracks.id] ?? 0)
+            guard barracksRemaining > 0 else { return [] }
+        }
+
+        let totalElapsed = progress.waveElapsedSeconds + max(0, deltaTime)
+        let dueOpportunities = Int(totalElapsed / HighcrestGuardRules.waveIntervalSeconds)
+        progress.waveElapsedSeconds = totalElapsed.truncatingRemainder(
+            dividingBy: HighcrestGuardRules.waveIntervalSeconds
+        )
+        let spawnCount = min(
+            progress.remainingReserve,
+            dueOpportunities * HighcrestGuardRules.guardsPerWave
+        )
+        progress.remainingReserve -= spawnCount
+        let spawned = Array(
+            repeating: GuardSnapshot(
+                lane: siegeProgress.selectedLane,
+                remainingHP: HighcrestGuardRules.maxHP
+            ),
+            count: spawnCount
+        )
+        progress.unresolvedGuards.append(contentsOf: spawned)
+        siegeProgress.guardReinforcements = progress
+        return spawned
+    }
+
+    /// Reconciles live combat's Guard snapshots into durable siege progress
+    /// (HPA-469): incoming lane/HP values are normalized with the same
+    /// 8-total rule as decode and the normalized snapshots replace
+    /// `unresolvedGuards`. Returns whether durable state changed; non-pilot
+    /// cities are always unchanged.
+    @discardableResult
+    mutating func synchronizeLiveGuardSnapshots(_ snapshots: [GuardSnapshot]) -> Bool {
+        guard currentSiegeLayout.barracksObjective != nil,
+              var progress = siegeProgress.guardReinforcements else {
+            return false
+        }
+        progress.unresolvedGuards = snapshots
+        let normalized = progress.normalizedForHighcrest()
+        guard normalized != siegeProgress.guardReinforcements else {
+            return false
+        }
+        siegeProgress.guardReinforcements = normalized
+        return true
+    }
+
+    /// Spends `budget` against the oldest unresolved Guards on the selected
+    /// lane first (HPA-469); guards on other lanes are untouched and dead
+    /// guards are removed. Returns the leftover budget after Guard
+    /// absorption.
+    private mutating func spendDamageOnSelectedLaneGuards(_ budget: Int) -> Int {
+        var leftover = budget
+        guard leftover > 0, var progress = siegeProgress.guardReinforcements else {
+            return leftover
+        }
+        var guards = progress.unresolvedGuards
+        for index in guards.indices
+        where leftover > 0 && guards[index].lane == siegeProgress.selectedLane {
+            let absorbed = min(leftover, guards[index].remainingHP)
+            guards[index].remainingHP -= absorbed
+            leftover -= absorbed
+        }
+        guards.removeAll { $0.remainingHP <= 0 }
+        progress.unresolvedGuards = guards
+        siegeProgress.guardReinforcements = progress
+        return leftover
+    }
+
     /// Applies abstract building-spawn damage with per-type idle attribution
     /// (HPA-468 §3.6): each spawn becomes one trait-adjusted damage budget
-    /// spent down the selected route — the first living objective absorbs up
-    /// to its remaining HP and the remainder spills only after it dies.
-    /// Conquest is keyed on Keep HP alone. The 8-hour cap, 1/10 rate,
-    /// no-buildings/no-progress rule, at-most-one-city conquest, and reward/
-    /// report semantics live in the callers and are unchanged.
+    /// spent first against the oldest unresolved Guards on the selected lane
+    /// (HPA-469 — Guard absorption is not city damage), then down the
+    /// selected route where the first living objective absorbs up to its
+    /// remaining HP and the remainder spills only after it dies. Due-window
+    /// Guards materialize before the first spawn's damage whenever the
+    /// current city has player buildings. Conquest is keyed on Keep HP
+    /// alone. The 8-hour cap, 1/10 rate, no-buildings/no-progress rule,
+    /// at-most-one-city conquest, and reward/report semantics live in the
+    /// callers and are unchanged.
     /// Returns (totalApplied, conquered, goldEarned).
     private mutating func applyAbstractBuildingSpawnDamage(
         _ spawns: [BuildingSpawn],
+        elapsedSeconds: Double,
         conquestMode: BattleConquestMode
     ) -> (applied: Int, conquered: Bool, goldEarned: Int) {
         var appliedTotal = 0
         var damageByObjectiveID = siegeProgress.damageByObjectiveID
 
+        if cityBattleState(for: currentCityKey).occupiedSlotCount > 0 {
+            _ = advanceActiveGuardReinforcements(deltaTime: elapsedSeconds)
+        }
+
         for spawn in spawns {
             let power = traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
             guard power > 0 else { continue }
 
+            let leftover = spendDamageOnSelectedLaneGuards(power)
+            guard leftover > 0 else { continue }
+
             let (spentDamage, appliedByObjectiveID) = currentSiegeLayout.spendDamageBudget(
-                power,
+                leftover,
                 along: siegeProgress.selectedLane,
                 maxPowers: currentSiegeMaxPowers,
                 damageByObjectiveID: damageByObjectiveID
@@ -774,7 +870,11 @@ struct KingdomGameState: Codable, Equatable {
         let effectiveActive = elapsedSeconds / Self.idleBuildingProductionScale
         let spawns = Self.resolveBuildingSpawns(in: &cityState, effectiveActiveSeconds: effectiveActive)
 
-        let damageResult = applyAbstractBuildingSpawnDamage(spawns, conquestMode: .idle)
+        let damageResult = applyAbstractBuildingSpawnDamage(
+            spawns,
+            elapsedSeconds: elapsedSeconds,
+            conquestMode: .idle
+        )
         if damageResult.conquered {
             return
         }
@@ -819,11 +919,19 @@ struct KingdomGameState: Codable, Equatable {
             spawns = []
         }
 
-        guard !spawns.isEmpty else {
+        // No player buildings means no credited progress at all — and never
+        // a Guard-wave advance in isolation. Buildings whose spawn list is
+        // empty still settle so the Guard phase advances for the credited
+        // settlement window (HPA-469).
+        guard cityState.occupiedSlotCount > 0 else {
             return IdleProgressResult(elapsedSeconds: elapsedSeconds, damageDealt: 0, conqueredCities: 0, goldEarned: 0)
         }
 
-        let damageResult = applyAbstractBuildingSpawnDamage(spawns, conquestMode: .idle)
+        let damageResult = applyAbstractBuildingSpawnDamage(
+            spawns,
+            elapsedSeconds: Double(elapsedSeconds),
+            conquestMode: .idle
+        )
         return IdleProgressResult(
             elapsedSeconds: elapsedSeconds,
             damageDealt: damageResult.applied,
