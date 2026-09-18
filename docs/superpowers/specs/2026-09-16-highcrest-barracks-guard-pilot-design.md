@@ -66,7 +66,7 @@ These are authored City 5 values, so keep them beside Highcrest in `Country1City
 ```swift
 enum HighcrestGuardRules {
     static let guardsPerWave = 2
-    static let waveIntervalSeconds = 6.0
+    static let waveIntervalSeconds = 20.0
     static let totalReserve = 8
 
     static let maxHP = 12
@@ -77,7 +77,7 @@ enum HighcrestGuardRules {
 }
 ```
 
-At the starting values the entire reserve can deploy by the fourth wave opportunity (`t = 24s`). That is intentional and simpler than an active-cap subsystem. If running evidence shows the pressure ramp is too steep, tune `totalReserve` and/or `waveIntervalSeconds`; do not add a cap, queue, or extra mechanic unless evidence later requires it.
+The four waves deploy at t = 20/40/60/80s. **Shipped value (HPA-469 Task 6 balance evidence):** the starting 6.0s interval deployed the entire reserve by t = 24s — long before the exposed route could destroy the Barracks (~50s with the representative camp) — so Barracks shutdown visibly canceled nothing. 20.0s leaves reserve unspent at typical shutdown times, making shutdown a real choice, and later waves land into a standing army (the Task 6 harness proved a wave-2 Guard engaging an army whose foremost soldier had already passed the Barracks floor). No active cap, queue, or extra mechanic was added.
 
 ## Authored siege model and Scout copy
 

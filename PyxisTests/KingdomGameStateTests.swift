@@ -1939,7 +1939,7 @@ struct KingdomGameStateTests {
 
     @Test func decodingHighcrestGuardsClampsMalformedValuesIntoAuthoredRanges() throws {
         // Ten guards (over the 8 cap), HP outside 1...12, elapsed outside
-        // 0..<6, and reserve above every ceiling all clamp into range.
+        // 0..<20, and reserve above every ceiling all clamp into range.
         let guards = (0..<10).map { index in
             "{\"lane\":\(index % 3),\"remainingHP\":\(index == 0 ? 0 : (index == 1 ? 99 : 4))}"
         }
@@ -1947,7 +1947,7 @@ struct KingdomGameStateTests {
         let state = try JSONDecoder().decode(
             KingdomGameState.self,
             from: Self.highcrestSaveData(
-                guardsJSON: "{\"waveElapsedSeconds\":13.5,\"remainingReserve\":99,\"unresolvedGuards\":[\(guards)]}"
+                guardsJSON: "{\"waveElapsedSeconds\":33.5,\"remainingReserve\":99,\"unresolvedGuards\":[\(guards)]}"
             )
         )
 
@@ -1956,7 +1956,7 @@ struct KingdomGameStateTests {
         #expect(normalized.unresolvedGuards.map(\.lane) == [.left, .center, .right, .left, .center, .right, .left, .center])
         #expect(normalized.unresolvedGuards.allSatisfy { (1...HighcrestGuardRules.maxHP).contains($0.remainingHP) })
         #expect(normalized.remainingReserve == 0) // 8 retained guards consume the whole 8 budget
-        #expect(normalized.waveElapsedSeconds == 1.5) // 13.5 wraps into 0..<6
+        #expect(normalized.waveElapsedSeconds == 13.5) // 33.5 wraps into 0..<20
     }
 
     @Test func decodingNonHighcrestCitiesDropsGuardReinforcementProgress() throws {
@@ -2012,11 +2012,11 @@ struct KingdomGameStateTests {
     @Test func guardWavesSpawnFiniteWavesOnSelectedLane() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 1_000, selectedLane: .right)
 
-        let preWave = state.advanceActiveGuardReinforcements(deltaTime: 5.9)
+        let preWave = state.advanceActiveGuardReinforcements(deltaTime: 19.9)
         #expect(preWave.isEmpty)
         var progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
-        #expect(progress.waveElapsedSeconds == 5.9)
+        #expect(progress.waveElapsedSeconds == 19.9)
         #expect(progress.unresolvedGuards.isEmpty)
 
         let firstWave = state.advanceActiveGuardReinforcements(deltaTime: 0.1)
@@ -2029,12 +2029,12 @@ struct KingdomGameStateTests {
         #expect(progress.waveElapsedSeconds == 0)
         #expect(progress.unresolvedGuards == firstWave)
 
-        let secondWave = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+        let secondWave = state.advanceActiveGuardReinforcements(deltaTime: 20.0)
         #expect(secondWave.count == 2)
         progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.remainingReserve == 4)
 
-        let finalWave = state.advanceActiveGuardReinforcements(deltaTime: 12.0)
+        let finalWave = state.advanceActiveGuardReinforcements(deltaTime: 40.0)
         #expect(finalWave.count == 4)
         progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.remainingReserve == 0)
@@ -2047,11 +2047,11 @@ struct KingdomGameStateTests {
 
     @Test func switchingLanesOnlyAffectsNewlySpawnedGuards() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 1_000, selectedLane: .right)
-        _ = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+        _ = state.advanceActiveGuardReinforcements(deltaTime: 20.0)
 
         _ = state.selectAssaultLane(.left, at: Date(timeIntervalSinceReferenceDate: 1))
 
-        let wave = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+        let wave = state.advanceActiveGuardReinforcements(deltaTime: 20.0)
         #expect(wave.map(\.lane) == [.left, .left])
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards.map(\.lane) == [.right, .right, .left, .left])
@@ -2065,7 +2065,7 @@ struct KingdomGameStateTests {
             selectedLane: .right
         )
         state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
-            waveElapsedSeconds: 5.9,
+            waveElapsedSeconds: 19.9,
             remainingReserve: HighcrestGuardRules.totalReserve,
             unresolvedGuards: [GuardSnapshot(lane: .right, remainingHP: 4)]
         )
@@ -2100,7 +2100,7 @@ struct KingdomGameStateTests {
 
     @Test func synchronizeLiveGuardSnapshotsReplacesNormalizedSnapshotsAndReportsChange() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 1_000, selectedLane: .right)
-        _ = state.advanceActiveGuardReinforcements(deltaTime: 6.0)
+        _ = state.advanceActiveGuardReinforcements(deltaTime: 20.0)
         let durable = try #require(state.siegeProgress.guardReinforcements).unresolvedGuards
 
         // Idempotent sync of the same snapshots changes nothing.

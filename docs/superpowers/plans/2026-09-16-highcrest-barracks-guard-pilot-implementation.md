@@ -165,6 +165,8 @@ enum HighcrestGuardRules {
 }
 ```
 
+**Shipped tuning differs (HPA-469 Task 6):** balance evidence tuned `waveIntervalSeconds` from the 6.0 starting value above to **20.0** — at 6.0s the whole reserve deployed by t = 24s, so Barracks shutdown canceled nothing and waves never met a standing army. See the design spec's shipped-value note for the final rationale. All other starting values shipped unchanged.
+
 Do not put these City 5 tuning values in generic `SiegeState.swift`.
 
 - [ ] **Step 5: Author Highcrest.**
