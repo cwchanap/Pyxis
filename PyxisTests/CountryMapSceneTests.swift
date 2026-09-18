@@ -2830,6 +2830,56 @@ struct CountryMapSceneTests {
         }
     }
 
+    // MARK: Highcrest Guard lifecycle through the Country Map (HPA-469 Task 5)
+
+    @Test("Current-city RETURN settlement absorbs through Guards without healing them")
+    func currentCityReturnSettlementAbsorbsThroughGuardsWithoutHealing() throws {
+        // A 120s armed window guarantees exactly one spawn and one due wave
+        // regardless of wall-clock jitter.
+        let anchor = Date(timeIntervalSinceNow: -120)
+        var initialState = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 100,
+            keepRemaining: 1_000,
+            selectedLane: .left
+        )
+        initialState.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 5.5,
+            remainingReserve: HighcrestGuardRules.totalReserve - 1,
+            unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 5)]
+        )
+        initialState.cityBattleStates[initialState.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks)],
+            lastBuildingProgressResolvedAt: anchor
+        )
+        initialState.markCurrentCityBuildingProgressInactive(at: anchor)
+
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(5))
+
+        scene.handleTouchForTesting(at: cityPoint)
+        scene.handleTouchForTesting(at: try #require(scene.scoutCardAttackHitFrameForTesting).center)
+
+        // The due wave materialized in full; the spawn's power drew the
+        // oldest damaged Guard down (never up) and never reached the Keep:
+        // Guard absorption is not city damage, so the settlement stays
+        // nonlethal and routes to Battle through the ordinary tab request.
+        let saved = store.load()
+        let progress = try #require(saved.siegeProgress.guardReinforcements)
+        let power = saved.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
+        #expect(progress.remainingReserve == 0)
+        #expect(progress.unresolvedGuards.count == 8)
+        #expect(progress.unresolvedGuards.reduce(0) { $0 + $1.remainingHP }
+            == 5 + HighcrestGuardRules.maxHP * 7 - power)
+        #expect(progress.unresolvedGuards.first!.remainingHP < 5)
+        #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.pendingBattleResult == nil)
+        #expect(router.requestedTabs == [.battle])
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         var acceptsBattleRequest = true
         var onBattleRequest: ((Int) -> Void)?

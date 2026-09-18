@@ -183,6 +183,38 @@ struct GameViewControllerTests {
         let battle = try #require(view.scene as? BattleScene)
         #expect(battle.cityLevelForTesting == 10)
     }
+
+    @Test("DEBUG city jump to Highcrest materializes normalized Guard progress")
+    func debugCityJumpToHighcrestMaterializesNormalizedGuardProgress() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            gold: 7,
+            completedCityCount: KingdomGameState.firstCountryCityCount,
+            stageStatus: .countryComplete
+        ))
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        controller.performDevJump(to: 5, in: view)
+
+        // Plain state materialization (no migration, no special checkpoint
+        // code) yields normalized fresh Highcrest Guard progress.
+        let state = store.load()
+        let layout = state.currentSiegeLayout
+        #expect(state.cityNumberInCountry == 5)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshHighcrest())
+        #expect(state.siegeProgress.selectedLane == layout.defaultLane)
+        let barracksID = try #require(SiegeTestSupport.objectiveID(for: .barracks, in: state))
+        #expect(state.currentSiegeSnapshot.objectiveRemainingPower[barracksID]! > 0)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+
+        // The presented battle starts with no Guards on the field.
+        let battle = try #require(view.scene as? BattleScene)
+        #expect(battle.livingGuardsForTesting.isEmpty)
+        #expect(battle.guardNodeCountForTesting == 0)
+    }
 #endif
 
     @Test func unsupportedGeometryPausesAndBlocksThenResumesWithoutBattleStateMutation() throws {
@@ -1058,6 +1090,79 @@ struct GameViewControllerTests {
         second.view = secondView
         second.viewDidLoad()
         #expect(secondView.scene is CountryMapScene)
+    }
+
+    @Test func settlementPendingResultDisplaysOnce() throws {
+        let store = try makeStore(initialState: pendingConqueredState(mode: .idle))
+        let first = makeGameViewController(store: store)
+        let firstView = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        first.view = firstView
+        first.viewDidLoad()
+        // Pending-first routing presents the settlement conquest report
+        // through Battle, exactly once.
+        let battle = try #require(firstView.scene as? BattleScene)
+        battle.didMove(to: firstView)
+        #expect(battle.isConquestPopupVisibleForTesting)
+        battle.tapConquestContinueForTesting()
+        #expect(store.load().pendingBattleResult == nil)
+
+        let second = makeGameViewController(store: store)
+        let secondView = SKView(frame: firstView.frame)
+        second.view = secondView
+        second.viewDidLoad()
+        #expect(secondView.scene is CountryMapScene)
+    }
+
+    @Test("Battle-to-Camp-to-Battle round trip never heals, refills, or restarts Guards")
+    func battleTabRoundTripReconstructsGuardsWithoutHealRefillOrRestart() throws {
+        let layout = Country1CityCatalog.definition(for: 5).siegeLayout
+        let barracksMax = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 5))[
+            layout.barracksObjective?.id ?? ""
+        ] ?? 0
+        var initialState = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 100,
+            keepRemaining: 300,
+            supportDamage: [.barracks: barracksMax / 2],
+            selectedLane: .left
+        )
+        initialState.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 4.5,
+            remainingReserve: 3,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 5),
+                GuardSnapshot(lane: .right, remainingHP: 9)
+            ]
+        )
+        let store = try makeStore(initialState: initialState)
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let firstBattle = try #require(view.scene as? BattleScene)
+        #expect(firstBattle.livingGuardsForTesting.count == 2)
+
+        // Leave Battle for Camp.
+        controller.battleSceneDidRequestGameplayTab(firstBattle, tab: .camp)
+        let camp = try #require(view.scene as? BuildingViewScene)
+        let persistedAfterLeaving = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persistedAfterLeaving == initialState.siegeProgress.guardReinforcements)
+
+        // Return to Battle: the reconstructed scene recreates both Guards at
+        // Keep progress with fresh transient IDs and their persisted,
+        // unhealed HP; durable phase and reserve are untouched.
+        controller.buildingViewSceneDidRequestGameplayTab(camp, tab: .battle)
+        let secondBattle = try #require(view.scene as? BattleScene)
+        let guards = secondBattle.livingGuardsForTesting
+        #expect(guards.map(\.id) == [1, 2])
+        #expect(guards.map(\.lane) == [.left, .right])
+        #expect(guards.map(\.currentHP) == [5, 9])
+        let keepProgress = layout.keepObjective.visualProgress
+        #expect(guards.map(\.position) == [keepProgress, keepProgress])
+        let durable = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(durable == initialState.siegeProgress.guardReinforcements)
+        #expect(durable.waveElapsedSeconds == 4.5)
+        #expect(durable.remainingReserve == 3)
     }
 
     @Test func bindAccessibilityAdapterIsNoOpWhenAdapterAlreadyExists() throws {
