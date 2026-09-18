@@ -336,8 +336,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// nodes appear via `syncGuardNodes`. Called wherever combat is (re)
     /// constructed while the battle can still tick: scene init and the
     /// foreground return (see `clearLiveCombat` for why it is excluded).
+    /// Idempotent: UIKit fires willEnterForeground on initial activation too
+    /// (with no prior background), where init already restored — a roster
+    /// that already holds Guards is never appended again, or the next
+    /// live-snapshot sync would persist duplicates and decode normalization
+    /// would charge the phantom Guards against the finite reserve.
     private func restorePersistedGuardsIntoCombat() {
-        guard let snapshots = state.siegeProgress.guardReinforcements?.unresolvedGuards else {
+        guard combat.guards.isEmpty,
+              let snapshots = state.siegeProgress.guardReinforcements?.unresolvedGuards else {
             return
         }
         for snapshot in snapshots {
@@ -2637,9 +2643,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
         visual.removeAction(forKey: GuardAnimationKey.attack)
-        let lunge = SKAction.moveBy(x: 0, y: -6, duration: 0.08)
+        // The visual sits inside a root scaled to the Guard's render height,
+        // so a raw moveBy delta is multiplied by that scale on screen (~6pt
+        // would render as a battlefield-length jump). Divide the accumulated
+        // scale back out so the lunge is ~6pt in scene points.
+        let scale = visual.yScale * (visual.parent?.yScale ?? 1)
+        guard scale > 0 else {
+            return
+        }
+        let lunge = SKAction.moveBy(x: 0, y: -6 / scale, duration: 0.08)
         lunge.timingMode = .easeOut
-        let recover = SKAction.moveBy(x: 0, y: 6, duration: 0.14)
+        let recover = SKAction.moveBy(x: 0, y: 6 / scale, duration: 0.14)
         recover.timingMode = .easeIn
         visual.run(SKAction.sequence([lunge, recover]), withKey: GuardAnimationKey.attack)
     }
