@@ -57,6 +57,15 @@ struct BattleSceneCoverageTests {
         #expect(abs(initialRemaining - remainingAfterZeroDelta) < 0.000_001)
     }
 
+    @Test func guardTestingAccessorsAreSafeWithoutGuards() throws {
+        let scene = try makeScene(initialState: stateWithBarracks())
+
+        #expect(scene.livingGuardsForTesting.isEmpty)
+        #expect(scene.guardNodeCountForTesting == 0)
+        #expect(scene.firstLivingGuardRootNodeForTesting == nil)
+        #expect(scene.firstLivingGuardVisualNodeForTesting == nil)
+    }
+
     private func makeScene(
         initialState: KingdomGameState,
         size: CGSize = CGSize(width: 390, height: 844)
