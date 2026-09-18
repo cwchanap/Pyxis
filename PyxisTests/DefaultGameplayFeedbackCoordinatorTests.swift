@@ -246,6 +246,28 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         #expect(haptics.played.isEmpty)
     }
 
+    @Test func automaticCombatPlaysMeleeForGuardOnlyAttacks() {
+        let clock = AdjustableMonotonicClock(now: 0)
+        let preferences = RecordingFeedbackPreferencesManager()
+        let sound = RecordingGameplaySoundOutput()
+        let haptics = RecordingGameplayHapticOutput()
+        let coordinator = makeCoordinator(
+            preferences: preferences,
+            sound: sound,
+            haptics: haptics,
+            clock: clock
+        )
+
+        var guardResult = BattleCombatState.TickResult()
+        guardResult.guardAttacks = [
+            BattleCombatState.GuardAttackEvent(guardID: 1, soldierID: 10, appliedDamage: 3)
+        ]
+        coordinator.emitAutomaticCombat(guardResult)
+
+        #expect(sound.calls == [.play(.attackMelee)])
+        #expect(haptics.played.isEmpty)
+    }
+
     @Test func disabledSoundDoesNotAdvanceTheAutomaticCombatScheduler() {
         let clock = AdjustableMonotonicClock(now: 0)
         let preferences = RecordingFeedbackPreferencesManager(

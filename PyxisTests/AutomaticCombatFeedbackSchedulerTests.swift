@@ -186,6 +186,33 @@ struct AutomaticCombatFeedbackSchedulerTests {
         #expect(scheduler.selectSound(from: BattleCombatState.TickResult(), at: 0) == nil)
     }
 
+    @Test func archerGuardHitWithEmptySoldierAttacksYieldsAttackRanged() {
+        var result = BattleCombatState.TickResult()
+        result.guardHits = [
+            BattleCombatState.GuardHitEvent(guardID: 1, soldierID: 100, type: .archer, appliedDamage: 2)
+        ]
+
+        #expect(firstSound(from: result) == .attackRanged)
+    }
+
+    @Test func siegeGuardHitWithEmptySoldierAttacksYieldsAttackSiege() {
+        var result = BattleCombatState.TickResult()
+        result.guardHits = [
+            BattleCombatState.GuardHitEvent(guardID: 1, soldierID: 100, type: .siege, appliedDamage: 2)
+        ]
+
+        #expect(firstSound(from: result) == .attackSiege)
+    }
+
+    @Test func guardAttackYieldsAttackMelee() {
+        var result = BattleCombatState.TickResult()
+        result.guardAttacks = [
+            BattleCombatState.GuardAttackEvent(guardID: 1, soldierID: 100, appliedDamage: 3)
+        ]
+
+        #expect(firstSound(from: result) == .attackMelee)
+    }
+
     private func firstSound(
         from result: BattleCombatState.TickResult
     ) -> GameplaySoundID? {

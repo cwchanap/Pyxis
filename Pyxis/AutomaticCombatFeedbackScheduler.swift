@@ -171,14 +171,19 @@ struct AutomaticCombatFeedbackScheduler {
     private func candidates(from result: BattleCombatState.TickResult) -> [GameplaySoundID] {
         let killed = Set(result.soldierLosses.map(\.soldierID))
         let hasNonfatalHit = result.damagedSoldierIDs.contains { !killed.contains($0) }
-        let attacks = Set(result.soldierAttacks.map { attackSound(for: $0.type) })
+        var attacks = Set(result.soldierAttacks.map { attackSound(for: $0.type) })
+        // A GuardHitEvent means the Guard was hit; map the attacking soldier
+        // type through the same sound mapping. It must not add `.soldierHit`.
+        for hit in result.guardHits {
+            attacks.insert(attackSound(for: hit.type))
+        }
 
         var sounds: [GameplaySoundID] = []
         if !result.soldierLosses.isEmpty { sounds.append(.soldierDeath) }
         if !result.towerShots.isEmpty { sounds.append(.towerFire) }
         if attacks.contains(.attackSiege) { sounds.append(.attackSiege) }
         if attacks.contains(.attackRanged) { sounds.append(.attackRanged) }
-        if attacks.contains(.attackMelee) { sounds.append(.attackMelee) }
+        if attacks.contains(.attackMelee) || !result.guardAttacks.isEmpty { sounds.append(.attackMelee) }
         if hasNonfatalHit { sounds.append(.soldierHit) }
         return sounds
     }

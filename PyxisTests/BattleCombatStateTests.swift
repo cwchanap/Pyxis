@@ -1154,6 +1154,359 @@ struct BattleCombatStateTests {
         #expect(Set(choicesA).count > 1)
     }
 
+    // MARK: - Lane-local Guards (HPA-469)
+
+    private func guardCombatConfiguration(soldierMaxHP: Int = 10) -> BattleCombatState.Configuration {
+        BattleCombatState.Configuration(
+            soldierMaxHP: soldierMaxHP,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0.12,
+            soldierMovementSpeed: 0.40,
+            towerDamage: 0,
+            towerAttackSpeed: 1.0,
+            towerAttackRange: 0,
+            maxDeltaTime: 1.0
+        )
+    }
+
+    @Test func restoredGuardKeepsLaneAndHPButStartsAtKeepProgress() {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let snapshot = SiegeFixtures.highcrestSnapshot()
+
+        let guardID = combat.restoreGuard(GuardSnapshot(lane: .right, remainingHP: 5), siege: snapshot)
+
+        #expect(combat.guards.count == 1)
+        let restored = combat.guards[0]
+        #expect(restored.id == guardID)
+        #expect(restored.lane == .right)
+        #expect(restored.currentHP == 5)
+        #expect(restored.maxHP == HighcrestGuardRules.maxHP)
+        #expect(restored.position == snapshot.layout.keepObjective.visualProgress)
+        #expect(combat.guardSnapshots == [GuardSnapshot(lane: .right, remainingHP: 5)])
+    }
+
+    @Test func rightLaneSoldierBeyondBarracksStillMeetsLaterKeepSpawnedGuard() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let soldier = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .right)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var metGuard = false
+        for _ in 0..<20 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if !result.guardAttacks.isEmpty {
+                metGuard = true
+                #expect(result.guardAttacks.map(\.soldierID) == [soldier])
+                #expect(result.guardAttacks.map(\.appliedDamage) == [HighcrestGuardRules.attackPower])
+                break
+            }
+        }
+
+        #expect(metGuard)
+        #expect(try #require(combat.soldier(id: soldier)).currentHP == 10 - HighcrestGuardRules.attackPower)
+    }
+
+    @Test func guardNeverDescendsBelowBarracksProgress() {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        for _ in 0..<5 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+            #expect(combat.guards[0].position >= SiegeFixtures.highcrestBarracksProgress)
+        }
+        #expect(combat.guards[0].position == SiegeFixtures.highcrestBarracksProgress)
+    }
+
+    @Test func guardWithoutBarracksLayoutClosesToItsOwnRangeOfTheSoldier() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let soldier = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .center)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000)
+        )
+
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+        }
+
+        // No barracks objective → floor 0: the guard closes past where the
+        // Highcrest Barracks would stand, up to its own attack range.
+        let soldierPosition = try #require(combat.soldier(id: soldier)).position
+        #expect(combat.guards[0].position < SiegeFixtures.highcrestBarracksProgress)
+        #expect(combat.guards[0].position - soldierPosition <= HighcrestGuardRules.attackRange + 0.001)
+    }
+
+    @Test func soldierAndGuardMovementNeverCross() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 100))
+        let soldier = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .right)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        for _ in 0..<12 {
+            _ = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            let soldierPosition = try #require(combat.soldier(id: soldier)).position
+            let guardPosition = combat.guards[0].position
+            #expect(guardPosition > soldierPosition)
+            #expect(guardPosition - soldierPosition >= HighcrestGuardRules.attackRange - 0.001)
+        }
+    }
+
+    @Test func guardAttacksOnlyTheForemostSoldierInItsLane() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let foremost = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .right)
+        _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        let trailing = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+        _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var attack: BattleCombatState.GuardAttackEvent?
+        for _ in 0..<20 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if let first = result.guardAttacks.first {
+                #expect(result.guardAttacks.count == 1)
+                attack = first
+                break
+            }
+        }
+
+        #expect(try #require(attack).soldierID == foremost)
+        let trailingActor = try #require(combat.soldier(id: trailing))
+        #expect(trailingActor.currentHP == trailingActor.maxHP)
+        let foremostActor = try #require(combat.soldier(id: foremost))
+        #expect(foremostActor.currentHP == foremostActor.maxHP - HighcrestGuardRules.attackPower)
+    }
+
+    @Test func guardNeverTargetsAnotherLaneOrPlayerCastle() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let soldier = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .center)
+        let soldierFullHP = try #require(combat.soldier(id: soldier)).maxHP
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var lastResult: BattleCombatState.TickResult?
+        for _ in 0..<2 {
+            let result = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+            #expect(result.guardAttacks.isEmpty)
+            #expect(result.damagedSoldierIDs.isEmpty)
+            #expect(try #require(combat.soldier(id: soldier)).currentHP == soldierFullHP)
+            lastResult = result
+        }
+
+        // The center-lane soldier damages the castle only through its own
+        // soldier attacks; the right-lane guard holds at Keep progress.
+        let final = try #require(lastResult)
+        #expect(!final.soldierAttacks.isEmpty)
+        #expect(final.soldierAttacks.allSatisfy { $0.soldierID == soldier })
+        #expect(combat.guards[0].position == SiegeFixtures.highcrestSnapshot().layout.keepObjective.visualProgress)
+    }
+
+    @Test func deadGuardEmitsOneLossAndSurvivorsResumeStructureTargeting() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let soldier = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 6, lane: .right)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        let guardID = combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: 3),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var killResult: BattleCombatState.TickResult?
+        for _ in 0..<20 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if !result.guardLosses.isEmpty {
+                killResult = result
+                break
+            }
+        }
+
+        let kill = try #require(killResult)
+        #expect(kill.guardLosses == [BattleCombatState.GuardLossEvent(guardID: guardID, lane: .right)])
+        #expect(kill.soldierAttacks.isEmpty)
+        #expect(combat.guardSnapshots.isEmpty)
+
+        // A full attack interval later the survivor's cooldown is ready again.
+        let next = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        #expect(next.guardLosses.isEmpty)
+        #expect(next.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.highcrestKeepID])
+        #expect(try #require(combat.soldier(id: soldier)).isAlive)
+    }
+
+    @Test func livingGuardStillFunctionsAfterBarracksDestruction() {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        _ = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .right)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot(barracksRemaining: 0))
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot(barracksRemaining: 0)
+        )
+
+        var attacked = false
+        for _ in 0..<20 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot(barracksRemaining: 0))
+            if !result.guardAttacks.isEmpty {
+                attacked = true
+                break
+            }
+        }
+
+        #expect(attacked)
+    }
+
+    @Test func keepDestructionWinsImmediatelyWithoutGuardCleanup() {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 30, lane: .right)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot(keepRemaining: 20))
+
+        #expect(result.didReachConquest)
+        #expect(result.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.highcrestKeepID])
+        #expect(result.guardLosses.isEmpty)
+        #expect(combat.guardSnapshots == [GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP)])
+    }
+
+    @Test func emptyGuardRosterPreservesExistingTowerMovementAttackBehavior() {
+        var combat = BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 10,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0.12,
+                soldierMovementSpeed: 0.40,
+                towerDamage: 2,
+                towerAttackSpeed: 100.0,
+                towerAttackRange: 0.55,
+                maxDeltaTime: 1.0
+            )
+        )
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 3, lane: .center)
+
+        var shots = 0
+        var attacks = 0
+        for _ in 0..<3 {
+            let result = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+            shots += result.towerShots.count
+            attacks += result.soldierAttacks.count
+            #expect(result.guardAttacks.isEmpty)
+            #expect(result.guardHits.isEmpty)
+            #expect(result.guardLosses.isEmpty)
+        }
+
+        #expect(shots >= 1)
+        #expect(attacks >= 1)
+        #expect(combat.guardSnapshots.isEmpty)
+    }
+
+    @Test func eachSoldierTypeAttacksClosingGuardWithinItsOwnRangeBeforeRetaliation() throws {
+        // marchTicks marches the soldier toward the Keep before the Guard
+        // exists; closingDelta then closes the Guard from Keep progress just
+        // far enough that the soldier's OWN range is satisfied while the
+        // Guard's shorter 0.10 range is not.
+        let cases: [GuardClosingChoreography] = [
+            .init(type: .infantry, marchTicks: 2, closingDelta: 0.15),
+            .init(type: .archer, marchTicks: 2, closingDelta: 0.10),
+            .init(type: .cavalry, marchTicks: 1, closingDelta: 0.50),
+            .init(type: .mage, marchTicks: 2, closingDelta: 0.10),
+            .init(type: .siege, marchTicks: 3, closingDelta: 0.50)
+        ]
+
+        for testCase in cases {
+            var combat = BattleCombatState(configuration: guardCombatConfiguration())
+            let soldier = combat.spawnSoldier(
+                type: testCase.type,
+                source: .manual,
+                level: 1,
+                attackPower: 2,
+                lane: .right
+            )
+            for _ in 0..<testCase.marchTicks {
+                _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+            }
+            combat.restoreGuard(
+                GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+                siege: SiegeFixtures.highcrestSnapshot()
+            )
+
+            let result = combat.tick(deltaTime: testCase.closingDelta, siege: SiegeFixtures.highcrestSnapshot())
+
+            #expect(result.guardHits.map(\.soldierID) == [soldier])
+            #expect(result.guardHits.map(\.type) == [testCase.type])
+            #expect(result.guardHits.map(\.appliedDamage) == [2])
+            #expect(result.guardAttacks.isEmpty)
+            #expect(try #require(combat.guardSnapshots.first).remainingHP
+                == HighcrestGuardRules.maxHP - 2)
+        }
+    }
+
+    @Test func guardKillsFlowOnlyThroughExistingSoldierDamageEvents() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let soldier = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        // March the guard down onto the parked soldier until a guard attack
+        // kills it; that damage must surface only through the existing
+        // damagedSoldierIDs / soldierLosses channels.
+        var killedByGuard = false
+        for _ in 0..<20 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            #expect(result.soldierAttacks.isEmpty || result.soldierAttacks.allSatisfy { $0.soldierID == soldier })
+            if !result.soldierLosses.isEmpty {
+                killedByGuard = true
+                #expect(result.soldierLosses.map(\.soldierID) == [soldier])
+                #expect(result.damagedSoldierIDs.contains(soldier))
+                #expect(!result.guardAttacks.isEmpty)
+                break
+            }
+        }
+
+        #expect(killedByGuard)
+    }
+
+    private struct GuardClosingChoreography {
+        let type: SoldierType
+        let marchTicks: Int
+        let closingDelta: Double
+    }
+
     private struct ExpectedSoldierStats {
         let type: SoldierType
         let maxHP: Int
@@ -1206,6 +1559,29 @@ private enum SiegeFixtures {
                 falconridgeID(.keep): max(0, keepRemaining),
                 falconridgeID(.arrowTower): max(0, towerRemaining),
                 falconridgeID(.gate): max(0, gateRemaining)
+            ]
+        )
+    }
+
+    static func highcrestID(_ kind: CitySiegeLayout.ObjectiveKind) -> String {
+        Country1CityCatalog.definition(for: 5).siegeLayout.objectives.first { $0.kind == kind }!.id
+    }
+
+    static var highcrestKeepID: String { highcrestID(.keep) }
+
+    static var highcrestBarracksProgress: Double {
+        Country1CityCatalog.definition(for: 5).siegeLayout.barracksObjective!.visualProgress
+    }
+
+    static func highcrestSnapshot(
+        keepRemaining: Int = 1_000,
+        barracksRemaining: Int = 25
+    ) -> BattleCombatState.SiegeSnapshot {
+        BattleCombatState.SiegeSnapshot(
+            layout: Country1CityCatalog.definition(for: 5).siegeLayout,
+            objectiveRemainingPower: [
+                highcrestID(.keep): max(0, keepRemaining),
+                highcrestID(.barracks): max(0, barracksRemaining)
             ]
         )
     }
