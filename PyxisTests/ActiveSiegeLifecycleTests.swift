@@ -257,9 +257,9 @@ struct ActiveSiegeLifecycleTests {
         }
 
         state.enterBackground(at: start)
-        let result = state.returnFromBackground(at: start.addingTimeInterval(6))
+        let result = state.returnFromBackground(at: start.addingTimeInterval(20))
 
-        // Buildings exist but the 6s window yields no spawns — the Guard
+        // Buildings exist but the 20s window yields no spawns — the Guard
         // phase must still advance for the credited settlement window.
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards == Array(
@@ -280,9 +280,9 @@ struct ActiveSiegeLifecycleTests {
             return
         }
 
-        // The second build settles the 6s Camp window first: no spawns yet,
+        // The second build settles the 20s Camp window first: no spawns yet,
         // but exactly one due wave materializes before the build lands.
-        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(6)) else {
+        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(20)) else {
             Issue.record("expected second build to succeed")
             return
         }
@@ -370,14 +370,14 @@ struct ActiveSiegeLifecycleTests {
         let transition = start.addingTimeInterval(4.5)
         state.markCurrentCityBuildingProgressInactive(at: transition)
 
-        // A later Camp build settles only the post-transition 6s interval.
-        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: transition.addingTimeInterval(6)) else {
+        // A later Camp build settles only the post-transition 20s interval.
+        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: transition.addingTimeInterval(20)) else {
             Issue.record("expected second build to succeed")
             return
         }
 
         let progress = try #require(state.siegeProgress.guardReinforcements)
-        #expect(progress.waveElapsedSeconds == 4.5) // 4.5 + 6.0 wraps once to 4.5
+        #expect(progress.waveElapsedSeconds == 4.5) // 4.5 + 20.0 wraps once to 4.5
         #expect(progress.unresolvedGuards == Array(
             repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
             count: 2

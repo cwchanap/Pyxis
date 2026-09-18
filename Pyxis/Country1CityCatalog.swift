@@ -212,7 +212,12 @@ enum Country1CityCatalog {
 /// values live beside the Highcrest authoring, not in generic siege state.
 enum HighcrestGuardRules {
     static let guardsPerWave = 2
-    static let waveIntervalSeconds = 6.0
+    /// Tuned by the HPA-469 Task 6 balance evidence: at the starting 6.0s the
+    /// whole 8-Guard reserve deployed by t=24s — long before the exposed
+    /// route could destroy the Barracks (~58s) — so shutdown visibly canceled
+    /// nothing. 20.0s spreads the four waves across 20/40/60/80s and leaves
+    /// reserve unspent at typical shutdown times.
+    static let waveIntervalSeconds = 20.0
     static let totalReserve = 8
     static let maxHP = 12
     static let attackPower = 3

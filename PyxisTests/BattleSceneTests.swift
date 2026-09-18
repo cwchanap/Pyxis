@@ -5353,7 +5353,7 @@ struct BattleSceneTests {
         let tick = try #require(killTick(waveElapsedSeed: 0))
         // Seed so the wave becomes due exactly on the kill tick (with a 0.05
         // margin against float drift) and not one tick earlier.
-        let alignedSeed = 6.05 - Double(tick) * 0.1
+        let alignedSeed = HighcrestGuardRules.waveIntervalSeconds + 0.05 - Double(tick) * 0.1
         let store = try makeStore(initialState: highcrestState(
             supportDamage: [.barracks: barracksMax - 1],
             guardProgress: GuardReinforcementProgress(
@@ -5423,7 +5423,7 @@ struct BattleSceneTests {
     func wavesSpawnIntoCombatAndLabelTracksCount() throws {
         let scene = makeScene(store: try makeStore(initialState: highcrestState()))
 
-        scene.advanceCombatForTesting(deltaTime: 6.1)
+        scene.advanceCombatForTesting(deltaTime: 20.1)
 
         // One due wave: 2 full-HP Guards restored at Keep progress with nodes.
         #expect(scene.livingGuardsForTesting.count == 2)
