@@ -5291,6 +5291,61 @@ struct BattleSceneTests {
         #expect(persisted.remainingReserve == HighcrestGuardRules.totalReserve - 1)
     }
 
+    @Test("Cold relaunch foreground rebuilds combat Guards from the settled roster")
+    func coldRelaunchForegroundRebuildsGuardsFromSettlement() throws {
+        // A relaunched save still carrying `lastBackgroundedAt`: scene init
+        // restores the PRE-idle roster, then the initial willEnterForeground
+        // settles it — so the foreground restore must REPLACE combat's roster
+        // from the post-settlement state, not skip because it is non-empty.
+        // Otherwise the first tick's live-snapshot sync writes pre-idle HP
+        // back over the settled damage and drops wave-materialized Guards
+        // while their reserve stays consumed.
+        let start = Date(timeIntervalSinceNow: -1_000)
+        var state = highcrestState(
+            guardProgress: GuardReinforcementProgress(
+                waveElapsedSeconds: HighcrestGuardRules.waveIntervalSeconds - 1,
+                remainingReserve: HighcrestGuardRules.totalReserve,
+                unresolvedGuards: [
+                    GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP)
+                ]
+            )
+        )
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        state.lastBackgroundedAt = start
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        // Init restored the lone pre-idle Guard.
+        #expect(scene.livingGuardsForTesting.count == 1)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: nil)
+
+        // 1000 idle seconds crossed the 30s wave: the whole reserve deployed
+        // (one snapshot already counted against it, so 11 more materialize),
+        // then ten level-1 infantry spawn hits — power 1 each on the selected
+        // left lane — left the original Guard at 2 HP.
+        let settled = try #require(scene.gameStateForTesting.siegeProgress.guardReinforcements)
+        #expect(settled.remainingReserve == 0)
+        #expect(settled.unresolvedGuards.count == HighcrestGuardRules.totalReserve)
+        #expect(settled.unresolvedGuards.first == GuardSnapshot(lane: .left, remainingHP: 2))
+        #expect(settled.unresolvedGuards.dropFirst().allSatisfy {
+            $0 == GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP)
+        })
+
+        // Combat now mirrors the settled roster, not the stale pre-idle one.
+        let combatSnapshots = scene.livingGuardsForTesting.map {
+            GuardSnapshot(lane: $0.lane, remainingHP: $0.currentHP)
+        }
+        #expect(combatSnapshots == settled.unresolvedGuards)
+
+        // The first tick's sync persists the settled roster verbatim — no
+        // resurrected HP and no dropped wave Guards under a consumed reserve.
+        scene.advanceCombatForTesting(deltaTime: 0.2)
+        let persisted = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persisted.unresolvedGuards == settled.unresolvedGuards)
+        #expect(persisted.remainingReserve == settled.remainingReserve)
+    }
+
     @Test("A guard-only tick updates SiegeProgress even when soldierAttacks is empty")
     func guardOnlyTickPersistsProgressWithoutStructureAttacks() throws {
         let barracksMax = try Self.highcrestMaxPowers().barracks
