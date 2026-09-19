@@ -18,19 +18,22 @@ This remains **one implementation PR**. Planning, persistence, combat integratio
 2. Captain availability is derived from `cityNumberInCountry >= 3`. No unlock flag, quest, currency, roster, equipment, XP, hero level, rank, or details screen.
 3. The Captain is a dedicated combat actor, **not** a new `SoldierType` or `SoldierSpawnSource`. This keeps manual cap, navigation lock, deployments, losses, MVP, and soldier report rows unchanged.
 4. Exactly one Captain may exist in live combat.
-5. Captain lane is transient. Initial scene construction, scene reconstruction, and recovery completion are deployment/redeployment points and use the then-current selected assault lane. Changing the flag while the Captain is alive never changes the active actor's lane.
+5. Captain lane is durable while that Captain is alive. Fresh City 3+ entry and recovery completion copy the then-current `selectedLane` into Captain progress; ordinary lane-chip changes never rewrite it. Scene/tab/background reconstruction restores that persisted lane instead of granting a free lane hop. Position remains transient.
 6. Captain attack and HP scale from the existing `normalSoldierUpgradeLevel` through one explicit rule set. Movement/range/defense/attack-speed reuse the existing base infantry combat configuration; no hero-specific pathing or targeting.
-7. Captain retreat is not a `SoldierLossEvent`. Defeat persists HP = 0 plus one fixed recovery countdown; completion restores current maximum HP and redeploys automatically.
-8. Rally is hard-coded to this Captain: one consumed bit in persisted siege progress plus one transient five-second timer in `BattleCombatState`. No reusable cooldown/timed-effect abstraction.
-9. Rally protects **ordinary allied soldiers only**, not the Captain. The feature is intended to protect the army around the Captain and keeps Captain tuning independent.
-10. Rally damage rule: after the source's normal damage calculation, multiply by `0.70`, round to nearest integer with Swift's default `.rounded()`, then clamp to at least 1 damage.
-11. Manual and automatic Rally activation call one BattleScene activation path and consume persisted readiness before starting the transient effect.
-12. Auto Rally may request activation only when an enemy tower/Guard hit causes a still-living frontline soldier in the Captain lane to cross from at-or-above half HP to below half HP. Tower/Guard targeting already picks a frontline actor, so an actual enemy hit is the “actively engaged” proof; do not add engagement state.
-13. Rally's triggering hit is not retroactively reduced. Protection begins after the shared activation mutation and affects later incoming hits.
-14. If a scene/app reconstruction occurs during the five-second window, the timer may disappear; `rallyConsumed` remains true, so Rally cannot return to ready.
-15. Captain recovery may advance through existing elapsed-time settlement/foreground handling, even with zero player buildings, but the Captain never creates offline damage. Existing no-buildings/no-offline-damage semantics remain intact.
-16. Development save breaks are acceptable. No migrations/converters.
-17. No generated art or new SFX in HPA-475. Use procedural/static fallbacks and existing feedback sounds. HPA-476 owns final Captain/Rally visuals.
+7. Live Captain HP + lane are synchronized into `SiegeProgress` after every combat tick, outside the existing soldier-structure-event early return. HP changes, retreat, Rally consumption, and recovery completion save immediately; the existing throttled progress save may cover recovery countdown-only changes.
+8. Captain retreat is not a `SoldierLossEvent`. Defeat persists HP = 0 plus one fixed recovery countdown; completion restores current maximum HP, writes the current selected lane, and redeploys automatically.
+9. Rally is hard-coded to this Captain: one consumed bit in persisted siege progress plus one transient five-second timer in `BattleCombatState`. No reusable cooldown/timed-effect abstraction.
+10. Rally protects **ordinary allied soldiers only**, not the Captain. The feature is intended to protect the army around the Captain and keeps Captain tuning independent.
+11. Rally damage rule: after the source's normal damage calculation, multiply by `0.70`, round to nearest integer with Swift's default `.rounded()`, then clamp to at least 1 damage.
+12. Manual and automatic Rally activation call one BattleScene activation path and consume persisted readiness before starting the transient effect.
+13. Auto Rally may request activation only when an enemy tower/Guard hit causes a still-living frontline soldier in the Captain lane to cross from at-or-above half HP to below half HP. The enemy hit itself is the engagement proof; do not add engagement state.
+14. Rally activation occurs after the tick that requested it. The triggering hit **and any later hits in that same tick** are unprotected; protection starts on the next combat tick.
+15. Captain-only structure hits, retreat signals, and Rally auto-requests must bypass the current `soldierAttacks.isEmpty` return and reuse the existing live-conquest persistence/report presenter. Do not create a second conquest path.
+16. If a scene/app reconstruction occurs during the five-second window, the timer may disappear; `rallyConsumed` remains true, so Rally cannot return to ready.
+17. Captain recovery advances through the already-owned live/settlement elapsed windows even with zero player buildings. Call it before the current occupied-slot early returns; Captain still creates no offline damage, Guard waves still require player buildings, and zero buildings remain zero offline damage/conquest.
+18. Reuse existing melee/tower feedback sounds and the existing all-or-nothing walk/attack/hit animation trio machinery. Do not add new SFX or a second animation player.
+19. Development save breaks are acceptable. No migrations/converters.
+20. No generated art in HPA-475. Use procedural/static fallbacks until HPA-476 supplies final Captain/Rally visuals.
 
 ## Rules and tuning
 
@@ -58,10 +61,11 @@ These are starting values for HPA-475 gameplay evidence, not a new progression a
 
 ## Persisted siege state
 
-Add only the minimum state needed to prevent heal/revive/Rally-reset exploits:
+Add only the minimum state needed to prevent heal/revive/lane-hop/Rally-reset exploits:
 
 ```swift
 struct VanguardCaptainProgress: Codable, Equatable {
+    var lane: BattleLane
     var remainingHP: Int
     var recoveryRemainingSeconds: Double
     var rallyConsumed: Bool
@@ -78,20 +82,37 @@ struct SiegeProgress: Codable, Equatable {
 Interpretation:
 
 - City 1–2: `captain == nil`.
-- Fresh City 3+: full current Captain HP, recovery 0, Rally unused.
-- Healthy/deployable: `remainingHP > 0 && recoveryRemainingSeconds == 0`.
-- Recovering: `remainingHP == 0 && recoveryRemainingSeconds > 0`.
-- Recovery reaching zero restores current max HP.
+- Fresh City 3+: full current Captain HP, recovery 0, Rally unused, lane = the fresh siege's selected/default lane.
+- Healthy/deployable: `remainingHP > 0 && recoveryRemainingSeconds == 0`; `lane` is the live/reconstruction lane.
+- Recovering: `remainingHP == 0 && recoveryRemainingSeconds > 0`; keep the last lane only as durable history while no actor is live.
+- Recovery reaching zero restores current max HP and writes `lane = siegeProgress.selectedLane` for the next deployment.
 - Captain max HP is recalculated from the current soldier-upgrade level. Increasing that level does not heal current HP; normalization only clamps down to the current maximum.
-- Persist no Captain position, actor ID, animation action, active Rally seconds, or active lane.
+- Persist no Captain position, actor ID, animation action, or active Rally seconds.
 
 `normalizedSiegeProgress` stays the forgiving owner. Pass the current city number and soldier-upgrade level into normalization so it can derive Captain availability/max HP without adding an unlock field.
 
-A malformed City 3+ Captain payload clamps HP into `0...maxHP`, recovery into `0...recoverySeconds`, and preserves `rallyConsumed`. If HP is zero and recovery is zero, recovery is complete and the normalized state becomes full HP. City 1–2 discard Captain progress.
+A malformed City 3+ Captain payload clamps HP into `0...maxHP`, recovery into `0...recoverySeconds`, keeps the persisted lane, and preserves `rallyConsumed`. If HP is zero and recovery is zero, recovery is complete and the normalized state becomes full HP on the currently selected lane. City 1–2 discard Captain progress.
 
-### Why active lane is not persisted
+`startCityFromMap` constructs `SiegeProgress` directly and therefore must seed fresh Captain progress there, just as it already seeds fresh Highcrest Guard progress. Decoder normalization alone is not enough.
 
-HPA-469 already accepts transient actor positions across scene replacement, and HPA-475 explicitly asks for only enough state to block heal/revive/Rally exploits. A scene reconstruction is a redeployment boundary: a healthy Captain comes back in the currently selected lane. A live lane-chip tap does not mutate the current Captain actor. This gives the requested “next deployment/redeployment” behavior without another persistence field.
+### Why lane persists but position does not
+
+HPA-469 already persists Guard lane + HP while accepting transient position. Captain needs the same boundary. A lane-chip tap changes only `siegeProgress.selectedLane`; it does not teleport the active Captain. Reconstructing Battle after a Camp/Map visit or background event must restore the Captain on its persisted lane, otherwise a tab switch becomes a free lane-change exploit.
+
+Position remains transient because allied soldiers and Guards already rebuild spatial position across scene reconstruction. HPA-475 does not introduce partial spatial continuity for only the Captain.
+
+### Live HP/lane synchronization
+
+Add one focused `KingdomGameState` seam next to `synchronizeLiveGuardSnapshots`, for example:
+
+```swift
+@discardableResult
+mutating func synchronizeLiveCaptain(lane: BattleLane, remainingHP: Int) -> Bool
+```
+
+After every live combat tick, BattleScene writes the live Captain's lane + current HP into `SiegeProgress.captain` even when no soldier hit a structure. A changed HP/lane snapshot saves immediately. Retreat uses `recordCaptainRetreat()` instead of synchronizing a dead actor back to healthy state.
+
+Scene init and foreground restoration converge combat from durable Captain progress the same way `restorePersistedGuardsIntoCombat()` converges Guards.
 
 ## Live Captain actor
 
@@ -128,7 +149,14 @@ Captain structure damage is intentionally **not** converted to `SoldierAttackEve
 
 The Captain must be able to retreat, so towers and Guards treat the Captain as one possible allied combat target.
 
-Use one small private `AlliedTarget` enum inside `BattleCombatState` only to select the foremost in-range ordinary soldier or Captain. Do not expose it as a generic actor hierarchy.
+Use one small private `AlliedTarget` enum inside `BattleCombatState`, but keep the two existing targeting meanings explicit:
+
+- `foremostAlliedTarget(in:)` — no range filter; Guard movement + Guard attacks use it.
+- the defensive-fire helper — covered lanes + source-relative range filter; tower targeting uses it.
+
+When Captain and a soldier share the same foremost position, prefer the Captain. This lets equal-speed infantry march beside the Captain while the Captain actually tanks instead of being skipped by tie ordering.
+
+Do not expose `AlliedTarget` as a generic actor hierarchy.
 
 Preserve existing soldier events and add Captain-specific result signals rather than widening soldier IDs:
 
@@ -222,41 +250,73 @@ mutating func advanceCaptainRecovery(deltaTime: Double) -> Bool
 mutating func consumeVanguardRally() -> Bool
 ```
 
-`advanceCaptainRecovery` returns true only when recovery crosses to ready/full HP.
+`advanceCaptainRecovery` returns true only when recovery crosses to ready/full HP; that transition also writes the then-current `siegeProgress.selectedLane` for redeployment.
 
-Live Battle order stays close to HPA-469:
+### Live Battle integration
+
+The current `BattleScene.applyCombatResult` returns early when `result.soldierAttacks.isEmpty`. Captain work cannot live behind that guard. Keep one live-outcome path and widen the continuation condition so Captain structure hits / retreat / Rally auto-request are handled even on a Captain-only tick.
+
+Post-tick order:
 
 ```text
 player building spawns
 -> BattleCombatState.tick
 -> feedback
--> apply soldier structure events
--> apply Captain structure events (no report attribution)
--> record soldier losses
+-> apply ordinary soldier structure events
+-> apply Captain structure events via applyObjectiveDamage (no report attribution)
+-> record ordinary soldier losses
 -> record Captain retreat if needed
--> synchronize Guard HP
--> advance Guard waves
--> advance Captain recovery
+-> synchronize live Captain lane + HP
+-> process Rally auto-request through activateRally()
+-> advance Captain recovery with combat-clamped delta
 -> deploy returned Captain if recovery completed
--> persist on existing immediate/throttled save rules
+-> existing Guard snapshot sync + Guard wave advance/restore
+-> immediate save for Captain HP/retreat/Rally/recovery-completion changes
+-> existing throttled progress save for countdown-only progression
 -> sync actor nodes + HUD
 ```
 
-Background/Camp/Map settlement may call `advanceCaptainRecovery` with the same credited elapsed window it already knows. This call is independent of player-building count. The existing building/Guard damage path remains unchanged: Captain never appears in `BuildingSpawn`, never attacks offline, and never changes reward/report damage.
+A Captain Keep kill reuses the same `persistLiveCombatStateAndEmitFreshOutcomeFeedback` / pending-report presentation path used by ordinary live conquest. Do not add a Captain conquest presenter.
+
+Manual/automatic Rally starts after the current tick has already resolved. All same-tick enemy hits remain unprotected.
+
+### Camp / Map / background elapsed recovery
+
+Captain recovery is independent of player buildings, while **damage remains building-driven**.
+
+Use the already-owned elapsed windows:
+
+- `resolveCurrentCityBuildingIdleProgress(at:)`: compute its capped elapsed interval, call `advanceCaptainRecovery` **before** the `occupiedSlotCount == 0` damage early return, then keep today's zero-building damage result.
+- `settleCurrentCityBuildingProgress(at:)`: resolve the interval from the existing building timestamp or the already-recorded `lastBackgroundedAt` fallback, advance Captain recovery before building-only exits, then leave Guard/building settlement semantics unchanged.
+- `markCurrentCityBuildingProgressInactive(at:)` remains the single transition timestamp owner; do not add a Captain clock.
+- live Battle recovery uses `combat.clampedDeltaTime`.
+
+A zero-building Camp/Map/background interval may finish Captain recovery but can never advance Guard waves, create `BuildingSpawn`, apply objective damage, award gold, or conquer.
 
 ## HUD
 
 Keep the current top band and battlefield field budget unchanged.
 
-For City 3+, extend the existing **Deploy panel** with one bounded right-side Captain/Rally segment. City 1–2 keep the current Deploy layout byte-for-byte.
+`BattleHUDContent` already lives in `BattleHUDNode.swift`; do not create `BattleHUDContent.swift`.
 
-The segment shows only:
+For City 3+, split the existing Deploy frame horizontally:
+
+- **left:** the existing Deploy icon/label/divider/manual-count cluster, left-aligned instead of centered;
+- **right:** a bounded Captain/Rally strip large enough for a ≥44pt Rally target plus compact `CAPT 18/20` / `CAPT 7s` status.
+
+City 1–2 keep today's centered Deploy cluster byte-for-byte.
+
+The right strip shows only:
 
 - small Captain portrait/fallback mark;
 - `CAPT 18/20` or `CAPT 7s`;
 - `RALLY`, `ACTIVE`, or `USED`.
 
-When Rally is Ready, this segment is the ≥44pt Rally hit target. Otherwise it is status-only. `BattleHUDNode.action(at:)` checks the Rally hit region before the remaining Deploy hit region, preventing a Rally tap from spawning a soldier.
+`BattleHUDContent.project` must receive the live `rallyRemainingSeconds` (and whether a Captain actor is deployed if needed) from BattleScene; `KingdomGameState` alone cannot distinguish transient Active from durable Used.
+
+Add `BattleHUDNode.Action.rally`. When Rally is Ready, the Captain strip owns a ≥44pt Rally hit target. `action(at:)` checks that frame **before** the remaining Deploy hit region, so Rally cannot accidentally spawn a soldier.
+
+Touch `BattleChromeLayout` only if 375×667 evidence proves the right strip cannot coexist with a still-tappable Deploy region inside today's 56pt compact Deploy frame.
 
 Do not add a hero screen, tooltip tree, second bottom bar, battlefield floating button, or extra top-band row.
 
@@ -276,14 +336,18 @@ HPA-475 installs **no generated images**. Runtime probes these stable names and 
 | `rally-icon` | 64×64 transparent, center anchor; HUD Ready/Active mark |
 | `rally-protection-accent` | 128×128 transparent accent, feet/bottom-center behind protected ordinary soldiers |
 
-No Captain retreat frame set is required: retreat uses a procedural fade/scale. Rally protection may be procedural until HPA-476 supplies the optional accent. Animation is observational only.
+No Captain retreat frame set is required: retreat uses a procedural fade/scale. Rally protection may be procedural until HPA-476 supplies the optional accent.
+
+HPA-475 does **not** add a Captain animation player. Reuse `SoldierAnimationAction`, `SoldierAnimationTiming`, and the existing all-or-nothing walk/attack/hit trio probe/playback path by making the frame-name probe accept the Captain prefix as another caller. Until HPA-476 installs the complete trio, the Captain remains on one procedural/static fallback sprite. Dropping the complete HPA-476 trio under these names activates the existing animation path; a partial trio still fails back to static presentation.
+
+Animation is observational only.
 
 ## Tests and evidence
 
 ### Pure state
 
 - City 1–2 no Captain progress; City 3+ fresh full Captain.
-- normalization/round trip retains damaged HP, recovery, and Rally consumption.
+- normalization/round trip retains Captain lane, damaged HP, recovery, and Rally consumption.
 - level increase does not heal an already-damaged Captain.
 - retreat starts 12s recovery; partial recovery persists; crossing zero restores current max HP once.
 - Rally consumes once and never resets inside the same siege.
@@ -293,7 +357,7 @@ No Captain retreat frame set is required: retreat uses a procedural fade/scale. 
 ### Combat
 
 - exactly one Captain deploys at position 0 on selected lane;
-- lane flag changes do not move live Captain; recovery/scene redeployment uses the current lane;
+- lane flag changes do not move live Captain; scene/tab/background reconstruction restores the persisted live lane; recovery completion is the only redeployment that adopts the current selected lane;
 - Captain blocks/attacks Guard first, then route structure;
 - tower/Guard can damage Captain; retreat is not a soldier loss;
 - manual soldier count is unchanged by Captain;
@@ -308,7 +372,7 @@ No Captain retreat frame set is required: retreat uses a procedural fade/scale. 
 
 - both manual and auto trigger use one activation path;
 - scene reconstruction during active Rally loses transient timer but stays Used;
-- healthy reconstruction/recovery return deploys on selected lane;
+- healthy reconstruction restores persisted lane/HP; recovery completion deploys on the then-current selected lane;
 - foreground/background preserves HP/recovery/consumed state;
 - zero buildings still produce zero offline damage/conquest;
 - Captain does not activate manual troop navigation lock;
@@ -316,10 +380,14 @@ No Captain retreat frame set is required: retreat uses a procedural fade/scale. 
 
 ### Gameplay gate
 
-Use deterministic representative City 5 Highcrest fights after correctness is green:
+Reuse the shipped HPA-469 Highcrest comparison exactly after correctness is green: combat seed 1, 1/60 tick, selected right/exposed lane, no manual spawns, Barracks L2 (slot 1) + Barracks L1 (slot 2) + Archery Range L1 (slot 3), soldier upgrade level 1. The pre-Captain reference is 567.62s / 158 ordinary-soldier losses on the right direct route.
+
+Compare:
 
 1. watch-only / automatic Rally;
-2. same seed/camp with one deliberately timed manual Rally.
+2. the same seed/camp with one deliberately timed manual Rally.
+
+Do not choose a new camp for Task 6; that would make the HPA-469 baseline incomparable.
 
 Record elapsed conquest time, normal soldier losses, Captain retreats, Rally trigger timing, and whether Captain damage appears dominant. Tune only the bounded Captain numbers above; do not add mechanics.
 
