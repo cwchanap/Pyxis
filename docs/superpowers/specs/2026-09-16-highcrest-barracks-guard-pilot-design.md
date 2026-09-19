@@ -34,30 +34,30 @@ This remains one implementation PR. Design, pure models, persistence, live comba
 
 Use the smallest readable shape: **Keep + Barracks only**. Do not add another Gate or Arrow Tower merely to justify the encounter.
 
-Highcrest's existing lane profile is:
+Highcrest's existing lane profile is (reassigned by the 2026-09-19 route-balance pass — see its shipped-value note under “Highcrest-local reinforcement tuning”):
 
-- left = exposed;
+- right = exposed;
 - center = fortified;
-- right = standard.
+- left = standard.
 
-Use right as the default lane, preserving today's standard-lane default.
+The default lane stays `right`, which after the reassignment is the exposed lane; lane selection remains the player's choice and the default was not re-tuned by the pass.
 
 | Objective | Stable ID | Weight | Visual position | Purpose |
 | --- | --- | ---: | --- | --- |
-| Keep | `highcrest.keep` | 4 | center / `1.0` | conquest target and Guard actor spawn/restore progress |
-| Barracks | `highcrest.barracks` | 1 | left / `0.62` | optional reinforcement shutdown target and Guard movement floor |
+| Keep | `highcrest.keep` | 20 | center / `1.0` | conquest target and Guard actor spawn/restore progress |
+| Barracks | `highcrest.barracks` | 1 | left / `0.72` | optional reinforcement shutdown target and Guard movement floor |
 
 Routes:
 
-- **Left / exposed:** `highcrest.barracks -> highcrest.keep`
+- **Left / standard:** `highcrest.barracks -> highcrest.keep`
 - **Center / fortified:** `highcrest.keep`
-- **Right / standard:** `highcrest.keep`
+- **Right / exposed:** `highcrest.keep`
 
-Highcrest's current City 5 durability budget is 427. The 4:1 starting weights allocate **342 Keep / 85 Barracks** while preserving the total exactly. The Barracks-first route therefore pays the full 427 structure damage but can shut off future Guard pressure; direct routes pay 342 structure damage and leave the Barracks active until conquest.
+Highcrest's current City 5 durability budget is 427. The shipped 20:1 weights (route-balance pass) allocate **407 Keep / 20 Barracks** while preserving the total exactly. The Barracks-first route therefore pays the full 427 structure damage but can shut off future Guard pressure; direct routes pay 407 structure damage and leave the Barracks active until conquest.
 
 Keep the existing `.arrowTower` city defense trait. `defensiveFire.sourceObjectiveID` remains `highcrest.keep`, matching today's single-Keep defensive-fire origin without inventing another structure.
 
-The two direct routes intentionally are not equal difficulty: center is the existing fortified lane (`1.25x` incoming tower damage) while right is standard (`1.0x`). The pilot's balance comparison is therefore **right direct vs left Barracks-first**. Center remains the deliberate hard direct lane, not a third parity target.
+The three lanes intentionally are not equal difficulty, and the route-balance pass made the asymmetry structural: center is the fortified lane (`1.25x` incoming tower damage), left is standard (`1.0x`), and right is exposed (`0.80x`). The pilot's balance comparison is **right direct vs left Barracks-first**, and the shipped shape is a mechanism trade rather than a raw-stat one: the right direct push fights under soft tower fire (no archer one-shots) but every one of the twelve reserve Guards deploys against it for the whole run, while the left Barracks-first push fights under hard tower fire (archers get one-shot) with Barracks shutdown landing ~26s — before the first 30s wave — so it cancels the entire remaining reserve. Center remains the deliberate hard direct lane, not a third parity target.
 
 ## Highcrest-local reinforcement tuning
 
@@ -66,18 +66,18 @@ These are authored City 5 values, so keep them beside Highcrest in `Country1City
 ```swift
 enum HighcrestGuardRules {
     static let guardsPerWave = 2
-    static let waveIntervalSeconds = 20.0
-    static let totalReserve = 8
+    static let waveIntervalSeconds = 30.0
+    static let totalReserve = 12
 
     static let maxHP = 12
     static let attackPower = 3
     static let attackSpeed = 1.0
-    static let attackRange = 0.10
+    static let attackRange = 0.28
     static let movementSpeed = 0.30
 }
 ```
 
-The four waves deploy at t = 20/40/60/80s. **Shipped value (HPA-469 Task 6 balance evidence):** the starting 6.0s interval deployed the entire reserve by t = 24s — long before the exposed route could destroy the Barracks (~50s with the representative camp) — so Barracks shutdown visibly canceled nothing. 20.0s leaves reserve unspent at typical shutdown times, making shutdown a real choice, and later waves land into a standing army (the Task 6 harness proved a wave-2 Guard engaging an army whose foremost soldier had already passed the Barracks floor). No active cap, queue, or extra mechanic was added.
+The six waves deploy at t = 30/60/90/120/150/180s. **Shipped value (HPA-469 Task 6 balance evidence):** the starting 6.0s interval deployed the entire reserve by t = 24s — long before the Barracks route could destroy the Barracks (~50s with the representative camp) — so Barracks shutdown visibly canceled nothing. 20.0s/8 made shutdown a real choice and let later waves land into a standing army (the Task 6 harness proved a wave-2 Guard engaging an army whose foremost soldier had already passed the Barracks floor). **Shipped values (2026-09-19 route-balance pass):** 30.0s/12 with the 20:1 objective weights and the lane reassignment closes the route-dominance gap — measured ×2 deterministic (Task 0 camp): right direct 567.62s/158 losses vs left Barracks-first 571.95s/159 (0.8% elapsed gap), with left shutdown at 25.98s canceling all 12 reserve (right deploys all 12 by t = 180s). The 0.28 Guard range (above the 0.264 archer maximum) makes the gap between a floor-clamped Guard and any staller equal to that staller's own range, so Barracks chewers are never unopposed; the 0.72 Barracks progress (0.72 − 0.264 = 0.456 ≥ 0.45) keeps chewers inside Keep tower fire. No active cap, queue, or extra mechanic was added.
 
 ## Authored siege model and Scout copy
 
@@ -127,15 +127,15 @@ struct SiegeProgress: Codable, Equatable {
 }
 ```
 
-Fresh Highcrest starts with elapsed `0`, reserve `8`, and no Guards. Other cities use `nil`.
+Fresh Highcrest starts with elapsed `0`, reserve `12`, and no Guards. Other cities use `nil`.
 
 `KingdomGameState.normalizedSiegeProgress` remains the single forgiving normalization seam. For Highcrest it:
 
-- clamps reserve to `0...8`;
-- normalizes elapsed into `0..<waveIntervalSeconds` (shipped interval: 20s);
+- clamps reserve into `0...totalReserve`;
+- normalizes elapsed into `0..<waveIntervalSeconds` (shipped interval: 30s);
 - clamps Guard HP to `1...12`;
-- retains at most eight unresolved Guards total, preserving order and lanes;
-- clamps remaining reserve so `unresolvedGuards.count + remainingReserve <= 8`;
+- retains at most twelve unresolved Guards total, preserving order and lanes;
+- clamps remaining reserve so `unresolvedGuards.count + remainingReserve <= 12`;
 - leaves Barracks-destroyed survivors intact;
 - creates fresh reinforcement progress on a fresh Highcrest siege;
 - forces non-Highcrest `guardReinforcements` to `nil`;
@@ -204,13 +204,13 @@ A Guard stores only ID, lane, HP, position, and attack cooldown. Its combat numb
 
 ### Spawn / restore and movement floor
 
-- Barracks renders at `highcrest.barracks.visualProgress == 0.62`;
+- Barracks renders at `highcrest.barracks.visualProgress == 0.72`;
 - new/restored Guards start at `snapshot.layout.keepObjective.visualProgress`;
 - Guard movement downward clamps at `snapshot.layout.barracksObjective?.visualProgress ?? 0`;
 - a Guard with no allied target holds position and never marches toward the player castle;
-- direct-route soldiers already beyond `0.62` still meet later waves because Guards enter from Keep progress.
+- direct-route soldiers already beyond `0.72` still meet later waves because Guards enter from Keep progress.
 
-Derive the floor from authored Barracks geometry rather than duplicating `0.62` in Guard rules.
+Derive the floor from authored Barracks geometry rather than duplicating `0.72` in Guard rules.
 
 ### Independent attack ranges
 
@@ -219,7 +219,7 @@ There is no single shared contact distance.
 For a soldier/Guard pair on the same lane:
 
 1. the soldier stops advancing once it is within **its own** per-type attack range and may attack;
-2. the Guard continues closing while outside **its own** `0.10` attack range, subject to the Barracks movement floor and no-pass-through clamp;
+2. the Guard continues closing while outside **its own** `0.28` attack range, subject to the Barracks movement floor and no-pass-through clamp;
 3. therefore Archer/Mage/Siege can land earlier attacks while the Guard closes;
 4. if the Guard survives and can close far enough, it may retaliate from its own range;
 5. Infantry/Cavalry naturally begin much closer to the Guard.
@@ -417,10 +417,10 @@ Cover:
 
 Use one identical deterministic camp/loadout for:
 
-1. **right / standard direct push**;
-2. **left / exposed Barracks-first**.
+1. **right / exposed direct push**;
+2. **left / standard Barracks-first**.
 
-Record elapsed time, allied losses, Guards spawned/defeated, and Barracks shutdown time. Capture a later direct-route wave intercepting an army that has passed `0.62`.
+Record elapsed time, allied losses, Guards spawned/defeated, and Barracks shutdown time. Capture a later direct-route wave intercepting an army that has passed `0.72`.
 
 Center is the deliberate fortified hard lane and is not a balance-parity target; one smoke is sufficient to prove the lane still functions.
 
@@ -428,11 +428,13 @@ Capture real gameplay at the existing 393x852 reference, one compact supported p
 
 Retune only Highcrest objective weights, `totalReserve`, `waveIntervalSeconds`, or the existing local Guard combat stats if one route is an obvious free choice, both routes stall, or Barracks shutdown has no visible consequence. Do not add an active cap or another mechanic as the first balance response.
 
+**Route-balance retune shipped (2026-09-19 pass, round 2):** after round 1 proved the original five knobs jointly unsatisfiable (losses ≡ spawn rate × elapsed, so elapsed parity and the shutdown gate traded off one-for-one), the widened knob set added Highcrest's own lane-role assignment. Shipped: Barracks `visualProgress` 0.72, Guard `attackRange` 0.28, weights 20:1, `waveIntervalSeconds` 30.0, `totalReserve` 12, `LaneDefenseProfile(fortifiedLane: .center, exposedLane: .right)`. Global multiplier values (0.80/1.00/1.25) and the LaneDefenseProfile system are untouched; center stays fortified; mechanics unchanged. Measured ×2 (Task 0 camp, seed 1, tick 1/60): right 567.62s/158, left 571.95s/159 (0.8% elapsed gap, within the ±20% gate), left shutdown 25.98s cancels all 12 reserve, center 1024.62s/287.
+
 ## Risks resolved by this design
 
 ### Spawn-behind
 
-Guard actors spawn/restore at Keep progress while Barracks geometry stays left/0.62.
+Guard actors spawn/restore at Keep progress while Barracks geometry stays left/0.72.
 
 ### Spawn-point camping
 

@@ -189,7 +189,7 @@ struct CountryMapScoutCardContentTests {
             .init(2, .standardWatch, [], [], .left),
             .init(3, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .left),
             .init(4, .spikedGate, [.archer, .mage], [.infantry, .cavalry], .right),
-            .init(5, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .left),
+            .init(5, .arrowTower, [.infantry, .cavalry], [.archer, .mage], .right),
             .init(6, .stoneWall, [.mage, .siege], [.archer], .center),
             .init(7, .burningOil, [.archer, .mage, .cavalry], [.infantry, .siege], .right),
             .init(8, .stoneWall, [.mage, .siege], [.archer], .left),
