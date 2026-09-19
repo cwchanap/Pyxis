@@ -429,7 +429,7 @@ After `combat.tick`:
 
 The continuation must run when **any** of these are present: soldier structure attack, Captain structure hit, Captain retreat, Captain HP change, or Rally auto-request.
 
-A Captain Keep kill must reuse the existing `persistLiveCombatStateAndEmitFreshOutcomeFeedback` and pending-report presenter. Do not add a second conquest/report path.
+A Captain Keep kill must reuse the existing `persistLiveCombatStateAndEmitFreshOutcomeFeedback` and pending-report presenter. Capture the pre-Captain-hit stage; if `applyObjectiveDamage` moves the state out of `.battleActive`, use the newly created `pendingBattleResult` as the source of `goldEarned` and present that outcome exactly once through the existing path. Do not add a second conquest/report path or a Captain-specific reward calculation.
 
 ### 4.4 Immediate save rules
 
