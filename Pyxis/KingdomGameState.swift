@@ -747,7 +747,7 @@ struct KingdomGameState: Codable, Equatable {
 
     /// Reconciles live combat's Guard snapshots into durable siege progress
     /// (HPA-469): incoming lane/HP values are normalized with the same
-    /// 8-total rule as decode and the normalized snapshots replace
+    /// totalReserve-derived rule as decode and the normalized snapshots replace
     /// `unresolvedGuards`. Returns whether durable state changed; non-pilot
     /// cities are always unchanged.
     @discardableResult
