@@ -1,7 +1,7 @@
 # HPA-469 Highcrest Barracks + Guard Pilot Design
 
-**Status:** Reviewed planning direction for implementation on the same PR  
-**Linear:** HPA-469 — Highcrest Barracks + Guard pilot  
+**Status:** Reviewed planning direction for implementation on the same PR
+**Linear:** HPA-469 — Highcrest Barracks + Guard pilot
 **Baseline:** `main` at `76f5e6b836acab5e48f6c27ab107049e1811ba18` (merged HPA-468)
 
 ## Goal
@@ -17,7 +17,7 @@ This remains one implementation PR. Design, pure models, persistence, live comba
 1. Extend the HPA-468 seams: `CitySiegeLayout`, `SiegeProgress`, `BattleCombatState`, `KingdomGameState`, and `BattleScene`. Do not add a wave service, target registry, behavior tree, ECS, pathfinder, physics combat, or second simulator.
 2. Keep HP remains the only conquest/liveness authority.
 3. Barracks destruction only stops future reinforcement spawns. Existing Guards survive until defeated or Keep conquest.
-4. Guard production is finite: **2 Guards / 20 seconds, 8 total reserve across the siege**. There is no separate active-Guard cap. If this ramp is too steep, tune reserve or interval rather than adding cap semantics.
+4. Guard production is finite: **2 Guards / 30 seconds, 12 total reserve across the siege** (shipped values; the constraint started at 20 seconds / 8 reserve and the route-balance pass retuned it — see “Highcrest-local reinforcement tuning”). There is no separate active-Guard cap. If this ramp is too steep, tune reserve or interval rather than adding cap semantics.
 5. Reserve is consumed only by Guards actually spawned and never replenishes during the siege.
 6. New Guards use the assault lane selected when they spawn. Existing Guards never change lane after a later lane selection.
 7. New and restored Guards start at the Keep's authored `visualProgress` on their lane, not at the Barracks structure position, so direct-route armies cannot permanently walk past future waves.
@@ -355,7 +355,7 @@ Before Task 1 implementation, capture the current `main` Highcrest baseline with
 
 Cover:
 
-- Highcrest IDs, routes, 4:1 allocation, right default, one-Barracks invariant/lookup;
+- Highcrest IDs, routes, 20:1 allocation, right default, one-Barracks invariant/lookup;
 - `HighcrestGuardRules` authored beside Highcrest;
 - `L Barracks` through compact measured/fail-closed Scout presentation;
 - `SiegeObjectiveAssetContract.barracks == "siege-barracks"`;
@@ -366,7 +366,7 @@ Cover:
 
 Cover:
 
-- `19.9s -> 0`, `+0.1s -> 2`, another `20s -> 4`, `80s -> remaining reserve consumed` according to aligned opportunities;
+- `29.9s -> 0`, `+0.1s -> 2`, another `30s -> 4`, `180s -> remaining reserve consumed` according to aligned opportunities (shipped 30s interval / 12 reserve);
 - lane changes affect only newly spawned Guards;
 - Barracks shutdown stops future spawns while living Guards remain;
 - save/load preserves elapsed phase, reserve, lanes, and HP;

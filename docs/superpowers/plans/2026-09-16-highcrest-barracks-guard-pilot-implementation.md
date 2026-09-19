@@ -14,7 +14,7 @@
 
 - One implementation PR for HPA-469; do not split foundation, persistence, combat, UI, art, or QA into child PRs.
 - Keep HP remains the only conquest/liveness authority.
-- Starting reinforcement contract: 2 Guards / 6 seconds, 8 reserve globally. There is no active-Guard cap.
+- Starting reinforcement contract: 2 Guards / 6 seconds, 8 reserve globally (superseded — shipped: 30 seconds / 12 reserve; see Task 1 Step 4 shipped-tuning notes). There is no active-Guard cap.
 - New Guards use the currently selected assault lane; existing Guards keep their assigned lane.
 - New/restored Guards start at Keep progress and may not move below the authored Barracks progress.
 - Soldiers and Guards use their own attack ranges independently; do not collapse combat to one shared contact distance.
@@ -88,7 +88,7 @@ This is the single-Keep Highcrest reference. No commit is required for measureme
 - Produces `CitySiegeLayout.barracksObjective: Objective?` with an at-most-one authored invariant.
 - Produces top-level `HighcrestGuardRules` in `Country1CityCatalog.swift`.
 - Produces `GuardSnapshot`, `GuardReinforcementProgress`, and `SiegeProgress.guardReinforcements` in `SiegeState.swift`.
-- Highcrest authoring produces `highcrest.keep` and `highcrest.barracks` with 4:1 weights and left Barracks-first route.
+- Highcrest authoring produces `highcrest.keep` and `highcrest.barracks` with 20:1 weights and left Barracks-first route.
 - `normalizedSiegeProgress` preserves/clamps Highcrest reinforcement state and forces non-Highcrest state to `nil`.
 - Scout tactical copy produces `L Barracks` from authored route membership.
 
@@ -105,8 +105,8 @@ This is the single-Keep Highcrest reference. No commit is required for measureme
     #expect(layout.routes[.center] == ["highcrest.keep"])
     #expect(layout.routes[.right] == ["highcrest.keep"])
     #expect(layout.barracksObjective?.id == "highcrest.barracks")
-    #expect(maxPower["highcrest.keep"] == 342)
-    #expect(maxPower["highcrest.barracks"] == 85)
+    #expect(maxPower["highcrest.keep"] == 407)
+    #expect(maxPower["highcrest.barracks"] == 20)
 }
 
 @Test func highcrestScoutTeachesBarracksRoute() {
@@ -210,11 +210,11 @@ GuardReinforcementProgress(
 Normalize Highcrest by:
 
 ```text
-reserve -> 0...8
-waveElapsedSeconds -> 0..<6
+reserve -> 0...12
+waveElapsedSeconds -> 0..<30
 Guard HP -> 1...12
-unresolvedGuards -> first 8 valid snapshots
-remainingReserve -> at most 8 - unresolvedGuards.count
+unresolvedGuards -> first 12 valid snapshots
+remainingReserve -> at most 12 - unresolvedGuards.count
 ```
 
 Preserve Guard lanes and Barracks-destroyed survivors. Non-Highcrest cities normalize reinforcement progress to `nil`. Do not persist IDs or positions and do not add save versioning.
@@ -284,10 +284,10 @@ git commit -m "feat: author Highcrest Guard siege state"
 Pin:
 
 ```text
-5.9s -> 0 Guards, reserve 8, phase 5.9
-+0.1s -> 2 Guards on selected lane, reserve 6, phase 0
-+6.0s -> 2 more Guards, reserve 4
-+12.0s -> final 4 Guards, reserve 0
+29.9s -> 0 Guards, reserve 12, phase 29.9
++0.1s -> 2 Guards on selected lane, reserve 10, phase 0
++30.0s -> 2 more Guards, reserve 8
++120.0s -> final 8 Guards, reserve 0
 later time -> no additional Guards
 Barracks dead -> no additional Guards
 Keep dead -> no additional Guards
@@ -318,7 +318,7 @@ Append exactly `spawnCount` full-HP snapshots on `siegeProgress.selectedLane` an
 mutating func synchronizeLiveGuardSnapshots(_ snapshots: [GuardSnapshot]) -> Bool
 ```
 
-For active Highcrest, normalize incoming lane/HP snapshots with the same 8-total limit as decode, compare with persisted `unresolvedGuards`, replace them, and return whether durable state changed. Other cities return `false`.
+For active Highcrest, normalize incoming lane/HP snapshots with the same 12-total limit as decode, compare with persisted `unresolvedGuards`, replace them, and return whether durable state changed. Other cities return `false`.
 
 - [ ] **Step 4: Add failing abstract-settlement tests for both callers.**
 
@@ -768,7 +768,7 @@ Retune only when:
 one route is an obvious free choice on both elapsed time and losses
 OR both routes stall unreasonably
 OR Barracks shutdown has no visible consequence
-OR eight Guards by t=24s is too steep for the representative camp
+OR the starting contract's 8 Guards deploying by t=24s is too steep for the representative camp
 ```
 
 Allowed knobs, in order:

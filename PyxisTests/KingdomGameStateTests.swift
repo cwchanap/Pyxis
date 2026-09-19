@@ -1983,6 +1983,32 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.guardReinforcements == nil)
     }
 
+    @Test func decodingMalformedGuardPayloadPreservesSiegeLaneAndDamage() throws {
+        // A structurally malformed guardReinforcements payload must not
+        // discard the valid sibling progress beside it: lane and objective
+        // damage survive while the Guard payload drops and normalizes fresh.
+        let data = Data("""
+        {
+          "cityLevel": 5,
+          "cityNumberInCountry": 5,
+          "completedCityCount": 4,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 2,
+            "damageByObjectiveID": {"highcrest.barracks": 10, "highcrest.keep": 5},
+            "guardReinforcements": {"waveElapsedSeconds": "bogus", "remainingReserve": [], "unresolvedGuards": "x"}
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.selectedLane == .right)
+        #expect(state.siegeProgress.damageByObjectiveID["highcrest.barracks"] == 10)
+        #expect(state.siegeProgress.damageByObjectiveID["highcrest.keep"] == 5)
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshHighcrest())
+    }
+
     @Test func startCityFromMapSeedsFreshHighcrestGuardsAndNilForOtherCities() {
         var state = KingdomGameState(
             cityNumberInCountry: 4,
