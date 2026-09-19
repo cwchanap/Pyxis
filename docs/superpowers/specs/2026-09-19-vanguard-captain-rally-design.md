@@ -133,7 +133,7 @@ struct Captain: Equatable {
 }
 ```
 
-Deployment starts at position 0 in the selected lane. Movement/range/attack-speed/defense use the same base configuration as infantry; HP and attack use `VanguardCaptainRules`.
+Deployment starts at position 0 in the lane supplied by durable Captain progress. Fresh City 3+ state and recovery completion first copy the current selected lane into that progress; ordinary scene reconstruction passes the already-persisted lane. Movement/range/attack-speed/defense use the same base configuration as infantry; HP and attack use `VanguardCaptainRules`.
 
 Captain targeting stays inside the current combat tick:
 
@@ -356,7 +356,7 @@ Animation is observational only.
 
 ### Combat
 
-- exactly one Captain deploys at position 0 on selected lane;
+- exactly one Captain deploys at position 0 on the durable Captain lane; fresh/recovery state seeds that lane from the current selected lane;
 - lane flag changes do not move live Captain; scene/tab/background reconstruction restores the persisted live lane; recovery completion is the only redeployment that adopts the current selected lane;
 - Captain blocks/attacks Guard first, then route structure;
 - tower/Guard can damage Captain; retreat is not a soldier loss;
