@@ -304,7 +304,7 @@ Rules:
 
 All Guards due within the settlement window are materialized before that window's abstract player damage is applied. Compared with a chronological interleave, this can make Guards absorb damage slightly earlier and can allow Guards that a mid-window Barracks kill would have prevented.
 
-The error is bounded: at the starting values only eight Guards exist and their total maximum HP is **96**. The approximation is therefore conservative/player-unfavorable by at most that finite defender pool, while avoiding a second copy of building spawn timing. Running balance evidence can tune reserve/interval if this pressure is too high.
+The error is bounded: at the authored starting values only eight Guards exist and their total maximum HP is **96** (shipped values after the route-balance pass: twelve Guards, total maximum HP **144**). The approximation is therefore conservative/player-unfavorable by at most that finite defender pool, while avoiding a second copy of building spawn timing. Running balance evidence can tune reserve/interval if this pressure is too high.
 
 Both background idle and Camp/build-upgrade settlement use this same shared damage seam; there is no second Guard ruleset to drift.
 
