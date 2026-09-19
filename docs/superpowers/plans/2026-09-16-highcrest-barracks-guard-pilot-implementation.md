@@ -165,7 +165,9 @@ enum HighcrestGuardRules {
 }
 ```
 
-**Shipped tuning differs (HPA-469 Task 6):** balance evidence tuned `waveIntervalSeconds` from the 6.0 starting value above to **20.0** — at 6.0s the whole reserve deployed by t = 24s, so Barracks shutdown canceled nothing and waves never met a standing army. See the design spec's shipped-value note for the final rationale. All other starting values shipped unchanged.
+**Shipped tuning differs (HPA-469 Task 6):** balance evidence tuned `waveIntervalSeconds` from the 6.0 starting value above to **20.0** — at 6.0s the whole reserve deployed by t = 24s, so Barracks shutdown canceled nothing and waves never met a standing army.
+
+**Shipped tuning differs again (2026-09-19 route-balance pass):** the route-dominance retune shipped `waveIntervalSeconds` **30.0**, `totalReserve` **12**, `attackRange` **0.28**, keep durability weight **20** (20:1 weights, 407/20 of the 427 budget), Barracks `visualProgress` **0.72**, and the City 5 lane profile flipped to `LaneDefenseProfile(fortifiedLane: .center, exposedLane: .right)`. The 6.0→20.0 note above remains the Task 6 rationale; the 20.0/8 starting values themselves were superseded. See the design spec's shipped-value notes for the final rationale. `guardsPerWave`, `maxHP`, `attackPower`, `attackSpeed`, `movementSpeed` shipped unchanged.
 
 Do not put these City 5 tuning values in generic `SiegeState.swift`.
 
@@ -174,6 +176,8 @@ Do not put these City 5 tuning values in generic `SiegeState.swift`.
 ```swift
 siegeLayout: CitySiegeLayout(
     objectives: [
+        // Route-balance pass shipped the keep weight as 20 and the Barracks
+        // progress as 0.72 (starting values below were 4 and 0.62).
         .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 4,
               visualLane: .center, visualProgress: 1.0),
         .init(id: "highcrest.barracks", kind: .barracks, durabilityWeight: 1,
@@ -746,15 +750,15 @@ Guards defeated
 Barracks remaining HP
 ```
 
-Capture a later wave intercepting an army whose foremost soldier has already passed `0.62`.
+Capture a later wave intercepting an army whose foremost soldier has already passed the Barracks (shipped progress `0.72`).
 
-- [ ] **Step 2: Run the same camp/loadout on left / exposed Barracks-first.**
+- [ ] **Step 2: Run the same camp/loadout on the left Barracks-first route (shipped lane role: standard).**
 
 Record the same fields plus Barracks shutdown time. Prove no Guard appears after Barracks shutdown despite additional elapsed wave time.
 
 - [ ] **Step 3: Smoke center as the deliberate hard lane.**
 
-Do not treat center as a parity target. Confirm only that its direct route functions and retains the existing fortified `1.25x` incoming tower pressure versus right's standard `1.0x`.
+Do not treat center as a parity target. Confirm only that its direct route functions and retains the existing fortified `1.25x` incoming tower pressure versus left's standard `1.0x` and right's exposed `0.8x` (lane roles shipped by the 2026-09-19 route-balance pass).
 
 - [ ] **Step 4: Apply the narrow retune gate.**
 
@@ -819,7 +823,7 @@ Skip this commit when no files changed.
 
 ## Review-risk checklist before implementation completion
 
-- **Spawn-behind:** Guards spawn/restore at Keep progress; a direct-route soldier past `0.62` still intercepts later waves.
+- **Spawn-behind:** Guards spawn/restore at Keep progress; a direct-route soldier past the Barracks (shipped progress `0.72`) still intercepts later waves.
 - **Spawn camping:** Guard downward movement clamps at authored Barracks progress.
 - **Range identity:** soldiers and Guards use their own attack ranges; ranged types receive earlier attack opportunities while Guards continue closing.
 - **Settlement duplication:** no chronological walker; both callers reuse `applyAbstractBuildingSpawnDamage`.

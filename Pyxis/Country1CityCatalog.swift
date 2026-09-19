@@ -84,14 +84,19 @@ enum Country1CityCatalog {
             flavorText: "A proud hill fortress crowns the frontier.",
             conquestTitle: "Highcrest Falls",
             defenseTrait: .arrowTower,
-            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
+            laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .right),
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 4,
+                    // Route-balance pass (round 2): 20:1 weights put the
+                    // Barracks at 20 power, so the Barracks-first shutdown
+                    // lands ~26s — before the first 30s Guard wave — and
+                    // cancels the whole remaining reserve, while direct
+                    // routes face every wave against a 407-power Keep.
+                    .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 20,
                           visualLane: .center, visualProgress: 1.0),
                     .init(id: "highcrest.barracks", kind: .barracks, durabilityWeight: 1,
-                          visualLane: .left, visualProgress: 0.62)
+                          visualLane: .left, visualProgress: 0.72)
                 ],
                 routes: [
                     .left: ["highcrest.barracks", "highcrest.keep"],
@@ -212,17 +217,19 @@ enum Country1CityCatalog {
 /// values live beside the Highcrest authoring, not in generic siege state.
 enum HighcrestGuardRules {
     static let guardsPerWave = 2
-    /// Tuned by the HPA-469 Task 6 balance evidence: at the starting 6.0s the
-    /// whole 8-Guard reserve deployed by t=24s — long before the exposed
-    /// route could destroy the Barracks (~58s) — so shutdown visibly canceled
-    /// nothing. 20.0s spreads the four waves across 20/40/60/80s and leaves
-    /// reserve unspent at typical shutdown times.
-    static let waveIntervalSeconds = 20.0
-    static let totalReserve = 8
+    /// Tuned by the Highcrest route-balance pass (round 2): the Barracks
+    /// objective holds only 20 power (weights 20:1 with the Keep), so the
+    /// typical Barracks-first shutdown lands ~26s — before the first 30s
+    /// wave — and cancels the whole unspent reserve. Direct-route armies
+    /// keep the Barracks alive, so all six waves (12 Guards) deploy against
+    /// them; that asymmetry closes the route-dominance gap while honoring
+    /// the shutdown consequence.
+    static let waveIntervalSeconds = 30.0
+    static let totalReserve = 12
     static let maxHP = 12
     static let attackPower = 3
     static let attackSpeed = 1.0
-    static let attackRange = 0.10
+    static let attackRange = 0.28
     static let movementSpeed = 0.30
 }
 
@@ -237,10 +244,11 @@ extension GuardReinforcementProgress {
     }
 
     /// Forgiving normalization for persisted Highcrest Guard state: elapsed
-    /// wraps into 0..<`waveIntervalSeconds`, reserve clamps to 0...8 and to
-    /// the 8-total budget against retained Guards, Guard HP clamps to
-    /// 1...12, and at most the first 8 snapshots are retained in order
-    /// (lanes preserved; no IDs or positions are persisted).
+    /// wraps into 0..<`waveIntervalSeconds`, reserve clamps into
+    /// 0...`totalReserve` and to the total budget against retained Guards,
+    /// Guard HP clamps to 1...12, and at most the first `totalReserve`
+    /// snapshots are retained in order (lanes preserved; no IDs or positions
+    /// are persisted).
     func normalizedForHighcrest() -> GuardReinforcementProgress {
         let elapsed = max(0, waveElapsedSeconds)
             .truncatingRemainder(dividingBy: HighcrestGuardRules.waveIntervalSeconds)

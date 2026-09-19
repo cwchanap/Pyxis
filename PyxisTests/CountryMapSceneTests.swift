@@ -2869,10 +2869,10 @@ struct CountryMapSceneTests {
         let saved = store.load()
         let progress = try #require(saved.siegeProgress.guardReinforcements)
         let power = saved.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
-        #expect(progress.remainingReserve == 0)
-        #expect(progress.unresolvedGuards.count == 8)
+        #expect(progress.remainingReserve == 3)
+        #expect(progress.unresolvedGuards.count == 9)
         #expect(progress.unresolvedGuards.reduce(0) { $0 + $1.remainingHP }
-            == 5 + HighcrestGuardRules.maxHP * 7 - power)
+            == 5 + HighcrestGuardRules.maxHP * 8 - power)
         #expect(progress.unresolvedGuards.first!.remainingHP < 5)
         #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
         #expect(saved.stageStatus == .battleActive)

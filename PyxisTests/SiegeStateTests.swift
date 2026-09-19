@@ -276,7 +276,7 @@ struct SiegeStateTests {
         #expect(highcrest.barracksObjective?.kind == .barracks)
         #expect(highcrest.barracksObjective?.durabilityWeight == 1)
         #expect(highcrest.barracksObjective?.visualLane == .left)
-        #expect(highcrest.barracksObjective?.visualProgress == 0.62)
+        #expect(highcrest.barracksObjective?.visualProgress == 0.72)
     }
 
     @Test func siegeProgressRoundTripsGuardReinforcementsThroughCodable() throws {

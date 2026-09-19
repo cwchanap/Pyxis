@@ -1249,22 +1249,63 @@ struct BattleCombatStateTests {
 
     @Test func soldierAndGuardMovementNeverCross() throws {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 100))
-        let soldier = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .right)
+        // The archer stalls at the Barracks on the .left route; the Guard
+        // descends from the Keep to its Barracks floor + range stop and can
+        // never cross the parked archer.
+        let soldier = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .left)
         for _ in 0..<2 {
             _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
         }
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
+        var guardReachedStop = false
         for _ in 0..<12 {
             _ = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
             let soldierPosition = try #require(combat.soldier(id: soldier)).position
             let guardPosition = combat.guards[0].position
             #expect(guardPosition > soldierPosition)
             #expect(guardPosition - soldierPosition >= HighcrestGuardRules.attackRange - 0.001)
+            if abs(guardPosition - soldierPosition - HighcrestGuardRules.attackRange) < 0.001 {
+                guardReachedStop = true
+            }
         }
+        #expect(guardReachedStop)
+    }
+
+    /// Guard-engagement invariant (Highcrest route-balance pass): a Guard
+    /// clamped at the Barracks floor attacks an archer stalled at the
+    /// Barracks stall position (`barracksProgress − archerRange`), so
+    /// Barracks chewers are never unopposed once a Guard is on the lane.
+    @Test func floorClampedGuardAttacksArcherStalledAtBarracksStallPosition() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let archer = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .left)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        // The archer is parked exactly at its own range below the Barracks.
+        let archerRange = try #require(combat.soldier(id: archer)).attackRange
+        let stallPosition = SiegeFixtures.highcrestBarracksProgress - archerRange
+        #expect(combat.soldier(id: archer)?.position == stallPosition)
+
+        combat.restoreGuard(
+            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var guardAttacks = 0
+        for _ in 0..<12 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            guardAttacks += result.guardAttacks.count
+            if guardAttacks > 0 {
+                #expect(result.guardAttacks.allSatisfy { $0.soldierID == archer })
+                break
+            }
+        }
+
+        #expect(guardAttacks >= 1)
     }
 
     @Test func guardAttacksOnlyTheForemostSoldierInItsLane() throws {
@@ -1434,13 +1475,15 @@ struct BattleCombatStateTests {
         // marchTicks marches the soldier toward the Keep before the Guard
         // exists; closingDelta then closes the Guard from Keep progress just
         // far enough that the soldier's OWN range is satisfied while the
-        // Guard's shorter 0.10 range is not.
+        // Guard's wider 0.28 range is not (the Guard resolves its attacks
+        // before the soldier advances this tick, so the pre-advance gap must
+        // stay above 0.28).
         let cases: [GuardClosingChoreography] = [
-            .init(type: .infantry, marchTicks: 2, closingDelta: 0.15),
-            .init(type: .archer, marchTicks: 2, closingDelta: 0.10),
-            .init(type: .cavalry, marchTicks: 1, closingDelta: 0.50),
-            .init(type: .mage, marchTicks: 2, closingDelta: 0.10),
-            .init(type: .siege, marchTicks: 3, closingDelta: 0.50)
+            .init(type: .infantry, marchTicks: 1, closingDelta: 0.70),
+            .init(type: .archer, marchTicks: 1, closingDelta: 0.50),
+            .init(type: .cavalry, marchTicks: 1, closingDelta: 0.42),
+            .init(type: .mage, marchTicks: 1, closingDelta: 0.65),
+            .init(type: .siege, marchTicks: 2, closingDelta: 0.80)
         ]
 
         for testCase in cases {

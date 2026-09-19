@@ -232,14 +232,14 @@ struct ActiveSiegeLifecycleTests {
         let result = state.returnFromBackground(at: start.addingTimeInterval(120))
 
         // One idle spawn (10s active interval at the 1/10 idle rate over
-        // 120s) is fully absorbed by the oldest same-lane Guard; the full
-        // wave (8 Guards) materialized before any damage was spent.
+        // 120s) is fully absorbed by the oldest same-lane Guard; four due
+        // waves (8 Guards) materialized before any damage was spent.
         let power = state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards == [
             GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP - power)
         ] + Array(repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP), count: 7))
-        #expect(progress.remainingReserve == 0)
+        #expect(progress.remainingReserve == 4)
         #expect(progress.waveElapsedSeconds == 0) // 120s wraps into the next phase
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower) // Guard damage is not city damage
         #expect(result.damageDealt == 0)
@@ -257,16 +257,16 @@ struct ActiveSiegeLifecycleTests {
         }
 
         state.enterBackground(at: start)
-        let result = state.returnFromBackground(at: start.addingTimeInterval(20))
+        let result = state.returnFromBackground(at: start.addingTimeInterval(30))
 
-        // Buildings exist but the 20s window yields no spawns — the Guard
+        // Buildings exist but the 30s window yields no spawns — the Guard
         // phase must still advance for the credited settlement window.
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards == Array(
             repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
             count: 2
         ))
-        #expect(progress.remainingReserve == 6)
+        #expect(progress.remainingReserve == 10)
         #expect(progress.waveElapsedSeconds == 0)
         #expect(result.damageDealt == 0)
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
@@ -280,9 +280,9 @@ struct ActiveSiegeLifecycleTests {
             return
         }
 
-        // The second build settles the 20s Camp window first: no spawns yet,
+        // The second build settles the 30s Camp window first: no spawns yet,
         // but exactly one due wave materializes before the build lands.
-        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(20)) else {
+        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(30)) else {
             Issue.record("expected second build to succeed")
             return
         }
@@ -292,7 +292,7 @@ struct ActiveSiegeLifecycleTests {
             repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
             count: 2
         ))
-        #expect(progress.remainingReserve == 6)
+        #expect(progress.remainingReserve == 10)
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
         #expect(state.pendingBattleResult == nil)
     }
@@ -370,19 +370,19 @@ struct ActiveSiegeLifecycleTests {
         let transition = start.addingTimeInterval(4.5)
         state.markCurrentCityBuildingProgressInactive(at: transition)
 
-        // A later Camp build settles only the post-transition 20s interval.
-        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: transition.addingTimeInterval(20)) else {
+        // A later Camp build settles only the post-transition 30s interval.
+        guard case .built = state.buildBuilding(.barracks, inSlot: 2, at: transition.addingTimeInterval(30)) else {
             Issue.record("expected second build to succeed")
             return
         }
 
         let progress = try #require(state.siegeProgress.guardReinforcements)
-        #expect(progress.waveElapsedSeconds == 4.5) // 4.5 + 20.0 wraps once to 4.5
+        #expect(progress.waveElapsedSeconds == 4.5) // 4.5 + 30.0 wraps once to 4.5
         #expect(progress.unresolvedGuards == Array(
             repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
             count: 2
         ))
-        #expect(progress.remainingReserve == 6)
+        #expect(progress.remainingReserve == 10)
     }
 
     @Test func settlementDoesNotAdvanceGuardPhaseWithoutPlayerBuildings() throws {
@@ -407,7 +407,7 @@ struct ActiveSiegeLifecycleTests {
             atCity: 5,
             gold: 100,
             keepRemaining: 300,
-            supportDamage: [.barracks: 20],
+            supportDamage: [.barracks: 10],
             selectedLane: .left
         )
         state.siegeProgress.guardReinforcements = GuardReinforcementProgress(

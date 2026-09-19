@@ -90,8 +90,8 @@ struct Country1CityCatalogTests {
     /// shared by the fixture entry and the dedicated pin test.
     private static let highcrestSiegeLayout = CitySiegeLayout(
         objectives: [
-            .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 4, visualLane: .center, visualProgress: 1.0),
-            .init(id: "highcrest.barracks", kind: .barracks, durabilityWeight: 1, visualLane: .left, visualProgress: 0.62)
+            .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 20, visualLane: .center, visualProgress: 1.0),
+            .init(id: "highcrest.barracks", kind: .barracks, durabilityWeight: 1, visualLane: .left, visualProgress: 0.72)
         ],
         routes: [
             .left: ["highcrest.barracks", "highcrest.keep"],
@@ -124,7 +124,7 @@ struct Country1CityCatalogTests {
             conquestTitle: "Highcrest Falls",
             .arrowTower,
             .center,
-            .left,
+            .right,
             .frontier,
             siegeLayout: highcrestSiegeLayout
         ),
@@ -244,8 +244,40 @@ struct Country1CityCatalogTests {
         #expect(layout.routes[.center] == ["highcrest.keep"])
         #expect(layout.routes[.right] == ["highcrest.keep"])
         #expect(layout.barracksObjective?.id == "highcrest.barracks")
-        #expect(maxPower["highcrest.keep"] == 342)
-        #expect(maxPower["highcrest.barracks"] == 85)
+        #expect(maxPower["highcrest.keep"] == 407)
+        #expect(maxPower["highcrest.barracks"] == 20)
+    }
+
+    /// Shelter invariant (Highcrest route-balance pass): every soldier type
+    /// that stalls at the Barracks must stand inside the Keep's defensive
+    /// fire, so Barracks chewers can never chew for free. Geometry:
+    /// `barracksProgress − soldierRange ≥ keepProgress − towerAttackRange`.
+    /// Ranges are recomputed from the live combat configuration (base 0.12;
+    /// archer ×2.2 = 0.264 is the largest).
+    @Test func highcrestBarracksStallPositionStaysInsideKeepTowerRangeForEverySoldierType() throws {
+        let layout = Country1CityCatalog.definition(for: 5).siegeLayout
+        let barracksProgress = try #require(layout.barracksObjective?.visualProgress)
+        let keepProgress = layout.keepObjective.visualProgress
+        let configuration = BattleCombatState.Configuration.live(cityLevel: 5)
+        var combat = BattleCombatState(configuration: configuration)
+
+        for type in SoldierType.allCases {
+            let id = combat.spawnSoldier(
+                type: type,
+                source: .manual,
+                level: 1,
+                attackPower: 1,
+                lane: .left
+            )
+            let soldierRange = try #require(combat.soldier(id: id)).attackRange
+            let stallPosition = barracksProgress - soldierRange
+            let towerReach = keepProgress - configuration.towerAttackRange
+
+            #expect(
+                stallPosition >= towerReach,
+                "\(type) stalls at \(stallPosition), outside Keep tower reach \(towerReach)"
+            )
+        }
     }
 
     @Test func highcrestDefensiveFireStaysSourcedFromTheKeepAcrossAllLanes() {

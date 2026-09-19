@@ -663,9 +663,9 @@ struct BuildingViewSceneTests {
     @Test("Camp build settlement materializes due waves without healing damaged Guards")
     func campBuildSettlementMaterializesDueWaveWithoutHealingGuards() throws {
         // A 120s armed window guarantees exactly one spawn (10s interval at
-        // the 1/10 settlement rate) and a due wave regardless of wall-clock
+        // the 1/10 settlement rate) and due waves regardless of wall-clock
         // jitter between seeding and the build action. The seed is
-        // decode-stable: wave 5.5 < interval and reserve + guards = 8 total.
+        // decode-stable: wave 5.5 < interval and reserve + guards = 12 total.
         let anchor = Date(timeIntervalSinceNow: -120)
         let store = try makeStore(initialState: makeHighcrestGuardState(
             guardProgress: GuardReinforcementProgress(
@@ -686,10 +686,10 @@ struct BuildingViewSceneTests {
         let saved = store.load()
         let progress = try #require(saved.siegeProgress.guardReinforcements)
         let power = saved.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
-        #expect(progress.remainingReserve == 0)
-        #expect(progress.unresolvedGuards.count == 8)
+        #expect(progress.remainingReserve == 3)
+        #expect(progress.unresolvedGuards.count == 9)
         #expect(progress.unresolvedGuards.reduce(0) { $0 + $1.remainingHP }
-            == 5 + HighcrestGuardRules.maxHP * 7 - power)
+            == 5 + HighcrestGuardRules.maxHP * 8 - power)
         #expect(progress.unresolvedGuards.first!.remainingHP < 5)
         #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
         #expect(saved.pendingBattleResult == nil)
