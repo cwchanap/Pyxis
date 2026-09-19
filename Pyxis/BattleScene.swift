@@ -333,22 +333,23 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// + HP survive persistence, so each snapshot is reconstructed at Keep
     /// progress with its persisted (possibly damaged) HP — deliberately no
     /// clamp-to-max healing. Transient IDs and positions are always new; the
-    /// nodes appear via `syncGuardNodes`. Called wherever combat is (re)
-    /// constructed while the battle can still tick: scene init and the
-    /// foreground return (see `clearLiveCombat` for why it is excluded).
-    /// Idempotent: UIKit fires willEnterForeground on initial activation too
-    /// (with no prior background), where init already restored — a roster
-    /// that already holds Guards is never appended again, or the next
-    /// live-snapshot sync would persist duplicates and decode normalization
-    /// would charge the phantom Guards against the finite reserve.
+    /// nodes appear via `syncGuardNodes`. Called wherever combat must
+    /// converge to the durable roster: scene init and the foreground return
+    /// (see `clearLiveCombat` for why it is excluded there).
+    /// The roster is REPLACED, never appended: UIKit fires willEnterForeground
+    /// on initial activation too (with no prior background), where init
+    /// already restored — rebuilding the same roster is a durable no-op. A
+    /// cold relaunch still carrying `lastBackgroundedAt` instead settles that
+    /// init-restored roster inside `returnFromBackground`, so replacing is
+    /// what keeps combat converged: the next live-snapshot sync cannot
+    /// resurrect pre-idle HP or drop wave-materialized Guards (which would
+    /// leak their consumed reserve), and no phantom roster can charge the
+    /// finite reserve twice.
     private func restorePersistedGuardsIntoCombat() {
-        guard combat.guards.isEmpty,
-              let snapshots = state.siegeProgress.guardReinforcements?.unresolvedGuards else {
+        guard let snapshots = state.siegeProgress.guardReinforcements?.unresolvedGuards else {
             return
         }
-        for snapshot in snapshots {
-            combat.restoreGuard(snapshot, siege: state.currentSiegeSnapshot)
-        }
+        combat.replaceGuards(with: snapshots, siege: state.currentSiegeSnapshot)
     }
 
     private static func makeCombat(for state: KingdomGameState, seed: UInt64?) -> BattleCombatState {

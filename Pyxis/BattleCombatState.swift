@@ -262,6 +262,20 @@ struct BattleCombatState: Equatable {
         return id
     }
 
+    /// Replaces the transient Guard roster from durable snapshots (HPA-469):
+    /// the live roster is discarded and each snapshot is rebuilt via
+    /// `restoreGuard` at Keep progress. Used when durable Guard state settled
+    /// while combat still held a pre-settlement roster — a cold relaunch
+    /// restores persisted Guards at scene init, then `returnFromBackground`
+    /// mutates them — so the next live-snapshot sync cannot resurrect
+    /// pre-settlement HP or drop settlement-materialized Guards.
+    mutating func replaceGuards(with snapshots: [GuardSnapshot], siege: SiegeSnapshot) {
+        guards.removeAll()
+        for snapshot in snapshots {
+            restoreGuard(snapshot, siege: siege)
+        }
+    }
+
     /// Living Guards' persisted lane + clamped HP only; positions stay
     /// transient. Dead Guards are pruned at the end of every tick, so this
     /// never emits a 0-HP snapshot (persistence would clamp that back up to
