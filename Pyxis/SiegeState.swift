@@ -235,6 +235,25 @@ struct SiegeProgress: Codable, Equatable {
         self.damageByObjectiveID = damageByObjectiveID
         self.guardReinforcements = guardReinforcements
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case selectedLane
+        case damageByObjectiveID
+        case guardReinforcements
+    }
+
+    /// Forgiving decode: a malformed present `guardReinforcements` payload
+    /// drops to nil (the owner's normalization re-seeds it) instead of
+    /// throwing away the sibling lane/damage progress with it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selectedLane = try container.decode(BattleLane.self, forKey: .selectedLane)
+        damageByObjectiveID = try container.decode([String: Int].self, forKey: .damageByObjectiveID)
+        guardReinforcements = (try? container.decodeIfPresent(
+            GuardReinforcementProgress.self,
+            forKey: .guardReinforcements
+        )) ?? nil
+    }
 }
 
 /// One unresolved Guard snapshot in persisted siege progress (HPA-469).
