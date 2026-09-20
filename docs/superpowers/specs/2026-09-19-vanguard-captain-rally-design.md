@@ -316,35 +316,6 @@ City 1–2 continue rendering/hit-testing the full `deployFrame` centered exactl
 
 The Captain strip shows only portrait/fallback, compact HP/recovery, and Rally Ready/Active/Used. No hero screen, second row, floating button, or extra top-band height.
 
-## HUD
-
-Keep the current top band and battlefield field budget unchanged.
-
-`BattleHUDContent` already lives in `BattleHUDNode.swift`; do not create `BattleHUDContent.swift`.
-
-For City 3+, split the existing Deploy frame horizontally:
-
-- **left:** the existing Deploy icon/label/divider/manual-count cluster, left-aligned instead of centered;
-- **right:** a bounded Captain/Rally strip large enough for a ≥44pt Rally target plus compact `CAPT 18/20` / `CAPT 7s` status.
-
-City 1–2 keep today's centered Deploy cluster byte-for-byte.
-
-The right strip shows only:
-
-- small Captain portrait/fallback mark;
-- `CAPT 18/20` or `CAPT 7s`;
-- `RALLY`, `ACTIVE`, or `USED`.
-
-`BattleHUDContent.project` must receive the live `rallyRemainingSeconds` (and whether a Captain actor is deployed if needed) from BattleScene; `KingdomGameState` alone cannot distinguish transient Active from durable Used.
-
-Add `BattleHUDNode.Action.rally`. When Rally is Ready, the Captain strip owns a ≥44pt Rally hit target. `action(at:)` checks that frame **before** the remaining Deploy hit region, so Rally cannot accidentally spawn a soldier.
-
-Touch `BattleChromeLayout` only if 375×667 evidence proves the right strip cannot coexist with a still-tappable Deploy region inside today's 56pt compact Deploy frame.
-
-Do not add a hero screen, tooltip tree, second bottom bar, battlefield floating button, or extra top-band row.
-
-Because the Captain is not in `combat.soldiers`, existing manual-cap count and “finish the current squad before building” navigation lock continue to observe only manual soldiers.
-
 ## Placeholder / HPA-476 asset contract
 
 HPA-475 installs **no generated images**. Runtime probes these stable names and falls back to procedural/SF-symbol presentation.
