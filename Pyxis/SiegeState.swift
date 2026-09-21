@@ -225,26 +225,33 @@ struct SiegeProgress: Codable, Equatable {
     /// Highcrest Guard reinforcement state (HPA-469); nil for every
     /// non-pilot city. Normalized by the owning game state.
     var guardReinforcements: GuardReinforcementProgress?
+    /// Vanguard Captain state (HPA-475); nil below City 3. Normalized by
+    /// the owning game state.
+    var captain: VanguardCaptainProgress?
 
     init(
         selectedLane: BattleLane,
         damageByObjectiveID: [String: Int],
-        guardReinforcements: GuardReinforcementProgress? = nil
+        guardReinforcements: GuardReinforcementProgress? = nil,
+        captain: VanguardCaptainProgress? = nil
     ) {
         self.selectedLane = selectedLane
         self.damageByObjectiveID = damageByObjectiveID
         self.guardReinforcements = guardReinforcements
+        self.captain = captain
     }
 
     private enum CodingKeys: String, CodingKey {
         case selectedLane
         case damageByObjectiveID
         case guardReinforcements
+        case captain
     }
 
     /// Forgiving decode: a malformed present `guardReinforcements` payload
     /// drops to nil (the owner's normalization re-seeds it) instead of
-    /// throwing away the sibling lane/damage progress with it.
+    /// throwing away the sibling lane/damage progress with it. The optional
+    /// `captain` payload forgives the same way.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selectedLane = try container.decode(BattleLane.self, forKey: .selectedLane)
@@ -252,6 +259,10 @@ struct SiegeProgress: Codable, Equatable {
         guardReinforcements = (try? container.decodeIfPresent(
             GuardReinforcementProgress.self,
             forKey: .guardReinforcements
+        )) ?? nil
+        captain = (try? container.decodeIfPresent(
+            VanguardCaptainProgress.self,
+            forKey: .captain
         )) ?? nil
     }
 }
@@ -270,4 +281,17 @@ struct GuardReinforcementProgress: Codable, Equatable {
     var waveElapsedSeconds: Double
     var remainingReserve: Int
     var unresolvedGuards: [GuardSnapshot]
+}
+
+/// Persisted Vanguard Captain state (HPA-475). Deliberately minimal —
+/// durable lane + HP + the recovery clock + the once-per-siege Rally bit;
+/// no actor ID, position, animation state, or active Rally seconds. The
+/// forgiving half: the owning game state clamps values back into the
+/// authored tuning (see `normalizedForCaptain` beside the Country 1
+/// combat authoring).
+struct VanguardCaptainProgress: Codable, Equatable {
+    var lane: BattleLane
+    var remainingHP: Int
+    var recoveryRemainingSeconds: Double
+    var rallyConsumed: Bool
 }

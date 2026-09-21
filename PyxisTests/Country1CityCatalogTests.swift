@@ -308,4 +308,65 @@ struct Country1CityCatalogTests {
             #expect(Country1CityCatalog.definitionIfPresent(for: expected.cityNumber) == expected.definition)
         }
     }
+
+    // MARK: Vanguard Captain rules (HPA-475)
+
+    @Test func vanguardCaptainRulesMatchAuthoredTuning() {
+        #expect(VanguardCaptainRules.unlockCity == 3)
+        #expect(VanguardCaptainRules.recoverySeconds == 12.0)
+        #expect(VanguardCaptainRules.rallyDurationSeconds == 5.0)
+        #expect(VanguardCaptainRules.rallyDamageMultiplier == 0.70)
+
+        #expect(!VanguardCaptainRules.isAvailable(cityNumber: 1))
+        #expect(!VanguardCaptainRules.isAvailable(cityNumber: 2))
+        #expect(VanguardCaptainRules.isAvailable(cityNumber: 3))
+        #expect(VanguardCaptainRules.isAvailable(cityNumber: 15))
+
+        // One attack point above the ordinary soldier curve.
+        #expect(VanguardCaptainRules.attackPower(for: 1) == KingdomGameState.normalSoldierAttackPower(for: 1) + 1)
+        #expect(VanguardCaptainRules.attackPower(for: 1) == 2)
+        #expect(VanguardCaptainRules.attackPower(for: 2) == 3)
+        #expect(VanguardCaptainRules.attackPower(for: 4) == 4)
+
+        #expect(VanguardCaptainRules.maxHP(for: 1) == 20)
+        #expect(VanguardCaptainRules.maxHP(for: 2) == 25)
+        #expect(VanguardCaptainRules.maxHP(for: 3) == 31)
+        #expect(VanguardCaptainRules.maxHP(for: 0) == VanguardCaptainRules.maxHP(for: 1))
+    }
+
+    @Test func captainNormalizationPreservesIdentityAndClampsValues() {
+        // Keeps lane and Rally consumption; clamps HP >= 0 and recovery
+        // into 0...12.
+        let normalized = VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: -3,
+            recoveryRemainingSeconds: 30,
+            rallyConsumed: true
+        ).normalizedForCaptain()
+        #expect(normalized.lane == .left)
+        #expect(normalized.remainingHP == 0)
+        #expect(normalized.recoveryRemainingSeconds == 12.0)
+        #expect(normalized.rallyConsumed == true)
+
+        // An alive captain never carries recovery time.
+        let alive = VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 7,
+            recoveryRemainingSeconds: 6,
+            rallyConsumed: false
+        ).normalizedForCaptain()
+        #expect(alive.remainingHP == 7)
+        #expect(alive.recoveryRemainingSeconds == 0)
+        #expect(alive.lane == .right)
+
+        // Negative recovery clamps to zero.
+        let rested = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: -2,
+            rallyConsumed: false
+        ).normalizedForCaptain()
+        #expect(rested.recoveryRemainingSeconds == 0)
+        #expect(rested.remainingHP == 0)
+    }
 }

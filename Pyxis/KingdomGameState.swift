@@ -215,11 +215,17 @@ struct KingdomGameState: Codable, Equatable {
         }
         self.cityBattleStates = normalizedCityBattleStates
 
-        self.siegeProgress = Self.normalizedSiegeProgress(
+        let normalizedSiege = Self.normalizedSiegeProgress(
             siegeProgress,
             layout: Country1CityCatalog.definition(for: normalizedCityNumber).siegeLayout,
             totalBudget: Self.cityMaxPower(for: normalizedCityLevel),
             requiresLivingKeep: resolvedStatus == .battleActive
+        )
+        self.siegeProgress = Self.normalizedCaptainProgress(
+            normalizedSiege,
+            cityNumber: normalizedCityNumber,
+            upgradeLevel: self.normalSoldierUpgradeLevel,
+            stageIsActive: resolvedStatus == .battleActive
         )
 
         let normalizedCurrentCityKey = CityKey(
@@ -339,8 +345,45 @@ struct KingdomGameState: Codable, Equatable {
             guardReinforcements: layout.barracksObjective != nil
                 ? (progress?.guardReinforcements?.normalizedForHighcrest()
                     ?? GuardReinforcementProgress.freshHighcrest())
-                : nil
+                : nil,
+            captain: progress?.captain
         )
+    }
+
+    /// Applies the City 3+ Captain rules (HPA-475) after generic siege
+    /// normalization, so a constructed `KingdomGameState` carries honest
+    /// Captain HP before any scene/HUD reads it. The Captain exists only in
+    /// an active City 3+ siege; fresh entries seed full HP on the selected
+    /// lane; persisted HP clamps to the current upgrade-derived maximum; and
+    /// HP 0 + recovery 0 means recovery already completed — restore full HP
+    /// on the current selected lane.
+    private static func normalizedCaptainProgress(
+        _ progress: SiegeProgress,
+        cityNumber: Int,
+        upgradeLevel: Int,
+        stageIsActive: Bool
+    ) -> SiegeProgress {
+        var progress = progress
+        guard stageIsActive, VanguardCaptainRules.isAvailable(cityNumber: cityNumber) else {
+            progress.captain = nil
+            return progress
+        }
+        let currentMaxHP = VanguardCaptainRules.maxHP(for: upgradeLevel)
+        if var captain = progress.captain {
+            captain = captain.normalizedForCaptain()
+            captain.remainingHP = min(captain.remainingHP, currentMaxHP)
+            if captain.remainingHP == 0, captain.recoveryRemainingSeconds == 0 {
+                captain.remainingHP = currentMaxHP
+                captain.lane = progress.selectedLane
+            }
+            progress.captain = captain
+        } else {
+            progress.captain = .freshCaptain(
+                selectedLane: progress.selectedLane,
+                upgradeLevel: upgradeLevel
+            )
+        }
+        return progress
     }
 
     var currentGoldReward: Int {
@@ -446,6 +489,12 @@ struct KingdomGameState: Codable, Equatable {
             damageByObjectiveID: [:],
             guardReinforcements: entryLayout.barracksObjective != nil
                 ? GuardReinforcementProgress.freshHighcrest()
+                : nil,
+            captain: VanguardCaptainRules.isAvailable(cityNumber: cityNumber)
+                ? .freshCaptain(
+                    selectedLane: entryLayout.defaultLane,
+                    upgradeLevel: normalSoldierUpgradeLevel
+                )
                 : nil
         )
         stageStatus = .battleActive
@@ -490,6 +539,83 @@ struct KingdomGameState: Codable, Equatable {
 
     mutating func acknowledgePendingBattleResult() {
         pendingBattleResult = nil
+    }
+
+    // MARK: Vanguard Captain (HPA-475)
+
+    /// Records a live Captain retreat: HP drops to 0 and the full recovery
+    /// clock starts, preserving the last live lane. A retreating captain
+    /// cannot re-die. Creates no damage/reward/conquest side effects.
+    mutating func recordCaptainRetreat() {
+        guard stageStatus == .battleActive,
+              var captain = siegeProgress.captain,
+              captain.remainingHP > 0 else {
+            return
+        }
+        captain.remainingHP = 0
+        captain.recoveryRemainingSeconds = VanguardCaptainRules.recoverySeconds
+        siegeProgress.captain = captain
+    }
+
+    /// Advances live-only Captain recovery by a non-negative combat delta
+    /// (BattleScene passes the tick's clamped delta; anything else — Camp,
+    /// Map, background settlement — is rejected here). Crossing zero
+    /// restores current max HP on the current selected lane exactly once.
+    /// Returns whether recovery completed.
+    @discardableResult
+    mutating func advanceCaptainRecovery(deltaTime: Double) -> Bool {
+        guard deltaTime >= 0,
+              stageStatus == .battleActive,
+              var captain = siegeProgress.captain,
+              captain.remainingHP == 0 else {
+            return false
+        }
+        captain.recoveryRemainingSeconds = max(0, captain.recoveryRemainingSeconds - deltaTime)
+        guard captain.recoveryRemainingSeconds == 0 else {
+            siegeProgress.captain = captain
+            return false
+        }
+        captain.remainingHP = VanguardCaptainRules.maxHP(for: normalSoldierUpgradeLevel)
+        captain.lane = siegeProgress.selectedLane
+        siegeProgress.captain = captain
+        return true
+    }
+
+    /// Consumes the once-per-siege Rally. Succeeds only while the Captain
+    /// is deployed (not retreating) and Rally is still unused; later
+    /// requests — manual or automatic — are rejected.
+    @discardableResult
+    mutating func consumeVanguardRally() -> Bool {
+        guard stageStatus == .battleActive,
+              let captain = siegeProgress.captain,
+              captain.remainingHP > 0,
+              !captain.rallyConsumed else {
+            return false
+        }
+        siegeProgress.captain?.rallyConsumed = true
+        return true
+    }
+
+    /// Persists a living Captain's lane and HP, clamped to the current
+    /// upgrade-derived maximum. Never resurrects a retreating captain —
+    /// retreats flow through `recordCaptainRetreat`. Returns whether
+    /// durable state changed.
+    @discardableResult
+    mutating func synchronizeLiveCaptain(lane: BattleLane, remainingHP: Int) -> Bool {
+        guard stageStatus == .battleActive,
+              var captain = siegeProgress.captain,
+              captain.remainingHP > 0,
+              remainingHP > 0 else {
+            return false
+        }
+        let clampedHP = min(remainingHP, VanguardCaptainRules.maxHP(for: normalSoldierUpgradeLevel))
+        guard captain.lane != lane || captain.remainingHP != clampedHP else {
+            return false
+        }
+        captain.lane = lane
+        captain.remainingHP = clampedHP
+        siegeProgress.captain = captain
+        return true
     }
 
     mutating func recordSoldierLosses(_ events: [SoldierLossEvent]) {
