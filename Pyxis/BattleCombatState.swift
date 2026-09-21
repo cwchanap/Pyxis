@@ -13,6 +13,26 @@ struct SoldierAttackEvent: Equatable {
     /// The authored objective this attack landed on (HPA-468).
     var objectiveID: String
     let appliedDamage: Int
+    /// HPA-475: transient only — partitioned before persistence.
+    let isCaptain: Bool
+
+    init(
+        soldierID: BattleCombatState.SoldierID,
+        type: SoldierType,
+        source: SoldierSpawnSource,
+        lane: BattleLane,
+        objectiveID: String,
+        appliedDamage: Int,
+        isCaptain: Bool = false
+    ) {
+        self.soldierID = soldierID
+        self.type = type
+        self.source = source
+        self.lane = lane
+        self.objectiveID = objectiveID
+        self.appliedDamage = appliedDamage
+        self.isCaptain = isCaptain
+    }
 }
 
 struct SoldierLossEvent: Equatable {
@@ -20,6 +40,22 @@ struct SoldierLossEvent: Equatable {
     let type: SoldierType
     let source: SoldierSpawnSource
     let lane: BattleLane
+    /// HPA-475: a Captain retreat, never an ordinary casualty.
+    let isCaptain: Bool
+
+    init(
+        soldierID: BattleCombatState.SoldierID,
+        type: SoldierType,
+        source: SoldierSpawnSource,
+        lane: BattleLane,
+        isCaptain: Bool = false
+    ) {
+        self.soldierID = soldierID
+        self.type = type
+        self.source = source
+        self.lane = lane
+        self.isCaptain = isCaptain
+    }
 }
 
 struct BattleCombatState: Equatable {
@@ -107,6 +143,9 @@ struct BattleCombatState: Equatable {
         let movementSpeed: Double
         var position: Double
         var attackCooldownRemaining: Double
+        /// HPA-475: the single Vanguard Captain, carried by the ordinary
+        /// soldier loop. Never a `SoldierType` or `SoldierSpawnSource`.
+        let isCaptain: Bool
 
         var isAlive: Bool {
             currentHP > 0
@@ -188,12 +227,20 @@ struct BattleCombatState: Equatable {
         self.init(configuration: configuration, seed: UInt64.random(in: .min ... .max))
     }
 
+    /// Ordinary (non-Captain) living soldiers only, so the Captain never
+    /// consumes the manual cap or arms the navigation lock (HPA-475).
     var livingSoldierCount: Int {
-        soldiers.filter(\.isAlive).count
+        soldiers.filter { $0.isAlive && !$0.isCaptain }.count
     }
 
     func livingSoldierCount(source: SoldierSpawnSource) -> Int {
-        soldiers.filter { $0.isAlive && $0.source == source }.count
+        soldiers.filter { $0.isAlive && $0.source == source && !$0.isCaptain }.count
+    }
+
+    /// The living flagged Captain, or nil. Focused orchestration projection
+    /// for BattleScene: lane/HP/position are read straight off the Soldier.
+    var captainSoldier: Soldier? {
+        soldiers.first { $0.isAlive && $0.isCaptain }
     }
 
     /// Every spawn carries an explicit lane (HPA-468 §3.4): production and
@@ -228,7 +275,53 @@ struct BattleCombatState: Equatable {
                 attackRange: attackRange(for: type),
                 movementSpeed: movementSpeed(for: type),
                 position: 0,
-                attackCooldownRemaining: 0
+                attackCooldownRemaining: 0,
+                isCaptain: false
+            )
+        )
+
+        return id
+    }
+
+    /// Deploys the single Vanguard Captain (HPA-475) as one flagged Soldier
+    /// carried entirely by the existing combat loop. `source = .manual` is a
+    /// transient compatibility carrier only — counts and reports exclude the
+    /// Captain via `isCaptain`. A second call while a Captain is alive is a
+    /// no-op returning the existing Captain's ID, so lane-chip changes (a
+    /// different persisted lane) never move the live Captain. A depleted
+    /// (recovering, HP 0) Captain deploys nothing.
+    @discardableResult
+    mutating func spawnCaptain(progress: VanguardCaptainProgress, upgradeLevel: Int) -> SoldierID? {
+        if let existing = captainSoldier {
+            return existing.id
+        }
+
+        let captainMaxHP = VanguardCaptainRules.maxHP(for: upgradeLevel)
+        let restoredHP = min(max(0, progress.remainingHP), captainMaxHP)
+        guard restoredHP > 0 else {
+            return nil
+        }
+
+        let id = nextSoldierID
+        nextSoldierID += 1
+
+        soldiers.append(
+            Soldier(
+                id: id,
+                type: .infantry,
+                source: .manual,
+                level: max(1, upgradeLevel),
+                lane: progress.lane,
+                maxHP: captainMaxHP,
+                currentHP: restoredHP,
+                defense: max(0, configuration.soldierDefense),
+                attackPower: max(1, VanguardCaptainRules.attackPower(for: upgradeLevel)),
+                attackSpeed: attackSpeed(for: .infantry),
+                attackRange: attackRange(for: .infantry),
+                movementSpeed: movementSpeed(for: .infantry),
+                position: 0,
+                attackCooldownRemaining: 0,
+                isCaptain: true
             )
         )
 
@@ -320,7 +413,8 @@ struct BattleCombatState: Equatable {
                         soldierID: soldier.id,
                         type: soldier.type,
                         source: soldier.source,
-                        lane: soldier.lane
+                        lane: soldier.lane,
+                        isCaptain: soldier.isCaptain
                     )
                 )
             }
@@ -380,7 +474,8 @@ struct BattleCombatState: Equatable {
                             source: soldiers[index].source,
                             lane: soldiers[index].lane,
                             objectiveID: targetID,
-                            appliedDamage: appliedDamage
+                            appliedDamage: appliedDamage,
+                            isCaptain: soldiers[index].isCaptain
                         )
                     )
                     soldiers[index].attackCooldownRemaining += attackInterval(forSoldier: soldiers[index])
@@ -588,7 +683,8 @@ struct BattleCombatState: Equatable {
                         soldierID: soldier.id,
                         type: soldier.type,
                         source: soldier.source,
-                        lane: soldier.lane
+                        lane: soldier.lane,
+                        isCaptain: soldier.isCaptain
                     )
                 )
             }
@@ -656,10 +752,20 @@ struct BattleCombatState: Equatable {
             .min { guards[$0].position < guards[$1].position }
     }
 
+    /// Foremost ordering shared by the Guard and tower selections (HPA-475):
+    /// highest position wins; equal positions prefer the flagged Captain so
+    /// it tanks beside equal-speed infantry.
+    private func isForemost(_ lhs: Soldier, _ rhs: Soldier) -> Bool {
+        if lhs.position == rhs.position {
+            return !lhs.isCaptain && rhs.isCaptain
+        }
+        return lhs.position < rhs.position
+    }
+
     private func foremostSoldierIndex(in lane: BattleLane) -> Int? {
         soldiers.indices
             .filter { soldiers[$0].isAlive && soldiers[$0].lane == lane }
-            .max { soldiers[$0].position < soldiers[$1].position }
+            .max { isForemost(soldiers[$0], soldiers[$1]) }
     }
 
     private func foremostSoldier(in lane: BattleLane) -> Soldier? {
@@ -706,7 +812,7 @@ struct BattleCombatState: Equatable {
 
         return inRangeIndices
             .filter { soldiers[$0].lane == targetLane }
-            .max { soldiers[$0].position < soldiers[$1].position }
+            .max { isForemost(soldiers[$0], soldiers[$1]) }
     }
 
     private func damageAgainstSoldier(_ soldier: Soldier) -> Int {
