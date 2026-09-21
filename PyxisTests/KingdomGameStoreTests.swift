@@ -114,6 +114,55 @@ struct KingdomGameStoreTests {
             == (maxPowers[barracksID] ?? 0) - ((maxPowers[barracksID] ?? 0) / 2))
     }
 
+    @Test func saveAndLoadRoundTripsVanguardCaptainProgress() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+
+        // Damaged-but-alive: durable lane + HP + Rally bit; recovery is 0.
+        var saved = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 30,
+            keepRemaining: 20,
+            selectedLane: .center
+        )
+        saved.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: 9,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: true
+        )
+
+        store.save(saved)
+        var loaded = store.load()
+
+        #expect(loaded == saved)
+        #expect(loaded.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: 9,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: true
+        ))
+
+        // Retreating: HP 0 plus the persisted recovery clock survive.
+        saved.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 4.5,
+            rallyConsumed: true
+        )
+
+        store.save(saved)
+        loaded = store.load()
+
+        #expect(loaded == saved)
+        #expect(loaded.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 4.5,
+            rallyConsumed: true
+        ))
+    }
+
     @MainActor
     @Test("Reloaded Highcrest Guard state reconstructs Battle Guards at Keep progress")
     func reloadedHighcrestGuardStateReconstructsBattleAtKeepProgress() throws {

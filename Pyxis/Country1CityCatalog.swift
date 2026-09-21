@@ -3,6 +3,8 @@
 //  Pyxis
 //
 
+import Foundation
+
 enum Country1CityCatalog {
     static let cityRange = 1...15
 
@@ -263,6 +265,66 @@ extension GuardReinforcementProgress {
             waveElapsedSeconds: elapsed,
             remainingReserve: min(max(0, remainingReserve), reserveCeiling),
             unresolvedGuards: guards
+        )
+    }
+}
+
+/// Vanguard Captain tuning (HPA-475): one automatic hero deploying from
+/// City 3 onward. These Country 1 values live beside the combat authoring,
+/// not in generic siege state. Captain attack/HP scale from the existing
+/// soldier-upgrade progression — these are starting values, not a new
+/// progression axis.
+enum VanguardCaptainRules {
+    static let unlockCity = 3
+    static let recoverySeconds = 12.0
+    static let rallyDurationSeconds = 5.0
+    static let rallyDamageMultiplier = 0.70
+
+    static func isAvailable(cityNumber: Int) -> Bool {
+        cityNumber >= unlockCity
+    }
+
+    /// One attack point above the ordinary soldier curve.
+    static func attackPower(for upgradeLevel: Int) -> Int {
+        KingdomGameState.normalSoldierAttackPower(for: upgradeLevel) + 1
+    }
+
+    static func maxHP(for upgradeLevel: Int) -> Int {
+        let level = max(1, upgradeLevel)
+        return max(1, Int((20 * pow(1.25, Double(level - 1))).rounded()))
+    }
+}
+
+extension VanguardCaptainProgress {
+    /// Fresh full-HP Captain for a newly entered City 3+ siege, seeded on
+    /// the entry-selected lane.
+    static func freshCaptain(selectedLane: BattleLane, upgradeLevel: Int) -> VanguardCaptainProgress {
+        VanguardCaptainProgress(
+            lane: selectedLane,
+            remainingHP: VanguardCaptainRules.maxHP(for: upgradeLevel),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        )
+    }
+
+    /// Forgiving normalization for persisted Captain state: keeps the lane
+    /// and Rally consumption, clamps HP >= 0 and recovery into
+    /// 0...`recoverySeconds`, and forces recovery to 0 while HP > 0 (an
+    /// alive captain is not recovering).
+    func normalizedForCaptain() -> VanguardCaptainProgress {
+        let hp = max(0, remainingHP)
+        var recovery = min(
+            max(0, recoveryRemainingSeconds),
+            VanguardCaptainRules.recoverySeconds
+        )
+        if hp > 0 {
+            recovery = 0
+        }
+        return VanguardCaptainProgress(
+            lane: lane,
+            remainingHP: hp,
+            recoveryRemainingSeconds: recovery,
+            rallyConsumed: rallyConsumed
         )
     }
 }

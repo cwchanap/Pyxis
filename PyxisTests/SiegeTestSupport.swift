@@ -80,12 +80,19 @@ enum SiegeTestSupport {
         }
 
         // Match `startCityFromMap` entry state: a freshly entered Highcrest
-        // carries fresh full-reserve Guard progress; other cities carry nil.
+        // carries fresh full-reserve Guard progress; other cities carry nil;
+        // a freshly entered City 3+ carries a fresh full-HP Captain.
         state.siegeProgress = SiegeProgress(
             selectedLane: selectedLane ?? layout.defaultLane,
             damageByObjectiveID: damageByObjectiveID,
             guardReinforcements: layout.barracksObjective != nil
                 ? GuardReinforcementProgress.freshHighcrest()
+                : nil,
+            captain: VanguardCaptainRules.isAvailable(cityNumber: cityNumber)
+                ? .freshCaptain(
+                    selectedLane: selectedLane ?? layout.defaultLane,
+                    upgradeLevel: state.normalSoldierUpgradeLevel
+                )
                 : nil
         )
         return state
