@@ -734,6 +734,125 @@ struct BattleHUDNodeTests {
         #expect(incomeArrow.path?.boundingBox == CGRect(x: -3, y: -4, width: 6, height: 8))
         #expect(objectiveWell.path?.boundingBox == CGRect(x: -20, y: -20, width: 40, height: 40))
     }
+
+    // MARK: - HPA-475 Task 4: Deploy/Captain split in the HUD
+
+    @Test func cityOneAndTwoIgnoreSubframesAndKeepFullDeployClusterAndHitTarget() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+
+        for cityNumber in [1, 2] {
+            let node = BattleHUDNode()
+            _ = node.apply(
+                content: .project(
+                    from: KingdomGameState(
+                        cityNumberInCountry: cityNumber,
+                        completedCityCount: cityNumber - 1
+                    ),
+                    manualCount: 6
+                ),
+                layout: layout
+            )
+
+            // The cluster stays centered in the full deploy frame.
+            let portrait = try #require(node.childNode(withName: "battleDeployIcon") as? SKSpriteNode)
+            let count = try #require(node.childNode(withName: "battleManualCountLabel") as? SKLabelNode)
+            let clusterFrame = portrait.frame.union(count.frame)
+            #expect(abs(clusterFrame.midX - layout.deployFrame.midX) < 0.5)
+
+            // The full deploy hit target stays intact, including over the
+            // (ignored) rally hit frame; the strip itself stays hidden.
+            #expect(node.action(at: CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY)) == .deploy)
+            #expect(node.action(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY)) == .deploy)
+            #expect(node.childNode(withName: "battleCaptainStripPanel")?.isHidden == true)
+        }
+    }
+
+    @Test func cityThreePlusMapsRallyPointAndDeployPointWithoutOverlap() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        _ = node.apply(
+            content: .project(
+                from: KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2),
+                manualCount: 6
+            ),
+            layout: layout
+        )
+
+        #expect(
+            node.action(at: CGPoint(x: layout.deployActionFrame.midX, y: layout.deployActionFrame.midY))
+                == .deploy
+        )
+        #expect(
+            node.action(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
+                == .rally
+        )
+        // The strip's non-Rally zone is inert.
+        #expect(
+            node.action(at: CGPoint(x: layout.captainStripFrame.minX + 20, y: layout.captainStripFrame.midY))
+                == nil
+        )
+
+        // The deploy cluster centers in the deploy action frame, not the full bar.
+        let portrait = try #require(node.childNode(withName: "battleDeployIcon") as? SKSpriteNode)
+        let count = try #require(node.childNode(withName: "battleManualCountLabel") as? SKLabelNode)
+        let clusterFrame = portrait.frame.union(count.frame)
+        #expect(abs(clusterFrame.midX - layout.deployActionFrame.midX) < 0.5)
+
+        // The captain strip renders inside its own frame.
+        #expect(node.childNode(withName: "battleCaptainStripPanel")?.isHidden == false)
+    }
+
+    @Test func captainStripCopyFitsItsFrameInEveryStatus() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+
+        func appliedNode(_ project: (inout BattleHUDContent) -> Void) -> BattleHUDNode {
+            var content = BattleHUDContent.project(
+                from: KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2),
+                manualCount: 0
+            )
+            project(&content)
+            let node = BattleHUDNode()
+            _ = node.apply(content: content, layout: layout)
+            return node
+        }
+
+        // captainStatus is project-derived; tests retarget it directly so each
+        // compact state is exercised against the same strip frame.
+        func withStatus(_ status: BattleHUDContent.CaptainStatus)
+            -> (inout BattleHUDContent) -> Void {
+            { $0.captainStatus = status }
+        }
+
+        for status in [
+            BattleHUDContent.CaptainStatus.ready(currentHP: 20, maxHP: 20, rallyReady: true),
+            .active(currentHP: 14, maxHP: 20),
+            .used(currentHP: 14, maxHP: 20),
+            .recovering(seconds: 8, rallyConsumed: true)
+        ] {
+            let node = appliedNode(withStatus(status))
+            let statusLabel = try #require(
+                node.childNode(withName: "battleCaptainStatusLabel") as? SKLabelNode
+            )
+            let rallyLabel = try #require(
+                node.childNode(withName: "battleCaptainRallyLabel") as? SKLabelNode
+            )
+
+            #expect(node.childNode(withName: "battleCaptainStripPanel")?.isHidden == false)
+            #expect(layout.captainStripFrame.contains(statusLabel.frame))
+            #expect(layout.captainStripFrame.contains(rallyLabel.frame))
+            #expect(statusLabel.text?.isEmpty == false)
+            #expect(rallyLabel.text?.isEmpty == false)
+        }
+    }
 }
 
 private func rgba(_ color: SKColor) -> [Int] {

@@ -125,4 +125,68 @@ struct BattleHUDContentTests {
             .reduce(0, +)
         #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 13 + supportRemaining)
     }
+
+    // MARK: - HPA-475 Task 4: Captain/Rally projection
+
+    @Test func captainIsUnavailableBelowCityThree() {
+        let content = BattleHUDContent.project(
+            from: KingdomGameState(cityNumberInCountry: 2, completedCityCount: 1),
+            manualCount: 0
+        )
+
+        #expect(content.captainStatus == .unavailable)
+    }
+
+    @Test func freshCityThreeCaptainProjectsReadyWithRallyAvailable() {
+        let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        #expect(content.captainStatus == .ready(currentHP: maxHP, maxHP: maxHP, rallyReady: true))
+    }
+
+    @Test func deployedCaptainWithLiveTimerProjectsActiveEvenThoughRallyIsDurableConsumed() {
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain?.rallyConsumed = true
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            captainIsDeployed: true,
+            rallyRemainingSeconds: 3
+        )
+
+        #expect(content.captainStatus == .active(currentHP: maxHP, maxHP: maxHP))
+    }
+
+    @Test func durableConsumedRallyWithZeroTimerProjectsUsed() {
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain?.rallyConsumed = true
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            captainIsDeployed: true,
+            rallyRemainingSeconds: 0
+        )
+
+        #expect(content.captainStatus == .used(currentHP: maxHP, maxHP: maxHP))
+    }
+
+    @Test func retreatingCaptainProjectsRecoverySecondsAndRallyBit() {
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 8,
+            rallyConsumed: true
+        )
+
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        #expect(content.captainStatus == .recovering(seconds: 8, rallyConsumed: true))
+    }
 }

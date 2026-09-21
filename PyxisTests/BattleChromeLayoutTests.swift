@@ -179,6 +179,83 @@ struct BattleChromeLayoutTests {
         }
     }
 
+    // MARK: - HPA-475 Task 4: Deploy/Captain split (pure geometry)
+
+    @Test func deployCaptainSubframesSplitAndStayDisjointOnAllFixtures() throws {
+        let fixtures: [(String, BattleChromeLayout.Input)] = [
+            ("375x667", .init(sceneSize: CGSize(width: 375, height: 667))),
+            (
+                "393x852",
+                .init(
+                    sceneSize: CGSize(width: 393, height: 852),
+                    safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+                )
+            ),
+            (
+                "iPad 834x1194",
+                .init(
+                    sceneSize: CGSize(width: 834, height: 1194),
+                    safeAreaInsets: .init(top: 24, left: 0, bottom: 20, right: 0)
+                )
+            )
+        ]
+
+        for (_, input) in fixtures {
+            let layout = try #require(BattleChromeLayout.compute(input))
+
+            // Authored split: 132pt strip flush right, 8pt gap, action is the remainder.
+            #expect(layout.captainStripFrame.width == 132)
+            #expect(layout.captainStripFrame.maxX == layout.deployFrame.maxX)
+            #expect(layout.captainStripFrame.minY == layout.deployFrame.minY)
+            #expect(layout.captainStripFrame.height == layout.deployFrame.height)
+            #expect(layout.deployActionFrame.minX == layout.deployFrame.minX)
+            #expect(layout.deployActionFrame.maxX == layout.captainStripFrame.minX - 8)
+            #expect(layout.deployActionFrame.height == layout.deployFrame.height)
+            #expect(
+                layout.rallyHitFrame == CGRect(
+                    x: layout.captainStripFrame.maxX - 44,
+                    y: layout.captainStripFrame.minY,
+                    width: 44,
+                    height: layout.captainStripFrame.height
+                )
+            )
+
+            // Containment and minimums.
+            for frame in [layout.deployActionFrame, layout.captainStripFrame, layout.rallyHitFrame] {
+                #expect(layout.deployFrame.contains(frame))
+            }
+            #expect(layout.deployActionFrame.width >= 196)
+            #expect(layout.rallyHitFrame.width >= 44)
+            #expect(layout.rallyHitFrame.height >= 44)
+
+            // Hit targets are pairwise disjoint; the rally hit lives inside the strip.
+            #expect(!layout.deployActionFrame.intersects(layout.captainStripFrame))
+            #expect(!layout.deployActionFrame.intersects(layout.rallyHitFrame))
+            #expect(layout.captainStripFrame.contains(layout.rallyHitFrame))
+        }
+    }
+
+    @Test func narrowestFixtureLeavesThePinned203PointDeployAction() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 375, height: 667)
+        )))
+
+        #expect(layout.deployFrame.width == 343)
+        // 343 - 132 - 8 = 203.
+        #expect(layout.deployActionFrame.width == 203)
+        #expect(layout.captainStripFrame.minX == layout.deployFrame.minX + 203 + 8)
+    }
+
+    @Test func artificiallyNarrowDeployWidthFailsClosed() {
+        // 375 - 4 - 4 = 367 safe → content 335 → deploy action 195 < 196.
+        let layout = BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: .init(top: 0, left: 4, bottom: 0, right: 4)
+        ))
+
+        #expect(layout == nil)
+    }
+
     @Test func impossibleSafeContentFailsClosed() {
         let layout = BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 375, height: 667),

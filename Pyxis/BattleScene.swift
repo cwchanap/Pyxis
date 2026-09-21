@@ -501,6 +501,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             selectManualSoldierType(soldierType)
         case .deploy:
             spawnSoldier()
+        case .rally:
+            // HPA-475 Task 5 wires Rally activation; the disjoint hit
+            // target already routes here from City 3+ layouts.
+            break
         case .selectLane(let lane):
             selectAssaultLane(lane)
         case .tab(let tab):
