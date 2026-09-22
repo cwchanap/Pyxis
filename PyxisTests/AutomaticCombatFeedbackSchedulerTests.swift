@@ -213,6 +213,56 @@ struct AutomaticCombatFeedbackSchedulerTests {
         #expect(firstSound(from: result) == .attackMelee)
     }
 
+    // MARK: Vanguard Captain filtering (HPA-475)
+
+    @Test func captainOnlyLossYieldsNoSound() {
+        var result = BattleCombatState.TickResult()
+        result.soldierLosses = [
+            SoldierLossEvent(
+                soldierID: 9,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                isCaptain: true
+            )
+        ]
+
+        #expect(firstSound(from: result) == nil)
+    }
+
+    @Test func ordinaryDeathBesideCaptainLossStillYieldsSoldierDeath() {
+        var result = BattleCombatState.TickResult()
+        result.soldierLosses = [
+            SoldierLossEvent(soldierID: 1, type: .infantry, source: .manual, lane: .left),
+            SoldierLossEvent(
+                soldierID: 2,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                isCaptain: true
+            )
+        ]
+
+        #expect(firstSound(from: result) == .soldierDeath)
+    }
+
+    @Test func captainStructureAttackYieldsMelee() {
+        var result = BattleCombatState.TickResult()
+        result.soldierAttacks = [
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                objectiveID: "falconridge.keep",
+                appliedDamage: 2,
+                isCaptain: true
+            )
+        ]
+
+        #expect(firstSound(from: result) == .attackMelee)
+    }
+
     private func firstSound(
         from result: BattleCombatState.TickResult
     ) -> GameplaySoundID? {
