@@ -1147,11 +1147,11 @@ struct BattleSceneTests {
 
     @Test func towerDamageStartsHitAnimation() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: captainless(stateWithBarracks(
                 keepRemaining: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
@@ -1163,12 +1163,12 @@ struct BattleSceneTests {
 
     @Test func towerDamageUsesAuthoredArcherHitWithoutProceduralOverlay() throws {
         let store = try makeStore(
-            initialState: stateWithBuildings(
+            initialState: captainless(stateWithBuildings(
                 [.archeryRange],
                 keepRemaining: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
@@ -1184,11 +1184,11 @@ struct BattleSceneTests {
 
     @Test func towerDamageUsesAuthoredInfantryHitWithoutProceduralOverlay() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: captainless(stateWithBarracks(
                 keepRemaining: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
@@ -1954,11 +1954,11 @@ struct BattleSceneTests {
         // City 9 with maxed-out city power so a tower shot is lethal. The combat
         // seed is fixed so the tower targets the spawned soldier's lane.
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: captainless(stateWithBarracks(
                 keepRemaining: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
@@ -2353,12 +2353,12 @@ struct BattleSceneTests {
         // destroyed (no defensive fire), the killing blow flashes the Gate
         // and the following hits flash the Keep itself — Keep damage
         // legitimately targets the Keep displays (HPA-468 review C2).
-        let store = try makeStore(initialState: SiegeTestSupport.makeBattleState(
+        let store = try makeStore(initialState: captainless(SiegeTestSupport.makeBattleState(
             atCity: 3,
             keepRemaining: 35,
             supportDamage: [.gate: 10, .arrowTower: 46],
             selectedLane: .center
-        ))
+        )))
         let scene = makeScene(store: store, combatSeed: 1)
         let keep = try #require(firstNode(named: "enemy-city", in: scene))
 
@@ -2443,16 +2443,19 @@ struct BattleSceneTests {
     // deterministic, eliminating the balance-coincidence flakiness.
     @Test func towerDamageCanKillAndRemoveVisibleSoldier() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: captainless(stateWithBarracks(
                 keepRemaining: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
         scene.spawnSoldierForTesting()
-        scene.advanceCombatForTesting(deltaTime: 18.0)
+        // Two seconds of combat: enough for the tower kill (which lands by
+        // ~1.2s, per the delayed-removal pin) while the parked recovering
+        // Captain stays down (its 12s recovery outlives the test).
+        scene.advanceCombatForTesting(deltaTime: 2.0)
 
         let savedState = store.load()
         #expect(scene.liveSoldierCountForTesting == 0)
@@ -2466,11 +2469,11 @@ struct BattleSceneTests {
 
     @Test func liveCombatStatusUpdatesWhenTowerKillsLastSoldierWithoutCityDamage() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: captainless(stateWithBarracks(
                 keepRemaining: 20,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
@@ -2488,11 +2491,11 @@ struct BattleSceneTests {
 
     @Test func lossOnlyTickReenablesGameplayTabsAfterFinalManualSoldierDeath() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: captainless(stateWithBarracks(
                 keepRemaining: 20,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         let scene = makeScene(store: store, combatSeed: 1)
 
@@ -2569,11 +2572,11 @@ struct BattleSceneTests {
     @Test func lossOnlyTickPersistsSiegeSessionWithoutBuildingSavePath() throws {
         // No buildings → building-progress saves cannot mask a missing loss save.
         let store = try makeStore(
-            initialState: KingdomGameState(
+            initialState: captainless(KingdomGameState(
                 gold: 100,
                 cityNumberInCountry: 9,
                 completedCityCount: 8
-            )
+            ))
         )
         #expect(store.load().cityBattleStateForCurrentCity.occupiedSlotCount == 0)
 
@@ -3805,6 +3808,417 @@ struct BattleSceneTests {
             return .mageTower
         case .siege:
             return .siegeWorkshop
+        }
+    }
+
+    // MARK: Vanguard Captain scene wiring (HPA-475 Task 5)
+
+    private func makeCaptainState(
+        cityNumber: Int = 3,
+        gold: Int = 0,
+        keepRemaining: Int = 10_000,
+        supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:],
+        selectedLane: BattleLane? = nil,
+        captain: VanguardCaptainProgress? = nil
+    ) -> KingdomGameState {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: cityNumber,
+            gold: gold,
+            keepRemaining: keepRemaining,
+            supportDamage: supportDamage,
+            selectedLane: selectedLane
+        )
+        if let captain {
+            state.siegeProgress.captain = captain
+        }
+        return state
+    }
+
+    private func makeCaptainScene(
+        state: KingdomGameState,
+        size: CGSize = CGSize(width: 390, height: 844),
+        router: BattleSceneRouting? = nil
+    ) throws -> (scene: BattleScene, store: KingdomGameStore) {
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store, router: router, size: size)
+        return (scene, store)
+    }
+
+    private func damagedCaptain(lane: BattleLane, hp: Int) -> VanguardCaptainProgress {
+        VanguardCaptainProgress(
+            lane: lane,
+            remainingHP: hp,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        )
+    }
+
+    /// Parks the City 3+ default Captain (HPA-475) in recovery for pre-
+    /// existing tests authored against tower/ordinary-soldier mechanics.
+    /// Clearing the captain entirely does not survive a store round-trip:
+    /// the state normalizer re-grants a fresh captain for battle-active
+    /// City 3+ cities on decode. A recovering (HP 0) Captain survives
+    /// normalization, spawns no live actor, and never attacks or counts
+    /// toward the manual cap or navigation lock.
+    private func captainless(_ state: KingdomGameState) -> KingdomGameState {
+        var state = state
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: 0,
+            recoveryRemainingSeconds: VanguardCaptainRules.recoverySeconds,
+            rallyConsumed: false
+        )
+        return state
+    }
+
+    private func retreatingCaptain(
+        lane: BattleLane,
+        recovery: Double
+    ) -> VanguardCaptainProgress {
+        VanguardCaptainProgress(
+            lane: lane,
+            remainingHP: 0,
+            recoveryRemainingSeconds: recovery,
+            rallyConsumed: false
+        )
+    }
+
+    @Test("City 2 scene deploys no Captain")
+    func city2SceneDeploysNoCaptain() throws {
+        let (scene, _) = try makeCaptainScene(
+            state: makeCaptainState(cityNumber: 2, selectedLane: .right)
+        )
+
+        #expect(scene.livingCaptainForTesting == nil)
+        #expect(scene.soldierNodeCountForTesting == 0)
+    }
+
+    @Test("City 3 scene restores exactly one flagged Captain from durable lane + HP")
+    func city3SceneRestoresFlaggedCaptainFromDurableState() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .left,
+                captain: damagedCaptain(lane: .left, hp: 13)
+            )
+        )
+
+        let captain = try #require(scene.livingCaptainForTesting)
+        #expect(captain.lane == .left)
+        #expect(captain.currentHP == 13)
+        #expect(captain.maxHP == VanguardCaptainRules.maxHP(for: 1))
+        // The flagged Soldier is discovered by the ordinary node sync — no
+        // Captain node bundle.
+        #expect(scene.soldierNodeCountForTesting == 1)
+        // Ordinary soldier counts still exclude the Captain.
+        #expect(scene.manualLiveSoldierCountForTesting == 0)
+        #expect(scene.liveSoldierCountForTesting == 0)
+        // Persisted state was untouched by restore.
+        #expect(store.load().siegeProgress.captain?.remainingHP == 13)
+    }
+
+    @Test("Recovering Captain restores no live actor")
+    func recoveringCaptainRestoresNoLiveActor() throws {
+        let (scene, _) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .left,
+                captain: retreatingCaptain(lane: .left, recovery: 5)
+            )
+        )
+
+        #expect(scene.livingCaptainForTesting == nil)
+        #expect(scene.soldierNodeCountForTesting == 0)
+    }
+
+    @Test("Lane-chip tap never moves the live Captain")
+    func laneChipTapDoesNotMoveLiveCaptain() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .left,
+                captain: damagedCaptain(lane: .left, hp: 20)
+            )
+        )
+        guard let layout = scene.battleChromeLayoutForTesting,
+              let rightChip = layout.laneChipHitFrames[.right] else {
+            Issue.record("expected lane chip hit frame")
+            return
+        }
+
+        scene.handleTouchForTesting(at: CGPoint(x: rightChip.midX, y: rightChip.midY))
+        #expect(store.load().siegeProgress.selectedLane == .right)
+
+        scene.advanceCombatForTesting(deltaTime: 0.5)
+
+        #expect(scene.livingCaptainForTesting?.lane == .left)
+        #expect(store.load().siegeProgress.captain?.lane == .left)
+    }
+
+    @Test("Battle → Camp → Battle reconstruction restores persisted lane + HP")
+    func sceneReconstructionRestoresPersistedCaptainLaneAndHP() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(selectedLane: .center)
+        )
+
+        // Tower fire (City 3 center lane, standard 4/shot) damages the live
+        // Captain; the sibling syncs it into durable progress.
+        scene.advanceCombatForTesting(deltaTime: 1.5)
+        let persisted = try #require(store.load().siegeProgress.captain)
+        #expect(persisted.remainingHP < VanguardCaptainRules.maxHP(for: 1))
+
+        // A fresh scene (the Camp → Battle reconstruction) restores exactly
+        // the persisted lane + HP.
+        let restoredScene = makeScene(store: store)
+        let restoredCaptain = try #require(restoredScene.livingCaptainForTesting)
+        #expect(restoredCaptain.lane == persisted.lane)
+        #expect(restoredCaptain.currentHP == persisted.remainingHP)
+    }
+
+    @Test("Background teardown and foreground restore preserve lane + HP")
+    func backgroundForegroundCyclePreservesCaptainLaneAndHP() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(selectedLane: .center)
+        )
+        scene.advanceCombatForTesting(deltaTime: 1.5)
+        let persisted = try #require(store.load().siegeProgress.captain)
+        #expect(persisted.remainingHP < VanguardCaptainRules.maxHP(for: 1))
+
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSinceReferenceDate: 10_000))
+        #expect(scene.livingCaptainForTesting == nil)
+
+        scene.enterForegroundForTesting(at: Date(timeIntervalSinceReferenceDate: 10_001))
+        let restoredCaptain = try #require(scene.livingCaptainForTesting)
+        #expect(restoredCaptain.lane == persisted.lane)
+        #expect(restoredCaptain.currentHP == persisted.remainingHP)
+    }
+
+    @Test("Live combat advances Captain recovery by the clamped combat delta")
+    func liveCombatAdvancesCaptainRecoveryByClampedDelta() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .left,
+                captain: retreatingCaptain(lane: .left, recovery: 2.0)
+            )
+        )
+
+        scene.advanceCombatForTesting(deltaTime: 0.5)
+
+        // In-memory recovery shrinks by the clamped live delta immediately.
+        let liveRecovery = scene.gameStateForTesting.siegeProgress.captain?.recoveryRemainingSeconds ?? -1
+        #expect(abs(liveRecovery - 1.5) < 0.001)
+        // A countdown-only tick rides the existing two-second cadence, so the
+        // store still holds the pre-tick snapshot here.
+        let persistedRecovery = store.load().siegeProgress.captain?.recoveryRemainingSeconds ?? -1
+        #expect(abs(persistedRecovery - 2.0) < 0.001)
+    }
+
+    @Test("Recovery completion restores max HP on the selected lane and spawns one Captain")
+    func recoveryCompletionSpawnsOneCaptainAtSelectedLane() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .right,
+                captain: retreatingCaptain(lane: .left, recovery: 0.4)
+            )
+        )
+
+        scene.advanceCombatForTesting(deltaTime: 0.6)
+
+        let captain = try #require(store.load().siegeProgress.captain)
+        #expect(captain.remainingHP == VanguardCaptainRules.maxHP(for: 1))
+        #expect(captain.lane == .right)
+        #expect(captain.recoveryRemainingSeconds == 0)
+        let liveCaptain = try #require(scene.livingCaptainForTesting)
+        #expect(liveCaptain.lane == .right)
+        #expect(liveCaptain.currentHP == VanguardCaptainRules.maxHP(for: 1))
+        #expect(scene.soldierNodeCountForTesting == 1)
+    }
+
+    @Test("Automatic Rally fallback fires through the live tick funnel")
+    func autoRallyFiresThroughLiveTickFunnel() throws {
+        // City 3, exposed .left lane (tower deals 3/shot): the durable
+        // Captain is 0.4s from recovery completion, so it spawns mid-battle
+        // behind the already-advancing manual soldier and never tanks the
+        // tower. The soldier crosses 7 → 4 (below half, alive) on the
+        // second tower shot — the ticket-required auto fallback must consume
+        // Rally through the same funnel as the manual action.
+        var state = makeCaptainState(
+            gold: 15,
+            keepRemaining: 10_000,
+            selectedLane: .left,
+            captain: retreatingCaptain(lane: .left, recovery: 0.4)
+        )
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: Date(timeIntervalSinceReferenceDate: 0))
+            == .built(cost: 15, remainingGold: 0))
+        let (scene, store) = try makeCaptainScene(state: state)
+        scene.spawnSoldierForTesting()
+
+        var rallyActivated = false
+        for _ in 0..<40 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            if scene.rallyRemainingSecondsForTesting > 0 {
+                rallyActivated = true
+                break
+            }
+        }
+
+        #expect(rallyActivated)
+        let captain = try #require(store.load().siegeProgress.captain)
+        #expect(captain.rallyConsumed)
+        #expect(captain.remainingHP == VanguardCaptainRules.maxHP(for: 1))
+        #expect(captain.recoveryRemainingSeconds == 0)
+        #expect(scene.livingCaptainForTesting != nil)
+    }
+
+    @Test("Manual Rally consumes once and cannot restart after expiry")
+    func manualRallyConsumesOnceAndCannotRestart() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(selectedLane: .center)
+        )
+        guard let layout = scene.battleChromeLayoutForTesting else {
+            Issue.record("expected battle chrome layout")
+            return
+        }
+
+        scene.handleTouchForTesting(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
+        #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
+        #expect(scene.rallyRemainingSecondsForTesting == VanguardCaptainRules.rallyDurationSeconds)
+
+        scene.advanceCombatForTesting(deltaTime: 5.5)
+        #expect(scene.rallyRemainingSecondsForTesting == 0)
+
+        scene.handleTouchForTesting(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
+        #expect(scene.rallyRemainingSecondsForTesting == 0)
+        #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
+    }
+
+    @Test("Active Rally reconstruction loses the timer but stays Used")
+    func activeRallyReconstructionLosesTimerStaysUsed() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(selectedLane: .center)
+        )
+        guard let layout = scene.battleChromeLayoutForTesting else {
+            Issue.record("expected battle chrome layout")
+            return
+        }
+        scene.handleTouchForTesting(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
+        #expect(scene.rallyRemainingSecondsForTesting > 0)
+
+        let reconstructed = makeScene(store: store)
+
+        #expect(reconstructed.rallyRemainingSecondsForTesting == 0)
+        #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
+    }
+
+    @Test("Captain-only objective damage persists through the sibling without ordinary attribution")
+    func captainOnlyObjectiveDamagePersistsWithoutOrdinaryAttribution() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(selectedLane: .center)
+        )
+
+        scene.advanceCombatForTesting(deltaTime: 4)
+
+        let persisted = store.load()
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: persisted))
+        #expect((persisted.siegeProgress.damageByObjectiveID[gateID] ?? 0) > 0)
+        // Captain structure damage never enters the ordinary siege session:
+        // only the ambient battle clock exists — no deployments, damage, or
+        // losses attributed to ordinary soldiers.
+        #expect(persisted.activeSiegeSession?.deployments.isEmpty == true)
+        #expect(persisted.activeSiegeSession?.appliedDamage.isEmpty == true)
+        #expect(persisted.activeSiegeSession?.losses.isEmpty == true)
+    }
+
+    @Test("Captain-only Keep kill produces one reward and one freshLive report")
+    func captainOnlyKeepKillPresentsFreshLiveReportExactlyOnce() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(
+                keepRemaining: 2,
+                supportDamage: [.gate: 10_000],
+                selectedLane: .center
+            )
+        )
+
+        var conquered = false
+        for _ in 0..<60 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            if store.load().pendingBattleResult != nil {
+                conquered = true
+                break
+            }
+        }
+
+        #expect(conquered)
+        let persisted = store.load()
+        let pending = try #require(persisted.pendingBattleResult)
+        #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: 3))
+        #expect(persisted.gold == pending.goldEarned)
+        #expect(persisted.stageStatus == .cityConqueredPendingMap)
+        // One fresh-live presentation, no replay.
+        #expect(scene.conquestEffectPresentationCountForTesting == 1)
+        #expect(scene.lastConquestReportOriginForTesting == "freshLive")
+    }
+
+    @Test("Captain retreat records recovery and never ordinary losses")
+    func captainRetreatRecordsRecoveryAndNeverOrdinaryLosses() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(selectedLane: .left)
+        )
+
+        var retreated = false
+        for _ in 0..<120 {
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            if store.load().siegeProgress.captain?.remainingHP == 0 {
+                retreated = true
+                break
+            }
+        }
+
+        #expect(retreated)
+        let persisted = store.load()
+        let captain = try #require(persisted.siegeProgress.captain)
+        #expect(captain.recoveryRemainingSeconds == VanguardCaptainRules.recoverySeconds)
+        #expect(captain.lane == .left)
+        // A retreat is not an ordinary soldier casualty and never conquers.
+        #expect(persisted.activeSiegeSession?.losses.isEmpty == true)
+        #expect(persisted.pendingBattleResult == nil)
+        #expect(persisted.stageStatus == .battleActive)
+    }
+
+    @Test("Captain never consumes manual cap or arms the navigation lock")
+    func captainIgnoresManualCapAndNavigationLock() throws {
+        let router = BattleRouterSpy()
+        let store = try makeStore(initialState: makeCaptainState(gold: 15, selectedLane: .center))
+        let scene = makeScene(store: store, router: router)
+
+        // Navigation lock ignores the Captain: no manual soldiers → free tab.
+        scene.requestGameplayTabForTesting(.camp)
+        #expect(router.buildingRequestCount == 1)
+
+        // Re-enter Battle state for the manual-cap probe: ten manual spawns
+        // fill the cap while the Captain is alive.
+        var state = store.load()
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: Date(timeIntervalSinceReferenceDate: 0))
+            == .built(cost: 15, remainingGold: 0))
+        let store2 = try makeStore(initialState: state)
+        let scene2 = makeScene(store: store2, router: router)
+        for _ in 0...KingdomGameState.manualSoldierCap {
+            scene2.spawnSoldierForTesting()
+        }
+        #expect(scene2.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+        #expect(scene2.livingCaptainForTesting != nil)
+        #expect(scene2.liveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+    }
+
+    @Test("City 3+ scene smoke keeps chrome intact at compact and pad sizes")
+    func captainSceneSmokeKeepsChromeIntactAtCompactAndPadSizes() throws {
+        for size in [CGSize(width: 375, height: 667), CGSize(width: 820, height: 1180)] {
+            let (scene, store) = try makeCaptainScene(
+                state: makeCaptainState(selectedLane: .center),
+                size: size
+            )
+
+            #expect(!scene.isBattleChromeFitFailedForTesting)
+            #expect(scene.livingCaptainForTesting != nil)
+            scene.advanceCombatForTesting(deltaTime: 1)
+            #expect(store.load().siegeProgress.captain != nil)
         }
     }
 
@@ -5359,6 +5773,7 @@ struct BattleSceneTests {
         state.siegeProgress.guardReinforcements?.unresolvedGuards = [
             GuardSnapshot(lane: .left, remainingHP: 12)
         ]
+        state = captainless(state)
         let store = try makeStore(initialState: state)
         let scene = makeScene(store: store)
         scene.spawnSoldierForTesting()

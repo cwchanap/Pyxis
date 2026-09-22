@@ -548,6 +548,42 @@ struct ActiveSiegeLifecycleTests {
         #expect(state.siegeProgress.guardReinforcements == nil)
     }
 
+    // MARK: Vanguard Captain lifecycle (HPA-475 Task 5)
+
+    @Test func backgroundAndSettlementDoNotAdvanceCaptainRecovery() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 12_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 1_000,
+            selectedLane: .left
+        )
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 5,
+            rallyConsumed: false
+        )
+
+        // Background freeze keeps the countdown verbatim.
+        state.enterBackground(at: start)
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == 5)
+
+        // Foreground settlement touches buildings only — never the Captain.
+        let result = state.returnFromBackground(at: start.addingTimeInterval(120))
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == 5)
+        #expect(state.siegeProgress.captain?.remainingHP == 0)
+        #expect(result.conqueredCities == 0)
+
+        // The Camp settlement path (inactive marking) is equally inert for
+        // the Captain.
+        state.markCurrentCityBuildingProgressInactive(at: start.addingTimeInterval(180))
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == 5)
+
+        // Only live Battle recovery shrinks it.
+        #expect(state.advanceCaptainRecovery(deltaTime: 1) == false)
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == 4)
+    }
+
     private func battleResult(
         cityNumber: Int,
         activeBattleSeconds: TimeInterval = 3,
