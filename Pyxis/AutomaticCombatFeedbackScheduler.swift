@@ -173,7 +173,11 @@ struct AutomaticCombatFeedbackScheduler {
         // it never selects `.soldierDeath`. Captain structure/Guard attacks
         // keep their natural melee/ranged mapping through the soldier type.
         let ordinaryLosses = result.soldierLosses.filter { !$0.isCaptain }
-        let killed = Set(ordinaryLosses.map(\.soldierID))
+        // `killed` spans every loss — Captain included. The hit that kills
+        // the Captain lands its ID in `damagedSoldierIDs` like any
+        // soldier's and must never also register as a nonfatal
+        // `.soldierHit`.
+        let killed = Set(result.soldierLosses.map(\.soldierID))
         let hasNonfatalHit = result.damagedSoldierIDs.contains { !killed.contains($0) }
         var attacks = Set(result.soldierAttacks.map { attackSound(for: $0.type) })
         // A GuardHitEvent means the Guard was hit; map the attacking soldier

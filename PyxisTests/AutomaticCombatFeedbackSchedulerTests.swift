@@ -230,6 +230,25 @@ struct AutomaticCombatFeedbackSchedulerTests {
         #expect(firstSound(from: result) == nil)
     }
 
+    @Test func captainFatalHitDoesNotYieldSoldierHit() {
+        // The Captain's death blow lands its ID in `damagedSoldierIDs`
+        // like any soldier's; the fatal-hit exclusion must cover it too,
+        // so a Captain loss never also registers a `.soldierHit`.
+        var result = BattleCombatState.TickResult()
+        result.damagedSoldierIDs = [9]
+        result.soldierLosses = [
+            SoldierLossEvent(
+                soldierID: 9,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                isCaptain: true
+            )
+        ]
+
+        #expect(firstSound(from: result) == nil)
+    }
+
     @Test func ordinaryDeathBesideCaptainLossStillYieldsSoldierDeath() {
         var result = BattleCombatState.TickResult()
         result.soldierLosses = [
