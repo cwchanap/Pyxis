@@ -4089,6 +4089,36 @@ struct BattleSceneTests {
         #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
     }
 
+    @Test("Rally accent shows on protected ordinary soldiers only and expires with the timer")
+    func rallyAccentTracksProtectionWindow() throws {
+        // City 3 center lane: the Captain tanks at the front (equal-position
+        // tie-break) while one ordinary soldier marches behind it. Manual
+        // Rally through the HUD funnel protects the soldier, never the
+        // Captain, and expiry hides the accent again.
+        var state = makeCaptainState(gold: 15, selectedLane: .center)
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: Date(timeIntervalSinceReferenceDate: 0))
+            == .built(cost: 15, remainingGold: 0))
+        let (scene, _) = try makeCaptainScene(state: state)
+        scene.spawnSoldierForTesting()
+
+        guard let layout = scene.battleChromeLayoutForTesting else {
+            Issue.record("expected battle chrome layout")
+            return
+        }
+        scene.handleTouchForTesting(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
+        #expect(scene.rallyRemainingSecondsForTesting > 0)
+
+        let captainID = try #require(scene.livingCaptainForTesting).id
+        scene.advanceCombatForTesting(deltaTime: 0.2)
+
+        let protectedIDs = scene.rallyAccentVisibleSoldierIDsForTesting
+        #expect(protectedIDs.count == 1)
+        #expect(!protectedIDs.contains(captainID))
+
+        scene.advanceCombatForTesting(deltaTime: 5.0)
+        #expect(scene.rallyAccentVisibleSoldierIDsForTesting.isEmpty)
+    }
+
     @Test("Active Rally reconstruction loses the timer but stays Used")
     func activeRallyReconstructionLosesTimerStaysUsed() throws {
         let (scene, store) = try makeCaptainScene(

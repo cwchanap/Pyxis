@@ -426,16 +426,11 @@ struct BattleCombatState: Equatable {
         var objectiveRemaining = snapshot.objectiveRemainingPower
 
         // HPA-475: auto-Rally facts are captured before the transient timer
-        // advances, so every same-tick hit is judged against tick-start
-        // state ("Rally available at tick start, not already active").
+        // advances (after incoming-hit resolution below), so every same-tick
+        // hit is judged against tick-start state ("Rally available at tick
+        // start, not already active").
         let rallyAutoTriggerAvailableAtTickStart = rallyAutoTriggerAvailable && rallyRemainingSeconds <= 0
         let captainLaneAtTickStart = captainSoldier?.lane
-        if rallyRemainingSeconds > 0 {
-            rallyRemainingSeconds = max(0, rallyRemainingSeconds - deltaTime)
-            if rallyRemainingSeconds == 0 {
-                rallyLane = nil
-            }
-        }
 
         resolveTowerFire(
             deltaTime: deltaTime,
@@ -455,6 +450,18 @@ struct BattleCombatState: Equatable {
             captainLane: captainLaneAtTickStart,
             into: &result
         )
+
+        // HPA-475: incoming hits resolve against the tick-start Rally
+        // state, so the tick that drains the timer still protects — only
+        // then does the timer advance and expiry clear the lane. The
+        // decrement runs after the last incoming-damage site and before
+        // the soldier loop (which deals only outgoing damage).
+        if rallyRemainingSeconds > 0 {
+            rallyRemainingSeconds = max(0, rallyRemainingSeconds - deltaTime)
+            if rallyRemainingSeconds == 0 {
+                rallyLane = nil
+            }
+        }
 
         for index in soldiers.indices where soldiers[index].isAlive {
             let blockerIndex = nearestGuardBlockerIndex(forLane: soldiers[index].lane)
@@ -937,6 +944,14 @@ struct BattleCombatState: Equatable {
         return Double(preHitHP) >= halfMaxHP
             && postHitHP > 0
             && Double(postHitHP) < halfMaxHP
+    }
+
+    /// Whether the active Rally currently reduces this soldier's incoming
+    /// damage — the same predicate `rallyMultiplier` applies (ordinary
+    /// soldier, timer above zero, captured lane). Presentation only;
+    /// combat math never consults it (HPA-475).
+    func isRallyProtected(_ soldier: Soldier) -> Bool {
+        rallyMultiplier(for: soldier) < 1.0
     }
 
     /// HPA-475: Rally's incoming-damage multiplier for one soldier — 0.70

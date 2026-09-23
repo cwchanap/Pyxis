@@ -1846,6 +1846,7 @@ struct BattleCombatStateTests {
         towerDamage: Int,
         soldierMaxHP: Int = 20,
         defense: Int = 1,
+        towerAttackSpeed: Double = 1.0,
         laneMultipliers: [BattleLane: Double] = [:]
     ) -> BattleCombatState.Configuration {
         BattleCombatState.Configuration(
@@ -1855,7 +1856,7 @@ struct BattleCombatStateTests {
             soldierAttackRange: 0,
             soldierMovementSpeed: 0,
             towerDamage: towerDamage,
-            towerAttackSpeed: 1.0,
+            towerAttackSpeed: towerAttackSpeed,
             towerAttackRange: 1.0,
             maxDeltaTime: 5.0,
             laneDamageMultipliers: laneMultipliers
@@ -1879,12 +1880,50 @@ struct BattleCombatStateTests {
 
         let first = combat.tick(deltaTime: 2.5, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
         let second = combat.tick(deltaTime: 2.5, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+        let third = combat.tick(deltaTime: 2.5, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
 
         #expect(combat.rallyRemainingSeconds == 0)
-        // Protected hit: base 4 × 0.70 = 2.8 → 3; expired hit: full 4.
+        // Both ticks inside the 5-second window stay protected (base 4 ×
+        // 0.70 = 2.8 → 3) — including the boundary tick that drains the
+        // timer; the first tick after expiry takes the full 4.
         #expect(try #require(first.towerShots.first).damage == 3)
-        #expect(try #require(second.towerShots.first).damage == 4)
-        #expect(try #require(combat.soldier(id: id)).currentHP == 13)
+        #expect(try #require(second.towerShots.first).damage == 3)
+        #expect(try #require(third.towerShots.first).damage == 4)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 10)
+    }
+
+    /// The tick that drains the Rally timer still resolves its hits under
+    /// protection (HPA-475): with a tower firing once per 0.25s tick, the
+    /// full five seconds covers twenty protected ticks before the first
+    /// unprotected one.
+    @Test func rallyProtectsTheTickThatDrainsItsTimer() throws {
+        var combat = BattleCombatState(
+            configuration: towerRallyConfiguration(
+                towerDamage: 3,
+                soldierMaxHP: 100,
+                defense: 0,
+                towerAttackSpeed: 4.0
+            ),
+            seed: 1
+        )
+        _ = combat.spawnSoldier(
+            type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center
+        )
+        combat.startRally(lane: .center)
+
+        var damages: [Int] = []
+        for _ in 0..<21 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000)
+            )
+            damages.append(contentsOf: result.towerShots.map(\.damage))
+        }
+
+        // base 3 × 0.70 = 2.1 → 2 while protected; tick 21 is the first
+        // unprotected tick.
+        #expect(damages == Array(repeating: 2, count: 20) + [3])
+        #expect(combat.rallyRemainingSeconds == 0)
     }
 
     @Test func startRallyWhileActiveDoesNotStackOrRestart() {

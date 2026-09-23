@@ -22,6 +22,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let archerSoldier = "archer-soldier"
         static let captainAssetPrefix = "vanguard-captain"
         static let captainResting = "vanguard-captain-resting"
+        /// Optional HPA-476 art for the Rally protection accent (feet/
+        /// bottom-center, behind the protected soldier); procedural
+        /// fallback until it ships.
+        static let rallyProtectionAccent = "rally-protection-accent"
         static let battlefieldBackdrop = "battlefield-backdrop"
         static let buildingPadEmpty = "building-pad-empty"
         static let countryMarker = "conquered-marker"
@@ -128,6 +132,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         /// sprite (a standalone asset not authored against those normalized
         /// bounds), which must stay on the legacy `fitBattleNode` fit path.
         let isAnimatedCanvas: Bool
+        /// Lazily attached Rally protection accent (HPA-475), toggled via
+        /// `isHidden` by `syncRallyProtectionAccent` each combat tick.
+        var rallyAccent: SKNode?
     }
 
     private enum SoldierFormation {
@@ -291,6 +298,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     #endif
     private var buildingProgressSaveAccumulator: TimeInterval = 0
     private static let buildingProgressSaveInterval: TimeInterval = 2.0
+    /// Captain-strip HUD cadence (HPA-475): live HP / Rally / recovery
+    /// countdowns change every combat tick, but the full HUD apply is too
+    /// heavy to rebuild per frame, so the Captain-driven refresh runs on a
+    /// coarser 5 Hz cadence. Event-driven refreshes (building spawns,
+    /// losses, Rally activation, layout passes) are unaffected.
+    private var captainHUDRefreshAccumulator: TimeInterval = 0
+    private static let captainHUDRefreshInterval: TimeInterval = 0.2
     private let combatSeed: UInt64?
 
     init(
@@ -2184,12 +2198,34 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         syncSoldierNodes()
         syncGuardNodes()
         // City 3+ Captain strip content (live HP, Rally countdown, recovery
-        // countdown) changes per tick, so the HUD re-applies whenever a
-        // Captain is in play. Cities 1–2 have no Captain and keep their
-        // existing refresh triggers unchanged (HPA-475).
-        if !buildingSpawns.isEmpty || state.siegeProgress.captain != nil {
+        // countdown) changes over time, so while a Captain is in play the
+        // HUD re-applies on the coarser Captain cadence rather than every
+        // combat tick. Cities 1–2 have no Captain and keep their existing
+        // refresh triggers unchanged (HPA-475).
+        if !buildingSpawns.isEmpty {
+            // A spawn-driven refresh just ran — restart the Captain
+            // cadence from this fresh apply.
+            captainHUDRefreshAccumulator = 0
             applyBattleHUD()
+        } else {
+            refreshCaptainHUDOnCadence(deltaTime: deltaTime)
         }
+    }
+
+    /// Applies the battle HUD at most once per `captainHUDRefreshInterval`
+    /// while a Captain is in play (HPA-475). The strip's live HP, Rally,
+    /// and recovery countdowns change every combat tick, but the full HUD
+    /// apply is too heavy to rebuild per frame.
+    private func refreshCaptainHUDOnCadence(deltaTime: TimeInterval) {
+        guard state.siegeProgress.captain != nil else {
+            return
+        }
+        captainHUDRefreshAccumulator += deltaTime
+        guard captainHUDRefreshAccumulator >= Self.captainHUDRefreshInterval else {
+            return
+        }
+        captainHUDRefreshAccumulator = 0
+        applyBattleHUD()
     }
 
     /// Per-tick Highcrest Guard persistence (HPA-469). Runs AFTER
@@ -2665,7 +2701,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             isCaptain: soldier.isCaptain,
             lane: soldier.lane,
             formationSlot: formationSlot,
-            isAnimatedCanvas: isAnimatedCanvas
+            isAnimatedCanvas: isAnimatedCanvas,
+            rallyAccent: nil
         )
     }
 
@@ -2744,7 +2781,60 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
             layoutSoldierHPBar(bundle, soldier: soldier)
             startSoldierWalkAnimation(for: soldier.id)
+            syncRallyProtectionAccent(for: soldier)
         }
+    }
+
+    /// Keeps one live soldier's Rally protection accent in step with the
+    /// transient timer (HPA-475): a protected ordinary soldier in the
+    /// captured lane shows a feet/bottom-center accent behind its body;
+    /// the Captain, off-lane soldiers, and an expired timer never do.
+    /// Driven by the combat tick's node sync, so visibility tracks
+    /// `rallyRemainingSeconds` exactly like the HUD's Active state.
+    private func syncRallyProtectionAccent(for soldier: BattleCombatState.Soldier) {
+        guard let bundle = soldierNodes[soldier.id] else {
+            return
+        }
+        if combat.isRallyProtected(soldier) {
+            if let accent = bundle.rallyAccent {
+                accent.isHidden = false
+            } else {
+                let accent = makeRallyProtectionAccent()
+                bundle.root.addChild(accent)
+                soldierNodes[soldier.id]?.rallyAccent = accent
+            }
+        } else {
+            bundle.rallyAccent?.isHidden = true
+        }
+    }
+
+    /// Builds the Rally protection accent (HPA-475): probes the optional
+    /// `rally-protection-accent` art (feet/bottom-center, behind the
+    /// soldier — the HPA-476 contract) and falls back to a restrained
+    /// procedural glow until that asset ships. The soldier root's origin
+    /// is the feet baseline; z 0 keeps the accent behind the body (z 1)
+    /// and HP bar (z 2–3).
+    private func makeRallyProtectionAccent() -> SKNode {
+        let bodyHeight = soldierTargetHeight()
+        let accent: SKNode
+        if UIImage(named: BattleAssetName.rallyProtectionAccent) != nil {
+            let sprite = SKSpriteNode(imageNamed: BattleAssetName.rallyProtectionAccent)
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            sprite.size = CGSize(width: bodyHeight, height: bodyHeight)
+            accent = sprite
+        } else {
+            let glow = SKShapeNode(
+                ellipseOf: CGSize(width: bodyHeight * 0.72, height: bodyHeight * 0.2)
+            )
+            glow.fillColor = GameUITheme.Color.gold.withAlphaComponent(0.32)
+            glow.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.55)
+            glow.lineWidth = 1
+            glow.glowWidth = 2
+            glow.position = CGPoint(x: 0, y: bodyHeight * 0.06)
+            accent = glow
+        }
+        accent.zPosition = 0
+        return accent
     }
 
     /// Scaled transparent-foot margin for an animated soldier — the vertical
@@ -4954,6 +5044,20 @@ extension BattleScene {
 
     var rallyRemainingSecondsForTesting: Double {
         combat.rallyRemainingSeconds
+    }
+
+    /// IDs of soldier bundles whose Rally protection accent is attached and
+    /// visible (HPA-475). Soldiers without an accent — including the
+    /// Captain, which is never protected — are absent.
+    var rallyAccentVisibleSoldierIDsForTesting: Set<BattleCombatState.SoldierID> {
+        Set(
+            soldierNodes.compactMap { entry in
+                guard let accent = entry.value.rallyAccent, !accent.isHidden else {
+                    return nil
+                }
+                return entry.key
+            }
+        )
     }
 
     var soldierNodeCountForTesting: Int {
