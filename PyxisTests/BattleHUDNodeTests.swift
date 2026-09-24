@@ -779,7 +779,8 @@ struct BattleHUDNodeTests {
         _ = node.apply(
             content: .project(
                 from: KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2),
-                manualCount: 6
+                manualCount: 6,
+                captainIsDeployed: true
             ),
             layout: layout
         )
@@ -834,9 +835,12 @@ struct BattleHUDNodeTests {
 
         for status in [
             BattleHUDContent.CaptainStatus.ready(currentHP: 20, maxHP: 20, rallyReady: true),
+            .ready(currentHP: 20, maxHP: 20, rallyReady: false),
             .active(currentHP: 14, maxHP: 20),
             .used(currentHP: 14, maxHP: 20),
-            .recovering(seconds: 8, rallyConsumed: true)
+            .recovering(seconds: 8, rallyConsumed: true, rallyActive: true),
+            .recovering(seconds: 8, rallyConsumed: true, rallyActive: false),
+            .recovering(seconds: 8, rallyConsumed: false, rallyActive: false)
         ] {
             let node = appliedNode(withStatus(status))
             let statusLabel = try #require(
@@ -852,6 +856,85 @@ struct BattleHUDNodeTests {
             #expect(statusLabel.text?.isEmpty == false)
             #expect(rallyLabel.text?.isEmpty == false)
         }
+    }
+
+    @Test func rallyHitTargetIsActionableOnlyInTheReadyStatus() throws {
+        // HPA-475 review: Rally is actionable only when Ready with a live
+        // Captain — Active, Used, and Recovering project Rally state but
+        // must keep the hit target inert so a tap never silently no-ops.
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let rallyPoint = CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY)
+
+        func appliedNode(_ status: BattleHUDContent.CaptainStatus) -> BattleHUDNode {
+            var content = BattleHUDContent.project(
+                from: KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2),
+                manualCount: 0
+            )
+            content.captainStatus = status
+            let node = BattleHUDNode()
+            _ = node.apply(content: content, layout: layout)
+            return node
+        }
+
+        #expect(
+            appliedNode(.ready(currentHP: 20, maxHP: 20, rallyReady: true))
+                .action(at: rallyPoint) == .rally
+        )
+        for status in [
+            BattleHUDContent.CaptainStatus.ready(currentHP: 20, maxHP: 20, rallyReady: false),
+            .active(currentHP: 14, maxHP: 20),
+            .used(currentHP: 14, maxHP: 20),
+            .recovering(seconds: 8, rallyConsumed: false, rallyActive: false),
+            .recovering(seconds: 8, rallyConsumed: true, rallyActive: false),
+            .recovering(seconds: 8, rallyConsumed: true, rallyActive: true)
+        ] {
+            #expect(appliedNode(status).action(at: rallyPoint) == nil)
+        }
+    }
+
+    @Test func recoveringCaptainNeverShowsReadyCopy() throws {
+        // HPA-475 review: "RALLY READY" during recovery promises a control
+        // that cannot fire. Unused reads HELD; a mid-Rally retreat keeps
+        // ACTIVE beside the countdown; consumed reads USED.
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+
+        func rallyLabel(for status: BattleHUDContent.CaptainStatus) throws -> SKLabelNode {
+            var content = BattleHUDContent.project(
+                from: KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2),
+                manualCount: 0
+            )
+            content.captainStatus = status
+            let node = BattleHUDNode()
+            _ = node.apply(content: content, layout: layout)
+            return try #require(node.childNode(withName: "battleCaptainRallyLabel") as? SKLabelNode)
+        }
+
+        #expect(
+            try rallyLabel(for: .recovering(seconds: 8, rallyConsumed: false, rallyActive: false))
+                .text == "RALLY HELD"
+        )
+        #expect(
+            try rallyLabel(for: .recovering(seconds: 8, rallyConsumed: true, rallyActive: true))
+                .text == "RALLY ACTIVE"
+        )
+        #expect(
+            try rallyLabel(for: .recovering(seconds: 8, rallyConsumed: true, rallyActive: false))
+                .text == "RALLY USED"
+        )
+        #expect(
+            try rallyLabel(for: .ready(currentHP: 20, maxHP: 20, rallyReady: false))
+                .text == "RALLY HELD"
+        )
+        #expect(
+            try rallyLabel(for: .ready(currentHP: 20, maxHP: 20, rallyReady: true))
+                .text == "RALLY READY"
+        )
     }
 }
 

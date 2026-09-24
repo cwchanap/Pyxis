@@ -4137,6 +4137,58 @@ struct BattleSceneTests {
         #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
     }
 
+    @Test("Captain retreat during an active Rally keeps Rally live beside recovery")
+    func captainRetreatDuringActiveRallyProjectsRecoveryAndLiveRally() throws {
+        // City 3 center lane (standard 4/shot): a 4-HP Captain dies to the
+        // first tower shot inside the 5s Rally window. Protection rides the
+        // captured lane without the Captain, so the strip must project the
+        // recovery countdown AND the still-running Rally — not Used —
+        // and the Rally hit target goes inert (HPA-475).
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .center,
+                captain: damagedCaptain(lane: .center, hp: 4)
+            )
+        )
+        guard let layout = scene.battleChromeLayoutForTesting else {
+            Issue.record("expected battle chrome layout")
+            return
+        }
+        let rallyPoint = CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY)
+        scene.handleTouchForTesting(at: rallyPoint)
+        #expect(scene.rallyRemainingSecondsForTesting == VanguardCaptainRules.rallyDurationSeconds)
+
+        scene.advanceCombatForTesting(deltaTime: 2.0)
+
+        #expect(scene.livingCaptainForTesting == nil)
+        #expect(scene.rallyRemainingSecondsForTesting > 0)
+        #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
+        guard case .recovering(let seconds, let rallyConsumed, let rallyActive) =
+            scene.battleHUDForTesting.currentContentForTesting?.captainStatus
+        else {
+            Issue.record("expected recovering captain status")
+            return
+        }
+        #expect(seconds > 0)
+        #expect(rallyConsumed)
+        #expect(rallyActive)
+        // The Rally zone is informational only while the Captain is down —
+        // the HUD produces no .rally action there.
+        #expect(scene.battleHUDForTesting.action(at: rallyPoint) == nil)
+
+        // Once the timer drains mid-recovery the strip settles to Used.
+        scene.advanceCombatForTesting(deltaTime: 5.0)
+        #expect(scene.rallyRemainingSecondsForTesting == 0)
+        guard case .recovering(_, let drainedConsumed, let drainedActive) =
+            scene.battleHUDForTesting.currentContentForTesting?.captainStatus
+        else {
+            Issue.record("expected recovering captain status")
+            return
+        }
+        #expect(drainedConsumed)
+        #expect(!drainedActive)
+    }
+
     @Test("Captain-only objective damage persists through the sibling without ordinary attribution")
     func captainOnlyObjectiveDamagePersistsWithoutOrdinaryAttribution() throws {
         let (scene, store) = try makeCaptainScene(
