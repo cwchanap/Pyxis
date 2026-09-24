@@ -9,13 +9,26 @@ import UIKit
 struct BattleHUDContent: Equatable {
     /// Compact Vanguard Captain view state (HPA-475). Projected from the
     /// durable `siegeProgress.captain` plus the live Rally timer — no new
-    /// domain state owner lives here.
+    /// domain state owner lives here. `.recovering` keeps the Rally timer
+    /// beside the countdown because a mid-Rally retreat leaves protection
+    /// running on the captured lane.
     enum CaptainStatus: Equatable {
         case unavailable
         case ready(currentHP: Int, maxHP: Int, rallyReady: Bool)
         case active(currentHP: Int, maxHP: Int)
         case used(currentHP: Int, maxHP: Int)
-        case recovering(seconds: Double, rallyConsumed: Bool)
+        case recovering(seconds: Double, rallyConsumed: Bool, rallyActive: Bool)
+
+        /// Rally is tappable only in `.ready` with a deployed Captain —
+        /// Active, Used, and Recovering all project Rally state but stay
+        /// inert, so the strip never offers a control that silently no-ops
+        /// (the model's `consumeVanguardRally` gate is the same predicate).
+        var isRallyActionable: Bool {
+            if case .ready(_, _, let rallyReady) = self {
+                return rallyReady
+            }
+            return false
+        }
     }
 
     enum Availability: Equatable {
@@ -131,8 +144,11 @@ struct BattleHUDContent: Equatable {
         return content
     }
 
-    /// Active requires the live Rally timer (> 0) on a deployed captain;
-    /// a durably consumed Rally with the timer expired shows Used.
+    /// Active follows the live Rally timer (> 0) alone — protection rides
+    /// the captured lane for its full duration even if the Captain falls,
+    /// so deployment never gates it and recovery still carries the timer.
+    /// A durably consumed Rally with an expired timer shows Used; Ready's
+    /// `rallyReady` (the only actionable state) requires a live Captain.
     private static func captainStatus(
         for state: KingdomGameState,
         captainIsDeployed: Bool,
@@ -143,19 +159,25 @@ struct BattleHUDContent: Equatable {
             return .unavailable
         }
         let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let rallyActive = rallyRemainingSeconds > 0
         if captain.remainingHP <= 0 {
             return .recovering(
                 seconds: captain.recoveryRemainingSeconds,
-                rallyConsumed: captain.rallyConsumed
+                rallyConsumed: captain.rallyConsumed,
+                rallyActive: rallyActive
             )
         }
-        if captainIsDeployed, rallyRemainingSeconds > 0 {
+        if rallyActive {
             return .active(currentHP: captain.remainingHP, maxHP: maxHP)
         }
         if captain.rallyConsumed {
             return .used(currentHP: captain.remainingHP, maxHP: maxHP)
         }
-        return .ready(currentHP: captain.remainingHP, maxHP: maxHP, rallyReady: true)
+        return .ready(
+            currentHP: captain.remainingHP,
+            maxHP: maxHP,
+            rallyReady: captainIsDeployed
+        )
     }
 
     static func project(
@@ -1017,7 +1039,10 @@ final class BattleHUDNode: SKNode {
         )
 
         deployHitFrame = deployDisplayFrame
-        rallyHitTarget = showsCaptainStrip ? layout.rallyHitFrame : nil
+        // Rally is actionable only in the Ready status — a Captain that is
+        // recovering, mid-Rally, or spent keeps the strip informational so
+        // a tap can never silently no-op (HPA-475).
+        rallyHitTarget = content.captainStatus.isRallyActionable ? layout.rallyHitFrame : nil
         return .presented
     }
 
@@ -1095,10 +1120,13 @@ final class BattleHUDNode: SKNode {
         switch content.captainStatus {
         case .unavailable:
             return
-        case .ready(let currentHP, let maxHP, _):
+        case .ready(let currentHP, let maxHP, let rallyReady):
             hpText = "\(currentHP)/\(maxHP)"
-            rallyText = "RALLY READY"
-            rallyColor = GameUITheme.Color.gold
+            // `rallyReady` is the hit target's predicate — a durable-alive
+            // Captain with no live actor keeps the Rally read but cannot
+            // fire yet, so it reads HELD rather than promising READY.
+            rallyText = rallyReady ? "RALLY READY" : "RALLY HELD"
+            rallyColor = rallyReady ? GameUITheme.Color.gold : GameUITheme.Color.textSecondary
         case .active(let currentHP, let maxHP):
             hpText = "\(currentHP)/\(maxHP)"
             rallyText = "RALLY ACTIVE"
@@ -1107,10 +1135,21 @@ final class BattleHUDNode: SKNode {
             hpText = "\(currentHP)/\(maxHP)"
             rallyText = "RALLY USED"
             rallyColor = GameUITheme.Color.textSecondary
-        case .recovering(let seconds, let rallyConsumed):
+        case .recovering(let seconds, let rallyConsumed, let rallyActive):
             hpText = "BACK \(Int(seconds.rounded(.up)))s"
-            rallyText = rallyConsumed ? "RALLY USED" : "RALLY READY"
-            rallyColor = rallyConsumed ? GameUITheme.Color.textSecondary : GameUITheme.Color.gold
+            if rallyActive {
+                // A mid-Rally retreat leaves the timer protecting the
+                // captured lane — the strip reads Active beside the
+                // recovery countdown (HPA-475).
+                rallyText = "RALLY ACTIVE"
+                rallyColor = GameUITheme.Color.hpFill
+            } else {
+                // An unused Rally survives the retreat but cannot fire
+                // until the Captain returns — HELD, not READY, since the
+                // control is inert (HPA-475).
+                rallyText = rallyConsumed ? "RALLY USED" : "RALLY HELD"
+                rallyColor = GameUITheme.Color.textSecondary
+            }
         }
         captainStatusLabel.text = hpText
         captainRallyLabel.text = rallyText
