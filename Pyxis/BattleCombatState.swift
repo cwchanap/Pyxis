@@ -339,11 +339,13 @@ struct BattleCombatState: Equatable {
         return id
     }
 
-    /// Begins the once-per-siege Rally (HPA-475): ordinary soldiers in
-    /// `lane` take 0.70× incoming tower/Guard damage for
-    /// `VanguardCaptainRules.rallyDurationSeconds`. The durable consumption
-    /// bit lives in `KingdomGameState`; this transient timer never stacks
-    /// or restarts while already active.
+    /// Opens a Rally window (HPA-475): ordinary soldiers in `lane` take
+    /// 0.70× incoming tower/Guard damage for
+    /// `VanguardCaptainRules.rallyDurationSeconds`. Once-per-siege is NOT
+    /// enforced here — it lives in `consumeVanguardRally` (single
+    /// production funnel: `BattleScene.activateRally()`); called again
+    /// after the timer expires, this would open a fresh window. It only
+    /// refuses to stack or restart while already active.
     mutating func startRally(lane: BattleLane) {
         guard rallyRemainingSeconds <= 0 else {
             return

@@ -2160,6 +2160,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // One save per tick (HPA-475): every durable mutation below — spawn
         // timers, ordinary attacks/losses, Captain damage/HP/retreat/recovery,
         // Guard snapshots/waves — marks the flag and the tick persists once.
+        // The auto-Rally funnel below is the one exception: it saves inside
+        // activateRally() (the consumption bit must land before protection
+        // starts) and saves a second time here when the flag is also set.
         // Crash semantics are unchanged: the write still lands before the
         // frame returns to the run loop.
         var tickNeedsSave = updateBuildingProgressSaveCadence(
@@ -4641,6 +4644,21 @@ extension BattleScene {
         }
 
         return sceneFrame(for: bundle.hpBarBackground)
+    }
+
+    /// Path-space (stroke-free) bounds of the first live soldier's HP bar
+    /// background and fill, as authored by `layoutSoldierHPBar`. Scene
+    /// accumulated frames include SKShapeNode stroke padding, so tests
+    /// comparing the fill fraction read the raw paths instead.
+    var firstLiveSoldierHPBarPathBoundsForTesting: (background: CGRect, fill: CGRect)? {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID],
+              let background = bundle.hpBarBackground.path?.boundingBox,
+              let fill = bundle.hpBarFill.path?.boundingBox else {
+            return nil
+        }
+
+        return (background, fill)
     }
 
     var firstLiveSoldierBodyFrameForTesting: CGRect? {
