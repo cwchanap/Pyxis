@@ -70,6 +70,37 @@ struct BattleResultModelsTests {
         ])
     }
 
+    @Test func captainFlaggedEventsNeverEnterSiegeAttribution() {
+        // HPA-475 review: Captain damage flows through
+        // `applyObjectiveDamage` and a Captain retreat is never a report
+        // casualty — the session ignores isCaptain events even if a caller
+        // forwards them.
+        var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 3))
+        session.recordAttack(
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: "falconridge.keep",
+                appliedDamage: 5,
+                isCaptain: true
+            )
+        )
+        session.recordLoss(
+            SoldierLossEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                isCaptain: true
+            )
+        )
+
+        #expect(session.appliedDamage.isEmpty)
+        #expect(session.losses.isEmpty)
+    }
+
     @Test func markersDoNotFlipFromDamageAlone() {
         var session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 2))
         session.recordAttack(

@@ -624,7 +624,7 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         mutateActiveSiegeSession { session in
-            for event in events {
+            for event in events where !event.isCaptain {
                 session.recordLoss(event)
             }
         }
@@ -634,7 +634,10 @@ struct KingdomGameState: Codable, Equatable {
     /// (HPA-468): unknown objective IDs are rejected, damage clamps to each
     /// objective's remaining HP, and existing siege attribution records the
     /// clamped amounts. Conquest finalizes exactly once when Keep HP reaches
-    /// zero — never off the legacy scalar.
+    /// zero — never off the legacy scalar. Captain-flagged events are
+    /// ignored at this seam (HPA-475): Captain damage applies through
+    /// `applyObjectiveDamage` and never enters report attribution, no matter
+    /// what the caller passed.
     @discardableResult
     mutating func applyLiveSoldierAttacks(_ events: [SoldierAttackEvent]) -> AttackResult {
         guard stageStatus == .battleActive else {
@@ -643,7 +646,7 @@ struct KingdomGameState: Codable, Equatable {
 
         var totalApplied = 0
 
-        for event in events {
+        for event in events where !event.isCaptain {
             let applied = clampedObjectiveDamage(event.appliedDamage, objectiveID: event.objectiveID)
             guard applied > 0 else {
                 continue
@@ -1448,6 +1451,10 @@ struct KingdomGameState: Codable, Equatable {
         gold += result.goldEarned
         cityBattleStates.removeValue(forKey: currentCityKey.storageKey)
         activeSiegeSession = nil
+        // Non-active stages never carry a Captain — the same rule
+        // `normalizedCaptainProgress` enforces on init/decode holds after a
+        // live conquest too.
+        siegeProgress.captain = nil
         pendingBattleResult = result
         completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
 

@@ -135,6 +135,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         /// Lazily attached Rally protection accent (HPA-475), toggled via
         /// `isHidden` by `syncRallyProtectionAccent` each combat tick.
         var rallyAccent: SKNode?
+        /// `soldierTargetHeight()` the accent was authored at; a resize
+        /// rebuilds it so the glow tracks the refit body.
+        var rallyAccentHeight: CGFloat = 0
     }
 
     private enum SoldierFormation {
@@ -305,6 +308,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// losses, Rally activation, layout passes) are unaffected.
     private var captainHUDRefreshAccumulator: TimeInterval = 0
     private static let captainHUDRefreshInterval: TimeInterval = 0.2
+    /// Last Captain status the HUD actually applied (HPA-475). The 0.2s
+    /// cadence re-projects this cheap strip-only value and skips the full
+    /// `applyBattleHUD` rebuild while it is unchanged.
+    private var lastAppliedCaptainStatus: BattleHUDContent.CaptainStatus?
     private let combatSeed: UInt64?
 
     init(
@@ -811,7 +818,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 left: insets.left,
                 bottom: insets.bottom,
                 right: insets.right
-            )
+            ),
+            // Same predicate the HUD applies through `captainStatus`: the
+            // strip renders only while durable Captain progress exists on a
+            // City 3+ siege.
+            requiresCaptainSplit: state.siegeProgress.captain != nil
+                && VanguardCaptainRules.isAvailable(cityNumber: state.cityNumberInCountry)
         )
 
         guard let layout = BattleChromeLayout.compute(chromeInput) else {
@@ -898,6 +910,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             captainIsDeployed: combat.captainSoldier != nil,
             rallyRemainingSeconds: combat.rallyRemainingSeconds
         )
+        lastAppliedCaptainStatus = content.captainStatus
         switch battleHUD.apply(content: content, layout: layout) {
         case .presented:
             setBattleChromeFitFailed(false)
@@ -2144,20 +2157,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             }
             createSoldierNode(id: soldierID)
         }
-        if shouldSaveProgress {
-            if !buildingSpawns.isEmpty {
-                // A spawn fired — persist immediately to prevent duplicate-spawn
-                // on crash. Reset the throttle accumulator since we just saved.
-                buildingProgressSaveAccumulator = 0
-                store.save(state)
-            } else {
-                buildingProgressSaveAccumulator += deltaTime
-                if buildingProgressSaveAccumulator >= Self.buildingProgressSaveInterval {
-                    buildingProgressSaveAccumulator = 0
-                    store.save(state)
-                }
-            }
-        }
+        // One save per tick (HPA-475): every durable mutation below — spawn
+        // timers, ordinary attacks/losses, Captain damage/HP/retreat/recovery,
+        // Guard snapshots/waves — marks the flag and the tick persists once.
+        // Crash semantics are unchanged: the write still lands before the
+        // frame returns to the run loop.
+        var tickNeedsSave = updateBuildingProgressSaveCadence(
+            deltaTime: deltaTime,
+            shouldSaveProgress: shouldSaveProgress,
+            spawnFired: !buildingSpawns.isEmpty
+        )
 
         // Decrement hit-reaction countdowns BEFORE combat.tick arms any new
         // timers in applyCombatResult. Arming at 0.9s and then subtracting
@@ -2185,14 +2194,26 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             rallyAutoTriggerAvailable: isRallyAutoTriggerAvailable
         )
         feedback.emitAutomaticCombat(result)
-        applyCombatResult(result)
-        synchronizeAndPersistCaptain(result, deltaTime: clampedDeltaTime)
-        synchronizeAndPersistHighcrestGuards(deltaTime: clampedDeltaTime)
+        // Named locals — not `||` chaining — so all three sinks always run;
+        // a short-circuit would skip Captain/Guard sync whenever an earlier
+        // sink already reported a durable change.
+        let attacksMutatedState = applyCombatResult(result)
+        let captainMutatedState = synchronizeAndPersistCaptain(result, deltaTime: clampedDeltaTime)
+        let guardsMutatedState = synchronizeAndPersistHighcrestGuards(deltaTime: clampedDeltaTime)
+        tickNeedsSave = tickNeedsSave
+            || attacksMutatedState
+            || captainMutatedState
+            || guardsMutatedState
         // Auto Rally fires after the current tick returns (HPA-475): the
         // triggering hit and any later same-tick hit stay unprotected; the
-        // next tick is the first protected one.
+        // next tick is the first protected one. `activateRally` keeps its own
+        // save inside the funnel — the durable consumption bit must persist
+        // before the transient protection begins.
         if result.shouldAutoActivateRally {
             activateRally()
+        }
+        if tickNeedsSave {
+            store.save(state)
         }
 
         syncSoldierNodes()
@@ -2212,10 +2233,37 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
+    /// Advances the building-progress save cadence for one tick (HPA-475).
+    /// A spawn forces a write so a crash can never double-spawn; otherwise
+    /// the two-second accumulator decides. Returns whether this tick needs
+    /// a persistence write.
+    private func updateBuildingProgressSaveCadence(
+        deltaTime: TimeInterval,
+        shouldSaveProgress: Bool,
+        spawnFired: Bool
+    ) -> Bool {
+        guard shouldSaveProgress else {
+            return false
+        }
+        if spawnFired {
+            buildingProgressSaveAccumulator = 0
+            return true
+        }
+        buildingProgressSaveAccumulator += deltaTime
+        guard buildingProgressSaveAccumulator >= Self.buildingProgressSaveInterval else {
+            return false
+        }
+        buildingProgressSaveAccumulator = 0
+        return true
+    }
+
     /// Applies the battle HUD at most once per `captainHUDRefreshInterval`
-    /// while a Captain is in play (HPA-475). The strip's live HP, Rally,
-    /// and recovery countdowns change every combat tick, but the full HUD
-    /// apply is too heavy to rebuild per frame.
+    /// while a Captain is in play — and only when the strip's projected
+    /// status actually changed (HPA-475). The full apply re-tessellates
+    /// every panel and recomputes the camp recommendation, so the cadence
+    /// re-projects the cheap strip-only CaptainStatus and skips the rebuild
+    /// while nothing visible moved (recovery seconds are pre-quantized in
+    /// the projection, so the countdown ticks at ~1Hz).
     private func refreshCaptainHUDOnCadence(deltaTime: TimeInterval) {
         guard state.siegeProgress.captain != nil else {
             return
@@ -2225,6 +2273,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
         captainHUDRefreshAccumulator = 0
+        let status = BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: combat.captainSoldier != nil,
+            rallyRemainingSeconds: combat.rallyRemainingSeconds
+        )
+        guard status != lastAppliedCaptainStatus else {
+            return
+        }
         applyBattleHUD()
     }
 
@@ -2233,9 +2289,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// where allies only damage a Guard (`soldierAttacks` empty) still syncs
     /// living-Guard HP into SiegeProgress. A Keep conquered this tick
     /// changed the stage: a dead Keep spawns nothing, so the wave advance is
-    /// skipped entirely. Any durable change (snapshots or new waves) saves
-    /// immediately; the broadened two-second cadence handles the rest.
-    private func synchronizeAndPersistHighcrestGuards(deltaTime: TimeInterval) {
+    /// skipped entirely. Returns whether durable state changed; the tick
+    /// folds it into the single end-of-tick save.
+    @discardableResult
+    private func synchronizeAndPersistHighcrestGuards(deltaTime: TimeInterval) -> Bool {
         let guardStateChanged = state.synchronizeLiveGuardSnapshots(combat.guardSnapshots)
         var spawnedGuards: [GuardSnapshot] = []
         if state.stageStatus == .battleActive {
@@ -2244,9 +2301,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 combat.restoreGuard(snapshot, siege: state.currentSiegeSnapshot)
             }
         }
-        if guardStateChanged || !spawnedGuards.isEmpty {
-            store.save(state)
-        }
+        return guardStateChanged || !spawnedGuards.isEmpty
     }
 
     /// Per-tick Vanguard Captain persistence (HPA-475). Runs as a sibling
@@ -2256,15 +2311,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// attribution); a Captain loss records a retreat (never an ordinary
     /// casualty); a live Captain's lane + HP sync into durable progress;
     /// recovery advances only from live combat's clamped delta and spawns
-    /// one Captain from the newly durable state on completion. Durable
-    /// changes save immediately; a recovery-countdown-only tick rides the
-    /// existing two-second progress cadence. A Captain-only Keep kill
-    /// reuses the existing fresh-live outcome/report helpers exactly once —
-    /// the reward was already calculated once inside the model.
+    /// one Captain from the newly durable state on completion. Returns
+    /// whether durable state changed — the tick folds it into the single
+    /// end-of-tick save; a recovery-countdown-only tick rides the existing
+    /// two-second progress cadence. Captain damage runs the same
+    /// live-objective presentation as ordinary attacks (HP bar, objective
+    /// nodes, floating damage) and a Captain-only Keep kill runs the
+    /// conquest branch of it exactly once — the reward was already
+    /// calculated once inside the model.
+    @discardableResult
     private func synchronizeAndPersistCaptain(
         _ result: BattleCombatState.TickResult,
         deltaTime: TimeInterval
-    ) {
+    ) -> Bool {
         let stageBefore = state.stageStatus
         let previousPresentationStage = livingKingdomBattlePresentation.stage
         let captainAttacks = result.soldierAttacks.filter(\.isCaptain)
@@ -2279,7 +2338,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let captainCompletedConquest = stageBefore == .battleActive
             && state.stageStatus != .battleActive
 
-        var needsImmediateSave = appliedObjectiveDamage > 0 || captainCompletedConquest
+        var durableStateChanged = appliedObjectiveDamage > 0 || captainCompletedConquest
+        var needsHUDRefresh = false
 
         // A Captain loss is a retreat while Battle is still active; on a
         // conquest tick the model's stage gate refuses it (a won siege is
@@ -2289,10 +2349,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
            state.stageStatus == .battleActive {
             state.recordCaptainRetreat()
             recordedRetreat = true
-            needsImmediateSave = true
+            durableStateChanged = true
+            needsHUDRefresh = true
         } else if let captain = combat.captainSoldier,
                   state.synchronizeLiveCaptain(lane: captain.lane, remainingHP: captain.currentHP) {
-            needsImmediateSave = true
+            durableStateChanged = true
+            needsHUDRefresh = true
         }
 
         if combat.captainSoldier == nil {
@@ -2303,7 +2365,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             let recoveryCompleted = !recordedRetreat
                 && state.advanceCaptainRecovery(deltaTime: deltaTime)
             if recoveryCompleted {
-                needsImmediateSave = true
+                durableStateChanged = true
+                needsHUDRefresh = true
                 if let captain = state.siegeProgress.captain {
                     combat.spawnCaptain(progress: captain, upgradeLevel: state.normalSoldierUpgradeLevel)
                 }
@@ -2311,40 +2374,78 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         if captainCompletedConquest {
-            presentCaptainConquestReport(
+            presentLiveObjectiveDamageOutcome(
                 attacks: captainAttacks,
-                previousPresentationStage: previousPresentationStage
+                showsTraitAdvantageColor: false,
+                previousPresentationStage: previousPresentationStage,
+                goldEarned: state.pendingBattleResult?.goldEarned ?? 0,
+                conqueredCities: 1
             )
-        } else if needsImmediateSave {
-            store.save(state)
+        } else if appliedObjectiveDamage > 0 {
+            presentLiveObjectiveDamageOutcome(
+                attacks: captainAttacks,
+                showsTraitAdvantageColor: false,
+                previousPresentationStage: previousPresentationStage,
+                goldEarned: 0,
+                conqueredCities: 0
+            )
         }
+
+        // Retreat/recovery transitions mutate durable state after the tick's
+        // earlier loss-driven HUD apply — refresh now so the strip reflects
+        // them this frame instead of waiting for the Captain cadence.
+        if needsHUDRefresh {
+            applyBattleHUD()
+        }
+        return durableStateChanged
     }
 
-    /// Presents a Captain-only conquest through the exact fresh-live helpers
-    /// `applyCombatResult` uses (HPA-475): one save, one outcome feedback,
-    /// one report. The reward was computed once inside the model when the
-    /// Keep fell; this never recalculates it.
-    private func presentCaptainConquestReport(
+    /// The one live-objective-damage presentation shared by ordinary soldier
+    /// attacks and Captain attacks (HPA-475): clears transient feedback,
+    /// tears down combat on conquest, emits the outcome feedback, redraws,
+    /// plays the fortress-stage transition, and either presents the pending
+    /// conquest report or plays the non-conquest damage feedback. The green
+    /// "advantaged" damage color applies only to trait-adjusted soldiers —
+    /// Captain damage is flat and always reads white. Conquest persists
+    /// here, before the semantic outcome feedback fires (a crash between
+    /// them must never lose a celebrated win); non-conquest damage rides
+    /// the tick's single end-of-tick save.
+    private func presentLiveObjectiveDamageOutcome(
         attacks: [SoldierAttackEvent],
-        previousPresentationStage: LivingKingdomPresentation.FortressStage
+        showsTraitAdvantageColor: Bool,
+        previousPresentationStage: LivingKingdomPresentation.FortressStage,
+        goldEarned: Int,
+        conqueredCities: Int
     ) {
-        let damageColor = attacks.allSatisfy {
-            state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
-        }
+        let conqueredCity = conqueredCities > 0
+        let damageColor = showsTraitAdvantageColor
+            && attacks.allSatisfy {
+                state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
+            }
             ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
             : .white
         feedbackText = ""
-        feedbackSettingsController?.setSettingsAccessibilityActionable(false)
-        closeFeedbackSettings(focusTarget: .systemDefault)
-        clearLiveCombat()
-        persistLiveCombatStateAndEmitFreshOutcomeFeedback(
-            goldEarned: state.pendingBattleResult?.goldEarned ?? 0,
-            conqueredCities: 1
-        )
-        redraw(shouldLayout: true)
+
+        if conqueredCity {
+            feedbackSettingsController?.setSettingsAccessibilityActionable(false)
+            closeFeedbackSettings(focusTarget: .systemDefault)
+            clearLiveCombat()
+            // The outcome must be durable before its semantic feedback
+            // events fire — a crash between them must not lose the win.
+            store.save(state)
+        }
+
+        emitFreshOutcomeFeedback(goldEarned: goldEarned, conqueredCities: conqueredCities)
+        redraw(shouldLayout: conqueredCity)
+
         playLivingKingdomTransitionForStageChange(from: previousPresentationStage)
-        if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
-            playObjectiveAttackFeedback(attacks, color: damageColor, isConquest: true)
+
+        if conqueredCity {
+            if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
+                playObjectiveAttackFeedback(attacks, color: damageColor, isConquest: true)
+            }
+        } else {
+            playObjectiveAttackFeedback(attacks, color: damageColor, isConquest: false)
         }
     }
 
@@ -2404,7 +2505,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         soldierHitAnimationRemaining = decremented
     }
 
-    private func applyCombatResult(_ result: BattleCombatState.TickResult) {
+    /// Applies one combat tick's ordinary events: hit/death animations,
+    /// loss-driven HUD refresh, session loss recording, and — when ordinary
+    /// attacks landed — the shared live-objective-damage presentation.
+    /// Returns whether durable state changed (the tick saves once at the end).
+    @discardableResult
+    private func applyCombatResult(_ result: BattleCombatState.TickResult) -> Bool {
         for towerShot in result.towerShots {
             playTowerShot(at: towerShot.soldierID)
         }
@@ -2442,10 +2548,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         guard !ordinaryAttacks.isEmpty else {
             if !ordinaryLosses.isEmpty {
-                store.save(state)
                 refreshBattleHUD()
             }
-            return
+            return !ordinaryLosses.isEmpty
         }
 
         // Capture the stage around the live mutation so at most one final-stage
@@ -2454,38 +2559,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let previousStage = livingKingdomBattlePresentation.stage
         let damageResult = state.applyLiveSoldierAttacks(ordinaryAttacks)
         guard damageResult.attackApplied else {
-            return
+            return !ordinaryLosses.isEmpty
         }
 
-        let conqueredCity = damageResult.conqueredCities > 0
-        let damageColor = ordinaryAttacks.allSatisfy {
-            state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
-        }
-            ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
-            : .white
-        feedbackText = ""
-
-        if conqueredCity {
-            feedbackSettingsController?.setSettingsAccessibilityActionable(false)
-            closeFeedbackSettings(focusTarget: .systemDefault)
-            clearLiveCombat()
-        }
-
-        persistLiveCombatStateAndEmitFreshOutcomeFeedback(
+        presentLiveObjectiveDamageOutcome(
+            attacks: ordinaryAttacks,
+            showsTraitAdvantageColor: true,
+            previousPresentationStage: previousStage,
             goldEarned: damageResult.goldEarned,
             conqueredCities: damageResult.conqueredCities
         )
-        redraw(shouldLayout: conqueredCity)
-
-        playLivingKingdomTransitionForStageChange(from: previousStage)
-
-        if conqueredCity {
-            if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
-                playObjectiveAttackFeedback(ordinaryAttacks, color: damageColor, isConquest: true)
-            }
-        } else {
-            playObjectiveAttackFeedback(ordinaryAttacks, color: damageColor, isConquest: false)
-        }
+        return true
     }
 
     /// Routes each damaged soldier's visual feedback: a Captain loss is a
@@ -2531,17 +2615,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         bundle.root.run(
             SKAction.sequence([SKAction.wait(forDuration: duration), remove]),
             withKey: SoldierAnimationKey.delayedRemoval
-        )
-    }
-
-    private func persistLiveCombatStateAndEmitFreshOutcomeFeedback(
-        goldEarned: Int,
-        conqueredCities: Int
-    ) {
-        store.save(state)
-        emitFreshOutcomeFeedback(
-            goldEarned: goldEarned,
-            conqueredCities: conqueredCities
         )
     }
 
@@ -2796,12 +2869,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
         if combat.isRallyProtected(soldier) {
-            if let accent = bundle.rallyAccent {
+            let bodyHeight = soldierTargetHeight()
+            if let accent = bundle.rallyAccent, bundle.rallyAccentHeight == bodyHeight {
                 accent.isHidden = false
             } else {
-                let accent = makeRallyProtectionAccent()
+                // Body refits every tick while the accent is authored once —
+                // rebuild when the target height moved (resize mid-Rally).
+                bundle.rallyAccent?.removeFromParent()
+                let accent = makeRallyProtectionAccent(bodyHeight: bodyHeight)
                 bundle.root.addChild(accent)
                 soldierNodes[soldier.id]?.rallyAccent = accent
+                soldierNodes[soldier.id]?.rallyAccentHeight = bodyHeight
             }
         } else {
             bundle.rallyAccent?.isHidden = true
@@ -2814,8 +2892,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// procedural glow until that asset ships. The soldier root's origin
     /// is the feet baseline; z 0 keeps the accent behind the body (z 1)
     /// and HP bar (z 2–3).
-    private func makeRallyProtectionAccent() -> SKNode {
-        let bodyHeight = soldierTargetHeight()
+    private func makeRallyProtectionAccent(bodyHeight: CGFloat) -> SKNode {
         let accent: SKNode
         if UIImage(named: BattleAssetName.rallyProtectionAccent) != nil {
             let sprite = SKSpriteNode(imageNamed: BattleAssetName.rallyProtectionAccent)
@@ -3787,6 +3864,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         pendingAnimatedRemovalSoldierIDs.insert(soldierID)
+        // A killed soldier's protection ends with it — the accent must not
+        // outlive the body through the hit-then-fade removal animation.
+        bundle.rallyAccent?.isHidden = true
         bundle.root.removeAction(forKey: SoldierAnimationKey.delayedRemoval)
 
         // Match the full hit animation duration so killed soldiers finish the

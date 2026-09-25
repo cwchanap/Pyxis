@@ -2993,6 +2993,63 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.captain?.lane == .left)
     }
 
+    // MARK: Captain events never enter ordinary reporting (HPA-475 review)
+
+    @Test func liveSoldierAttacksIgnoreCaptainFlaggedEvents() throws {
+        // Captain damage routes through `applyObjectiveDamage`, never the
+        // ordinary attack seam — a captain-flagged event applies no damage
+        // and records no siege attribution.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20)
+        let keepID = try keepObjectiveID(of: state)
+
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 99,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: keepID,
+                appliedDamage: 6,
+                isCaptain: true
+            )
+        ])
+
+        #expect(result.damageDealt == 0)
+        #expect(result.conqueredCities == 0)
+        #expect(state.currentKeepRemainingPower == 20)
+        #expect(state.activeSiegeSession?.appliedDamage.isEmpty != false)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func recordedSoldierLossesIgnoreCaptainFlaggedEvents() {
+        // A Captain retreat is never a report casualty — the model drops it
+        // at the same seam the scene partitions on.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20)
+
+        state.recordSoldierLosses([
+            SoldierLossEvent(soldierID: 7, type: .infantry, source: .manual, lane: .left, isCaptain: true),
+            SoldierLossEvent(soldierID: 8, type: .archer, source: .building, lane: .right)
+        ])
+
+        #expect(state.activeSiegeSession?.losses == [
+            SiegeLossCount(type: .archer, source: .building, count: 1)
+        ])
+    }
+
+    @Test func completingCityClearsCaptainProgress() throws {
+        // Live conquest enforces the same rule init/decode normalization
+        // does — non-active stages never carry a Captain.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 1)
+        #expect(state.siegeProgress.captain != nil)
+
+        _ = state.applyLiveSoldierAttacks([
+            liveAttackEvent(objectiveID: try keepObjectiveID(of: state), 1)
+        ])
+
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.siegeProgress.captain == nil)
+    }
+
     // MARK: - HPA-468 objective-aware helpers
 
     private func liveAttackEvent(
