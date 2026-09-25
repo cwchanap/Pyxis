@@ -2634,10 +2634,11 @@ struct KingdomGameStateTests {
     private func renormalizeCaptain(
         _ captain: VanguardCaptainProgress?,
         upgradeLevel: Int = 1,
+        cityNumber: Int = 3,
         selectedLane: BattleLane = .left
     ) -> KingdomGameState {
         var progress = SiegeTestSupport.makeBattleState(
-            atCity: 3,
+            atCity: cityNumber,
             keepRemaining: 20,
             selectedLane: selectedLane
         ).siegeProgress
@@ -2645,8 +2646,8 @@ struct KingdomGameStateTests {
         return KingdomGameState(
             siegeProgress: progress,
             normalSoldierUpgradeLevel: upgradeLevel,
-            cityNumberInCountry: 3,
-            completedCityCount: 2
+            cityNumberInCountry: cityNumber,
+            completedCityCount: cityNumber - 1
         )
     }
 
@@ -2663,6 +2664,24 @@ struct KingdomGameStateTests {
             stageStatus: .cityConqueredPendingMap
         )
         #expect(pending.siegeProgress.captain == nil)
+    }
+
+    @Test func battleActiveCityBelowThreeDropsStoredCaptainOnNormalize() {
+        // A save that already carries a Captain in a battle-active City 1–2
+        // siege (older build, hand-edited JSON) must drop it on decode:
+        // the `isAvailable` guard in `normalizedCaptainProgress` clears a
+        // stored Captain rather than keeping or re-seeding one. Without
+        // that guard, City 2 would keep this stored Captain verbatim.
+        let state = renormalizeCaptain(
+            VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: 13,
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            ),
+            cityNumber: 2
+        )
+        #expect(state.siegeProgress.captain == nil)
     }
 
     @Test func freshCityThreePlusStateSeedsFullCaptainOnSelectedLane() {

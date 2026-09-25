@@ -21,8 +21,12 @@ struct BattleHUDContent: Equatable {
 
         /// Rally is tappable only in `.ready` with a deployed Captain —
         /// Active, Used, and Recovering all project Rally state but stay
-        /// inert, so the strip never offers a control that silently no-ops
-        /// (the model's `consumeVanguardRally` gate is the same predicate).
+        /// inert, so the strip never offers a control that silently no-ops.
+        /// Deliberately NOT the same predicate as the model's
+        /// `consumeVanguardRally` (which is looser: any live Captain with
+        /// Rally unused) — production funnels both through
+        /// `BattleScene.activateRally()`, which also gates on a live combat
+        /// Captain.
         var isRallyActionable: Bool {
             if case .ready(_, _, let rallyReady) = self {
                 return rallyReady
@@ -906,8 +910,9 @@ final class BattleHUDNode: SKNode {
         }
 
         // City 1–2 keep the authored full-width Deploy bar and full hit
-        // target; City 3+ shrink Deploy into the action frame so the
-        // Captain strip and Rally hit target stay disjoint.
+        // target; City 3+ shrink Deploy into the action frame so Deploy
+        // stays disjoint from the Captain strip, with the Rally hit target
+        // nested INSIDE the strip (BattleChromeLayout owns that contract).
         let deployDisplayFrame = showsCaptainStrip ? layout.deployActionFrame : layout.deployFrame
         deployPanel.apply(
             size: deployDisplayFrame.size,

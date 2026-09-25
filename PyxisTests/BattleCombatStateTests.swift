@@ -2198,6 +2198,107 @@ struct BattleCombatStateTests {
         #expect(try #require(combat.soldier(id: captainID)).isAlive)
     }
 
+    @Test func autoRallyNotRequestedWhenHitStartsAlreadyBelowHalf() throws {
+        // Cavalry 5 HP (half 2.5), tower damage 1: the half-crossing hit
+        // (3→2) lands while the trigger is OFF (e.g. Rally already used),
+        // so the later 2→1 hit starts below half while armed and must not
+        // request — the trigger requires pre-hit HP at or above half, not
+        // merely a survivor under half.
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 5,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 1.0,
+            towerDamage: 1,
+            towerAttackSpeed: 4.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+
+        for _ in 0..<3 {
+            _ = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+                rallyAutoTriggerAvailable: false
+            )
+        }
+        #expect(combat.soldier(id: cavalryID)?.currentHP == 2)
+
+        // The Captain joins the lane after the crossing; the next hit
+        // (2→1) starts below half while the trigger is armed.
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+
+        var belowHalfHitLanded = false
+        for _ in 0..<10 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+                rallyAutoTriggerAvailable: true
+            )
+            #expect(!result.shouldAutoActivateRally)
+            if result.towerShots.contains(where: { $0.soldierID == cavalryID }) {
+                belowHalfHitLanded = true
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+        // The armed phase actually hit the below-half cavalry (the test is
+        // not vacuous) and never requested Rally.
+        #expect(belowHalfHitLanded)
+        #expect(combat.soldier(id: cavalryID) == nil)
+    }
+
+    @Test func autoRallyNotRequestedWhenCaptainItselfCrossesHalf() throws {
+        // The Captain (20 HP, half 10) alone in its lane takes every tower
+        // shot (3 damage). Its own half-crossing (11→8) must not arm Rally —
+        // the trigger belongs to ordinary soldiers in the Captain's lane.
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 5,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 1.0,
+            towerDamage: 3,
+            towerAttackSpeed: 4.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        let spawnedCaptainID = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        let captainID = try #require(spawnedCaptainID)
+
+        var sawAtOrAboveHalf = false
+        var crossedBelowHalf = false
+        for _ in 0..<10 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+                rallyAutoTriggerAvailable: true
+            )
+            #expect(!result.shouldAutoActivateRally)
+            guard let captain = combat.soldier(id: captainID) else { break }
+            let half = Double(captain.maxHP) / 2
+            if Double(captain.currentHP) >= half {
+                sawAtOrAboveHalf = true
+            } else if sawAtOrAboveHalf {
+                crossedBelowHalf = true
+            }
+        }
+        // The Captain actually crossed half while alive and never armed.
+        #expect(sawAtOrAboveHalf)
+        #expect(crossedBelowHalf)
+    }
+
     @Test func autoRallyNotRequestedForWrongLaneSoldier() throws {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .left)

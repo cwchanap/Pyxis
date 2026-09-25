@@ -401,8 +401,9 @@ struct BattleChromeLayout: Equatable {
             && deployActionFrame.width >= minimumDeployActionWidth
             && rallyHitFrame.width >= 44
             && rallyHitFrame.height >= 44
-            // The two hit targets must stay pairwise disjoint from the
-            // strip region; the rally hit itself lives inside the strip.
+            // Deploy must stay disjoint from BOTH the Captain strip and
+            // the Rally hit target; the Rally hit target itself lives
+            // INSIDE the strip (nested, not disjoint from it).
             && !deployActionFrame.intersects(captainStripFrame)
             && !deployActionFrame.intersects(rallyHitFrame)
             && captainStripFrame.contains(rallyHitFrame)

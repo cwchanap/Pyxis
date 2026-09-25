@@ -3916,6 +3916,31 @@ struct BattleSceneTests {
         #expect(store.load().siegeProgress.captain?.remainingHP == 13)
     }
 
+    @Test("City 3 Captain renders through the ordinary soldier node pipeline")
+    func captainRendersThroughOrdinarySoldierNodePipeline() throws {
+        let (scene, _) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .left,
+                captain: damagedCaptain(lane: .left, hp: 13)
+            )
+        )
+
+        // The Captain is the only live soldier, so the "first live soldier"
+        // accessors address it directly. Locks that the Captain renders
+        // through the ordinary soldier bundle — the body is the shared
+        // makeSoldierNode SKSpriteNode (never a bespoke Captain node), and
+        // its HP bar fill is driven by the shared layoutSoldierHPBar sync at
+        // the durable 13/max fraction, not a static bar. No captain
+        // animation frames are authored, so playSoldierAnimation no-ops for
+        // the Captain today; the node-pipeline reuse is the visible half.
+        let body = try #require(scene.firstLiveSoldierBodySpriteForTesting)
+        #expect(body.texture != nil || body.color != .clear)
+        let bars = try #require(scene.firstLiveSoldierHPBarPathBoundsForTesting)
+        let expected = bars.background.width * CGFloat(13) / CGFloat(VanguardCaptainRules.maxHP(for: 1))
+        #expect(abs(bars.fill.width - expected) < 0.01)
+        #expect(bars.fill.height == bars.background.height)
+    }
+
     @Test("Recovering Captain restores no live actor")
     func recoveringCaptainRestoresNoLiveActor() throws {
         let (scene, _) = try makeCaptainScene(
