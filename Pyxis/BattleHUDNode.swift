@@ -149,7 +149,10 @@ struct BattleHUDContent: Equatable {
     /// so deployment never gates it and recovery still carries the timer.
     /// A durably consumed Rally with an expired timer shows Used; Ready's
     /// `rallyReady` (the only actionable state) requires a live Captain.
-    private static func captainStatus(
+    /// Recovery seconds are pre-rounded to whole display seconds so status
+    /// equality (and the scene's cadence skip) tracks visible change, not
+    /// per-tick sub-second drift.
+    static func captainStatus(
         for state: KingdomGameState,
         captainIsDeployed: Bool,
         rallyRemainingSeconds: Double
@@ -162,7 +165,7 @@ struct BattleHUDContent: Equatable {
         let rallyActive = rallyRemainingSeconds > 0
         if captain.remainingHP <= 0 {
             return .recovering(
-                seconds: captain.recoveryRemainingSeconds,
+                seconds: captain.recoveryRemainingSeconds.rounded(.up),
                 rallyConsumed: captain.rallyConsumed,
                 rallyActive: rallyActive
             )
@@ -537,6 +540,20 @@ final class BattleHUDNode: SKNode {
         let minimumBattlefieldHeight = layout.isCompact
             ? BattleChromeLayout.compactMinimumBattlefieldHeight
             : BattleChromeLayout.minimumBattlefieldHeight
+        // The Deploy/Captain split contract binds only while the strip is
+        // actually shown; City 1–2 render the full deployFrame and never
+        // read the split subframes (HPA-475).
+        let showsCaptainStrip = content.captainStatus != .unavailable
+        let captainSplitSatisfied = !showsCaptainStrip || (
+            [layout.deployActionFrame, layout.captainStripFrame, layout.rallyHitFrame]
+                .allSatisfy({ layout.deployFrame.contains($0) })
+            && layout.deployActionFrame.width >= BattleChromeLayout.minimumDeployActionWidth
+            && layout.rallyHitFrame.width >= 44
+            && layout.rallyHitFrame.height >= 44
+            && !layout.deployActionFrame.intersects(layout.captainStripFrame)
+            && !layout.deployActionFrame.intersects(layout.rallyHitFrame)
+            && layout.captainStripFrame.contains(layout.rallyHitFrame)
+        )
         guard content.medallions.count == medallions.count,
               content.manualCapacity > 0,
               content.manualCount >= 0,
@@ -552,14 +569,7 @@ final class BattleHUDNode: SKNode {
               layout.topBandFrame.contains(layout.cityProgressFrame),
               layout.topBandFrame.contains(layout.recommendationFrame),
               layout.safeFrame.contains(layout.deployFrame),
-              [layout.deployActionFrame, layout.captainStripFrame, layout.rallyHitFrame]
-                  .allSatisfy({ layout.deployFrame.contains($0) }),
-              layout.deployActionFrame.width >= BattleChromeLayout.minimumDeployActionWidth,
-              layout.rallyHitFrame.width >= 44,
-              layout.rallyHitFrame.height >= 44,
-              !layout.deployActionFrame.intersects(layout.captainStripFrame),
-              !layout.deployActionFrame.intersects(layout.rallyHitFrame),
-              layout.captainStripFrame.contains(layout.rallyHitFrame),
+              captainSplitSatisfied,
               layout.sceneFrame.contains(layout.tabBarFrame),
               layout.medallionHitFrames.allSatisfy({
                   layout.safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44
@@ -898,7 +908,6 @@ final class BattleHUDNode: SKNode {
         // City 1–2 keep the authored full-width Deploy bar and full hit
         // target; City 3+ shrink Deploy into the action frame so the
         // Captain strip and Rally hit target stay disjoint.
-        let showsCaptainStrip = content.captainStatus != .unavailable
         let deployDisplayFrame = showsCaptainStrip ? layout.deployActionFrame : layout.deployFrame
         deployPanel.apply(
             size: deployDisplayFrame.size,
@@ -919,15 +928,33 @@ final class BattleHUDNode: SKNode {
             blue: 200 / 255,
             alpha: 0.85
         )
-        let deploySpacing: CGFloat = 20
         let deployDividerWidth: CGFloat = 1
-        let deployClusterWidth = deployIcon.size.width
-            + deploySpacing
-            + deployLabel.frame.width
-            + deploySpacing
+        let deployInnerMargin: CGFloat = 8
+        let deployAvailable = max(0, deployDisplayFrame.width - deployInnerMargin * 2)
+        let deployFixedWidth = deployIcon.size.width
             + deployDividerWidth
-            + deploySpacing
             + manualCountLabel.frame.width
+        // The City 3+ action frame is narrower than the authored cluster —
+        // shrink the gaps first, then fit "DEPLOY" into what remains, so the
+        // cluster never spills into the Captain strip gap (HPA-475).
+        let deploySpacing = min(
+            20,
+            max(
+                8,
+                (deployAvailable - deployFixedWidth
+                    - Self.measureBoldTextWidth("DEPLOY", fontSize: 18)) / 3
+            )
+        )
+        deployLabel.fontSize = SingleLineTextFitter.fittedFontSize(
+            "DEPLOY",
+            startingAt: 18,
+            minimum: 11,
+            maximumWidth: max(24, deployAvailable - deployFixedWidth - deploySpacing * 3),
+            measure: Self.measureBoldTextWidth
+        ) ?? 11
+        let deployClusterWidth = deployFixedWidth
+            + deploySpacing * 3
+            + deployLabel.frame.width
         let deployClusterMinX = deployDisplayFrame.midX - deployClusterWidth / 2
         let deployCenterY = deployDisplayFrame.midY
         deployIcon.position = CGPoint(
@@ -1110,7 +1137,7 @@ final class BattleHUDNode: SKNode {
             appearance: .forged
         )
         captainStripPanel.position = CGPoint(x: stripFrame.midX, y: stripFrame.midY)
-        captainPortrait.texture = Self.captainPortraitTexture()
+        captainPortrait.texture = Self.cachedCaptainPortraitTexture
         captainPortrait.size = CGSize(width: 36, height: 36)
         captainPortrait.position = CGPoint(x: stripFrame.minX + 24, y: stripFrame.midY)
 
@@ -1136,7 +1163,7 @@ final class BattleHUDNode: SKNode {
             rallyText = "RALLY USED"
             rallyColor = GameUITheme.Color.textSecondary
         case .recovering(let seconds, let rallyConsumed, let rallyActive):
-            hpText = "BACK \(Int(seconds.rounded(.up)))s"
+            hpText = "BACK \(Int(seconds))s"
             if rallyActive {
                 // A mid-Rally retreat leaves the timer protecting the
                 // captured lane — the strip reads Active beside the
@@ -1243,13 +1270,25 @@ final class BattleHUDNode: SKNode {
         return (text as NSString).size(withAttributes: [.font: font]).width
     }
 
-    /// HPA-475 ships no generated images; probe the stable portrait name and
-    /// fall back to an SF-symbol crown until HPA-476 installs the asset.
-    private static func captainPortraitTexture() -> SKTexture? {
+    /// HPA-475 ships no generated images; probe the stable portrait name once
+    /// and fall back to an SF-symbol crown until HPA-476 installs the asset.
+    /// The fallback is pre-tinted (SF Symbol templates render black and the
+    /// sprite keeps `colorBlendFactor` 0 for the real portrait) and cached —
+    /// the strip re-applies on the Captain HUD cadence.
+    private static let cachedCaptainPortraitTexture = makeCaptainPortraitTexture()
+
+    private static func makeCaptainPortraitTexture() -> SKTexture? {
         if UIImage(named: "vanguard-captain-portrait") != nil {
             return SKTexture(imageNamed: "vanguard-captain-portrait")
         }
-        return UIImage(systemName: "crown.fill").map(SKTexture.init(image:))
+        let configuration = UIImage.SymbolConfiguration(pointSize: 36, weight: .semibold)
+        guard let symbol = UIImage(systemName: "crown.fill", withConfiguration: configuration) else {
+            return nil
+        }
+        return SKTexture(image: symbol.withTintColor(
+            GameUITheme.Color.textPrimary,
+            renderingMode: .alwaysOriginal
+        ))
     }
 
     private static func objectiveText(

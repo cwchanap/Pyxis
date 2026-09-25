@@ -277,4 +277,40 @@ struct BattleHUDContentTests {
         )
         #expect(!content.captainStatus.isRallyActionable)
     }
+
+    @Test func recoveringStatusQuantizesSubSecondDriftToWholeSeconds() {
+        // The scene's Captain cadence skip compares projected statuses, so
+        // the projection rounds the countdown up to whole display seconds —
+        // sub-second drift must not churn a full HUD apply (HPA-475 review).
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 8,
+            rallyConsumed: false
+        )
+        let baseline = BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: false,
+            rallyRemainingSeconds: 0
+        )
+
+        state.siegeProgress.captain?.recoveryRemainingSeconds = 7.6
+        let drifted = BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: false,
+            rallyRemainingSeconds: 0
+        )
+
+        #expect(baseline == .recovering(seconds: 8, rallyConsumed: false, rallyActive: false))
+        #expect(drifted == baseline)
+
+        // Crossing a whole-second boundary does change the status.
+        state.siegeProgress.captain?.recoveryRemainingSeconds = 7
+        #expect(BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: false,
+            rallyRemainingSeconds: 0
+        ) != baseline)
+    }
 }

@@ -148,7 +148,7 @@ struct ActiveSiegeSession: Codable, Equatable {
     }
 
     mutating func recordAttack(_ event: SoldierAttackEvent) {
-        guard event.appliedDamage > 0 else {
+        guard event.appliedDamage > 0, !event.isCaptain else {
             return
         }
 
@@ -164,6 +164,10 @@ struct ActiveSiegeSession: Codable, Equatable {
     }
 
     mutating func recordLoss(_ event: SoldierLossEvent) {
+        // A Captain retreat is never a report casualty (HPA-475).
+        guard !event.isCaptain else {
+            return
+        }
         losses.append(SiegeLossCount(type: event.type, source: event.source, count: 1))
         losses = saturatingNormalizedLosses(losses)
     }

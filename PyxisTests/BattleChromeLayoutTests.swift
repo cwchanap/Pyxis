@@ -256,6 +256,30 @@ struct BattleChromeLayoutTests {
         #expect(layout == nil)
     }
 
+    @Test func captainSplitContractOnlyBindsWhenTheStripWillRender() throws {
+        // City 1–2 never render the Captain strip — the same narrow safe
+        // width that fails closed with the split required must still lay
+        // out for a caller that passes requiresCaptainSplit: false (HPA-475).
+        let relaxedInput = BattleChromeLayout.Input(
+            sceneSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: .init(top: 0, left: 4, bottom: 0, right: 4),
+            requiresCaptainSplit: false
+        )
+        let layout = try #require(BattleChromeLayout.compute(relaxedInput))
+
+        // The subframes still derive for callers that read them; the
+        // below-minimum action width simply no longer gates the layout.
+        #expect(layout.deployActionFrame.width == 195)
+        #expect(layout.deployFrame.width == 335)
+
+        // The identical geometry still fails closed with the split required.
+        #expect(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: .init(top: 0, left: 4, bottom: 0, right: 4),
+            requiresCaptainSplit: true
+        )) == nil)
+    }
+
     @Test func impossibleSafeContentFailsClosed() {
         let layout = BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 375, height: 667),
