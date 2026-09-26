@@ -293,6 +293,65 @@ struct DefaultGameplayFeedbackCoordinatorTests {
         #expect(haptics.played.isEmpty)
     }
 
+    // MARK: Vanguard Captain filtering (HPA-475)
+
+    @Test func captainRetreatDoesNotPlaySoldierDeath() {
+        let clock = AdjustableMonotonicClock(now: 0)
+        let sound = RecordingGameplaySoundOutput()
+        let haptics = RecordingGameplayHapticOutput()
+        let coordinator = makeCoordinator(
+            preferences: RecordingFeedbackPreferencesManager(),
+            sound: sound,
+            haptics: haptics,
+            clock: clock
+        )
+
+        var retreat = BattleCombatState.TickResult()
+        retreat.soldierLosses = [
+            SoldierLossEvent(
+                soldierID: 9,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                isCaptain: true
+            )
+        ]
+
+        coordinator.emitAutomaticCombat(retreat)
+
+        #expect(sound.calls.isEmpty)
+        #expect(haptics.played.isEmpty)
+    }
+
+    @Test func mixedOrdinaryAndCaptainLossPlaysOneSoldierDeath() {
+        let clock = AdjustableMonotonicClock(now: 0)
+        let sound = RecordingGameplaySoundOutput()
+        let haptics = RecordingGameplayHapticOutput()
+        let coordinator = makeCoordinator(
+            preferences: RecordingFeedbackPreferencesManager(),
+            sound: sound,
+            haptics: haptics,
+            clock: clock
+        )
+
+        var mixed = BattleCombatState.TickResult()
+        mixed.soldierLosses = [
+            SoldierLossEvent(soldierID: 1, type: .infantry, source: .manual, lane: .left),
+            SoldierLossEvent(
+                soldierID: 2,
+                type: .infantry,
+                source: .manual,
+                lane: .left,
+                isCaptain: true
+            )
+        ]
+
+        coordinator.emitAutomaticCombat(mixed)
+
+        #expect(sound.calls == [.play(.soldierDeath)])
+        #expect(haptics.played.isEmpty)
+    }
+
     private func makeCoordinator(
         preferences: FeedbackPreferencesManaging,
         sound: GameplaySoundOutput,

@@ -2627,6 +2627,448 @@ struct KingdomGameStateTests {
         #expect(pending.totalIdleDamage == 46)
     }
 
+    // MARK: Vanguard Captain persistence + rules (HPA-475)
+
+    /// Re-enters a seeded siege progress through the top-level init — the
+    /// same forgiving-normalization path JSON decoding takes.
+    private func renormalizeCaptain(
+        _ captain: VanguardCaptainProgress?,
+        upgradeLevel: Int = 1,
+        cityNumber: Int = 3,
+        selectedLane: BattleLane = .left
+    ) -> KingdomGameState {
+        var progress = SiegeTestSupport.makeBattleState(
+            atCity: cityNumber,
+            keepRemaining: 20,
+            selectedLane: selectedLane
+        ).siegeProgress
+        progress.captain = captain
+        return KingdomGameState(
+            siegeProgress: progress,
+            normalSoldierUpgradeLevel: upgradeLevel,
+            cityNumberInCountry: cityNumber,
+            completedCityCount: cityNumber - 1
+        )
+    }
+
+    @Test func citiesBelowThreeCarryNoCaptainProgress() {
+        for city in [1, 2] {
+            let state = SiegeTestSupport.makeBattleState(atCity: city, keepRemaining: 20)
+            #expect(state.siegeProgress.captain == nil)
+        }
+
+        // Non-active stages never carry a captain either.
+        let pending = KingdomGameState(
+            cityNumberInCountry: 3,
+            completedCityCount: 3,
+            stageStatus: .cityConqueredPendingMap
+        )
+        #expect(pending.siegeProgress.captain == nil)
+    }
+
+    @Test func battleActiveCityBelowThreeDropsStoredCaptainOnNormalize() {
+        // A save that already carries a Captain in a battle-active City 1–2
+        // siege (older build, hand-edited JSON) must drop it on decode:
+        // the `isAvailable` guard in `normalizedCaptainProgress` clears a
+        // stored Captain rather than keeping or re-seeding one. Without
+        // that guard, City 2 would keep this stored Captain verbatim.
+        let state = renormalizeCaptain(
+            VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: 13,
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            ),
+            cityNumber: 2
+        )
+        #expect(state.siegeProgress.captain == nil)
+    }
+
+    @Test func freshCityThreePlusStateSeedsFullCaptainOnSelectedLane() {
+        let city3 = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20, selectedLane: .right)
+        #expect(city3.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+
+        // Fresh HP scales with the current soldier-upgrade level.
+        let city5 = KingdomGameState(
+            normalSoldierUpgradeLevel: 2,
+            cityNumberInCountry: 5,
+            completedCityCount: 4
+        )
+        #expect(city5.stageStatus == .battleActive)
+        #expect(city5.siegeProgress.captain == VanguardCaptainProgress(
+            lane: city5.siegeProgress.selectedLane,
+            remainingHP: VanguardCaptainRules.maxHP(for: 2),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+    }
+
+    @Test func decodingMalformedCaptainPayloadPreservesSiegeAndGuardSiblings() throws {
+        // A structurally malformed captain payload drops to nil without
+        // discarding the sibling lane/damage/Guard progress; City 5 then
+        // re-seeds a fresh full-HP captain on the selected lane.
+        let data = Data("""
+        {
+          "cityLevel": 5,
+          "cityNumberInCountry": 5,
+          "completedCityCount": 4,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 2,
+            "damageByObjectiveID": {"highcrest.barracks": 10, "highcrest.keep": 5},
+            "guardReinforcements": {
+              "waveElapsedSeconds": 1,
+              "remainingReserve": 3,
+              "unresolvedGuards": []
+            },
+            "captain": {"lane": "bogus", "remainingHP": "x"}
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.selectedLane == .right)
+        #expect(state.siegeProgress.damageByObjectiveID["highcrest.barracks"] == 10)
+        #expect(state.siegeProgress.damageByObjectiveID["highcrest.keep"] == 5)
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
+            waveElapsedSeconds: 1,
+            remainingReserve: 3,
+            unresolvedGuards: []
+        ))
+        #expect(state.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+    }
+
+    @Test func captainInitNormalizationClampsInvalidValuesSafely() {
+        // Negative HP/recovery clamp into range: HP lands at 0 with recovery
+        // 0, which means recovery already completed — full HP is restored on
+        // the current selected lane while Rally consumption is preserved.
+        let collapsed = renormalizeCaptain(VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: -4,
+            recoveryRemainingSeconds: -3,
+            rallyConsumed: true
+        ))
+        #expect(collapsed.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: true
+        ))
+
+        // Recovery beyond the authored ceiling clamps to 12s and the
+        // captain stays retreating (HP 0, no restore).
+        let recovering = renormalizeCaptain(VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 99,
+            rallyConsumed: false
+        ))
+        #expect(recovering.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: VanguardCaptainRules.recoverySeconds,
+            rallyConsumed: false
+        ))
+
+        // An alive captain never carries recovery time.
+        let alive = renormalizeCaptain(VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 5,
+            recoveryRemainingSeconds: 6,
+            rallyConsumed: false
+        ))
+        #expect(alive.siegeProgress.captain?.remainingHP == 5)
+        #expect(alive.siegeProgress.captain?.recoveryRemainingSeconds == 0)
+        #expect(alive.siegeProgress.captain?.lane == .right)
+    }
+
+    @Test func initClampsCaptainHPToCurrentUpgradeDerivedMax() {
+        // Persisted HP far above the authored curve clamps to the current
+        // upgrade-derived maximum (31 at level 3) without healing or
+        // touching the generic siege normalizer.
+        let state = renormalizeCaptain(
+            VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: 999,
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            ),
+            upgradeLevel: 3
+        )
+        #expect(state.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: VanguardCaptainRules.maxHP(for: 3),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+    }
+
+    @Test func upgradeLevelIncreaseNeverHealsDamagedCaptain() {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 1_000,
+            keepRemaining: 20,
+            selectedLane: .left
+        )
+        let damaged = VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: 5,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        )
+        state.siegeProgress.captain = damaged
+
+        #expect(state.normalSoldierUpgradeLevel == 1)
+        _ = state.upgradeNormalSoldier()
+        #expect(state.normalSoldierUpgradeLevel == 2)
+        #expect(state.siegeProgress.captain == damaged)
+
+        // Reconstruction at the higher level keeps the damaged HP too.
+        let reloaded = KingdomGameState(
+            siegeProgress: state.siegeProgress,
+            normalSoldierUpgradeLevel: 2,
+            cityNumberInCountry: 3,
+            completedCityCount: 2
+        )
+        #expect(reloaded.siegeProgress.captain?.remainingHP == 5)
+    }
+
+    @Test func hpZeroWithZeroRecoveryRestoresFullHPOnCurrentSelectedLane() {
+        let state = renormalizeCaptain(
+            VanguardCaptainProgress(
+                lane: .center,
+                remainingHP: 0,
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            ),
+            selectedLane: .right
+        )
+        #expect(state.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+    }
+
+    @Test func startCityFromMapSeedsFreshCaptainFromCityThreeOnward() {
+        var state = KingdomGameState(
+            cityNumberInCountry: 2,
+            completedCityCount: 2,
+            stageStatus: .cityConqueredPendingMap
+        )
+
+        #expect(state.startCityFromMap(3) == .entered(country: 1, city: 3))
+        #expect(state.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+
+        state = KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        #expect(state.startCityFromMap(2) == .entered(country: 1, city: 2))
+        #expect(state.siegeProgress.captain == nil)
+
+        // Next-city entry creates a fresh Captain/Rally state even when the
+        // previous siege consumed Rally.
+        var usedRallyState = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20)
+        #expect(usedRallyState.consumeVanguardRally() == true)
+        usedRallyState.completedCityCount = 3
+        usedRallyState.stageStatus = .cityConqueredPendingMap
+
+        #expect(usedRallyState.startCityFromMap(4) == .entered(country: 1, city: 4))
+        #expect(usedRallyState.siegeProgress.captain == VanguardCaptainProgress(
+            lane: usedRallyState.siegeProgress.selectedLane,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+    }
+
+    @Test func recordCaptainRetreatStartsFullRecoveryAndKeepsLane() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20, selectedLane: .center)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 4,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        )
+
+        state.recordCaptainRetreat()
+
+        #expect(state.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 0,
+            recoveryRemainingSeconds: VanguardCaptainRules.recoverySeconds,
+            rallyConsumed: false
+        ))
+
+        // A second retreat is a no-op: a dead captain cannot re-die.
+        state.recordCaptainRetreat()
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == VanguardCaptainRules.recoverySeconds)
+
+        // No captain (below City 3) is a safe no-op.
+        var city1 = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20)
+        city1.recordCaptainRetreat()
+        #expect(city1.siegeProgress.captain == nil)
+    }
+
+    @Test func advanceCaptainRecoveryRestoresMaxHPOnSelectedLaneOnce() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20, selectedLane: .left)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 0,
+            recoveryRemainingSeconds: VanguardCaptainRules.recoverySeconds,
+            rallyConsumed: false
+        )
+
+        // Only non-negative live combat deltas advance recovery.
+        #expect(state.advanceCaptainRecovery(deltaTime: -1) == false)
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == VanguardCaptainRules.recoverySeconds)
+
+        #expect(state.advanceCaptainRecovery(deltaTime: 11.5) == false)
+        #expect(state.siegeProgress.captain?.remainingHP == 0)
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == 0.5)
+
+        // The player switches lanes mid-recovery; completion adopts it.
+        state.siegeProgress.selectedLane = .center
+        #expect(state.advanceCaptainRecovery(deltaTime: 0.5) == true)
+        #expect(state.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        ))
+
+        // A deployed captain does not recover; no second restore.
+        #expect(state.advanceCaptainRecovery(deltaTime: 5) == false)
+        #expect(state.siegeProgress.captain?.remainingHP == VanguardCaptainRules.maxHP(for: 1))
+    }
+
+    @Test func consumeVanguardRallyConsumesExactlyOnce() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20)
+        #expect(state.consumeVanguardRally() == true)
+        #expect(state.siegeProgress.captain?.rallyConsumed == true)
+        #expect(state.consumeVanguardRally() == false)
+
+        // A retreating captain cannot rally.
+        var retreating = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20)
+        retreating.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 8,
+            rallyConsumed: false
+        )
+        #expect(retreating.consumeVanguardRally() == false)
+        #expect(retreating.siegeProgress.captain?.rallyConsumed == false)
+
+        // No captain below City 3.
+        var city1 = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20)
+        #expect(city1.consumeVanguardRally() == false)
+    }
+
+    @Test func synchronizeLiveCaptainClampsHPAndNeverResurrects() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20, selectedLane: .center)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 20,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: true
+        )
+
+        // Over-max live HP clamps to the current upgrade-derived maximum.
+        #expect(state.synchronizeLiveCaptain(lane: .left, remainingHP: 999) == true)
+        #expect(state.siegeProgress.captain == VanguardCaptainProgress(
+            lane: .left,
+            remainingHP: VanguardCaptainRules.maxHP(for: 1),
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: true
+        ))
+
+        // Identical values report no durable change.
+        #expect(state.synchronizeLiveCaptain(lane: .left, remainingHP: VanguardCaptainRules.maxHP(for: 1)) == false)
+
+        // A retreating captain is never resurrected through live sync.
+        state.recordCaptainRetreat()
+        #expect(state.synchronizeLiveCaptain(lane: .right, remainingHP: 5) == false)
+        #expect(state.siegeProgress.captain?.remainingHP == 0)
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == VanguardCaptainRules.recoverySeconds)
+        #expect(state.siegeProgress.captain?.lane == .left)
+    }
+
+    // MARK: Captain events never enter ordinary reporting (HPA-475 review)
+
+    @Test func liveSoldierAttacksIgnoreCaptainFlaggedEvents() throws {
+        // Captain damage routes through `applyObjectiveDamage`, never the
+        // ordinary attack seam — a captain-flagged event applies no damage
+        // and records no siege attribution.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20)
+        let keepID = try keepObjectiveID(of: state)
+
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 99,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: keepID,
+                appliedDamage: 6,
+                isCaptain: true
+            )
+        ])
+
+        #expect(result.damageDealt == 0)
+        #expect(result.conqueredCities == 0)
+        #expect(state.currentKeepRemainingPower == 20)
+        #expect(state.activeSiegeSession?.appliedDamage.isEmpty != false)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func recordedSoldierLossesIgnoreCaptainFlaggedEvents() {
+        // A Captain retreat is never a report casualty — the model drops it
+        // at the same seam the scene partitions on.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 20)
+
+        state.recordSoldierLosses([
+            SoldierLossEvent(soldierID: 7, type: .infantry, source: .manual, lane: .left, isCaptain: true),
+            SoldierLossEvent(soldierID: 8, type: .archer, source: .building, lane: .right)
+        ])
+
+        #expect(state.activeSiegeSession?.losses == [
+            SiegeLossCount(type: .archer, source: .building, count: 1)
+        ])
+    }
+
+    @Test func completingCityClearsCaptainProgress() throws {
+        // Live conquest enforces the same rule init/decode normalization
+        // does — non-active stages never carry a Captain.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 1)
+        #expect(state.siegeProgress.captain != nil)
+
+        _ = state.applyLiveSoldierAttacks([
+            liveAttackEvent(objectiveID: try keepObjectiveID(of: state), 1)
+        ])
+
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.siegeProgress.captain == nil)
+    }
+
     // MARK: - HPA-468 objective-aware helpers
 
     private func liveAttackEvent(

@@ -20,6 +20,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let enemyCity = "enemy-city"
         static let normalSoldier = "normal-soldier"
         static let archerSoldier = "archer-soldier"
+        static let captainAssetPrefix = "vanguard-captain"
+        static let captainResting = "vanguard-captain-resting"
+        /// Optional HPA-476 art for the Rally protection accent (feet/
+        /// bottom-center, behind the protected soldier); procedural
+        /// fallback until it ships.
+        static let rallyProtectionAccent = "rally-protection-accent"
         static let battlefieldBackdrop = "battlefield-backdrop"
         static let buildingPadEmpty = "building-pad-empty"
         static let countryMarker = "conquered-marker"
@@ -114,6 +120,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let hpBarBackground: SKShapeNode
         let hpBarFill: SKShapeNode
         let type: SoldierType
+        /// HPA-475: the flagged Captain reuses the infantry type for all
+        /// combat/animation math; this flag only retargets the asset prefix
+        /// (`vanguard-captain` vs `SoldierType.rawValue`).
+        let isCaptain: Bool
         let lane: BattleLane
         let formationSlot: Int
         /// `true` when `body` is an animation-canvas sprite whose texture is a
@@ -122,6 +132,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         /// sprite (a standalone asset not authored against those normalized
         /// bounds), which must stay on the legacy `fitBattleNode` fit path.
         let isAnimatedCanvas: Bool
+        /// Lazily attached Rally protection accent (HPA-475), toggled via
+        /// `isHidden` by `syncRallyProtectionAccent` each combat tick.
+        var rallyAccent: SKNode?
+        /// `soldierTargetHeight()` the accent was authored at; a resize
+        /// rebuilds it so the glow tracks the refit body.
+        var rallyAccentHeight: CGFloat = 0
     }
 
     private enum SoldierFormation {
@@ -195,23 +211,27 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// this is a combat-tick countdown rather than an SKAction-key check.
     private var soldierHitAnimationRemaining: [BattleCombatState.SoldierID: TimeInterval] = [:]
 
-    /// Memoized per-(type, action) animation textures. Each call to
+    /// Memoized per-(asset-prefix, action) animation textures. Each call to
     /// `soldierAnimationTextures` previously performed ~20 `UIImage(named:)`
     /// lookups plus fresh `SKTexture` allocations; this cache returns the same
     /// `SKTexture` instances across soldiers and across the scene's lifetime.
     /// Textures are keyed by static asset names, so they never need invalidation.
-    private var soldierAnimationTextureCache: [SoldierType: [SoldierAnimationAction: [SKTexture]]] = [:]
+    /// Keys are asset prefixes (`SoldierType.rawValue` or `vanguard-captain`),
+    /// not `SoldierType` — the flagged Captain shares `.infantry` and must not
+    /// collide with the ordinary infantry catalog (HPA-475).
+    private var soldierAnimationTextureCache: [String: [SoldierAnimationAction: [SKTexture]]] = [:]
 
     /// Memoized result of `firstAvailableSoldierAnimationFrameName` per
-    /// `SoldierType`. The probe validates all 30 trio frames (10 walk + 10
-    /// attack + 10 hit) and is called from both `createSoldierNode` and
+    /// asset prefix (`SoldierType.rawValue` or `vanguard-captain`). The probe
+    /// validates all 30 trio frames (10 walk + 10 attack + 10 hit) and is
+    /// called from both `createSoldierNode` and
     /// `makeSoldierNode` for every spawn, so without this cache a single
     /// soldier costs 60 `UIImage(named:)` lookups. The value is the walk-01
     /// frame name when the full trio is installed, or `nil` when any frame is
     /// missing (caching the negative result too, so a missing-asset scenario
     /// doesn't re-probe on every spawn). Asset names are static, so the cache
     /// never needs invalidation — mirrors `soldierAnimationTextureCache`.
-    private var soldierAnimatedCanvasFrameNameCache: [SoldierType: String?] = [:]
+    private var soldierAnimatedCanvasFrameNameCache: [String: String?] = [:]
 
     private var enemyCityImpactPoint: CGPoint {
         battlefieldLayout.enemyCityImpactPoint
@@ -281,6 +301,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     #endif
     private var buildingProgressSaveAccumulator: TimeInterval = 0
     private static let buildingProgressSaveInterval: TimeInterval = 2.0
+    /// Captain-strip HUD cadence (HPA-475): live HP / Rally / recovery
+    /// countdowns change every combat tick, but the full HUD apply is too
+    /// heavy to rebuild per frame, so the Captain-driven refresh runs on a
+    /// coarser 5 Hz cadence. Event-driven refreshes (building spawns,
+    /// losses, Rally activation, layout passes) are unaffected.
+    private var captainHUDRefreshAccumulator: TimeInterval = 0
+    private static let captainHUDRefreshInterval: TimeInterval = 0.2
+    /// Last Captain status the HUD actually applied (HPA-475). The 0.2s
+    /// cadence re-projects this cheap strip-only value and skips the full
+    /// `applyBattleHUD` rebuild while it is unchanged.
+    private var lastAppliedCaptainStatus: BattleHUDContent.CaptainStatus?
     private let combatSeed: UInt64?
 
     init(
@@ -310,6 +341,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         #endif
         super.init(size: size)
         restorePersistedGuardsIntoCombat()
+        restorePersistedCaptainIntoCombat()
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -327,6 +359,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         #endif
         super.init(coder: aDecoder)
         restorePersistedGuardsIntoCombat()
+        restorePersistedCaptainIntoCombat()
     }
 
     /// Restores persisted Highcrest Guards into combat (HPA-469): only lane
@@ -350,6 +383,22 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
         combat.replaceGuards(with: snapshots, siege: state.currentSiegeSnapshot)
+    }
+
+    /// Restores the persisted Vanguard Captain beside the Guards (HPA-475):
+    /// only lane + HP survive persistence, so a deployable Captain (battle
+    /// active, HP > 0) re-enters combat through the ordinary Soldier roster
+    /// via `spawnCaptain`; a recovering (HP 0) Captain deploys nothing —
+    /// recovery advances only in live Battle. The flagged Soldier's node is
+    /// discovered by `syncSoldierNodes`; there is no Captain node bundle.
+    /// Called wherever combat must converge to the durable roster: scene
+    /// init and the foreground return (mirroring the Guards).
+    private func restorePersistedCaptainIntoCombat() {
+        guard state.stageStatus == .battleActive,
+              let captain = state.siegeProgress.captain else {
+            return
+        }
+        combat.spawnCaptain(progress: captain, upgradeLevel: state.normalSoldierUpgradeLevel)
     }
 
     private static func makeCombat(for state: KingdomGameState, seed: UInt64?) -> BattleCombatState {
@@ -501,6 +550,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             selectManualSoldierType(soldierType)
         case .deploy:
             spawnSoldier()
+        case .rally:
+            // HPA-475: manual activation through the one shared funnel.
+            activateRally()
         case .selectLane(let lane):
             selectAssaultLane(lane)
         case .tab(let tab):
@@ -766,7 +818,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 left: insets.left,
                 bottom: insets.bottom,
                 right: insets.right
-            )
+            ),
+            // Same predicate the HUD applies through `captainStatus`: the
+            // strip renders only while durable Captain progress exists on a
+            // City 3+ siege.
+            requiresCaptainSplit: state.siegeProgress.captain != nil
+                && VanguardCaptainRules.isAvailable(cityNumber: state.cityNumberInCountry)
         )
 
         guard let layout = BattleChromeLayout.compute(chromeInput) else {
@@ -848,9 +905,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         let content = BattleHUDContent.project(
             from: state,
-            manualLivingSoldierCount: combat.livingSoldierCount(source: .manual),
-            selectedSoldierType: selectedManualSoldierType
+            manualCount: combat.livingSoldierCount(source: .manual),
+            selectedSoldierType: selectedManualSoldierType,
+            captainIsDeployed: combat.captainSoldier != nil,
+            rallyRemainingSeconds: combat.rallyRemainingSeconds
         )
+        lastAppliedCaptainStatus = content.captainStatus
         switch battleHUD.apply(content: content, layout: layout) {
         case .presented:
             setBattleChromeFitFailed(false)
@@ -2053,6 +2113,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             && (progress.remainingReserve > 0 || !progress.unresolvedGuards.isEmpty)
     }
 
+    /// Broadens the existing two-second progress-save cadence (HPA-469) to
+    /// ticks whose only durable change is the Captain recovery countdown
+    /// (HPA-475). No second timer.
+    private var isCaptainRecoveryProgressActive: Bool {
+        guard let captain = state.siegeProgress.captain else {
+            return false
+        }
+        return captain.remainingHP == 0 && captain.recoveryRemainingSeconds > 0
+    }
+
     private func advanceCombat(deltaTime: TimeInterval) {
         guard state.stageStatus == .battleActive,
               !isConquestReportVisible,
@@ -2070,7 +2140,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         #endif
 
         let shouldSaveProgress = deltaTime > 0
-            && (state.cityBattleStateForCurrentCity.occupiedSlotCount > 0 || isGuardReinforcementProgressActive)
+            && (state.cityBattleStateForCurrentCity.occupiedSlotCount > 0
+                || isGuardReinforcementProgressActive
+                || isCaptainRecoveryProgressActive)
         let buildingSpawns = state.resolveActiveBuildingSpawns(deltaTime: deltaTime)
         for spawn in buildingSpawns {
             let soldierID = combat.spawnSoldier(
@@ -2085,20 +2157,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             }
             createSoldierNode(id: soldierID)
         }
-        if shouldSaveProgress {
-            if !buildingSpawns.isEmpty {
-                // A spawn fired — persist immediately to prevent duplicate-spawn
-                // on crash. Reset the throttle accumulator since we just saved.
-                buildingProgressSaveAccumulator = 0
-                store.save(state)
-            } else {
-                buildingProgressSaveAccumulator += deltaTime
-                if buildingProgressSaveAccumulator >= Self.buildingProgressSaveInterval {
-                    buildingProgressSaveAccumulator = 0
-                    store.save(state)
-                }
-            }
-        }
+        // One save per tick (HPA-475): every durable mutation below — spawn
+        // timers, ordinary attacks/losses, Captain damage/HP/retreat/recovery,
+        // Guard snapshots/waves — marks the flag and the tick persists once.
+        // The auto-Rally funnel below is the one exception: it saves inside
+        // activateRally() (the consumption bit must land before protection
+        // starts) and saves a second time here when the flag is also set.
+        // Crash semantics are unchanged: the write still lands before the
+        // frame returns to the run loop.
+        var tickNeedsSave = updateBuildingProgressSaveCadence(
+            deltaTime: deltaTime,
+            shouldSaveProgress: shouldSaveProgress,
+            spawnFired: !buildingSpawns.isEmpty
+        )
 
         // Decrement hit-reaction countdowns BEFORE combat.tick arms any new
         // timers in applyCombatResult. Arming at 0.9s and then subtracting
@@ -2120,16 +2191,100 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // tick hasn't authorized. Building spawn resolution also uses the raw
         // `deltaTime` so production reflects real elapsed time during stalls.
         decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
-        let result = combat.tick(deltaTime: deltaTime, siege: state.currentSiegeSnapshot)
+        let result = combat.tick(
+            deltaTime: deltaTime,
+            siege: state.currentSiegeSnapshot,
+            rallyAutoTriggerAvailable: isRallyAutoTriggerAvailable
+        )
         feedback.emitAutomaticCombat(result)
-        applyCombatResult(result)
-        synchronizeAndPersistHighcrestGuards(deltaTime: clampedDeltaTime)
+        // Named locals — not `||` chaining — so all three sinks always run;
+        // a short-circuit would skip Captain/Guard sync whenever an earlier
+        // sink already reported a durable change.
+        let attacksMutatedState = applyCombatResult(result)
+        let captainMutatedState = synchronizeAndPersistCaptain(result, deltaTime: clampedDeltaTime)
+        let guardsMutatedState = synchronizeAndPersistHighcrestGuards(deltaTime: clampedDeltaTime)
+        tickNeedsSave = tickNeedsSave
+            || attacksMutatedState
+            || captainMutatedState
+            || guardsMutatedState
+        // Auto Rally fires after the current tick returns (HPA-475): the
+        // triggering hit and any later same-tick hit stay unprotected; the
+        // next tick is the first protected one. `activateRally` keeps its own
+        // save inside the funnel — the durable consumption bit must persist
+        // before the transient protection begins.
+        if result.shouldAutoActivateRally {
+            activateRally()
+        }
+        if tickNeedsSave {
+            store.save(state)
+        }
 
         syncSoldierNodes()
         syncGuardNodes()
+        // City 3+ Captain strip content (live HP, Rally countdown, recovery
+        // countdown) changes over time, so while a Captain is in play the
+        // HUD re-applies on the coarser Captain cadence rather than every
+        // combat tick. Cities 1–2 have no Captain and keep their existing
+        // refresh triggers unchanged (HPA-475).
         if !buildingSpawns.isEmpty {
+            // A spawn-driven refresh just ran — restart the Captain
+            // cadence from this fresh apply.
+            captainHUDRefreshAccumulator = 0
             applyBattleHUD()
+        } else {
+            refreshCaptainHUDOnCadence(deltaTime: deltaTime)
         }
+    }
+
+    /// Advances the building-progress save cadence for one tick (HPA-475).
+    /// A spawn forces a write so a crash can never double-spawn; otherwise
+    /// the two-second accumulator decides. Returns whether this tick needs
+    /// a persistence write.
+    private func updateBuildingProgressSaveCadence(
+        deltaTime: TimeInterval,
+        shouldSaveProgress: Bool,
+        spawnFired: Bool
+    ) -> Bool {
+        guard shouldSaveProgress else {
+            return false
+        }
+        if spawnFired {
+            buildingProgressSaveAccumulator = 0
+            return true
+        }
+        buildingProgressSaveAccumulator += deltaTime
+        guard buildingProgressSaveAccumulator >= Self.buildingProgressSaveInterval else {
+            return false
+        }
+        buildingProgressSaveAccumulator = 0
+        return true
+    }
+
+    /// Applies the battle HUD at most once per `captainHUDRefreshInterval`
+    /// while a Captain is in play — and only when the strip's projected
+    /// status actually changed (HPA-475). The full apply re-tessellates
+    /// every panel and recomputes the camp recommendation, so the cadence
+    /// re-projects the cheap strip-only CaptainStatus and skips the rebuild
+    /// while nothing visible moved (recovery seconds are pre-quantized in
+    /// the projection, so the countdown ticks at ~1Hz).
+    private func refreshCaptainHUDOnCadence(deltaTime: TimeInterval) {
+        guard state.siegeProgress.captain != nil else {
+            return
+        }
+        captainHUDRefreshAccumulator += deltaTime
+        guard captainHUDRefreshAccumulator >= Self.captainHUDRefreshInterval else {
+            return
+        }
+        captainHUDRefreshAccumulator = 0
+        let status = BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: combat.captainSoldier != nil,
+            rallyRemainingSeconds: combat.rallyRemainingSeconds
+        )
+        guard status != lastAppliedCaptainStatus else {
+            return
+        }
+        applyBattleHUD()
     }
 
     /// Per-tick Highcrest Guard persistence (HPA-469). Runs AFTER
@@ -2137,9 +2292,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// where allies only damage a Guard (`soldierAttacks` empty) still syncs
     /// living-Guard HP into SiegeProgress. A Keep conquered this tick
     /// changed the stage: a dead Keep spawns nothing, so the wave advance is
-    /// skipped entirely. Any durable change (snapshots or new waves) saves
-    /// immediately; the broadened two-second cadence handles the rest.
-    private func synchronizeAndPersistHighcrestGuards(deltaTime: TimeInterval) {
+    /// skipped entirely. Returns whether durable state changed; the tick
+    /// folds it into the single end-of-tick save.
+    @discardableResult
+    private func synchronizeAndPersistHighcrestGuards(deltaTime: TimeInterval) -> Bool {
         let guardStateChanged = state.synchronizeLiveGuardSnapshots(combat.guardSnapshots)
         var spawnedGuards: [GuardSnapshot] = []
         if state.stageStatus == .battleActive {
@@ -2148,9 +2304,186 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 combat.restoreGuard(snapshot, siege: state.currentSiegeSnapshot)
             }
         }
-        if guardStateChanged || !spawnedGuards.isEmpty {
+        return guardStateChanged || !spawnedGuards.isEmpty
+    }
+
+    /// Per-tick Vanguard Captain persistence (HPA-475). Runs as a sibling
+    /// AFTER `applyCombatResult` — beside the Guard sibling, never inside
+    /// its ordinary conquest continuation. Captain structure damage is
+    /// applied through `applyObjectiveDamage` (no siege-session attack
+    /// attribution); a Captain loss records a retreat (never an ordinary
+    /// casualty); a live Captain's lane + HP sync into durable progress;
+    /// recovery advances only from live combat's clamped delta and spawns
+    /// one Captain from the newly durable state on completion. Returns
+    /// whether durable state changed — the tick folds it into the single
+    /// end-of-tick save; a recovery-countdown-only tick rides the existing
+    /// two-second progress cadence. Captain damage runs the same
+    /// live-objective presentation as ordinary attacks (HP bar, objective
+    /// nodes, floating damage) and a Captain-only Keep kill runs the
+    /// conquest branch of it exactly once — the reward was already
+    /// calculated once inside the model.
+    @discardableResult
+    private func synchronizeAndPersistCaptain(
+        _ result: BattleCombatState.TickResult,
+        deltaTime: TimeInterval
+    ) -> Bool {
+        let stageBefore = state.stageStatus
+        let previousPresentationStage = livingKingdomBattlePresentation.stage
+        let captainAttacks = result.soldierAttacks.filter(\.isCaptain)
+
+        var appliedObjectiveDamage = 0
+        for attack in captainAttacks {
+            appliedObjectiveDamage += state.applyObjectiveDamage(
+                attack.appliedDamage,
+                toObjectiveID: attack.objectiveID
+            )
+        }
+        let captainCompletedConquest = stageBefore == .battleActive
+            && state.stageStatus != .battleActive
+
+        var durableStateChanged = appliedObjectiveDamage > 0 || captainCompletedConquest
+        var needsHUDRefresh = false
+
+        // A Captain loss is a retreat while Battle is still active; on a
+        // conquest tick the model's stage gate refuses it (a won siege is
+        // not a retreat) and the live sync below is likewise gated.
+        var recordedRetreat = false
+        if result.soldierLosses.contains(where: \.isCaptain),
+           state.stageStatus == .battleActive {
+            state.recordCaptainRetreat()
+            recordedRetreat = true
+            durableStateChanged = true
+            needsHUDRefresh = true
+        } else if let captain = combat.captainSoldier,
+                  state.synchronizeLiveCaptain(lane: captain.lane, remainingHP: captain.currentHP) {
+            durableStateChanged = true
+            needsHUDRefresh = true
+        }
+
+        if combat.captainSoldier == nil {
+            // The retreat tick starts the clock at full recovery — the
+            // Captain was alive for part of that delta, so the same tick
+            // never also chips the countdown it just set. Recovery resumes
+            // on the next tick.
+            let recoveryCompleted = !recordedRetreat
+                && state.advanceCaptainRecovery(deltaTime: deltaTime)
+            if recoveryCompleted {
+                durableStateChanged = true
+                needsHUDRefresh = true
+                if let captain = state.siegeProgress.captain {
+                    combat.spawnCaptain(progress: captain, upgradeLevel: state.normalSoldierUpgradeLevel)
+                }
+            }
+        }
+
+        if captainCompletedConquest {
+            presentLiveObjectiveDamageOutcome(
+                attacks: captainAttacks,
+                showsTraitAdvantageColor: false,
+                previousPresentationStage: previousPresentationStage,
+                goldEarned: state.pendingBattleResult?.goldEarned ?? 0,
+                conqueredCities: 1
+            )
+        } else if appliedObjectiveDamage > 0 {
+            presentLiveObjectiveDamageOutcome(
+                attacks: captainAttacks,
+                showsTraitAdvantageColor: false,
+                previousPresentationStage: previousPresentationStage,
+                goldEarned: 0,
+                conqueredCities: 0
+            )
+        }
+
+        // Retreat/recovery transitions mutate durable state after the tick's
+        // earlier loss-driven HUD apply — refresh now so the strip reflects
+        // them this frame instead of waiting for the Captain cadence.
+        if needsHUDRefresh {
+            applyBattleHUD()
+        }
+        return durableStateChanged
+    }
+
+    /// The one live-objective-damage presentation shared by ordinary soldier
+    /// attacks and Captain attacks (HPA-475): clears transient feedback,
+    /// tears down combat on conquest, emits the outcome feedback, redraws,
+    /// plays the fortress-stage transition, and either presents the pending
+    /// conquest report or plays the non-conquest damage feedback. The green
+    /// "advantaged" damage color applies only to trait-adjusted soldiers —
+    /// Captain damage is flat and always reads white. Conquest persists
+    /// here, before the semantic outcome feedback fires (a crash between
+    /// them must never lose a celebrated win); non-conquest damage rides
+    /// the tick's single end-of-tick save.
+    private func presentLiveObjectiveDamageOutcome(
+        attacks: [SoldierAttackEvent],
+        showsTraitAdvantageColor: Bool,
+        previousPresentationStage: LivingKingdomPresentation.FortressStage,
+        goldEarned: Int,
+        conqueredCities: Int
+    ) {
+        let conqueredCity = conqueredCities > 0
+        let damageColor = showsTraitAdvantageColor
+            && attacks.allSatisfy {
+                state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
+            }
+            ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
+            : .white
+        feedbackText = ""
+
+        if conqueredCity {
+            feedbackSettingsController?.setSettingsAccessibilityActionable(false)
+            closeFeedbackSettings(focusTarget: .systemDefault)
+            clearLiveCombat()
+            // The outcome must be durable before its semantic feedback
+            // events fire — a crash between them must not lose the win.
             store.save(state)
         }
+
+        emitFreshOutcomeFeedback(goldEarned: goldEarned, conqueredCities: conqueredCities)
+        redraw(shouldLayout: conqueredCity)
+
+        playLivingKingdomTransitionForStageChange(from: previousPresentationStage)
+
+        if conqueredCity {
+            if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
+                playObjectiveAttackFeedback(attacks, color: damageColor, isConquest: true)
+            }
+        } else {
+            playObjectiveAttackFeedback(attacks, color: damageColor, isConquest: false)
+        }
+    }
+
+    /// The one Rally activation funnel (HPA-475): the HUD action and the
+    /// tick's auto-trigger both converge here. Order is deliberate — the
+    /// durable consumption bit saves BEFORE the transient protection begins,
+    /// so an interruption can never double-use Rally; later requests (manual
+    /// or automatic) are rejected by `consumeVanguardRally`. The lane is
+    /// captured from the live flagged Captain; lane-chip changes never move
+    /// it. Feedback reuses the existing deployment sound/haptic — no new SFX.
+    private func activateRally() {
+        guard state.stageStatus == .battleActive,
+              let captain = combat.captainSoldier else {
+            return
+        }
+        let rallyLane = captain.lane
+        guard state.consumeVanguardRally() else {
+            return
+        }
+        store.save(state)
+        combat.startRally(lane: rallyLane)
+        feedback.emit(.manualDeployment)
+        redraw(shouldLayout: false)
+    }
+
+    /// Arms the tick's auto-Rally request only while the Captain is durably
+    /// deployed (HP > 0), still alive in combat, and Rally is unused.
+    /// Recovery and Used states never arm it.
+    private var isRallyAutoTriggerAvailable: Bool {
+        guard let captain = state.siegeProgress.captain else {
+            return false
+        }
+        return captain.remainingHP > 0
+            && !captain.rallyConsumed
+            && combat.captainSoldier != nil
     }
 
     /// Advances the per-soldier hit-reaction countdown by `deltaTime`,
@@ -2175,7 +2508,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         soldierHitAnimationRemaining = decremented
     }
 
-    private func applyCombatResult(_ result: BattleCombatState.TickResult) {
+    /// Applies one combat tick's ordinary events: hit/death animations,
+    /// loss-driven HUD refresh, session loss recording, and — when ordinary
+    /// attacks landed — the shared live-objective-damage presentation.
+    /// Returns whether durable state changed (the tick saves once at the end).
+    @discardableResult
+    private func applyCombatResult(_ result: BattleCombatState.TickResult) -> Bool {
         for towerShot in result.towerShots {
             playTowerShot(at: towerShot.soldierID)
         }
@@ -2186,11 +2524,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             playSoldierAttackFeedback(for: attack.soldierID)
         }
 
-        let killedIDs = Set(result.soldierLosses.map(\.soldierID))
+        // HPA-475: the only identity partition `applyCombatResult` makes.
+        // Ordinary (non-Captain) events feed ordinary persistence and
+        // reporting; Captain events flow through `synchronizeAndPersistCaptain`.
+        let ordinaryAttacks = result.soldierAttacks.filter { !$0.isCaptain }
+        let ordinaryLosses = result.soldierLosses.filter { !$0.isCaptain }
 
-        for soldierID in result.damagedSoldierIDs {
-            playSoldierHitFeedback(for: soldierID, schedulesRemoval: killedIDs.contains(soldierID))
-        }
+        let killedIDs = Set(result.soldierLosses.map(\.soldierID))
+        let captainLossIDs = Set(result.soldierLosses.filter(\.isCaptain).map(\.soldierID))
+        playSoldierDamageFeedback(
+            damagedIDs: result.damagedSoldierIDs,
+            killedIDs: killedIDs,
+            captainLossIDs: captainLossIDs
+        )
 
         // Note: `killedIDs` is a structural subset of `damagedSoldierIDs`
         // (BattleCombatState appends to both in the same tower-shot block), so
@@ -2201,64 +2547,77 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             applyBattleHUD()
         }
 
-        state.recordSoldierLosses(result.soldierLosses)
+        state.recordSoldierLosses(ordinaryLosses)
 
-        guard !result.soldierAttacks.isEmpty else {
-            if !result.soldierLosses.isEmpty {
-                store.save(state)
+        guard !ordinaryAttacks.isEmpty else {
+            if !ordinaryLosses.isEmpty {
                 refreshBattleHUD()
             }
-            return
+            return !ordinaryLosses.isEmpty
         }
 
         // Capture the stage around the live mutation so at most one final-stage
         // transition is requested per mutation; restore/resize/redraw paths
         // never replay historical effects.
         let previousStage = livingKingdomBattlePresentation.stage
-        let damageResult = state.applyLiveSoldierAttacks(result.soldierAttacks)
+        let damageResult = state.applyLiveSoldierAttacks(ordinaryAttacks)
         guard damageResult.attackApplied else {
-            return
+            return !ordinaryLosses.isEmpty
         }
 
-        let conqueredCity = damageResult.conqueredCities > 0
-        let damageColor = result.soldierAttacks.allSatisfy {
-            state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
-        }
-            ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
-            : .white
-        feedbackText = ""
-
-        if conqueredCity {
-            feedbackSettingsController?.setSettingsAccessibilityActionable(false)
-            closeFeedbackSettings(focusTarget: .systemDefault)
-            clearLiveCombat()
-        }
-
-        persistLiveCombatStateAndEmitFreshOutcomeFeedback(
+        presentLiveObjectiveDamageOutcome(
+            attacks: ordinaryAttacks,
+            showsTraitAdvantageColor: true,
+            previousPresentationStage: previousStage,
             goldEarned: damageResult.goldEarned,
             conqueredCities: damageResult.conqueredCities
         )
-        redraw(shouldLayout: conqueredCity)
+        return true
+    }
 
-        playLivingKingdomTransitionForStageChange(from: previousStage)
-
-        if conqueredCity {
-            if presentPendingConquestReport(origin: .freshLive, resetsContinueState: true) {
-                playObjectiveAttackFeedback(result.soldierAttacks, color: damageColor, isConquest: true)
+    /// Routes each damaged soldier's visual feedback: a Captain loss is a
+    /// retreat (procedural fade/scale), everything else uses the ordinary
+    /// hit/death flow (HPA-475).
+    private func playSoldierDamageFeedback(
+        damagedIDs: some Collection<BattleCombatState.SoldierID>,
+        killedIDs: Set<BattleCombatState.SoldierID>,
+        captainLossIDs: Set<BattleCombatState.SoldierID>
+    ) {
+        for soldierID in damagedIDs {
+            if captainLossIDs.contains(soldierID) {
+                // A Captain loss is a retreat, not a hit casualty: procedural
+                // fade/scale instead of the ordinary hit/death flow.
+                playCaptainRetreatFeedback(for: soldierID)
+            } else {
+                playSoldierHitFeedback(for: soldierID, schedulesRemoval: killedIDs.contains(soldierID))
             }
-        } else {
-            playObjectiveAttackFeedback(result.soldierAttacks, color: damageColor, isConquest: false)
         }
     }
 
-    private func persistLiveCombatStateAndEmitFreshOutcomeFeedback(
-        goldEarned: Int,
-        conqueredCities: Int
-    ) {
-        store.save(state)
-        emitFreshOutcomeFeedback(
-            goldEarned: goldEarned,
-            conqueredCities: conqueredCities
+    /// Procedural Captain retreat (HPA-475): fade + scale down through the
+    /// ordinary node bookkeeping — no Captain art, no parallel runtime.
+    /// Runs on the combat-tick path so it behaves identically under
+    /// `advanceCombatForTesting` (installed SKActions never advance in
+    /// tests; the removal itself lands through `removeSoldierNode`).
+    private func playCaptainRetreatFeedback(for soldierID: BattleCombatState.SoldierID) {
+        guard let bundle = soldierNodes[soldierID] else {
+            return
+        }
+        pendingAnimatedRemovalSoldierIDs.insert(soldierID)
+        soldierHitAnimationRemaining.removeValue(forKey: soldierID)
+        bundle.root.removeAction(forKey: SoldierAnimationKey.delayedRemoval)
+        bundle.body.removeAllActions()
+        let duration: TimeInterval = 0.35
+        bundle.root.run(SKAction.group([
+            SKAction.fadeOut(withDuration: duration),
+            SKAction.scale(to: 0.6, duration: duration)
+        ]))
+        let remove = SKAction.run { [weak self] in
+            self?.removeSoldierNode(id: soldierID, animated: false)
+        }
+        bundle.root.run(
+            SKAction.sequence([SKAction.wait(forDuration: duration), remove]),
+            withKey: SoldierAnimationKey.delayedRemoval
         )
     }
 
@@ -2387,7 +2746,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let root = SKNode()
         root.name = BattleAssetName.normalSoldier
 
-        let body = makeSoldierNode(for: soldier.type)
+        let body = makeSoldierNode(for: soldier)
         body.zPosition = 1
         root.addChild(body)
 
@@ -2403,7 +2762,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         hpFill.zPosition = 3
 
         let formationSlot = nextAvailableFormationSlot(for: soldier.lane)
-        let isAnimatedCanvas = firstAvailableSoldierAnimationFrameName(for: soldier.type) != nil
+        let assetPrefix = soldierAssetPrefix(for: soldier.type, isCaptain: soldier.isCaptain)
+        let isAnimatedCanvas = firstAvailableSoldierAnimationFrameName(for: assetPrefix) != nil
 
         root.addChild(hpBackground)
         root.addChild(hpFill)
@@ -2414,9 +2774,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             hpBarBackground: hpBackground,
             hpBarFill: hpFill,
             type: soldier.type,
+            isCaptain: soldier.isCaptain,
             lane: soldier.lane,
             formationSlot: formationSlot,
-            isAnimatedCanvas: isAnimatedCanvas
+            isAnimatedCanvas: isAnimatedCanvas,
+            rallyAccent: nil
         )
     }
 
@@ -2494,8 +2856,65 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 isAnimatedCanvas: bundle.isAnimatedCanvas
             )
             layoutSoldierHPBar(bundle, soldier: soldier)
-            startSoldierWalkAnimation(for: soldier.id, type: soldier.type)
+            startSoldierWalkAnimation(for: soldier.id)
+            syncRallyProtectionAccent(for: soldier)
         }
+    }
+
+    /// Keeps one live soldier's Rally protection accent in step with the
+    /// transient timer (HPA-475): a protected ordinary soldier in the
+    /// captured lane shows a feet/bottom-center accent behind its body;
+    /// the Captain, off-lane soldiers, and an expired timer never do.
+    /// Driven by the combat tick's node sync, so visibility tracks
+    /// `rallyRemainingSeconds` exactly like the HUD's Active state.
+    private func syncRallyProtectionAccent(for soldier: BattleCombatState.Soldier) {
+        guard let bundle = soldierNodes[soldier.id] else {
+            return
+        }
+        if combat.isRallyProtected(soldier) {
+            let bodyHeight = soldierTargetHeight()
+            if let accent = bundle.rallyAccent, bundle.rallyAccentHeight == bodyHeight {
+                accent.isHidden = false
+            } else {
+                // Body refits every tick while the accent is authored once —
+                // rebuild when the target height moved (resize mid-Rally).
+                bundle.rallyAccent?.removeFromParent()
+                let accent = makeRallyProtectionAccent(bodyHeight: bodyHeight)
+                bundle.root.addChild(accent)
+                soldierNodes[soldier.id]?.rallyAccent = accent
+                soldierNodes[soldier.id]?.rallyAccentHeight = bodyHeight
+            }
+        } else {
+            bundle.rallyAccent?.isHidden = true
+        }
+    }
+
+    /// Builds the Rally protection accent (HPA-475): probes the optional
+    /// `rally-protection-accent` art (feet/bottom-center, behind the
+    /// soldier — the HPA-476 contract) and falls back to a restrained
+    /// procedural glow until that asset ships. The soldier root's origin
+    /// is the feet baseline; z 0 keeps the accent behind the body (z 1)
+    /// and HP bar (z 2–3).
+    private func makeRallyProtectionAccent(bodyHeight: CGFloat) -> SKNode {
+        let accent: SKNode
+        if UIImage(named: BattleAssetName.rallyProtectionAccent) != nil {
+            let sprite = SKSpriteNode(imageNamed: BattleAssetName.rallyProtectionAccent)
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            sprite.size = CGSize(width: bodyHeight, height: bodyHeight)
+            accent = sprite
+        } else {
+            let glow = SKShapeNode(
+                ellipseOf: CGSize(width: bodyHeight * 0.72, height: bodyHeight * 0.2)
+            )
+            glow.fillColor = GameUITheme.Color.gold.withAlphaComponent(0.32)
+            glow.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.55)
+            glow.lineWidth = 1
+            glow.glowWidth = 2
+            glow.position = CGPoint(x: 0, y: bodyHeight * 0.06)
+            accent = glow
+        }
+        accent.zPosition = 0
+        return accent
     }
 
     /// Scaled transparent-foot margin for an animated soldier — the vertical
@@ -2761,25 +3180,40 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    private func makeSoldierNode(for type: SoldierType) -> SKNode {
-        let soldier: SKNode
-        let visualColor = soldierVisualColor(for: type)
-        let preferredAssetName = soldierAssetName(for: type)
+    /// HPA-475 asset-prefix parameterization: ordinary soldiers look their
+    /// frames up under `SoldierType.rawValue`; the flagged Captain under
+    /// `vanguard-captain`. The Captain reuses the infantry type for all
+    /// combat/animation math — only the asset catalog differs.
+    private func soldierAssetPrefix(for type: SoldierType, isCaptain: Bool) -> String {
+        isCaptain ? BattleAssetName.captainAssetPrefix : type.rawValue
+    }
+
+    private func soldierAssetPrefix(for bundle: SoldierNodeBundle) -> String {
+        soldierAssetPrefix(for: bundle.type, isCaptain: bundle.isCaptain)
+    }
+
+    private func makeSoldierNode(for soldier: BattleCombatState.Soldier) -> SKNode {
+        let body: SKNode
+        let visualColor = soldierVisualColor(for: soldier.type)
+        let assetPrefix = soldierAssetPrefix(for: soldier.type, isCaptain: soldier.isCaptain)
+        let preferredAssetName = soldier.isCaptain
+            ? BattleAssetName.captainResting
+            : soldierAssetName(for: soldier.type)
         let fallbackAssetName = BattleAssetName.normalSoldier
         let assetName = UIImage(named: preferredAssetName) != nil ? preferredAssetName : fallbackAssetName
 
-        if let animatedTextureName = firstAvailableSoldierAnimationFrameName(for: type) {
+        if let animatedTextureName = firstAvailableSoldierAnimationFrameName(for: assetPrefix) {
             let sprite = SKSpriteNode(texture: soldierAnimationTexture(named: animatedTextureName))
             sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
-            soldier = sprite
+            body = sprite
         } else if UIImage(named: assetName) != nil {
             let sprite = SKSpriteNode(imageNamed: assetName)
             sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
             if assetName == fallbackAssetName {
                 sprite.color = visualColor
-                sprite.colorBlendFactor = type == .infantry ? 0.15 : 0.55
+                sprite.colorBlendFactor = soldier.type == .infantry ? 0.15 : 0.55
             }
-            soldier = sprite
+            body = sprite
         } else {
             // Both the animated canvas and the static sprite asset are missing.
             // This is almost always a build/asset mistake; in DEBUG we fail
@@ -2788,18 +3222,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // asset never crashes the game, but it should never ship this far.
             #if DEBUG
             assertionFailure(
-                "Missing soldier asset for \(type.rawValue) (no animated canvas or static sprite \"\(assetName)\")"
+                "Missing soldier asset for \(assetPrefix) (no animated canvas or static sprite \"\(assetName)\")"
             )
             #endif
             let shape = SKShapeNode(rect: CGRect(x: -10, y: 0, width: 20, height: 28), cornerRadius: 5)
             shape.fillColor = visualColor
             shape.strokeColor = SKColor(white: 1.0, alpha: 0.4)
             shape.lineWidth = 2
-            soldier = shape
+            body = shape
         }
 
-        soldier.name = assetName
-        return soldier
+        body.name = assetName
+        return body
     }
 
     private func soldierAssetName(for type: SoldierType) -> String {
@@ -2811,9 +3245,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    private func soldierAnimationFrameNames(for type: SoldierType, action: SoldierAnimationAction) -> [String] {
+    private func soldierAnimationFrameNames(for assetPrefix: String, action: SoldierAnimationAction) -> [String] {
         (1...SoldierAnimationTiming.frameCount).map {
-            "\(type.rawValue)-\(action.rawValue)-\(String(format: "%02d", $0))"
+            "\(assetPrefix)-\(action.rawValue)-\(String(format: "%02d", $0))"
         }
     }
 
@@ -2843,33 +3277,33 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// because the probe is called twice per soldier (once in
     /// `createSoldierNode`, once in `makeSoldierNode`) and 30 `UIImage(named:)`
     /// lookups per call would otherwise dominate spawn cost.
-    private func firstAvailableSoldierAnimationFrameName(for type: SoldierType) -> String? {
-        if let cached = soldierAnimatedCanvasFrameNameCache[type] {
+    private func firstAvailableSoldierAnimationFrameName(for assetPrefix: String) -> String? {
+        if let cached = soldierAnimatedCanvasFrameNameCache[assetPrefix] {
             return cached
         }
-        let walkFrameNames = soldierAnimationFrameNames(for: type, action: .walk)
+        let walkFrameNames = soldierAnimationFrameNames(for: assetPrefix, action: .walk)
         guard let firstWalkFrameName = walkFrameNames.first,
               walkFrameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
-            soldierAnimatedCanvasFrameNameCache[type] = .some(nil)
+            soldierAnimatedCanvasFrameNameCache[assetPrefix] = .some(nil)
             return nil
         }
         for action in SoldierAnimationAction.allCases where action != .walk {
-            let actionFrameNames = soldierAnimationFrameNames(for: type, action: action)
+            let actionFrameNames = soldierAnimationFrameNames(for: assetPrefix, action: action)
             guard !actionFrameNames.isEmpty,
                   actionFrameNames.allSatisfy({ UIImage(named: $0) != nil }) else {
-                soldierAnimatedCanvasFrameNameCache[type] = .some(nil)
+                soldierAnimatedCanvasFrameNameCache[assetPrefix] = .some(nil)
                 return nil
             }
         }
-        soldierAnimatedCanvasFrameNameCache[type] = firstWalkFrameName
+        soldierAnimatedCanvasFrameNameCache[assetPrefix] = firstWalkFrameName
         return firstWalkFrameName
     }
 
-    private func soldierAnimationTextures(for type: SoldierType, action: SoldierAnimationAction) -> [SKTexture] {
-        if let cached = soldierAnimationTextureCache[type]?[action] {
+    private func soldierAnimationTextures(for assetPrefix: String, action: SoldierAnimationAction) -> [SKTexture] {
+        if let cached = soldierAnimationTextureCache[assetPrefix]?[action] {
             return cached
         }
-        let frameNames = soldierAnimationFrameNames(for: type, action: action)
+        let frameNames = soldierAnimationFrameNames(for: assetPrefix, action: action)
         let missingFrameNames = frameNames.filter { UIImage(named: $0) == nil }
         if !missingFrameNames.isEmpty {
             // An incomplete texture set usually means an asset was dropped or
@@ -2877,7 +3311,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // worth failing loudly on; in release we fall through to the
             // static fallback sprite path.
             #if DEBUG
-            let actionKey = "\(type.rawValue)-\(action.rawValue)"
+            let actionKey = "\(assetPrefix)-\(action.rawValue)"
             assertionFailure("Missing soldier animation frames for \(actionKey): \(missingFrameNames)")
             #endif
             return []
@@ -2887,10 +3321,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // means an asset is missing at this call, which we want to re-resolve
         // rather than pin the empty result for the scene's lifetime.
         if !textures.isEmpty {
-            if soldierAnimationTextureCache[type] == nil {
-                soldierAnimationTextureCache[type] = [:]
+            if soldierAnimationTextureCache[assetPrefix] == nil {
+                soldierAnimationTextureCache[assetPrefix] = [:]
             }
-            soldierAnimationTextureCache[type]?[action] = textures
+            soldierAnimationTextureCache[assetPrefix]?[action] = textures
         }
         return textures
     }
@@ -3213,7 +3647,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    private func startSoldierWalkAnimation(for soldierID: BattleCombatState.SoldierID, type: SoldierType) {
+    private func startSoldierWalkAnimation(for soldierID: BattleCombatState.SoldierID) {
         guard let bundle = soldierNodes[soldierID],
               bundle.isAnimatedCanvas,
               let sprite = bundle.body as? SKSpriteNode,
@@ -3233,8 +3667,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // playback — without it, a partial catalog where one action is
         // complete but another is missing would let the complete action's
         // full-canvas textures be installed on the differently-sized static
-        // sprite, mixing fallback and animated rendering.
-        let textures = soldierAnimationTextures(for: type, action: .walk)
+        // sprite, mixing fallback and animated rendering. Textures are looked
+        // up under the soldier's asset prefix (HPA-475), while the frame
+        // timing stays on the shared per-type curve the bundle carries.
+        let textures = soldierAnimationTextures(for: soldierAssetPrefix(for: bundle), action: .walk)
         guard !textures.isEmpty else {
             return
         }
@@ -3243,7 +3679,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             SKAction.repeatForever(soldierTextureAction(
                 textures: textures,
                 action: .walk,
-                type: type,
+                type: bundle.type,
                 sprite: sprite
             )),
             withKey: SoldierAnimationKey.walk
@@ -3279,7 +3715,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
-        let textures = soldierAnimationTextures(for: bundle.type, action: action)
+        let textures = soldierAnimationTextures(for: soldierAssetPrefix(for: bundle), action: action)
         guard !textures.isEmpty else {
             return
         }
@@ -3422,7 +3858,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             sprite.removeAction(forKey: SoldierAnimationKey.attack)
             sprite.removeAction(forKey: SoldierAnimationKey.hit)
         }
-        startSoldierWalkAnimation(for: id, type: type)
+        startSoldierWalkAnimation(for: id)
     }
 
     private func scheduleDelayedSoldierRemoval(for soldierID: BattleCombatState.SoldierID) {
@@ -3431,6 +3867,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         pendingAnimatedRemovalSoldierIDs.insert(soldierID)
+        // A killed soldier's protection ends with it — the accent must not
+        // outlive the body through the hit-then-fade removal animation.
+        bundle.rallyAccent?.isHidden = true
         bundle.root.removeAction(forKey: SoldierAnimationKey.delayedRemoval)
 
         // Match the full hit animation duration so killed soldiers finish the
@@ -3511,6 +3950,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // settlement conquered the city — that combat never ticks again.
         if state.stageStatus == .battleActive {
             restorePersistedGuardsIntoCombat()
+            restorePersistedCaptainIntoCombat()
         }
         reconcileSelectedManualSoldierType()
 
@@ -4184,15 +4624,17 @@ extension BattleScene {
     }
 
     var liveSoldierTypesForTesting: [SoldierType] {
-        combat.soldiers.filter(\.isAlive).map(\.type)
+        // Ordinary-roster probes exclude the flagged Captain (HPA-475),
+        // matching the `combat.livingSoldierCount` convention.
+        combat.soldiers.filter { $0.isAlive && !$0.isCaptain }.map(\.type)
     }
 
     var liveSoldierLevelsForTesting: [Int] {
-        combat.soldiers.filter(\.isAlive).map(\.level)
+        combat.soldiers.filter { $0.isAlive && !$0.isCaptain }.map(\.level)
     }
 
     var liveSoldierAttackPowersForTesting: [Int] {
-        combat.soldiers.filter(\.isAlive).map(\.attackPower)
+        combat.soldiers.filter { $0.isAlive && !$0.isCaptain }.map(\.attackPower)
     }
 
     var firstLiveSoldierHPBarFrameForTesting: CGRect? {
@@ -4202,6 +4644,21 @@ extension BattleScene {
         }
 
         return sceneFrame(for: bundle.hpBarBackground)
+    }
+
+    /// Path-space (stroke-free) bounds of the first live soldier's HP bar
+    /// background and fill, as authored by `layoutSoldierHPBar`. Scene
+    /// accumulated frames include SKShapeNode stroke padding, so tests
+    /// comparing the fill fraction read the raw paths instead.
+    var firstLiveSoldierHPBarPathBoundsForTesting: (background: CGRect, fill: CGRect)? {
+        guard let soldierID = firstLiveSoldierIDForTesting,
+              let bundle = soldierNodes[soldierID],
+              let background = bundle.hpBarBackground.path?.boundingBox,
+              let fill = bundle.hpBarFill.path?.boundingBox else {
+            return nil
+        }
+
+        return (background, fill)
     }
 
     var firstLiveSoldierBodyFrameForTesting: CGRect? {
@@ -4533,7 +4990,7 @@ extension BattleScene {
     }
 
     /// True when the city HP bar fill is hidden because the Keep's remaining
-    /// power has reached 0 (the fill path is nulled to avoid rendering a sliver).
+    /// power has reached 0 (the fill path is removed to avoid rendering a sliver).
     var isCityHPBarFillHiddenForTesting: Bool {
         cityHPBarFill.path == nil
     }
@@ -4571,7 +5028,7 @@ extension BattleScene {
         guard let action = SoldierAnimationAction(rawValue: action) else {
             return []
         }
-        return soldierAnimationFrameNames(for: soldierType, action: action)
+        return soldierAnimationFrameNames(for: soldierType.rawValue, action: action)
     }
 
     /// Returns the (cached) `[SKTexture]` for `soldierType`/`action`. Exposed so
@@ -4581,7 +5038,7 @@ extension BattleScene {
         guard let action = SoldierAnimationAction(rawValue: action) else {
             return []
         }
-        return soldierAnimationTextures(for: soldierType, action: action)
+        return soldierAnimationTextures(for: soldierType.rawValue, action: action)
     }
 
     /// Number of (type, action) entries currently held in the texture cache.
@@ -4599,7 +5056,7 @@ extension BattleScene {
     /// sprite. Pre-seeds `soldierAnimatedCanvasFrameNameCache` so the probe
     /// short-circuits without re-running 30 `UIImage(named:)` lookups.
     func forceStaticFallbackCanvasForTesting(soldierType: SoldierType) {
-        soldierAnimatedCanvasFrameNameCache[soldierType] = .some(nil)
+        soldierAnimatedCanvasFrameNameCache[soldierType.rawValue] = .some(nil)
     }
 
     /// Returns true when the first live soldier's bundle was built on the
@@ -4661,6 +5118,48 @@ extension BattleScene {
 
     var guardNodeCountForTesting: Int {
         guardNodes.count
+    }
+
+    // MARK: Captain testing accessors (HPA-475)
+
+    struct LivingCaptainInfoForTesting: Equatable {
+        let id: BattleCombatState.SoldierID
+        let lane: BattleLane
+        let currentHP: Int
+        let maxHP: Int
+    }
+
+    var livingCaptainForTesting: LivingCaptainInfoForTesting? {
+        combat.captainSoldier.map {
+            LivingCaptainInfoForTesting(
+                id: $0.id,
+                lane: $0.lane,
+                currentHP: $0.currentHP,
+                maxHP: $0.maxHP
+            )
+        }
+    }
+
+    var rallyRemainingSecondsForTesting: Double {
+        combat.rallyRemainingSeconds
+    }
+
+    /// IDs of soldier bundles whose Rally protection accent is attached and
+    /// visible (HPA-475). Soldiers without an accent — including the
+    /// Captain, which is never protected — are absent.
+    var rallyAccentVisibleSoldierIDsForTesting: Set<BattleCombatState.SoldierID> {
+        Set(
+            soldierNodes.compactMap { entry in
+                guard let accent = entry.value.rallyAccent, !accent.isHidden else {
+                    return nil
+                }
+                return entry.key
+            }
+        )
+    }
+
+    var soldierNodeCountForTesting: Int {
+        soldierNodes.count
     }
 
     var firstLivingGuardRootNodeForTesting: SKNode? {

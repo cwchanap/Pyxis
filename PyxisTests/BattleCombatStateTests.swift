@@ -1544,6 +1544,924 @@ struct BattleCombatStateTests {
         #expect(killedByGuard)
     }
 
+    // MARK: - Vanguard Captain (HPA-475)
+
+    @Test func ordinarySpawnedSoldierIsNotCaptain() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .center)
+
+        #expect(try #require(combat.soldier(id: id)).isCaptain == false)
+        #expect(combat.captainSoldier == nil)
+    }
+
+    @Test func spawnCaptainCreatesExactlyOneFlaggedSoldierAndSecondCallIsNoOp() {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1)
+
+        let firstID = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+        let secondID = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+
+        #expect(firstID != nil)
+        #expect(secondID == firstID)
+        #expect(combat.soldiers.filter(\.isCaptain).count == 1)
+        #expect(combat.captainSoldier?.id == firstID)
+    }
+
+    @Test func captainRestoresPersistedLaneAndHPAtPositionZero() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let progress = VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 7,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        )
+
+        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 2)
+        let id = try #require(spawned)
+        let captain = try #require(combat.soldier(id: id))
+
+        #expect(captain.lane == .right)
+        #expect(captain.currentHP == 7)
+        #expect(captain.position == 0)
+    }
+
+    @Test func captainClampsRestoredHPToCaptainMax() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let progress = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 999,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        )
+
+        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 2)
+        let id = try #require(spawned)
+        let captain = try #require(combat.soldier(id: id))
+
+        #expect(captain.maxHP == VanguardCaptainRules.maxHP(for: 2))
+        #expect(captain.currentHP == VanguardCaptainRules.maxHP(for: 2))
+    }
+
+    @Test func captainUsesInfantryRuntimeStatsButCaptainHPAndAttackFormulas() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 2)
+
+        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 2)
+        let captainID = try #require(spawned)
+        let infantryID = combat.spawnSoldier(
+            type: .infantry,
+            source: .manual,
+            level: 2,
+            attackPower: KingdomGameState.normalSoldierAttackPower(for: 2),
+            lane: .center
+        )
+        let captain = try #require(combat.soldier(id: captainID))
+        let infantry = try #require(combat.soldier(id: infantryID))
+
+        #expect(captain.type == .infantry)
+        #expect(captain.source == .manual)
+        #expect(captain.level == 2)
+        #expect(captain.movementSpeed == infantry.movementSpeed)
+        #expect(captain.attackRange == infantry.attackRange)
+        #expect(captain.attackSpeed == infantry.attackSpeed)
+        #expect(captain.defense == infantry.defense)
+        // Captain formulas, not the configuration soldier curve.
+        #expect(captain.maxHP == VanguardCaptainRules.maxHP(for: 2))
+        #expect(captain.maxHP != infantry.maxHP)
+        #expect(captain.attackPower == VanguardCaptainRules.attackPower(for: 2))
+    }
+
+    @Test func secondSpawnCaptainWithDifferentLaneDoesNotMoveLiveCaptain() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1)
+        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+        let id = try #require(spawned)
+
+        let relane = VanguardCaptainProgress(
+            lane: .right,
+            remainingHP: 3,
+            recoveryRemainingSeconds: 0,
+            rallyConsumed: false
+        )
+        let secondID = combat.spawnCaptain(progress: relane, upgradeLevel: 1)
+
+        #expect(secondID == id)
+        let captain = try #require(combat.soldier(id: id))
+        #expect(captain.lane == .left)
+        #expect(captain.currentHP == VanguardCaptainRules.maxHP(for: 1))
+    }
+
+    @Test func spawnCaptainWithDepletedHPDeploysNothing() {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let progress = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: VanguardCaptainRules.recoverySeconds,
+            rallyConsumed: false
+        )
+
+        let id = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+
+        #expect(id == nil)
+        #expect(combat.captainSoldier == nil)
+    }
+
+    @Test func captainMarchesRouteHitsGuardThenStructureThroughExistingLoop() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .right, upgradeLevel: 1)
+        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+        let captainID = try #require(spawned)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: 2),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var sawCaptainGuardHit = false
+        var sawCaptainStructureAttack = false
+        for _ in 0..<60 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if result.guardHits.contains(where: { $0.soldierID == captainID }) {
+                sawCaptainGuardHit = true
+                #expect(result.guardHits.allSatisfy { $0.type == .infantry })
+            }
+            if result.soldierAttacks.contains(where: {
+                $0.soldierID == captainID && $0.objectiveID == SiegeFixtures.highcrestKeepID
+            }) {
+                sawCaptainStructureAttack = true
+                #expect(result.soldierAttacks.allSatisfy { $0.isCaptain })
+                break
+            }
+        }
+
+        #expect(sawCaptainGuardHit)
+        #expect(sawCaptainStructureAttack)
+        #expect(try #require(combat.captainSoldier).isCaptain)
+    }
+
+    @Test func guardTargetsCaptainOverEqualPositionOrdinarySoldier() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let ordinary = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        let spawned = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        let captainID = try #require(spawned)
+        // One tick so both equal-speed infantry sit at the same position.
+        _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var attack: BattleCombatState.GuardAttackEvent?
+        for _ in 0..<20 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if let first = result.guardAttacks.first {
+                #expect(result.guardAttacks.count == 1)
+                attack = first
+                break
+            }
+        }
+
+        #expect(try #require(attack).soldierID == captainID)
+        let ordinaryActor = try #require(combat.soldier(id: ordinary))
+        #expect(ordinaryActor.currentHP == ordinaryActor.maxHP)
+    }
+
+    @Test func towerTargetsCaptainOverEqualPositionOrdinarySoldier() throws {
+        let towerID = "captain.tie.tower"
+        let keepID = "captain.tie.keep"
+        let layout = CitySiegeLayout(
+            objectives: [
+                .init(id: keepID, kind: .keep, durabilityWeight: 1, visualLane: .center, visualProgress: 1.0),
+                .init(id: towerID, kind: .arrowTower, durabilityWeight: 1, visualLane: .left, visualProgress: 0.68)
+            ],
+            routes: [
+                .left: [towerID, keepID],
+                .center: [keepID],
+                .right: [keepID]
+            ],
+            defaultLane: .center,
+            defensiveFire: .init(sourceObjectiveID: towerID, coveredLanes: [.left])
+        )
+        let snapshot = BattleCombatState.SiegeSnapshot(
+            layout: layout,
+            objectiveRemainingPower: [keepID: 20, towerID: 23]
+        )
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 100,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 1.0,
+            towerDamage: 2,
+            towerAttackSpeed: 1.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        let ordinary = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+        let spawned = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        let captainID = try #require(spawned)
+
+        let result = combat.tick(deltaTime: 1.0, siege: snapshot)
+
+        #expect(result.towerShots.count == 1)
+        #expect(result.towerShots[0].soldierID == captainID)
+        #expect(result.damagedSoldierIDs == [captainID])
+        let ordinaryActor = try #require(combat.soldier(id: ordinary))
+        #expect(ordinaryActor.currentHP == ordinaryActor.maxHP)
+    }
+
+    @Test func towerKillEmitsFlaggedCaptainLossWithoutOrdinaryCountChange() throws {
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 10,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0.12,
+            soldierMovementSpeed: 0.40,
+            towerDamage: 999,
+            towerAttackSpeed: 1.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+        let spawned = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        let captainID = try #require(spawned)
+
+        let result = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.falconridgeSnapshot())
+
+        #expect(result.soldierLosses.map(\.soldierID) == [captainID])
+        #expect(result.soldierLosses.map(\.isCaptain) == [true])
+        // Retreat never enters ordinary soldier counts.
+        #expect(combat.livingSoldierCount == 1)
+        #expect(combat.captainSoldier == nil)
+    }
+
+    @Test func livingSoldierCountsExcludeCaptain() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+
+        #expect(combat.livingSoldierCount == 1)
+        #expect(combat.livingSoldierCount(source: .manual) == 1)
+    }
+
+    @Test func ordinaryAttackEventsDefaultToFalseCaptainFlag() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .right)
+
+        var ordinaryAttack: SoldierAttackEvent?
+        for _ in 0..<30 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if let attack = result.soldierAttacks.first(where: { $0.soldierID == id }) {
+                ordinaryAttack = attack
+                break
+            }
+        }
+
+        let attack = try #require(ordinaryAttack)
+        #expect(attack.objectiveID == SiegeFixtures.highcrestKeepID)
+        #expect(attack.isCaptain == false)
+        // Explicit defaulted initializers keep existing constructors concise.
+        #expect(
+            SoldierLossEvent(soldierID: 1, type: .infantry, source: .manual, lane: .center).isCaptain == false
+        )
+    }
+
+    // MARK: - Rally (HPA-475 Task 3)
+
+    private func towerRallyConfiguration(
+        towerDamage: Int,
+        soldierMaxHP: Int = 20,
+        defense: Int = 1,
+        towerAttackSpeed: Double = 1.0,
+        laneMultipliers: [BattleLane: Double] = [:]
+    ) -> BattleCombatState.Configuration {
+        BattleCombatState.Configuration(
+            soldierMaxHP: soldierMaxHP,
+            soldierDefense: defense,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 0,
+            towerDamage: towerDamage,
+            towerAttackSpeed: towerAttackSpeed,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 5.0,
+            laneDamageMultipliers: laneMultipliers
+        )
+    }
+
+    @Test func startRallyArmsFiveSecondTimer() {
+        var combat = BattleCombatState(configuration: towerRallyConfiguration(towerDamage: 5))
+
+        #expect(combat.rallyRemainingSeconds == 0)
+        combat.startRally(lane: .center)
+
+        #expect(combat.rallyRemainingSeconds == VanguardCaptainRules.rallyDurationSeconds)
+        #expect(combat.rallyRemainingSeconds == 5.0)
+    }
+
+    @Test func rallyTimerExpiresDeterministicallyAndProtectionEndsWithIt() throws {
+        var combat = BattleCombatState(configuration: towerRallyConfiguration(towerDamage: 5), seed: 1)
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        combat.startRally(lane: .center)
+
+        let first = combat.tick(deltaTime: 2.5, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+        let second = combat.tick(deltaTime: 2.5, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+        let third = combat.tick(deltaTime: 2.5, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+
+        #expect(combat.rallyRemainingSeconds == 0)
+        // Both ticks inside the 5-second window stay protected (base 4 ×
+        // 0.70 = 2.8 → 3) — including the boundary tick that drains the
+        // timer; the first tick after expiry takes the full 4.
+        #expect(try #require(first.towerShots.first).damage == 3)
+        #expect(try #require(second.towerShots.first).damage == 3)
+        #expect(try #require(third.towerShots.first).damage == 4)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 10)
+    }
+
+    /// The tick that drains the Rally timer still resolves its hits under
+    /// protection (HPA-475): with a tower firing once per 0.25s tick, the
+    /// full five seconds covers twenty protected ticks before the first
+    /// unprotected one.
+    @Test func rallyProtectsTheTickThatDrainsItsTimer() throws {
+        var combat = BattleCombatState(
+            configuration: towerRallyConfiguration(
+                towerDamage: 3,
+                soldierMaxHP: 100,
+                defense: 0,
+                towerAttackSpeed: 4.0
+            ),
+            seed: 1
+        )
+        _ = combat.spawnSoldier(
+            type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center
+        )
+        combat.startRally(lane: .center)
+
+        var damages: [Int] = []
+        for _ in 0..<21 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000)
+            )
+            damages.append(contentsOf: result.towerShots.map(\.damage))
+        }
+
+        // base 3 × 0.70 = 2.1 → 2 while protected; tick 21 is the first
+        // unprotected tick.
+        #expect(damages == Array(repeating: 2, count: 20) + [3])
+        #expect(combat.rallyRemainingSeconds == 0)
+    }
+
+    @Test func startRallyWhileActiveDoesNotStackOrRestart() {
+        var combat = BattleCombatState(configuration: towerRallyConfiguration(towerDamage: 5))
+        combat.startRally(lane: .center)
+        _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+
+        combat.startRally(lane: .center)
+
+        // The running timer is neither extended nor reset to 5s.
+        #expect(combat.rallyRemainingSeconds == 4.0)
+    }
+
+    @Test func rallyReducesTowerDamageOnlyInCapturedLane() throws {
+        var combat = BattleCombatState(configuration: towerRallyConfiguration(towerDamage: 5), seed: 1)
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+        combat.startRally(lane: .left)
+
+        let result = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+
+        #expect(try #require(result.towerShots.first).damage == 3)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 17)
+    }
+
+    @Test func rallyDoesNotReduceTowerDamageOffLane() throws {
+        var combat = BattleCombatState(configuration: towerRallyConfiguration(towerDamage: 5), seed: 1)
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+        combat.startRally(lane: .left)
+
+        let result = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+
+        #expect(try #require(result.towerShots.first).damage == 4)
+        #expect(try #require(combat.soldier(id: id)).currentHP == 16)
+    }
+
+    @Test func rallyNeverReducesCaptainTowerDamage() throws {
+        var combat = BattleCombatState(configuration: towerRallyConfiguration(towerDamage: 5), seed: 1)
+        let spawned = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        let captainID = try #require(spawned)
+        combat.startRally(lane: .center)
+
+        let result = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+
+        #expect(try #require(result.towerShots.first).damage == 4)
+        let captain = try #require(combat.soldier(id: captainID))
+        #expect(captain.currentHP == captain.maxHP - 4)
+    }
+
+    @Test func rallyTowerReductionPinsNeutralLaneTable() throws {
+        // One round of (base × 1.0 × 0.70): 1→1, 2→1, 3→2, 4→3.
+        for (baseDamage, expectedDamage) in [(1, 1), (2, 1), (3, 2), (4, 3)] {
+            var combat = BattleCombatState(
+                configuration: towerRallyConfiguration(towerDamage: baseDamage, defense: 0),
+                seed: 1
+            )
+            _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+            combat.startRally(lane: .center)
+
+            let result = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+
+            #expect(try #require(result.towerShots.first).damage == expectedDamage)
+        }
+    }
+
+    @Test func rallyFoldsIntoLaneMultiplierBeforeSingleRound() throws {
+        // base 6 × fortified 1.25 × rally 0.70 = 5.25 → 5 in one rounding.
+        // Rounding lane damage first (8) then Rally would give 6.
+        var combat = BattleCombatState(
+            configuration: towerRallyConfiguration(
+                towerDamage: 7,
+                laneMultipliers: [.left: 1.25, .center: 1.0, .right: 0.80]
+            ),
+            seed: 1
+        )
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
+        combat.startRally(lane: .left)
+
+        let result = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000))
+
+        #expect(try #require(result.towerShots.first).damage == 5)
+    }
+
+    @Test func rallyReducesGuardDamageBeforeHPClamp() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 8))
+        let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+        combat.startRally(lane: .center)
+
+        var appliedDamages: [Int] = []
+        for _ in 0..<50 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            appliedDamages.append(contentsOf: result.guardAttacks.map(\.appliedDamage))
+            if !result.soldierLosses.isEmpty {
+                break
+            }
+        }
+
+        // 3 × 0.70 = 2.1 → 2 before the current-HP clamp: 8→6→4→2, then the
+        // killing hit at pre-HP 2 clamps to 2 and kills. Clamping first would
+        // give min(3,2)=2 → round(2×0.7)=1 on that hit: [2, 2, 2, 1].
+        #expect(appliedDamages == [2, 2, 2, 2])
+        #expect(combat.soldier(id: id) == nil)
+    }
+
+    @Test func rallyDoesNotReduceGuardDamageOffLane() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 11))
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+        combat.startRally(lane: .left)
+
+        var firstAttack: BattleCombatState.GuardAttackEvent?
+        for _ in 0..<50 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if let attack = result.guardAttacks.first {
+                firstAttack = attack
+                break
+            }
+        }
+
+        #expect(try #require(firstAttack).appliedDamage == 3)
+    }
+
+    @Test func rallyNeverReducesGuardDamageToCaptain() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+        combat.startRally(lane: .center)
+
+        var firstAttack: BattleCombatState.GuardAttackEvent?
+        for _ in 0..<50 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if let attack = result.guardAttacks.first {
+                firstAttack = attack
+                break
+            }
+        }
+
+        #expect(try #require(firstAttack).appliedDamage == 3)
+    }
+
+    /// Auto-Rally harness facts (HPA-475): same-lane soldiers converge to
+    /// one stall point, where the Task-2 tie-break makes the Captain tank
+    /// forever — so the choreography must produce the threshold crossing on
+    /// an early hit while the ordinary soldier is still strictly foremost.
+    /// Cavalry's 1.45× march speed keeps it ahead until the stall.
+    @Test func autoRallyRequestedWhenSameLaneOrdinaryCrossesHalfFromTowerHit() throws {
+        // Cavalry 5 HP (half 2.5); tower fires every tick (interval 0.25s):
+        // tick 1 hits the Captain on the spawn tie, tick 2 hits the ahead-
+        // cavalry for 5→2 (crossing), tick 3 kills the below-half cavalry.
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 5,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 1.0,
+            towerDamage: 3,
+            towerAttackSpeed: 4.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+
+        var requestCount = 0
+        for _ in 0..<20 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+                rallyAutoTriggerAvailable: true
+            )
+            if result.shouldAutoActivateRally {
+                requestCount += 1
+                #expect(result.towerShots.allSatisfy { $0.damage == 3 })
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+
+        #expect(requestCount == 1)
+    }
+
+    @Test func autoRallyRequestedWhenSameLaneOrdinaryCrossesHalfFromGuardHit() throws {
+        // Cavalry 5 HP (half 2.5): the first Guard hit (tick 5, 1.25s) lands
+        // before the stall tie → 5→2 crossing. After the tie the Captain
+        // tanks, so no further ordinary hits can re-request.
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 5))
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var requestCount = 0
+        for _ in 0..<50 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.highcrestSnapshot(),
+                rallyAutoTriggerAvailable: true
+            )
+            if result.shouldAutoActivateRally {
+                requestCount += 1
+                #expect(result.guardAttacks.allSatisfy { $0.appliedDamage == 3 })
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+
+        #expect(requestCount == 1)
+    }
+
+    @Test func autoRallyNotRequestedWhenHitKillsFromAtOrAboveHalf() throws {
+        // towerDamage 5 kills the 5-HP cavalry from full (≥ half) on tick 2
+        // while the Captain (hit for 5 on the tick-1 spawn tie) stays alive.
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 5,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 1.0,
+            towerDamage: 5,
+            towerAttackSpeed: 4.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        let spawnedCaptainID = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        let captainID = try #require(spawnedCaptainID)
+
+        let result = combat.tick(
+            deltaTime: 0.25,
+            siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+            rallyAutoTriggerAvailable: true
+        )
+        let secondResult = combat.tick(
+            deltaTime: 0.25,
+            siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+            rallyAutoTriggerAvailable: true
+        )
+
+        #expect(!result.shouldAutoActivateRally)
+        #expect(!secondResult.shouldAutoActivateRally)
+        #expect(secondResult.soldierLosses.map(\.soldierID) == [cavalryID])
+        #expect(try #require(combat.soldier(id: captainID)).isAlive)
+    }
+
+    @Test func autoRallyNotRequestedWhenHitStartsAlreadyBelowHalf() throws {
+        // Cavalry 5 HP (half 2.5), tower damage 1: the half-crossing hit
+        // (3→2) lands while the trigger is OFF (e.g. Rally already used),
+        // so the later 2→1 hit starts below half while armed and must not
+        // request — the trigger requires pre-hit HP at or above half, not
+        // merely a survivor under half.
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 5,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 1.0,
+            towerDamage: 1,
+            towerAttackSpeed: 4.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+
+        for _ in 0..<3 {
+            _ = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+                rallyAutoTriggerAvailable: false
+            )
+        }
+        #expect(combat.soldier(id: cavalryID)?.currentHP == 2)
+
+        // The Captain joins the lane after the crossing; the next hit
+        // (2→1) starts below half while the trigger is armed.
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+
+        var belowHalfHitLanded = false
+        for _ in 0..<10 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+                rallyAutoTriggerAvailable: true
+            )
+            #expect(!result.shouldAutoActivateRally)
+            if result.towerShots.contains(where: { $0.soldierID == cavalryID }) {
+                belowHalfHitLanded = true
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+        // The armed phase actually hit the below-half cavalry (the test is
+        // not vacuous) and never requested Rally.
+        #expect(belowHalfHitLanded)
+        #expect(combat.soldier(id: cavalryID) == nil)
+    }
+
+    @Test func autoRallyNotRequestedWhenCaptainItselfCrossesHalf() throws {
+        // The Captain (20 HP, half 10) alone in its lane takes every tower
+        // shot (3 damage). Its own half-crossing (11→8) must not arm Rally —
+        // the trigger belongs to ordinary soldiers in the Captain's lane.
+        let config = BattleCombatState.Configuration(
+            soldierMaxHP: 5,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 0,
+            soldierMovementSpeed: 1.0,
+            towerDamage: 3,
+            towerAttackSpeed: 4.0,
+            towerAttackRange: 1.0,
+            maxDeltaTime: 1.0
+        )
+        var combat = BattleCombatState(configuration: config, seed: 1)
+        let spawnedCaptainID = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        let captainID = try #require(spawnedCaptainID)
+
+        var sawAtOrAboveHalf = false
+        var crossedBelowHalf = false
+        for _ in 0..<10 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000),
+                rallyAutoTriggerAvailable: true
+            )
+            #expect(!result.shouldAutoActivateRally)
+            guard let captain = combat.soldier(id: captainID) else { break }
+            let half = Double(captain.maxHP) / 2
+            if Double(captain.currentHP) >= half {
+                sawAtOrAboveHalf = true
+            } else if sawAtOrAboveHalf {
+                crossedBelowHalf = true
+            }
+        }
+        // The Captain actually crossed half while alive and never armed.
+        #expect(sawAtOrAboveHalf)
+        #expect(crossedBelowHalf)
+    }
+
+    @Test func autoRallyNotRequestedForWrongLaneSoldier() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .left)
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        combat.restoreGuard(
+            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var requestCount = 0
+        for _ in 0..<50 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.highcrestSnapshot(),
+                rallyAutoTriggerAvailable: true
+            )
+            if result.shouldAutoActivateRally {
+                requestCount += 1
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+
+        #expect(requestCount == 0)
+    }
+
+    @Test func autoRallyNotRequestedWithoutActiveCaptain() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var requestCount = 0
+        for _ in 0..<50 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.highcrestSnapshot(),
+                rallyAutoTriggerAvailable: true
+            )
+            if result.shouldAutoActivateRally {
+                requestCount += 1
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+
+        #expect(requestCount == 0)
+    }
+
+    @Test func autoRallyNotRequestedWhenTriggerUnavailable() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var requestCount = 0
+        for _ in 0..<50 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.highcrestSnapshot(),
+                rallyAutoTriggerAvailable: false
+            )
+            if result.shouldAutoActivateRally {
+                requestCount += 1
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+
+        #expect(requestCount == 0)
+    }
+
+    @Test func autoRallyNotRequestedWhileRallyAlreadyActive() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+        combat.startRally(lane: .center)
+
+        var requestCount = 0
+        var appliedDamages: [Int] = []
+        for _ in 0..<50 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.highcrestSnapshot(),
+                rallyAutoTriggerAvailable: true
+            )
+            if result.shouldAutoActivateRally {
+                requestCount += 1
+            }
+            appliedDamages.append(contentsOf: result.guardAttacks.map(\.appliedDamage))
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+
+        // The cavalry (maxHP 9, half 4.5) crosses below half mid-sequence
+        // (7→4) while Rally is active — a hit that would otherwise qualify —
+        // but an active Rally never requests. The first contact hit is
+        // Rally-reduced (2); exact later-hit timing is incidental guard-
+        // march choreography and stays unpinned.
+        #expect(requestCount == 0)
+        #expect(appliedDamages.contains(2))
+    }
+
+    @Test func autoRallyRequestsAtMostOncePerTickAndLaterSameTickHitsStayUnprotected() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
+        let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
+        _ = combat.spawnCaptain(
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
+            upgradeLevel: 1
+        )
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var requestCount = 0
+        for _ in 0..<50 {
+            let result = combat.tick(
+                deltaTime: 0.25,
+                siege: SiegeFixtures.highcrestSnapshot(),
+                rallyAutoTriggerAvailable: true
+            )
+            if result.shouldAutoActivateRally {
+                requestCount += 1
+                // Both same-tick Guard hits land at full power: the first
+                // hit crossed the threshold, the second stayed unprotected.
+                #expect(result.guardAttacks.count == 2)
+                #expect(result.guardAttacks.allSatisfy { $0.appliedDamage == 3 })
+            }
+            if combat.soldier(id: cavalryID) == nil {
+                break
+            }
+        }
+
+        #expect(requestCount == 1)
+    }
+
     private struct GuardClosingChoreography {
         let type: SoldierType
         let marchTicks: Int

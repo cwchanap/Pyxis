@@ -125,4 +125,192 @@ struct BattleHUDContentTests {
             .reduce(0, +)
         #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 13 + supportRemaining)
     }
+
+    // MARK: - HPA-475 Task 4: Captain/Rally projection
+
+    @Test func captainIsUnavailableBelowCityThree() {
+        let content = BattleHUDContent.project(
+            from: KingdomGameState(cityNumberInCountry: 2, completedCityCount: 1),
+            manualCount: 0
+        )
+
+        #expect(content.captainStatus == .unavailable)
+    }
+
+    @Test func freshCityThreeCaptainProjectsReadyWithRallyAvailable() {
+        let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            captainIsDeployed: true
+        )
+
+        #expect(content.captainStatus == .ready(currentHP: maxHP, maxHP: maxHP, rallyReady: true))
+        #expect(content.captainStatus.isRallyActionable)
+    }
+
+    @Test func undeployedCaptainProjectsReadyButRallyIsNotActionable() {
+        // A durable-alive Captain with no live actor is Ready but its Rally
+        // cannot fire — `rallyReady` carries the distinction so the HUD hit
+        // target stays inert (HPA-475).
+        let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            captainIsDeployed: false
+        )
+
+        #expect(content.captainStatus == .ready(currentHP: maxHP, maxHP: maxHP, rallyReady: false))
+        #expect(!content.captainStatus.isRallyActionable)
+    }
+
+    @Test func deployedCaptainWithLiveTimerProjectsActiveEvenThoughRallyIsDurableConsumed() {
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain?.rallyConsumed = true
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            captainIsDeployed: true,
+            rallyRemainingSeconds: 3
+        )
+
+        #expect(content.captainStatus == .active(currentHP: maxHP, maxHP: maxHP))
+    }
+
+    @Test func liveRallyTimerProjectsActiveWithoutTheDeployedFlag() {
+        // Active is the transient timer alone (HPA-475 design contract) —
+        // protection rides the captured lane even between durable HP syncs.
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain?.rallyConsumed = true
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            captainIsDeployed: false,
+            rallyRemainingSeconds: 3
+        )
+
+        #expect(content.captainStatus == .active(currentHP: maxHP, maxHP: maxHP))
+    }
+
+    @Test func durableConsumedRallyWithZeroTimerProjectsUsed() {
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain?.rallyConsumed = true
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            captainIsDeployed: true,
+            rallyRemainingSeconds: 0
+        )
+
+        #expect(content.captainStatus == .used(currentHP: maxHP, maxHP: maxHP))
+    }
+
+    @Test func retreatingCaptainProjectsRecoverySecondsAndRallyBit() {
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 8,
+            rallyConsumed: true
+        )
+
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        #expect(
+            content.captainStatus
+                == .recovering(seconds: 8, rallyConsumed: true, rallyActive: false)
+        )
+    }
+
+    @Test func retreatingCaptainDuringLiveRallyProjectsRecoveryAndActiveRally() {
+        // A Captain falling inside the 5s window keeps recovery AND the
+        // still-running Rally: protection lives on the captured lane, so
+        // the status must carry both rather than collapsing to Used
+        // (HPA-475).
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 8,
+            rallyConsumed: true
+        )
+
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            rallyRemainingSeconds: 3
+        )
+
+        #expect(
+            content.captainStatus
+                == .recovering(seconds: 8, rallyConsumed: true, rallyActive: true)
+        )
+        #expect(!content.captainStatus.isRallyActionable)
+    }
+
+    @Test func retreatingCaptainWithUnusedRallyProjectsHeld() {
+        // Rally survives the retreat but is not actionable while the
+        // Captain is down (HPA-475).
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 8,
+            rallyConsumed: false
+        )
+
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+
+        #expect(
+            content.captainStatus
+                == .recovering(seconds: 8, rallyConsumed: false, rallyActive: false)
+        )
+        #expect(!content.captainStatus.isRallyActionable)
+    }
+
+    @Test func recoveringStatusQuantizesSubSecondDriftToWholeSeconds() {
+        // The scene's Captain cadence skip compares projected statuses, so
+        // the projection rounds the countdown up to whole display seconds —
+        // sub-second drift must not churn a full HUD apply (HPA-475 review).
+        var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        state.siegeProgress.captain = VanguardCaptainProgress(
+            lane: .center,
+            remainingHP: 0,
+            recoveryRemainingSeconds: 8,
+            rallyConsumed: false
+        )
+        let baseline = BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: false,
+            rallyRemainingSeconds: 0
+        )
+
+        state.siegeProgress.captain?.recoveryRemainingSeconds = 7.6
+        let drifted = BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: false,
+            rallyRemainingSeconds: 0
+        )
+
+        #expect(baseline == .recovering(seconds: 8, rallyConsumed: false, rallyActive: false))
+        #expect(drifted == baseline)
+
+        // Crossing a whole-second boundary does change the status.
+        state.siegeProgress.captain?.recoveryRemainingSeconds = 7
+        #expect(BattleHUDContent.captainStatus(
+            for: state,
+            captainIsDeployed: false,
+            rallyRemainingSeconds: 0
+        ) != baseline)
+    }
 }

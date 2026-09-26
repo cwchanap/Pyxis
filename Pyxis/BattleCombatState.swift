@@ -13,6 +13,26 @@ struct SoldierAttackEvent: Equatable {
     /// The authored objective this attack landed on (HPA-468).
     var objectiveID: String
     let appliedDamage: Int
+    /// HPA-475: transient only — partitioned before persistence.
+    let isCaptain: Bool
+
+    init(
+        soldierID: BattleCombatState.SoldierID,
+        type: SoldierType,
+        source: SoldierSpawnSource,
+        lane: BattleLane,
+        objectiveID: String,
+        appliedDamage: Int,
+        isCaptain: Bool = false
+    ) {
+        self.soldierID = soldierID
+        self.type = type
+        self.source = source
+        self.lane = lane
+        self.objectiveID = objectiveID
+        self.appliedDamage = appliedDamage
+        self.isCaptain = isCaptain
+    }
 }
 
 struct SoldierLossEvent: Equatable {
@@ -20,6 +40,22 @@ struct SoldierLossEvent: Equatable {
     let type: SoldierType
     let source: SoldierSpawnSource
     let lane: BattleLane
+    /// HPA-475: a Captain retreat, never an ordinary casualty.
+    let isCaptain: Bool
+
+    init(
+        soldierID: BattleCombatState.SoldierID,
+        type: SoldierType,
+        source: SoldierSpawnSource,
+        lane: BattleLane,
+        isCaptain: Bool = false
+    ) {
+        self.soldierID = soldierID
+        self.type = type
+        self.source = source
+        self.lane = lane
+        self.isCaptain = isCaptain
+    }
 }
 
 struct BattleCombatState: Equatable {
@@ -107,6 +143,9 @@ struct BattleCombatState: Equatable {
         let movementSpeed: Double
         var position: Double
         var attackCooldownRemaining: Double
+        /// HPA-475: the single Vanguard Captain, carried by the ordinary
+        /// soldier loop. Never a `SoldierType` or `SoldierSpawnSource`.
+        let isCaptain: Bool
 
         var isAlive: Bool {
             currentHP > 0
@@ -164,6 +203,12 @@ struct BattleCombatState: Equatable {
         var guardAttacks: [GuardAttackEvent] = []
         var guardHits: [GuardHitEvent] = []
         var guardLosses: [GuardLossEvent] = []
+        /// HPA-475: set at most once per tick when an eligible same-lane
+        /// ordinary soldier crossed from at-or-above half HP to below half
+        /// (still alive) from a tower/Guard hit. Transient — BattleScene
+        /// activates Rally only after `tick` returns, so the triggering hit
+        /// and later same-tick hits stay unprotected. Never persisted.
+        var shouldAutoActivateRally = false
     }
 
     let configuration: Configuration
@@ -172,6 +217,11 @@ struct BattleCombatState: Equatable {
     private var nextSoldierID: SoldierID
     private var nextGuardID: GuardID
     private var towerCooldownRemaining: Double
+    /// HPA-475 Rally: the protected lane while the transient timer runs.
+    /// No buff/ability framework — exactly two transient fields.
+    private var rallyLane: BattleLane?
+    /// Read-only externally; advanced by `tick` and armed by `startRally`.
+    private(set) var rallyRemainingSeconds: Double = 0
     private var rng: SplitMix64
 
     init(configuration: Configuration, seed: UInt64) {
@@ -188,12 +238,20 @@ struct BattleCombatState: Equatable {
         self.init(configuration: configuration, seed: UInt64.random(in: .min ... .max))
     }
 
+    /// Ordinary (non-Captain) living soldiers only, so the Captain never
+    /// consumes the manual cap or arms the navigation lock (HPA-475).
     var livingSoldierCount: Int {
-        soldiers.filter(\.isAlive).count
+        soldiers.filter { $0.isAlive && !$0.isCaptain }.count
     }
 
     func livingSoldierCount(source: SoldierSpawnSource) -> Int {
-        soldiers.filter { $0.isAlive && $0.source == source }.count
+        soldiers.filter { $0.isAlive && $0.source == source && !$0.isCaptain }.count
+    }
+
+    /// The living flagged Captain, or nil. Focused orchestration projection
+    /// for BattleScene: lane/HP/position are read straight off the Soldier.
+    var captainSoldier: Soldier? {
+        soldiers.first { $0.isAlive && $0.isCaptain }
     }
 
     /// Every spawn carries an explicit lane (HPA-468 §3.4): production and
@@ -228,11 +286,72 @@ struct BattleCombatState: Equatable {
                 attackRange: attackRange(for: type),
                 movementSpeed: movementSpeed(for: type),
                 position: 0,
-                attackCooldownRemaining: 0
+                attackCooldownRemaining: 0,
+                isCaptain: false
             )
         )
 
         return id
+    }
+
+    /// Deploys the single Vanguard Captain (HPA-475) as one flagged Soldier
+    /// carried entirely by the existing combat loop. `source = .manual` is a
+    /// transient compatibility carrier only — counts and reports exclude the
+    /// Captain via `isCaptain`. A second call while a Captain is alive is a
+    /// no-op returning the existing Captain's ID, so lane-chip changes (a
+    /// different persisted lane) never move the live Captain. A depleted
+    /// (recovering, HP 0) Captain deploys nothing.
+    @discardableResult
+    mutating func spawnCaptain(progress: VanguardCaptainProgress, upgradeLevel: Int) -> SoldierID? {
+        if let existing = captainSoldier {
+            return existing.id
+        }
+
+        let captainMaxHP = VanguardCaptainRules.maxHP(for: upgradeLevel)
+        let restoredHP = min(max(0, progress.remainingHP), captainMaxHP)
+        guard restoredHP > 0 else {
+            return nil
+        }
+
+        let id = nextSoldierID
+        nextSoldierID += 1
+
+        soldiers.append(
+            Soldier(
+                id: id,
+                type: .infantry,
+                source: .manual,
+                level: max(1, upgradeLevel),
+                lane: progress.lane,
+                maxHP: captainMaxHP,
+                currentHP: restoredHP,
+                defense: max(0, configuration.soldierDefense),
+                attackPower: max(1, VanguardCaptainRules.attackPower(for: upgradeLevel)),
+                attackSpeed: attackSpeed(for: .infantry),
+                attackRange: attackRange(for: .infantry),
+                movementSpeed: movementSpeed(for: .infantry),
+                position: 0,
+                attackCooldownRemaining: 0,
+                isCaptain: true
+            )
+        )
+
+        return id
+    }
+
+    /// Opens a Rally window (HPA-475): ordinary soldiers in `lane` take
+    /// 0.70× incoming tower/Guard damage for
+    /// `VanguardCaptainRules.rallyDurationSeconds`. Once-per-siege is NOT
+    /// enforced here — it lives in `consumeVanguardRally` (single
+    /// production funnel: `BattleScene.activateRally()`); called again
+    /// after the timer expires, this would open a fresh window. It only
+    /// refuses to stack or restart while already active.
+    mutating func startRally(lane: BattleLane) {
+        guard rallyRemainingSeconds <= 0 else {
+            return
+        }
+        rallyLane = lane
+        rallyRemainingSeconds = VanguardCaptainRules.rallyDurationSeconds
     }
 
     func soldier(id: SoldierID) -> Soldier? {
@@ -294,7 +413,11 @@ struct BattleCombatState: Equatable {
     /// persisted damage is applied by `KingdomGameState` from the returned
     /// events.
     @discardableResult
-    mutating func tick(deltaTime rawDeltaTime: Double, siege snapshot: SiegeSnapshot) -> TickResult {
+    mutating func tick(
+        deltaTime rawDeltaTime: Double,
+        siege snapshot: SiegeSnapshot,
+        rallyAutoTriggerAvailable: Bool = false
+    ) -> TickResult {
         let deltaTime = clampedDeltaTime(rawDeltaTime)
         let keepID = snapshot.layout.keepObjective.id
         guard deltaTime > 0, snapshot.objectiveRemainingPower[keepID, default: 0] > 0 else {
@@ -304,35 +427,43 @@ struct BattleCombatState: Equatable {
         var result = TickResult()
         var objectiveRemaining = snapshot.objectiveRemainingPower
 
-        towerCooldownRemaining = max(0, towerCooldownRemaining - deltaTime)
-        if towerCooldownRemaining <= 0,
-           let targetIndex = defensiveFireTargetIndex(snapshot: snapshot, objectiveRemaining: objectiveRemaining) {
-            let damage = damageAgainstSoldier(soldiers[targetIndex])
-            soldiers[targetIndex].currentHP = max(0, soldiers[targetIndex].currentHP - damage)
-            let soldierID = soldiers[targetIndex].id
-            result.towerShots.append(TowerShot(soldierID: soldierID, damage: damage))
-            result.damagedSoldierIDs.append(soldierID)
+        // HPA-475: auto-Rally facts are captured before the transient timer
+        // advances (after incoming-hit resolution below), so every same-tick
+        // hit is judged against tick-start state ("Rally available at tick
+        // start, not already active").
+        let rallyAutoTriggerAvailableAtTickStart = rallyAutoTriggerAvailable && rallyRemainingSeconds <= 0
+        let captainLaneAtTickStart = captainSoldier?.lane
 
-            if !soldiers[targetIndex].isAlive {
-                let soldier = soldiers[targetIndex]
-                result.soldierLosses.append(
-                    SoldierLossEvent(
-                        soldierID: soldier.id,
-                        type: soldier.type,
-                        source: soldier.source,
-                        lane: soldier.lane
-                    )
-                )
-            }
-
-            towerCooldownRemaining = towerAttackInterval()
-        }
+        resolveTowerFire(
+            deltaTime: deltaTime,
+            snapshot: snapshot,
+            rallyAutoTriggerAvailable: rallyAutoTriggerAvailableAtTickStart,
+            captainLane: captainLaneAtTickStart,
+            into: &result
+        )
 
         // HPA-469 lane-local Guards: movement and attacks resolve after the
         // tower block, before the soldier loop, so a soldier killed by a
         // Guard this tick never attacks back.
         advanceGuards(deltaTime: deltaTime, snapshot: snapshot)
-        resolveLivingGuardAttacks(deltaTime: deltaTime, into: &result)
+        resolveLivingGuardAttacks(
+            deltaTime: deltaTime,
+            rallyAutoTriggerAvailable: rallyAutoTriggerAvailableAtTickStart,
+            captainLane: captainLaneAtTickStart,
+            into: &result
+        )
+
+        // HPA-475: incoming hits resolve against the tick-start Rally
+        // state, so the tick that drains the timer still protects — only
+        // then does the timer advance and expiry clear the lane. The
+        // decrement runs after the last incoming-damage site and before
+        // the soldier loop (which deals only outgoing damage).
+        if rallyRemainingSeconds > 0 {
+            rallyRemainingSeconds = max(0, rallyRemainingSeconds - deltaTime)
+            if rallyRemainingSeconds == 0 {
+                rallyLane = nil
+            }
+        }
 
         for index in soldiers.indices where soldiers[index].isAlive {
             let blockerIndex = nearestGuardBlockerIndex(forLane: soldiers[index].lane)
@@ -380,7 +511,8 @@ struct BattleCombatState: Equatable {
                             source: soldiers[index].source,
                             lane: soldiers[index].lane,
                             objectiveID: targetID,
-                            appliedDamage: appliedDamage
+                            appliedDamage: appliedDamage,
+                            isCaptain: soldiers[index].isCaptain
                         )
                     )
                     soldiers[index].attackCooldownRemaining += attackInterval(forSoldier: soldiers[index])
@@ -547,11 +679,70 @@ struct BattleCombatState: Equatable {
         }
     }
 
+    /// Defensive fire: one shot at the foremost covered in-range soldier
+    /// when the cooldown has elapsed. Rally reduction and the auto-Rally
+    /// threshold check ride the same hit pipeline as Guard attacks.
+    private mutating func resolveTowerFire(
+        deltaTime: Double,
+        snapshot: SiegeSnapshot,
+        rallyAutoTriggerAvailable: Bool,
+        captainLane: BattleLane?,
+        into result: inout TickResult
+    ) {
+        towerCooldownRemaining = max(0, towerCooldownRemaining - deltaTime)
+        guard towerCooldownRemaining <= 0,
+              let targetIndex = defensiveFireTargetIndex(
+                  snapshot: snapshot,
+                  objectiveRemaining: snapshot.objectiveRemainingPower
+              ) else {
+            return
+        }
+
+        let damage = damageAgainstSoldier(soldiers[targetIndex])
+        let preHitHP = soldiers[targetIndex].currentHP
+        soldiers[targetIndex].currentHP = max(0, preHitHP - damage)
+        let postHitHP = soldiers[targetIndex].currentHP
+        let soldierID = soldiers[targetIndex].id
+        result.towerShots.append(TowerShot(soldierID: soldierID, damage: damage))
+        result.damagedSoldierIDs.append(soldierID)
+
+        if !result.shouldAutoActivateRally,
+           rallyAutoTriggerAvailable,
+           crossesAutoRallyThreshold(
+               soldiers[targetIndex],
+               preHitHP: preHitHP,
+               postHitHP: postHitHP,
+               captainLane: captainLane
+           ) {
+            result.shouldAutoActivateRally = true
+        }
+
+        if !soldiers[targetIndex].isAlive {
+            let soldier = soldiers[targetIndex]
+            result.soldierLosses.append(
+                SoldierLossEvent(
+                    soldierID: soldier.id,
+                    type: soldier.type,
+                    source: soldier.source,
+                    lane: soldier.lane,
+                    isCaptain: soldier.isCaptain
+                )
+            )
+        }
+
+        towerCooldownRemaining = towerAttackInterval()
+    }
+
     /// Each living Guard attacks the foremost living soldier of its own lane
     /// once inside its own range. Guard damage/death flows through the
     /// existing `damagedSoldierIDs` / `soldierLosses` channels (same as the
     /// tower); it never becomes `SoldierAttackEvent` or city damage.
-    private mutating func resolveLivingGuardAttacks(deltaTime: Double, into result: inout TickResult) {
+    private mutating func resolveLivingGuardAttacks(
+        deltaTime: Double,
+        rallyAutoTriggerAvailable: Bool,
+        captainLane: BattleLane?,
+        into result: inout TickResult
+    ) {
         for index in guards.indices where guards[index].isAlive {
             guard let targetIndex = foremostSoldierIndex(in: guards[index].lane) else {
                 continue
@@ -566,12 +757,20 @@ struct BattleCombatState: Equatable {
                 continue
             }
 
-            let appliedDamage = min(HighcrestGuardRules.attackPower, soldiers[targetIndex].currentHP)
+            // HPA-475: Rally reduces Guard attack power (one round, minimum
+            // 1) before the current-HP clamp; Guards have no lane multiplier.
+            let incomingDamage = max(
+                1,
+                Int((Double(HighcrestGuardRules.attackPower) * rallyMultiplier(for: soldiers[targetIndex])).rounded())
+            )
+            let preHitHP = soldiers[targetIndex].currentHP
+            let appliedDamage = min(incomingDamage, preHitHP)
             guard appliedDamage > 0 else {
                 continue
             }
 
-            soldiers[targetIndex].currentHP -= appliedDamage
+            let postHitHP = preHitHP - appliedDamage
+            soldiers[targetIndex].currentHP = postHitHP
             result.guardAttacks.append(
                 GuardAttackEvent(
                     guardID: guards[index].id,
@@ -581,6 +780,17 @@ struct BattleCombatState: Equatable {
             )
             result.damagedSoldierIDs.append(soldiers[targetIndex].id)
 
+            if !result.shouldAutoActivateRally,
+               rallyAutoTriggerAvailable,
+               crossesAutoRallyThreshold(
+                   soldiers[targetIndex],
+                   preHitHP: preHitHP,
+                   postHitHP: postHitHP,
+                   captainLane: captainLane
+               ) {
+                result.shouldAutoActivateRally = true
+            }
+
             if !soldiers[targetIndex].isAlive {
                 let soldier = soldiers[targetIndex]
                 result.soldierLosses.append(
@@ -588,7 +798,8 @@ struct BattleCombatState: Equatable {
                         soldierID: soldier.id,
                         type: soldier.type,
                         source: soldier.source,
-                        lane: soldier.lane
+                        lane: soldier.lane,
+                        isCaptain: soldier.isCaptain
                     )
                 )
             }
@@ -656,10 +867,20 @@ struct BattleCombatState: Equatable {
             .min { guards[$0].position < guards[$1].position }
     }
 
+    /// Foremost ordering shared by the Guard and tower selections (HPA-475):
+    /// highest position wins; equal positions prefer the flagged Captain so
+    /// it tanks beside equal-speed infantry.
+    private func isForemost(_ lhs: Soldier, _ rhs: Soldier) -> Bool {
+        if lhs.position == rhs.position {
+            return !lhs.isCaptain && rhs.isCaptain
+        }
+        return lhs.position < rhs.position
+    }
+
     private func foremostSoldierIndex(in lane: BattleLane) -> Int? {
         soldiers.indices
             .filter { soldiers[$0].isAlive && soldiers[$0].lane == lane }
-            .max { soldiers[$0].position < soldiers[$1].position }
+            .max { isForemost(soldiers[$0], soldiers[$1]) }
     }
 
     private func foremostSoldier(in lane: BattleLane) -> Soldier? {
@@ -706,13 +927,53 @@ struct BattleCombatState: Equatable {
 
         return inRangeIndices
             .filter { soldiers[$0].lane == targetLane }
-            .max { soldiers[$0].position < soldiers[$1].position }
+            .max { isForemost(soldiers[$0], soldiers[$1]) }
+    }
+
+    /// HPA-475: whether this tower/Guard hit crosses the auto-Rally
+    /// threshold — an ordinary soldier in the Captain's lane went from
+    /// at-or-above half HP to below half, still alive.
+    private func crossesAutoRallyThreshold(
+        _ soldier: Soldier,
+        preHitHP: Int,
+        postHitHP: Int,
+        captainLane: BattleLane?
+    ) -> Bool {
+        guard !soldier.isCaptain, let captainLane, soldier.lane == captainLane else {
+            return false
+        }
+        let halfMaxHP = Double(soldier.maxHP) / 2
+        return Double(preHitHP) >= halfMaxHP
+            && postHitHP > 0
+            && Double(postHitHP) < halfMaxHP
+    }
+
+    /// Whether the active Rally currently reduces this soldier's incoming
+    /// damage — the same predicate `rallyMultiplier` applies (ordinary
+    /// soldier, timer above zero, captured lane). Presentation only;
+    /// combat math never consults it (HPA-475).
+    func isRallyProtected(_ soldier: Soldier) -> Bool {
+        rallyMultiplier(for: soldier) < 1.0
+    }
+
+    /// HPA-475: Rally's incoming-damage multiplier for one soldier — 0.70
+    /// for ordinary soldiers in the active Rally lane, 1 otherwise. The
+    /// Captain is never reduced.
+    private func rallyMultiplier(for soldier: Soldier) -> Double {
+        guard !soldier.isCaptain,
+              rallyRemainingSeconds > 0,
+              let rallyLane,
+              rallyLane == soldier.lane else {
+            return 1.0
+        }
+        return VanguardCaptainRules.rallyDamageMultiplier
     }
 
     private func damageAgainstSoldier(_ soldier: Soldier) -> Int {
         let baseDamage = max(1, max(0, configuration.towerDamage) - soldier.defense)
         let laneMultiplier = max(0, configuration.laneDamageMultipliers[soldier.lane] ?? 1.0)
-        return max(1, Int((Double(baseDamage) * laneMultiplier).rounded()))
+        let rallyMultiplier = rallyMultiplier(for: soldier)
+        return max(1, Int((Double(baseDamage) * laneMultiplier * rallyMultiplier).rounded()))
     }
 
     private func towerAttackInterval() -> Double {

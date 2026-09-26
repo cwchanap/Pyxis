@@ -11,6 +11,10 @@ struct BattleChromeLayout: Equatable {
     static let sideMargin: CGFloat = 16
     static let tabBarHeight: CGFloat = 82
     static let medallionVisualSize: CGFloat = 56
+    static let captainStripWidth: CGFloat = 132
+    static let captainStripGap: CGFloat = 8
+    static let rallyHitWidth: CGFloat = 44
+    static let minimumDeployActionWidth: CGFloat = 196
 
     struct SafeAreaInsets: Equatable {
         let top: CGFloat
@@ -25,15 +29,23 @@ struct BattleChromeLayout: Equatable {
         let sceneSize: CGSize
         let safeAreaInsets: SafeAreaInsets
         let isCompact: Bool?
+        /// HPA-475: whether the caller will render the Captain strip. City
+        /// 1–2 sieges pass false — they render the full `deployFrame` and
+        /// ignore the split subframes, so the split contract (Deploy action
+        /// ≥196pt, Rally hit ≥44pt, disjoint subframes) must not fail them
+        /// closed. Defaults to true so unspecified callers stay strict.
+        let requiresCaptainSplit: Bool
 
         init(
             sceneSize: CGSize,
             safeAreaInsets: SafeAreaInsets = .zero,
-            isCompact: Bool? = nil
+            isCompact: Bool? = nil,
+            requiresCaptainSplit: Bool = true
         ) {
             self.sceneSize = sceneSize
             self.safeAreaInsets = safeAreaInsets
             self.isCompact = isCompact
+            self.requiresCaptainSplit = requiresCaptainSplit
         }
     }
 
@@ -50,6 +62,12 @@ struct BattleChromeLayout: Equatable {
     let medallionFrames: [CGRect]
     let medallionHitFrames: [CGRect]
     let deployFrame: CGRect
+    /// HPA-475 Deploy/Captain split: the Deploy action occupies everything
+    /// left of the 132pt Captain strip (8pt gap); the Rally hit target is
+    /// the strip's rightmost 44pt. City 1–2 ignore these subframes.
+    let deployActionFrame: CGRect
+    let captainStripFrame: CGRect
+    let rallyHitFrame: CGRect
     let manualCountFrame: CGRect
     let battlefieldFrame: CGRect
     let battlefield: BattlefieldLayout
@@ -291,6 +309,27 @@ struct BattleChromeLayout: Equatable {
             )
         }
 
+        // HPA-475 Deploy/Captain split — identical contract in both
+        // branches, derived from whichever deployFrame the branch authored.
+        let captainStripFrame = CGRect(
+            x: deployFrame.maxX - captainStripWidth,
+            y: deployFrame.minY,
+            width: captainStripWidth,
+            height: deployFrame.height
+        )
+        let deployActionFrame = CGRect(
+            x: deployFrame.minX,
+            y: deployFrame.minY,
+            width: deployFrame.width - captainStripGap - captainStripWidth,
+            height: deployFrame.height
+        )
+        let rallyHitFrame = CGRect(
+            x: captainStripFrame.maxX - rallyHitWidth,
+            y: captainStripFrame.minY,
+            width: rallyHitWidth,
+            height: captainStripFrame.height
+        )
+
         let medallionHitFrames = medallionFrames.map { frame in
             let hitWidth = max(44, frame.width)
             let hitHeight = max(44, frame.height)
@@ -346,6 +385,30 @@ struct BattleChromeLayout: Equatable {
         ] + medallionFrames + medallionHitFrames + tabHitFrames
             + Array(laneChipFrames.values)
             + Array(laneChipHitFrames.values)
+        // The Deploy/Captain split contract binds only when the strip will
+        // render; City 1–2 keep the full deployFrame and ignore the
+        // subframes, so a narrow safe width must not fail them.
+        let captainSplitSatisfied = !input.requiresCaptainSplit || (
+            [deployActionFrame, captainStripFrame, rallyHitFrame].allSatisfy({
+                $0.minX.isFinite
+                    && $0.minY.isFinite
+                    && $0.width.isFinite
+                    && $0.height.isFinite
+                    && $0.width > 0
+                    && $0.height > 0
+                    && deployFrame.contains($0)
+            })
+            && deployActionFrame.width >= minimumDeployActionWidth
+            && rallyHitFrame.width >= 44
+            && rallyHitFrame.height >= 44
+            // Deploy must stay disjoint from BOTH the Captain strip and
+            // the Rally hit target; the Rally hit target itself lives
+            // INSIDE the strip (nested, not disjoint from it).
+            && !deployActionFrame.intersects(captainStripFrame)
+            && !deployActionFrame.intersects(rallyHitFrame)
+            && captainStripFrame.contains(rallyHitFrame)
+        )
+
         guard frames.allSatisfy({
             $0.minX.isFinite
                 && $0.minY.isFinite
@@ -356,6 +419,7 @@ struct BattleChromeLayout: Equatable {
         }),
               sceneFrame.contains(topBandFrame),
               safeFrame.contains(deployFrame),
+              captainSplitSatisfied,
               safeFrame.contains(manualCountFrame),
               safeFrame.contains(battlefieldFrame),
               sceneFrame.contains(tabBarFrame),
@@ -393,6 +457,9 @@ struct BattleChromeLayout: Equatable {
             medallionFrames: medallionFrames,
             medallionHitFrames: medallionHitFrames,
             deployFrame: deployFrame,
+            deployActionFrame: deployActionFrame,
+            captainStripFrame: captainStripFrame,
+            rallyHitFrame: rallyHitFrame,
             manualCountFrame: manualCountFrame,
             battlefieldFrame: battlefieldFrame,
             battlefield: battlefield,

@@ -169,6 +169,14 @@ struct AutomaticCombatFeedbackScheduler {
     }
 
     private func candidates(from result: BattleCombatState.TickResult) -> [GameplaySoundID] {
+        // HPA-475: a Captain loss is a retreat, not an ordinary casualty —
+        // it never selects `.soldierDeath`. Captain structure/Guard attacks
+        // keep their natural melee/ranged mapping through the soldier type.
+        let ordinaryLosses = result.soldierLosses.filter { !$0.isCaptain }
+        // `killed` spans every loss — Captain included. The hit that kills
+        // the Captain lands its ID in `damagedSoldierIDs` like any
+        // soldier's and must never also register as a nonfatal
+        // `.soldierHit`.
         let killed = Set(result.soldierLosses.map(\.soldierID))
         let hasNonfatalHit = result.damagedSoldierIDs.contains { !killed.contains($0) }
         var attacks = Set(result.soldierAttacks.map { attackSound(for: $0.type) })
@@ -179,7 +187,7 @@ struct AutomaticCombatFeedbackScheduler {
         }
 
         var sounds: [GameplaySoundID] = []
-        if !result.soldierLosses.isEmpty { sounds.append(.soldierDeath) }
+        if !ordinaryLosses.isEmpty { sounds.append(.soldierDeath) }
         if !result.towerShots.isEmpty { sounds.append(.towerFire) }
         if attacks.contains(.attackSiege) { sounds.append(.attackSiege) }
         if attacks.contains(.attackRanged) { sounds.append(.attackRanged) }

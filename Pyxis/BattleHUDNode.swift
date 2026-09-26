@@ -7,6 +7,34 @@ import SpriteKit
 import UIKit
 
 struct BattleHUDContent: Equatable {
+    /// Compact Vanguard Captain view state (HPA-475). Projected from the
+    /// durable `siegeProgress.captain` plus the live Rally timer — no new
+    /// domain state owner lives here. `.recovering` keeps the Rally timer
+    /// beside the countdown because a mid-Rally retreat leaves protection
+    /// running on the captured lane.
+    enum CaptainStatus: Equatable {
+        case unavailable
+        case ready(currentHP: Int, maxHP: Int, rallyReady: Bool)
+        case active(currentHP: Int, maxHP: Int)
+        case used(currentHP: Int, maxHP: Int)
+        case recovering(seconds: Double, rallyConsumed: Bool, rallyActive: Bool)
+
+        /// Rally is tappable only in `.ready` with a deployed Captain —
+        /// Active, Used, and Recovering all project Rally state but stay
+        /// inert, so the strip never offers a control that silently no-ops.
+        /// Deliberately NOT the same predicate as the model's
+        /// `consumeVanguardRally` (which is looser: any live Captain with
+        /// Rally unused) — production funnels both through
+        /// `BattleScene.activateRally()`, which also gates on a live combat
+        /// Captain.
+        var isRallyActionable: Bool {
+            if case .ready(_, _, let rallyReady) = self {
+                return rallyReady
+            }
+            return false
+        }
+    }
+
     enum Availability: Equatable {
         case available(level: Int)
         case unbuilt
@@ -35,6 +63,9 @@ struct BattleHUDContent: Equatable {
     let medallions: [Medallion]
     let enabledTabs: Set<GameplayTab>
     let showsCampAttention: Bool
+    /// Test seam: retargeted directly by HUD strip tests; production always
+    /// sets this through `project`.
+    var captainStatus: CaptainStatus = .unavailable
 
     var tabContent: GameplayTabBarNode.Content {
         GameplayTabBarNode.Content(
@@ -47,7 +78,9 @@ struct BattleHUDContent: Equatable {
     static func project(
         from state: KingdomGameState,
         manualCount: Int,
-        selectedSoldierType: SoldierType = .infantry
+        selectedSoldierType: SoldierType = .infantry,
+        captainIsDeployed: Bool = false,
+        rallyRemainingSeconds: Double = 0
     ) -> BattleHUDContent {
         let normalizedManualCount = min(
             max(0, manualCount),
@@ -87,7 +120,7 @@ struct BattleHUDContent: Equatable {
             showsCampAttention = false
         }
 
-        return BattleHUDContent(
+        var content = BattleHUDContent(
             cityTitle: state.displayCityTitle,
             cityNumber: state.cityNumberInCountry,
             gold: state.gold,
@@ -106,6 +139,51 @@ struct BattleHUDContent: Equatable {
                 ? Set(GameplayTab.allCases)
                 : [.battle],
             showsCampAttention: showsCampAttention
+        )
+        content.captainStatus = Self.captainStatus(
+            for: state,
+            captainIsDeployed: captainIsDeployed,
+            rallyRemainingSeconds: rallyRemainingSeconds
+        )
+        return content
+    }
+
+    /// Active follows the live Rally timer (> 0) alone — protection rides
+    /// the captured lane for its full duration even if the Captain falls,
+    /// so deployment never gates it and recovery still carries the timer.
+    /// A durably consumed Rally with an expired timer shows Used; Ready's
+    /// `rallyReady` (the only actionable state) requires a live Captain.
+    /// Recovery seconds are pre-rounded to whole display seconds so status
+    /// equality (and the scene's cadence skip) tracks visible change, not
+    /// per-tick sub-second drift.
+    static func captainStatus(
+        for state: KingdomGameState,
+        captainIsDeployed: Bool,
+        rallyRemainingSeconds: Double
+    ) -> CaptainStatus {
+        guard let captain = state.siegeProgress.captain,
+              VanguardCaptainRules.isAvailable(cityNumber: state.cityNumberInCountry) else {
+            return .unavailable
+        }
+        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let rallyActive = rallyRemainingSeconds > 0
+        if captain.remainingHP <= 0 {
+            return .recovering(
+                seconds: captain.recoveryRemainingSeconds.rounded(.up),
+                rallyConsumed: captain.rallyConsumed,
+                rallyActive: rallyActive
+            )
+        }
+        if rallyActive {
+            return .active(currentHP: captain.remainingHP, maxHP: maxHP)
+        }
+        if captain.rallyConsumed {
+            return .used(currentHP: captain.remainingHP, maxHP: maxHP)
+        }
+        return .ready(
+            currentHP: captain.remainingHP,
+            maxHP: maxHP,
+            rallyReady: captainIsDeployed
         )
     }
 
@@ -147,6 +225,7 @@ final class BattleHUDNode: SKNode {
     enum Action: Equatable {
         case select(SoldierType)
         case deploy
+        case rally
         case selectLane(BattleLane)
         case tab(GameplayTab)
         case requirement(soldierType: SoldierType, unlocksAtCity: Int?)
@@ -200,11 +279,16 @@ final class BattleHUDNode: SKNode {
     private let deployLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let deployDivider = SKShapeNode()
     private let manualCountLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let captainStripPanel = PanelNode(size: .zero)
+    private let captainPortrait = SKSpriteNode()
+    private let captainStatusLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let captainRallyLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let tabBar = GameplayTabBarNode(appearance: .forged)
     private let medallions: [MedallionBundle]
     private let laneChips: [BattleLane: LaneChipBundle]
 
     private var deployHitFrame: CGRect?
+    private var rallyHitTarget: CGRect?
     private var currentLayout: BattleChromeLayout?
     private var currentContent: BattleHUDContent?
 
@@ -326,6 +410,10 @@ final class BattleHUDNode: SKNode {
         deployLabel.name = "battleDeployLabel"
         deployDivider.name = "battleDeployDivider"
         manualCountLabel.name = "battleManualCountLabel"
+        captainStripPanel.name = "battleCaptainStripPanel"
+        captainPortrait.name = "battleCaptainPortrait"
+        captainStatusLabel.name = "battleCaptainStatusLabel"
+        captainRallyLabel.name = "battleCaptainRallyLabel"
 
         for label in [
             statusLabel,
@@ -370,6 +458,17 @@ final class BattleHUDNode: SKNode {
         recommendationArrowLabel.fontColor = GameUITheme.Color.textSecondary
         deployLabel.fontSize = 18
         manualCountLabel.fontSize = 13
+        captainPortrait.color = GameUITheme.Color.textPrimary
+        captainPortrait.colorBlendFactor = 0
+        for label in [captainStatusLabel, captainRallyLabel] {
+            label.horizontalAlignmentMode = .left
+            label.verticalAlignmentMode = .center
+            label.fontColor = GameUITheme.Color.textPrimary
+            label.isHidden = true
+        }
+        captainRallyLabel.fontColor = GameUITheme.Color.gold
+        captainStripPanel.isHidden = true
+        captainPortrait.isHidden = true
 
         let incomeArrowPath = CGMutablePath()
         incomeArrowPath.move(to: CGPoint(x: 0, y: -4))
@@ -422,6 +521,10 @@ final class BattleHUDNode: SKNode {
         addChild(deployLabel)
         addChild(deployDivider)
         addChild(manualCountLabel)
+        addChild(captainStripPanel)
+        addChild(captainPortrait)
+        addChild(captainStatusLabel)
+        addChild(captainRallyLabel)
         for lane in BattleLane.allCases {
             addChild(laneChips[lane]!.background)
             addChild(laneChips[lane]!.shield)
@@ -441,6 +544,20 @@ final class BattleHUDNode: SKNode {
         let minimumBattlefieldHeight = layout.isCompact
             ? BattleChromeLayout.compactMinimumBattlefieldHeight
             : BattleChromeLayout.minimumBattlefieldHeight
+        // The Deploy/Captain split contract binds only while the strip is
+        // actually shown; City 1–2 render the full deployFrame and never
+        // read the split subframes (HPA-475).
+        let showsCaptainStrip = content.captainStatus != .unavailable
+        let captainSplitSatisfied = !showsCaptainStrip || (
+            [layout.deployActionFrame, layout.captainStripFrame, layout.rallyHitFrame]
+                .allSatisfy({ layout.deployFrame.contains($0) })
+            && layout.deployActionFrame.width >= BattleChromeLayout.minimumDeployActionWidth
+            && layout.rallyHitFrame.width >= 44
+            && layout.rallyHitFrame.height >= 44
+            && !layout.deployActionFrame.intersects(layout.captainStripFrame)
+            && !layout.deployActionFrame.intersects(layout.rallyHitFrame)
+            && layout.captainStripFrame.contains(layout.rallyHitFrame)
+        )
         guard content.medallions.count == medallions.count,
               content.manualCapacity > 0,
               content.manualCount >= 0,
@@ -456,6 +573,7 @@ final class BattleHUDNode: SKNode {
               layout.topBandFrame.contains(layout.cityProgressFrame),
               layout.topBandFrame.contains(layout.recommendationFrame),
               layout.safeFrame.contains(layout.deployFrame),
+              captainSplitSatisfied,
               layout.sceneFrame.contains(layout.tabBarFrame),
               layout.medallionHitFrames.allSatisfy({
                   layout.safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44
@@ -791,14 +909,19 @@ final class BattleHUDNode: SKNode {
             bundle.lockIcon.isHidden = !isLocked
         }
 
+        // City 1–2 keep the authored full-width Deploy bar and full hit
+        // target; City 3+ shrink Deploy into the action frame so Deploy
+        // stays disjoint from the Captain strip, with the Rally hit target
+        // nested INSIDE the strip (BattleChromeLayout owns that contract).
+        let deployDisplayFrame = showsCaptainStrip ? layout.deployActionFrame : layout.deployFrame
         deployPanel.apply(
-            size: layout.deployFrame.size,
+            size: deployDisplayFrame.size,
             style: .primaryAction,
             showsRivets: true,
             appearance: .forged,
             forgedTreatment: .deploy
         )
-        deployPanel.position = CGPoint(x: layout.deployFrame.midX, y: layout.deployFrame.midY)
+        deployPanel.position = CGPoint(x: deployDisplayFrame.midX, y: deployDisplayFrame.midY)
         deployIcon.texture = Self.texture(for: content.selectedSoldierType)
         deployIcon.size = CGSize(width: 46, height: 46)
         deployLabel.text = "DEPLOY"
@@ -810,17 +933,35 @@ final class BattleHUDNode: SKNode {
             blue: 200 / 255,
             alpha: 0.85
         )
-        let deploySpacing: CGFloat = 20
         let deployDividerWidth: CGFloat = 1
-        let deployClusterWidth = deployIcon.size.width
-            + deploySpacing
-            + deployLabel.frame.width
-            + deploySpacing
+        let deployInnerMargin: CGFloat = 8
+        let deployAvailable = max(0, deployDisplayFrame.width - deployInnerMargin * 2)
+        let deployFixedWidth = deployIcon.size.width
             + deployDividerWidth
-            + deploySpacing
             + manualCountLabel.frame.width
-        let deployClusterMinX = layout.deployFrame.midX - deployClusterWidth / 2
-        let deployCenterY = layout.deployFrame.midY
+        // The City 3+ action frame is narrower than the authored cluster —
+        // shrink the gaps first, then fit "DEPLOY" into what remains, so the
+        // cluster never spills into the Captain strip gap (HPA-475).
+        let deploySpacing = min(
+            20,
+            max(
+                8,
+                (deployAvailable - deployFixedWidth
+                    - Self.measureBoldTextWidth("DEPLOY", fontSize: 18)) / 3
+            )
+        )
+        deployLabel.fontSize = SingleLineTextFitter.fittedFontSize(
+            "DEPLOY",
+            startingAt: 18,
+            minimum: 11,
+            maximumWidth: max(24, deployAvailable - deployFixedWidth - deploySpacing * 3),
+            measure: Self.measureBoldTextWidth
+        ) ?? 11
+        let deployClusterWidth = deployFixedWidth
+            + deploySpacing * 3
+            + deployLabel.frame.width
+        let deployClusterMinX = deployDisplayFrame.midX - deployClusterWidth / 2
+        let deployCenterY = deployDisplayFrame.midY
         deployIcon.position = CGPoint(
             x: deployClusterMinX + deployIcon.size.width / 2,
             y: deployCenterY
@@ -922,13 +1063,18 @@ final class BattleHUDNode: SKNode {
             )
             bundle.label.isHidden = chipText == nil
         }
+        applyCaptainStrip(content: content, layout: layout)
         tabBar.apply(
             content: content.tabContent,
             frame: layout.tabBarFrame,
             hitFrames: layout.tabHitFrames
         )
 
-        deployHitFrame = layout.deployFrame
+        deployHitFrame = deployDisplayFrame
+        // Rally is actionable only in the Ready status — a Captain that is
+        // recovering, mid-Rally, or spent keeps the strip informational so
+        // a tap can never silently no-op (HPA-475).
+        rallyHitTarget = content.captainStatus.isRallyActionable ? layout.rallyHitFrame : nil
         return .presented
     }
 
@@ -952,6 +1098,9 @@ final class BattleHUDNode: SKNode {
         if deployHitFrame?.contains(point) == true {
             return .deploy
         }
+        if rallyHitTarget?.contains(point) == true {
+            return .rally
+        }
         if let tab = tabBar.tab(at: point) {
             return .tab(tab)
         }
@@ -966,7 +1115,97 @@ final class BattleHUDNode: SKNode {
         currentLayout = nil
         currentContent = nil
         deployHitFrame = nil
+        rallyHitTarget = nil
         return .requiredContentDoesNotFit
+    }
+
+    /// HPA-475 Captain strip: portrait/fallback + compact HP/recovery +
+    /// Rally Ready/Active/Used, packed inside `captainStripFrame` only.
+    private func applyCaptainStrip(content: BattleHUDContent, layout: BattleChromeLayout) {
+        let stripFrame = layout.captainStripFrame
+        guard content.captainStatus != .unavailable else {
+            captainStripPanel.isHidden = true
+            captainPortrait.isHidden = true
+            captainStatusLabel.isHidden = true
+            captainRallyLabel.isHidden = true
+            return
+        }
+
+        captainStripPanel.isHidden = false
+        captainPortrait.isHidden = false
+        captainStatusLabel.isHidden = false
+        captainRallyLabel.isHidden = false
+        captainStripPanel.apply(
+            size: stripFrame.size,
+            style: .normal,
+            showsRivets: false,
+            appearance: .forged
+        )
+        captainStripPanel.position = CGPoint(x: stripFrame.midX, y: stripFrame.midY)
+        captainPortrait.texture = Self.cachedCaptainPortraitTexture
+        captainPortrait.size = CGSize(width: 36, height: 36)
+        captainPortrait.position = CGPoint(x: stripFrame.minX + 24, y: stripFrame.midY)
+
+        let hpText: String
+        let rallyText: String
+        let rallyColor: SKColor
+        switch content.captainStatus {
+        case .unavailable:
+            return
+        case .ready(let currentHP, let maxHP, let rallyReady):
+            hpText = "\(currentHP)/\(maxHP)"
+            // `rallyReady` is the hit target's predicate — a durable-alive
+            // Captain with no live actor keeps the Rally read but cannot
+            // fire yet, so it reads HELD rather than promising READY.
+            rallyText = rallyReady ? "RALLY READY" : "RALLY HELD"
+            rallyColor = rallyReady ? GameUITheme.Color.gold : GameUITheme.Color.textSecondary
+        case .active(let currentHP, let maxHP):
+            hpText = "\(currentHP)/\(maxHP)"
+            rallyText = "RALLY ACTIVE"
+            rallyColor = GameUITheme.Color.hpFill
+        case .used(let currentHP, let maxHP):
+            hpText = "\(currentHP)/\(maxHP)"
+            rallyText = "RALLY USED"
+            rallyColor = GameUITheme.Color.textSecondary
+        case .recovering(let seconds, let rallyConsumed, let rallyActive):
+            hpText = "BACK \(Int(seconds))s"
+            if rallyActive {
+                // A mid-Rally retreat leaves the timer protecting the
+                // captured lane — the strip reads Active beside the
+                // recovery countdown (HPA-475).
+                rallyText = "RALLY ACTIVE"
+                rallyColor = GameUITheme.Color.hpFill
+            } else {
+                // An unused Rally survives the retreat but cannot fire
+                // until the Captain returns — HELD, not READY, since the
+                // control is inert (HPA-475).
+                rallyText = rallyConsumed ? "RALLY USED" : "RALLY HELD"
+                rallyColor = GameUITheme.Color.textSecondary
+            }
+        }
+        captainStatusLabel.text = hpText
+        captainRallyLabel.text = rallyText
+        captainRallyLabel.fontColor = rallyColor
+
+        // The copy zone sits right of the portrait; fit both lines into it.
+        let copyMinX = stripFrame.minX + 46
+        let copyWidth = stripFrame.maxX - 6 - copyMinX
+        captainStatusLabel.fontSize = SingleLineTextFitter.fittedFontSize(
+            hpText,
+            startingAt: 10,
+            minimum: 7,
+            maximumWidth: copyWidth,
+            measure: Self.measureBoldTextWidth
+        ) ?? 7
+        captainRallyLabel.fontSize = SingleLineTextFitter.fittedFontSize(
+            rallyText,
+            startingAt: 10,
+            minimum: 7,
+            maximumWidth: copyWidth,
+            measure: Self.measureBoldTextWidth
+        ) ?? 7
+        captainStatusLabel.position = CGPoint(x: copyMinX, y: stripFrame.midY + 9)
+        captainRallyLabel.position = CGPoint(x: copyMinX, y: stripFrame.midY - 9)
     }
 
     private static func panelStyle(for availability: BattleHUDContent.Availability) -> PanelNode.Style {
@@ -1034,6 +1273,27 @@ final class BattleHUDNode: SKNode {
         let font = UIFont(name: GameUITheme.Font.bold, size: fontSize)
             ?? UIFont.systemFont(ofSize: fontSize)
         return (text as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    /// HPA-475 ships no generated images; probe the stable portrait name once
+    /// and fall back to an SF-symbol crown until HPA-476 installs the asset.
+    /// The fallback is pre-tinted (SF Symbol templates render black and the
+    /// sprite keeps `colorBlendFactor` 0 for the real portrait) and cached —
+    /// the strip re-applies on the Captain HUD cadence.
+    private static let cachedCaptainPortraitTexture = makeCaptainPortraitTexture()
+
+    private static func makeCaptainPortraitTexture() -> SKTexture? {
+        if UIImage(named: "vanguard-captain-portrait") != nil {
+            return SKTexture(imageNamed: "vanguard-captain-portrait")
+        }
+        let configuration = UIImage.SymbolConfiguration(pointSize: 36, weight: .semibold)
+        guard let symbol = UIImage(systemName: "crown.fill", withConfiguration: configuration) else {
+            return nil
+        }
+        return SKTexture(image: symbol.withTintColor(
+            GameUITheme.Color.textPrimary,
+            renderingMode: .alwaysOriginal
+        ))
     }
 
     private static func objectiveText(
