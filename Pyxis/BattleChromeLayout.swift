@@ -32,8 +32,9 @@ struct BattleChromeLayout: Equatable {
         /// HPA-475: whether the caller will render the Captain strip. City
         /// 1–2 sieges pass false — they render the full `deployFrame` and
         /// ignore the split subframes, so the split contract (Deploy action
-        /// ≥196pt, Rally hit ≥44pt, disjoint subframes) must not fail them
-        /// closed. Defaults to true so unspecified callers stay strict.
+        /// ≥196pt, Rally hit ≥44pt nested inside a disjoint Captain strip)
+        /// must not fail them closed. Defaults to true so unspecified callers
+        /// stay strict.
         let requiresCaptainSplit: Bool
 
         init(

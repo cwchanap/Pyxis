@@ -3935,6 +3935,8 @@ struct BattleSceneTests {
         // the Captain today; the node-pipeline reuse is the visible half.
         let body = try #require(scene.firstLiveSoldierBodySpriteForTesting)
         #expect(body.texture != nil || body.color != .clear)
+        #expect(scene.firstLiveSoldierIsAnimatedCanvasForTesting == false)
+        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
         let bars = try #require(scene.firstLiveSoldierHPBarPathBoundsForTesting)
         let expected = bars.background.width * CGFloat(13) / CGFloat(VanguardCaptainRules.maxHP(for: 1))
         #expect(abs(bars.fill.width - expected) < 0.01)
@@ -4015,24 +4017,43 @@ struct BattleSceneTests {
         #expect(restoredCaptain.currentHP == persisted.remainingHP)
     }
 
-    @Test("Live combat advances Captain recovery by the clamped combat delta")
+    @Test("Battle foreground settlement does not spend background time on Captain recovery")
+    func foregroundSettlementDoesNotAdvanceCaptainRecovery() throws {
+        let (scene, store) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .left,
+                captain: retreatingCaptain(lane: .left, recovery: 8.0)
+            )
+        )
+
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSinceReferenceDate: 10_000))
+        scene.enterForegroundForTesting(at: Date(timeIntervalSinceReferenceDate: 10_100))
+
+        let captain = try #require(store.load().siegeProgress.captain)
+        #expect(captain.remainingHP == 0)
+        #expect(abs(captain.recoveryRemainingSeconds - 8.0) < 0.001)
+        #expect(scene.livingCaptainForTesting == nil)
+    }
+
+    @Test("Live combat advances and persists Captain recovery on the shared cadence")
     func liveCombatAdvancesCaptainRecoveryByClampedDelta() throws {
         let (scene, store) = try makeCaptainScene(
             state: makeCaptainState(
                 selectedLane: .left,
-                captain: retreatingCaptain(lane: .left, recovery: 2.0)
+                captain: retreatingCaptain(lane: .left, recovery: 8.0)
             )
         )
 
-        scene.advanceCombatForTesting(deltaTime: 0.5)
+        scene.advanceCombatForTesting(deltaTime: 2.1)
 
-        // In-memory recovery shrinks by the clamped live delta immediately.
-        let liveRecovery = scene.gameStateForTesting.siegeProgress.captain?.recoveryRemainingSeconds ?? -1
-        #expect(abs(liveRecovery - 1.5) < 0.001)
-        // A countdown-only tick rides the existing two-second cadence, so the
-        // store still holds the pre-tick snapshot here.
-        let persistedRecovery = store.load().siegeProgress.captain?.recoveryRemainingSeconds ?? -1
-        #expect(abs(persistedRecovery - 2.0) < 0.001)
+        let liveCaptain = try #require(scene.gameStateForTesting.siegeProgress.captain)
+        #expect(liveCaptain.remainingHP == 0)
+        #expect(abs(liveCaptain.recoveryRemainingSeconds - 5.9) < 0.001)
+        let persistedCaptain = try #require(store.load().siegeProgress.captain)
+        #expect(persistedCaptain.remainingHP == 0)
+        // The helper advances in 0.1s ticks, so the shared two-second cadence
+        // persists the 6.0s snapshot; the final 0.1s remains in memory.
+        #expect(abs(persistedCaptain.recoveryRemainingSeconds - 6.0) < 0.001)
     }
 
     @Test("Recovery completion restores max HP on the selected lane and spawns one Captain")
@@ -4092,11 +4113,11 @@ struct BattleSceneTests {
         #expect(scene.livingCaptainForTesting != nil)
     }
 
-    @Test("Manual Rally consumes once and cannot restart after expiry")
+    @Test("Manual Rally consumes once, emits its cue, and cannot restart after expiry")
     func manualRallyConsumesOnceAndCannotRestart() throws {
-        let (scene, store) = try makeCaptainScene(
-            state: makeCaptainState(selectedLane: .center)
-        )
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: makeCaptainState(selectedLane: .center))
+        let scene = makeScene(store: store, feedback: feedback)
         guard let layout = scene.battleChromeLayoutForTesting else {
             Issue.record("expected battle chrome layout")
             return
@@ -4105,6 +4126,7 @@ struct BattleSceneTests {
         scene.handleTouchForTesting(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
         #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
         #expect(scene.rallyRemainingSecondsForTesting == VanguardCaptainRules.rallyDurationSeconds)
+        #expect(feedback.discreteEvents == [.manualDeployment])
 
         scene.advanceCombatForTesting(deltaTime: 5.5)
         #expect(scene.rallyRemainingSecondsForTesting == 0)
@@ -4112,6 +4134,7 @@ struct BattleSceneTests {
         scene.handleTouchForTesting(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
         #expect(scene.rallyRemainingSecondsForTesting == 0)
         #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
+        #expect(feedback.discreteEvents == [.manualDeployment])
     }
 
     @Test("Rally accent shows on protected ordinary soldiers only and expires with the timer")
