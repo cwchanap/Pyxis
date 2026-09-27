@@ -879,10 +879,13 @@ struct BattleHUDNodeTests {
             return node
         }
 
-        #expect(
-            appliedNode(.ready(currentHP: 20, maxHP: 20, rallyReady: true))
-                .action(at: rallyPoint) == .rally
+        let readyNode = appliedNode(.ready(currentHP: 20, maxHP: 20, rallyReady: true))
+        #expect(readyNode.action(at: rallyPoint) == .rally)
+        let readyLabel = try #require(
+            readyNode.childNode(withName: "battleCaptainRallyLabel") as? SKLabelNode
         )
+        #expect(readyLabel.position.x == layout.rallyHitFrame.midX)
+        #expect(layout.rallyHitFrame.contains(readyLabel.frame))
         for status in [
             BattleHUDContent.CaptainStatus.ready(currentHP: 20, maxHP: 20, rallyReady: false),
             .active(currentHP: 14, maxHP: 20),
@@ -896,7 +899,7 @@ struct BattleHUDNodeTests {
     }
 
     @Test func recoveringCaptainNeverShowsReadyCopy() throws {
-        // HPA-475 review: "RALLY READY" during recovery promises a control
+        // HPA-475 review: "READY" during recovery promises a control
         // that cannot fire. Unused reads HELD; a mid-Rally retreat keeps
         // ACTIVE beside the countdown; consumed reads USED.
         let layout = try #require(BattleChromeLayout.compute(.init(
@@ -933,7 +936,7 @@ struct BattleHUDNodeTests {
         )
         #expect(
             try rallyLabel(for: .ready(currentHP: 20, maxHP: 20, rallyReady: true))
-                .text == "RALLY READY"
+                .text == "READY"
         )
     }
 }

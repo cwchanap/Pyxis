@@ -557,10 +557,11 @@ struct KingdomGameState: Codable, Equatable {
         siegeProgress.captain = captain
     }
 
-    /// Advances live-only Captain recovery by a non-negative combat delta
-    /// (BattleScene passes the tick's clamped delta; anything else — Camp,
-    /// Map, background settlement — is rejected here). Crossing zero
-    /// restores current max HP on the current selected lane exactly once.
+    /// Advances Captain recovery by a non-negative delta while the siege is
+    /// active and the Captain is down. BattleScene is responsible for calling
+    /// this only from live ticks with their clamped combat delta; Camp, Map,
+    /// and background settlement do not call it. Crossing zero restores
+    /// current max HP on the current selected lane exactly once.
     /// Returns whether recovery completed.
     @discardableResult
     mutating func advanceCaptainRecovery(deltaTime: Double) -> Bool {

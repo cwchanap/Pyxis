@@ -16,7 +16,7 @@ Reuse the HPA-468/HPA-469 runtime instead of building a parallel hero actor:
 - `BattleCombatState` owns only the Rally lane/timer and ticket-required auto-trigger request; no Captain actor hierarchy or generic effect system.
 - `BattleScene` restores/synchronizes Captain through a sibling post-tick function next to HPA-469 Guard synchronization; ordinary `applyCombatResult` is not widened into a five-condition continuation.
 - Captain recovery advances only in live Battle. Settlement/idle code remains unchanged.
-- `BattleChromeLayout` computes disjoint Deploy/Captain/Rally frames; `BattleHUDNode` is a pure consumer.
+- `BattleChromeLayout` computes a Deploy action frame disjoint from the Captain strip, with the Rally hit frame nested inside that strip; `BattleHUDNode` is a pure consumer.
 - Existing soldier-node animation/rendering is reused with a Captain asset prefix.
 - Existing soldier report rows stay soldier-only; no `BattleResult` schema change.
 - HPA-476 remains the sole final image/animation-production task.
@@ -374,7 +374,7 @@ Run `BattleCombatStateTests` again.
 - Modify: `PyxisTests/BattleHUDContentTests.swift`
 - Modify: `PyxisTests/BattleHUDNodeTests.swift`
 
-### 4.1 Add explicit disjoint frames
+### 4.1 Add explicit split regions
 
 `BattleChromeLayout` gains:
 
@@ -398,7 +398,8 @@ Guard:
 
 - all three frames finite/positive;
 - contained in `deployFrame`;
-- pairwise non-overlapping;
+- Deploy disjoint from both the Captain strip and Rally target;
+- Rally target nested inside the Captain strip;
 - Rally hit >=44×44;
 - Deploy action width >=196;
 - otherwise `compute` returns nil through the existing layout-gate path.
@@ -441,7 +442,7 @@ unavailable
 ready(currentHP,maxHP,rallyReady)
 active(currentHP,maxHP)
 used(currentHP,maxHP)
-recovering(seconds,rallyConsumed)
+recovering(seconds,rallyConsumed,rallyActive)
 ```
 
 No new domain state owner.
@@ -450,14 +451,15 @@ No new domain state owner.
 
 At 375×667, 393×852, portrait iPad:
 
-- subframes contained/disjoint;
-- Rally >=44;
+- all split regions contained;
+- Deploy disjoint from the Captain strip and Rally target;
+- Rally nested inside the Captain strip and >=44;
 - Deploy >=196;
-- layout fails closed on an artificially too-narrow width;
+- City 3+ layout fails closed on an artificially too-narrow width while City 1–2 remain exempt;
 - City 1/2 apply path still centered/full Deploy;
 - City 3+ Rally point returns `.rally`, Deploy point returns `.deploy`;
-- Captain status copy fits its strip;
-- Active requires live timer > 0; durable consumed + zero timer shows Used.
+- actionable `READY` copy fits inside `rallyHitFrame`; informational HELD/ACTIVE/USED copy fits the strip;
+- a living Captain with a live timer is Active; a recovering Captain carries `rallyActive`; durable consumed + zero timer shows Used.
 
 Run:
 
@@ -541,7 +543,7 @@ Captain sibling:
 3. otherwise sync the live flagged soldier's lane + HP;
 4. if no live Captain and still active/recovering, advance recovery with clamped live delta;
 5. if recovery completes, spawn one Captain from the newly durable state;
-6. save immediately for HP change, retreat, objective damage, Rally consume, or recovery completion;
+6. fold HP changes, retreat, objective damage, and recovery completion into the tick's single end-of-tick save; save Rally consumption immediately before protection begins, while conquest keeps its existing immediate outcome save;
 7. recovery-countdown-only state participates in the existing two-second progress-save cadence;
 8. if Captain objective damage completes the Keep, use the newly created `pendingBattleResult` to call the existing fresh-live outcome/report helpers exactly once—no second reward calculation/model.
 
@@ -580,7 +582,6 @@ vanguard-captain-resting
 vanguard-captain-walk-01...10
 vanguard-captain-attack-01...10
 vanguard-captain-hit-01...10
-rally-icon
 rally-protection-accent
 ```
 
@@ -734,7 +735,7 @@ PyxisTests/ActiveSiegeLifecycleTests.swift
 ## Risks
 
 1. **Transient Captain identity leakage.** `isCaptain` must be filtered at every count/report/death-SFX persistence seam; tests pin this boundary.
-2. **375×667 Deploy packing.** Pure `BattleChromeLayout` owns fixed disjoint frames and fails closed; do not patch overlap in SpriteKit hit-test ordering.
+2. **375×667 Deploy packing.** Pure `BattleChromeLayout` owns the Deploy/Captain split with Rally nested inside the strip; City 3+ fail closed when it cannot fit, while City 1–2 retain full Deploy. Do not patch overlap in SpriteKit hit-test ordering.
 3. **Manual-vs-auto Rally reachability.** Auto is a Linear requirement, so Task 6 must demonstrate a real manual pre-threshold activation under production rules. If it cannot, record product evidence and revise the ticket rather than silently deleting auto.
 4. **Captain-only conquest.** The sibling path must reuse the existing pending-result/fresh-live presenter exactly once without duplicating reward/report attribution.
 

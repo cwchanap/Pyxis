@@ -385,9 +385,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         combat.replaceGuards(with: snapshots, siege: state.currentSiegeSnapshot)
     }
 
-    /// Restores the persisted Vanguard Captain beside the Guards (HPA-475):
-    /// only lane + HP survive persistence, so a deployable Captain (battle
-    /// active, HP > 0) re-enters combat through the ordinary Soldier roster
+    /// Restores the persisted Vanguard Captain beside the Guards (HPA-475).
+    /// Durable progress retains lane, HP, recovery, and Rally consumption;
+    /// only lane + HP project into a deployable live actor. A Captain with
+    /// battle active and HP > 0 re-enters through the ordinary Soldier roster
     /// via `spawnCaptain`; a recovering (HP 0) Captain deploys nothing —
     /// recovery advances only in live Battle. The flagged Soldier's node is
     /// discovered by `syncSoldierNodes`; there is no Captain node bundle.

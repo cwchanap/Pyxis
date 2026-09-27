@@ -148,10 +148,10 @@ struct BattleHUDContent: Equatable {
         return content
     }
 
-    /// Active follows the live Rally timer (> 0) alone — protection rides
-    /// the captured lane for its full duration even if the Captain falls,
-    /// so deployment never gates it and recovery still carries the timer.
-    /// A durably consumed Rally with an expired timer shows Used; Ready's
+    /// Recovery takes precedence when the Captain has fallen, while its
+    /// `rallyActive` payload keeps showing protection on the captured lane
+    /// for the timer's full duration. A living Captain with a live timer is
+    /// Active. A durably consumed Rally with an expired timer shows Used; Ready's
     /// `rallyReady` (the only actionable state) requires a live Captain.
     /// Recovery seconds are pre-rounded to whole display seconds so status
     /// equality (and the scene's cadence skip) tracks visible change, not
@@ -1157,7 +1157,7 @@ final class BattleHUDNode: SKNode {
             // `rallyReady` is the hit target's predicate — a durable-alive
             // Captain with no live actor keeps the Rally read but cannot
             // fire yet, so it reads HELD rather than promising READY.
-            rallyText = rallyReady ? "RALLY READY" : "RALLY HELD"
+            rallyText = rallyReady ? "READY" : "RALLY HELD"
             rallyColor = rallyReady ? GameUITheme.Color.gold : GameUITheme.Color.textSecondary
         case .active(let currentHP, let maxHP):
             hpText = "\(currentHP)/\(maxHP)"
@@ -1197,15 +1197,23 @@ final class BattleHUDNode: SKNode {
             maximumWidth: copyWidth,
             measure: Self.measureBoldTextWidth
         ) ?? 7
+        let rallyIsActionable = content.captainStatus.isRallyActionable
+        let rallyCopyWidth = rallyIsActionable
+            ? layout.rallyHitFrame.width - 8
+            : copyWidth
         captainRallyLabel.fontSize = SingleLineTextFitter.fittedFontSize(
             rallyText,
             startingAt: 10,
             minimum: 7,
-            maximumWidth: copyWidth,
+            maximumWidth: rallyCopyWidth,
             measure: Self.measureBoldTextWidth
         ) ?? 7
         captainStatusLabel.position = CGPoint(x: copyMinX, y: stripFrame.midY + 9)
-        captainRallyLabel.position = CGPoint(x: copyMinX, y: stripFrame.midY - 9)
+        captainRallyLabel.horizontalAlignmentMode = rallyIsActionable ? .center : .left
+        captainRallyLabel.position = CGPoint(
+            x: rallyIsActionable ? layout.rallyHitFrame.midX : copyMinX,
+            y: stripFrame.midY - 9
+        )
     }
 
     private static func panelStyle(for availability: BattleHUDContent.Availability) -> PanelNode.Style {

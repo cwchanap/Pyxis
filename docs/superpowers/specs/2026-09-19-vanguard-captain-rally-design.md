@@ -282,7 +282,7 @@ The Captain sibling owns:
 3. otherwise synchronize living Captain lane + HP;
 4. advance live recovery when no Captain is active;
 5. on recovery completion, spawn one Captain from the newly durable full-HP/current-selected-lane state;
-6. save immediately for HP change, retreat, Rally consumption, Captain structure damage, or recovery completion; recovery-countdown-only changes use the existing two-second progress cadence;
+6. fold HP changes, retreat, Captain structure damage, and recovery completion into the tick's single end-of-tick save; Rally consumption saves immediately before protection starts, conquest uses the existing immediate outcome save, and recovery-countdown-only changes use the existing two-second progress cadence;
 7. if Captain objective damage creates the pending live conquest result, reuse the existing fresh-live outcome/report helpers; no second reward formula or report model.
 
 Because the full TickResult still reaches automatic feedback, Captain structure/Guard attacks reuse melee sound naturally. Filter `isCaptain` losses out of ordinary soldier-death sound/report handling; retreat is not a soldier casualty.
@@ -305,20 +305,22 @@ Derive them from `deployFrame` in both compact/reference branches with this fixe
 - Deploy action frame is the remainder;
 - require Deploy action width >= 196pt;
 - require Rally hit width/height >= 44pt;
-- require all three subframes contained in `deployFrame` and pairwise non-overlapping;
+- require all three subframes contained in `deployFrame`;
+- require Deploy to be disjoint from the Captain strip and Rally target;
+- require the Rally target to be nested inside the Captain strip;
 - return `nil` if the contract cannot fit.
 
 At 375pt width, current `contentWidth = 343`, leaving 203pt for Deploy after the 132pt strip + 8pt gap, so the intended compact contract is feasible without shrinking the battlefield.
 
-City 1–2 continue rendering/hit-testing the full `deployFrame` centered exactly as today and simply ignore the Captain subframes. City 3+ use the disjoint precomputed subframes: no action-ordering workaround is needed.
+City 1–2 continue rendering/hit-testing the full `deployFrame` centered exactly as today and simply ignore the Captain subframes. City 3+ use the precomputed Deploy action region and Captain strip, with Rally nested in the strip; no action-ordering workaround is needed.
 
 `BattleHUDContent` stays in `BattleHUDNode.swift`. Its projection receives live `rallyRemainingSeconds` so it can distinguish durable Used from transient Active.
 
-The Captain strip shows only portrait/fallback, compact HP/recovery, and Rally Ready/Active/Used. No hero screen, second row, floating button, or extra top-band height.
+The Captain strip shows only portrait/fallback, compact HP/recovery, and text states: actionable `READY` inside the Rally hit target, plus informational `RALLY HELD`, `RALLY ACTIVE`, and `RALLY USED`. No hero screen, second row, floating button, icon probe, or extra top-band height.
 
 ## Placeholder / HPA-476 asset contract
 
-HPA-475 installs **no generated images**. Runtime probes these stable names and falls back to procedural/SF-symbol presentation.
+HPA-475 installs **no generated images**. Runtime probes the stable actor/accent names below and falls back to procedural/static presentation.
 
 | Asset | Contract |
 | --- | --- |
@@ -327,7 +329,6 @@ HPA-475 installs **no generated images**. Runtime probes these stable names and 
 | `vanguard-captain-walk-01...10` | 128×128, feet/bottom-center, same timing convention as soldier walk |
 | `vanguard-captain-attack-01...10` | 128×128, feet/bottom-center |
 | `vanguard-captain-hit-01...10` | 128×128, feet/bottom-center |
-| `rally-icon` | 64×64 transparent, center anchor; HUD Ready/Active mark |
 | `rally-protection-accent` | 128×128 transparent accent, feet/bottom-center behind protected ordinary soldiers |
 
 No Captain retreat frame set is required: retreat uses a procedural fade/scale. Rally protection may be procedural until HPA-476 supplies the optional accent.
@@ -371,7 +372,7 @@ Animation is observational only.
 - Captain recovery advances only while Battle ticks; Camp/Map/background do not shorten it.
 - `synchronizeAndPersistCaptain` runs beside the Guard sibling and handles Captain-only objective hits without widening ordinary `applyCombatResult`.
 - Captain-only Keep kill produces the normal pending result and `.freshLive` presentation exactly once.
-- `BattleChromeLayoutTests` prove disjoint Deploy/Captain/Rally frames at 375×667, 393×852, and portrait iPad; fail closed below the fit contract.
+- `BattleChromeLayoutTests` prove Deploy is disjoint from the Captain strip, Rally is nested inside the strip, and all regions fit at 375×667, 393×852, and portrait iPad; City 3+ fail closed below the split contract while City 1–2 keep the full Deploy layout.
 - City 1–2 Deploy geometry/rendering remains unchanged.
 - City 3+ Rally hit uses `rallyHitFrame`; Deploy uses `deployActionFrame`; overlap is structurally impossible.
 - Active Rally projection consumes live timer; reconstruction loses timer but stays Used.
