@@ -49,6 +49,7 @@ final class PyxisUITests: XCTestCase {
 
         let fixtures = [
             "battle",
+            "battle-falconridge-ruined",
             "battle-blocked",
             "camp-empty",
             "camp-occupied",
@@ -124,7 +125,7 @@ final class PyxisUITests: XCTestCase {
     ) {
         let expected: String?
         switch fixture {
-        case "battle", "battle-blocked", "battle-damaged", "battle-breached",
+        case "battle", "battle-falconridge-ruined", "battle-blocked", "battle-damaged", "battle-breached",
              "battle-emberford", "battle-runewatch", "battle-crownspire", "return-damage":
             expected = battleSemanticValue(for: fixture)
         case "camp-empty", "camp-occupied":
@@ -143,7 +144,7 @@ final class PyxisUITests: XCTestCase {
 
     private func battleSemanticValue(for fixture: String) -> String {
         switch fixture {
-        case "battle":
+        case "battle", "battle-falconridge-ruined":
             return "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
                 + "family=frontier;fortress=intact"
         case "battle-blocked":
@@ -167,7 +168,7 @@ final class PyxisUITests: XCTestCase {
                 + "family=royal;fortress=intact"
         case "return-damage":
             return "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
-                + "family=frontier;fortress=intact;"
+                + "family=frontier;fortress=damaged;"
                 + "feedback=Buildings dealt 36 idle damage."
         default:
             return ""
