@@ -17,6 +17,7 @@ struct ForgedVisualFixtureTests {
         let expected: [(String, ForgedVisualFixture)] = [
             ("battle", .battle),
             ("battle-blocked", .battleBlocked),
+            ("battle-falconridge-ruined", .battleFalconridgeRuined),
             ("camp-empty", .campEmpty),
             ("camp-occupied", .campOccupied),
             ("map", .map),
@@ -76,6 +77,22 @@ struct ForgedVisualFixtureTests {
         #expect(state.currentKeepRemainingPower == 35)
     }
 
+    @Test("DEBUG ruined Falconridge fixture destroys support objectives and preserves the Keep")
+    func ruinedFalconridgeFixturePinsSupportState() throws {
+        let fixture = try #require(ForgedVisualFixture(launchArguments: [
+            ForgedVisualFixture.launchArgument, "battle-falconridge-ruined"
+        ]))
+        let state = fixture.makeState()
+        #expect(fixture.preferredTab == .battle)
+        #expect(state.cityNumberInCountry == 3)
+        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.pendingBattleResult == nil)
+        let remaining = state.currentSiegeSnapshot.objectiveRemainingPower
+        #expect(remaining["falconridge.ridge-gate"] == 0)
+        #expect(remaining["falconridge.arrow-tower"] == 0)
+    }
+
     @Test("DEBUG damaged/breached fixtures pin City 1 living-kingdom thresholds")
     func damagedAndBreachedFixturesPinCityOneThresholds() {
         let damaged = ForgedVisualFixture.battleDamaged.makeState()
@@ -133,6 +150,15 @@ struct ForgedVisualFixtureTests {
         for fixture in ForgedVisualFixture.allCases where fixture != .returnDamage {
             #expect(fixture.foregroundReturnDate == nil)
         }
+
+        var settled = state
+        let result = settled.returnFromBackground(at: Date(timeIntervalSince1970: 4_600))
+        #expect(result.damageDealt == 36)
+        #expect(settled.currentKeepRemainingPower == 10)
+        #expect(LivingKingdomPresentation.battle(
+            cityNumber: 3, remainingHP: settled.currentKeepRemainingPower,
+            maxHP: settled.currentKeepMaxPower, hasPendingConquest: false
+        ).stage == .damaged)
     }
 
     @Test("DEBUG blocked battle reuses the deterministic battle state")

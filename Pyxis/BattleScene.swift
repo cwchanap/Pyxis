@@ -1806,19 +1806,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         let width = spanMaxX - spanMinX
         let height = max(10, battlefieldLayout.lanePathWidth * 0.5)
-        let structure = makeSiegeStructure(
-            assetName: SiegeObjectiveAssetContract.gate,
-            targetSize: CGSize(width: width, height: height),
-            intactColor: SKColor(red: 0.55, green: 0.38, blue: 0.20, alpha: 1),
-            ruinedColor: SKColor(red: 0.30, green: 0.24, blue: 0.18, alpha: 1),
-            isRuined: isRuined
-        )
-        structure.name = SiegeObjectiveNodeName.structure
-        // Bottom-center anchor per the HPA-476 contract: sink the structure
-        // so its base sits at the bottom of the authored span, leaving the
-        // rendered gate straddling the route line exactly as before.
-        structure.position = CGPoint(x: 0, y: -height / 2)
-        container.addChild(structure)
+        for laneX in xs {
+            let structure = makeSiegeStructure(
+                assetName: SiegeObjectiveAssetContract.gate,
+                targetSize: CGSize(width: battlefieldLayout.lanePathWidth, height: height),
+                intactColor: SKColor(red: 0.55, green: 0.38, blue: 0.20, alpha: 1),
+                ruinedColor: SKColor(red: 0.30, green: 0.24, blue: 0.18, alpha: 1),
+                isRuined: isRuined
+            )
+            structure.name = SiegeObjectiveNodeName.structure
+            // One bottom-anchored segment per blocked approach keeps safe lanes clear.
+            structure.position = CGPoint(x: laneX - container.position.x, y: -height / 2)
+            container.addChild(structure)
+        }
 
         if isRuined {
             container.addChild(makeRuinMarker(width: min(48, width * 0.3)))
@@ -4582,7 +4582,16 @@ extension BattleScene {
         }
     }
 
-    /// The procedural scene node for a pilot objective kind, or nil when the
+    func makeGateObjectiveForTesting(
+        _ objective: CitySiegeLayout.Objective,
+        layout: CitySiegeLayout,
+        remainingPower: Int,
+        maxPower: Int
+    ) -> SKNode {
+        makeGateObjective(objective, layout: layout, remainingPower: remainingPower, maxPower: maxPower)
+    }
+
+    /// The scene node for a pilot objective kind, or nil when the
     /// city has no such objective (single-Keep layouts, or the Keep itself,
     /// which stays the `enemy-city` sprite).
     func siegeObjectiveNodeForTesting(_ kind: CitySiegeLayout.ObjectiveKind) -> SKNode? {

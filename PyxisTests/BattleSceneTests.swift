@@ -5489,23 +5489,68 @@ struct BattleSceneTests {
         #expect(try stage(for: falconridgeState(keepRemaining: 8)) == .breached)
     }
 
-    @Test("HPA-476 placeholder contract pins semantic asset names without shipping art")
-    func siegeObjectiveAssetContractPinsSemanticNames() {
+    @Test("Tactical structures ship complete, distinct intact and ruined art")
+    func siegeObjectiveAssetContractPinsProductionAssets() throws {
         #expect(BattleScene.SiegeObjectiveAssetContract.barracks == "siege-barracks")
         #expect(BattleScene.SiegeObjectiveAssetContract.gate == "siege-gate")
         #expect(BattleScene.SiegeObjectiveAssetContract.arrowTower == "siege-arrow-tower")
-        #expect(BattleScene.SiegeObjectiveAssetContract.assaultFlag == "siege-assault-flag")
+        for (prefix, width, height) in [
+            ("siege-gate", 256, 128),
+            ("siege-arrow-tower", 320, 576),
+            ("siege-barracks", 320, 480)
+        ] {
+            let intact = try #require(UIImage(named: prefix), "Missing \(prefix)")
+            let ruined = try #require(UIImage(named: prefix + "-ruined"))
+            for image in [intact, ruined] {
+                let cgImage = try #require(image.cgImage)
+                #expect(cgImage.width == width && cgImage.height == height)
+                #expect(hasTransparentPixel(in: image))
+            }
+            let intactBounds = try #require(opaquePixelBounds(in: intact))
+            let ruinedBounds = try #require(opaquePixelBounds(in: ruined))
+            #expect(intactBounds.maxYExclusive == ruinedBounds.maxYExclusive)
+            #expect(rgbaPixels(in: intact) != rgbaPixels(in: ruined))
+        }
+    }
 
-        let contractNames = [
-            BattleScene.SiegeObjectiveAssetContract.barracks,
-            BattleScene.SiegeObjectiveAssetContract.gate,
-            BattleScene.SiegeObjectiveAssetContract.gate + "-ruined",
-            BattleScene.SiegeObjectiveAssetContract.arrowTower,
-            BattleScene.SiegeObjectiveAssetContract.arrowTower + "-ruined",
-            BattleScene.SiegeObjectiveAssetContract.assaultFlag
-        ]
-        for name in contractNames {
-            #expect(UIImage(named: name) == nil, "Unexpected placeholder art installed: \(name)")
+    @Test("Gate segments cover every blocked lane without filling a safe middle lane")
+    func gateSegmentsCoverBlockedLanes() throws {
+        let scene = makeScene(store: try makeStore(initialState: falconridgeState()),
+                              size: CGSize(width: 393, height: 852))
+        let laneWidth = try #require(scene.battleChromeLayoutForTesting).battlefield.lanePathWidth
+        let gate = CitySiegeLayout.Objective(id: "gate", kind: .gate, durabilityWeight: 1,
+                                            visualLane: .center, visualProgress: 0.5)
+        let keep = CitySiegeLayout.Objective(id: "keep", kind: .keep, durabilityWeight: 1,
+                                            visualLane: .center, visualProgress: 1)
+        for mask in 1...7 {
+            let lanes = BattleLane.allCases.filter { mask & (1 << $0.rawValue) != 0 }
+            let layout = CitySiegeLayout(
+                objectives: [gate, keep],
+                routes: Dictionary(uniqueKeysWithValues: BattleLane.allCases.map {
+                    ($0, lanes.contains($0) ? ["gate", "keep"] : ["keep"])
+                }),
+                defaultLane: .center,
+                defensiveFire: .init(sourceObjectiveID: "keep", coveredLanes: BattleLane.allCases)
+            )
+            for remaining in [0, 10] {
+                let node = scene.makeGateObjectiveForTesting(gate, layout: layout,
+                                                            remainingPower: remaining, maxPower: 10)
+                let segments = node.children.filter { $0.name == "siegeStructure" }
+                    .sorted { $0.position.x < $1.position.x }
+                #expect(segments.count == lanes.count, "lane subset \(mask)")
+                let centers = lanes.map { lanePoint(scene, lane: $0, progress: 0.5).x }.sorted()
+                for (segment, center) in zip(segments, centers) {
+                    #expect(abs(segment.frame.width - laneWidth) <= laneWidth * 0.05)
+                    #expect(abs(segment.frame.midX + node.position.x - center) < 0.5)
+                    #expect(abs(segment.frame.midY) < 0.5)
+                }
+                let union = segments.reduce(CGRect.null) { $0.union($1.frame) }
+                #expect(abs(union.minX + node.position.x - (centers[0] - laneWidth / 2)) < laneWidth * 0.05)
+                #expect(abs(union.maxX + node.position.x - (centers[centers.count - 1] + laneWidth / 2))
+                        < laneWidth * 0.05)
+                #expect(node.children.filter { $0.name == "siegeRuin" }.count == (remaining == 0 ? 1 : 0))
+                #expect(node.children.filter { $0.name == "siegeHPFill" }.count == (remaining > 0 ? 1 : 0))
+            }
         }
     }
 

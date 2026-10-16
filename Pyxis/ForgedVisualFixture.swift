@@ -4,6 +4,7 @@ import Foundation
 enum ForgedVisualFixture: String, CaseIterable, Equatable {
     case battle
     case battleBlocked = "battle-blocked"
+    case battleFalconridgeRuined = "battle-falconridge-ruined"
     case campEmpty = "camp-empty"
     case campOccupied = "camp-occupied"
     case map
@@ -30,7 +31,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             return .camp
         case .map, .mapPartial, .mapCountryComplete:
             return .map
-        case .battle, .battleBlocked, .conquestLive, .conquestIdle,
+        case .battle, .battleBlocked, .battleFalconridgeRuined, .conquestLive, .conquestIdle,
              .battleDamaged, .battleBreached, .battleEmberford, .battleRunewatch,
              .battleCrownspire, .returnDamage,
              .battleHighcrestWave, .battleHighcrestGuardDamaged,
@@ -60,8 +61,9 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
 
     func makeState() -> KingdomGameState {
         switch self {
-        case .battle, .battleBlocked:
-            return Self.battleState()
+        case .battle, .battleBlocked, .battleFalconridgeRuined:
+            return Self.battleState(supportDamage: self == .battleFalconridgeRuined
+                ? [.gate: Int.max, .arrowTower: Int.max] : [:])
         case .battleDamaged, .battleBreached:
             // City 1 Keep max = 20 (single-Keep share of the 20 total):
             // 12 is the damaged threshold, 5 the breached one.
@@ -231,12 +233,17 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
 
     private static func battleState(
         cityNumber: Int = 3,
-        keepRemaining: Int? = nil
+        keepRemaining: Int? = nil,
+        supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:]
     ) -> KingdomGameState {
         var state = DevJumpState.make(city: cityNumber)
         state.gold = 4_200
-        if let keepRemaining {
-            seedSiegeProgress(keepRemaining: keepRemaining, on: &state)
+        if keepRemaining != nil || !supportDamage.isEmpty {
+            seedSiegeProgress(
+                keepRemaining: keepRemaining ?? state.currentKeepRemainingPower,
+                supportDamage: supportDamage,
+                on: &state
+            )
         }
         state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: [
             1: CityBuilding(type: .barracks, level: 2),
