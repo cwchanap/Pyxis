@@ -254,4 +254,3 @@ Reuse these semantic names, canvases and complete actor trios unchanged. Country
 - Raised existing objective overlays above actors and below effects. Layering risk is covered by a depth-order test and native captures.
 - Kept the procedural Guard fallback verbatim using an art-path early return. Node-registration risk is covered by the scene suite; the fallback block was checked byte-for-byte against the base.
 - Performed fresh review before starting hosted CI on the final pack. Cost: hosted checks start later; the PR stays Draft until local gates and review finish.
-
