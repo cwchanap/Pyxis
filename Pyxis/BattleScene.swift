@@ -47,21 +47,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let defensiveFireProjectile = "defensiveFireProjectile"
     }
 
-    /// HPA-476 placeholder contract: the semantic asset names future siege
-    /// art will author. No image files ship yet — the objective builders
-    /// probe these names first and fall back to procedural shapes, so the
-    /// contract is the name plus its anchor semantics only. All siege
-    /// objectives anchor bottom-center (`anchorPoint` 0.5, 0); destroyed
-    /// objectives use the `-ruined` variant. Canvas pixel sizes are
-    /// intentionally unpinned until HPA-476 picks real canvas sizes from
-    /// actual render needs.
-    ///
-    /// HPA-476 runtime handoff for the Highcrest pilot actors:
-    ///
-    /// ```text
-    /// siege-barracks — bottom-center — intact, ruined/disabled
-    /// siege-guard    — feet/bottom-center — walk-01 (still), walk, attack, hit
-    /// ```
+    /// Shipping HPA-476 art, bottom-center anchored with `-ruined` structure variants:
+    /// gate 256×128, arrow tower 320×576, Barracks 320×480; Guard walk/attack/hit
+    /// trios use 128×128 frames and infantry body geometry.
     enum SiegeObjectiveAssetContract {
         static let gate = "siege-gate"
         static let arrowTower = "siege-arrow-tower"
@@ -96,26 +84,20 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private enum GuardNodeName {
         static let root = "siege-guard"
         static let visual = "guardVisual"
-        static let helmet = "guardHelmet"
-        static let head = "guardHead"
         static let body = "guardBody"
-        static let shield = "guardShield"
         static let statusLabel = "siegeBarracksStatus"
     }
 
     private enum GuardAnimationKey {
-        static let walk = "guardWalkAction"
-        static let attack = "guardAttackAction"
-        static let hit = "guardHitAction"
         static let loss = "guardLossAction"
     }
 
     private struct GuardNodeBundle {
         let root: SKNode
         let visual: SKNode
-        let body: SKSpriteNode?
-        var lastProgress: Double?
-        var isMoving = false
+        let body: SKSpriteNode
+        var transientAction: SoldierAnimationAction?
+        var transientRemaining: TimeInterval = 0
     }
 
     private struct SoldierNodeBundle {
@@ -202,10 +184,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     )
     private var laneNodes: [SKShapeNode] = []
     private var laneIndicatorNodes: [SKNode] = []
-    /// Procedural pilot-objective containers keyed by stable objective ID
-    /// (HPA-468). Rebuilt by `syncSiegeObjectiveNodes`; empty for single-Keep
-    /// cities, whose only objective stays the `enemy-city` sprite.
+    /// Pilot-objective containers keyed by stable ID; single-Keep cities use `enemy-city`.
     private var siegeObjectiveNodes: [String: SKNode] = [:]
+    private var siegeStructureTextures: [String: SKTexture] = [:]
+    private var appliedSiegeObjectiveSnapshot: BattleCombatState.SiegeSnapshot?
+    private var appliedSiegeObjectiveGeometry: BattlefieldLayout?
+    private var appliedSiegeObjectiveMaxPower: Int?
     private var pendingAnimatedRemovalSoldierIDs: Set<BattleCombatState.SoldierID> = []
 
     /// Remaining time (in seconds) of each soldier's authored hit-reaction
@@ -1678,12 +1662,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// Every placement reads `Objective.visualProgress` through the shared
     /// battlefield lane geometry.
     private func syncSiegeObjectiveNodes() {
-        removeSiegeObjectiveNodes()
         guard battlefieldLayout.isVisible else {
+            removeSiegeObjectiveNodes()
             return
         }
 
         let snapshot = state.currentSiegeSnapshot
+        if appliedSiegeObjectiveSnapshot == snapshot,
+           appliedSiegeObjectiveGeometry == battlefieldLayout,
+           appliedSiegeObjectiveMaxPower == state.cityMaxPower {
+            return
+        }
+        removeSiegeObjectiveNodes()
+        appliedSiegeObjectiveSnapshot = snapshot
+        appliedSiegeObjectiveGeometry = battlefieldLayout
+        appliedSiegeObjectiveMaxPower = state.cityMaxPower
         let layout = snapshot.layout
         let remaining = snapshot.objectiveRemainingPower
         let maxPowers = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)
@@ -1733,6 +1726,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             node.removeFromParent()
         }
         siegeObjectiveNodes.removeAll()
+        appliedSiegeObjectiveSnapshot = nil
+        appliedSiegeObjectiveGeometry = nil
+        appliedSiegeObjectiveMaxPower = nil
     }
 
     private func isSiegeObjectiveNode(_ node: SKNode) -> Bool {
@@ -1780,10 +1776,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return container
     }
 
-    /// The shared Ridge Gate: ONE barrier spanning every route lane whose
-    /// authored route contains the gate's stable ID (center + right for
-    /// Falconridge), sized from the existing battlefield lane geometry. The
-    /// ruined state spans the same approaches.
+    /// One segment and shared-HP indicator per blocked lane; safe approaches stay clear.
     private func makeGateObjective(
         _ objective: CitySiegeLayout.Objective,
         layout: CitySiegeLayout,
@@ -1808,9 +1801,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
         container.zPosition = 3
 
-        let width = spanMaxX - spanMinX
         let height = max(10, battlefieldLayout.lanePathWidth * 0.5)
         for laneX in xs {
+            let offsetX = laneX - container.position.x
             let structure = makeSiegeStructure(
                 assetName: SiegeObjectiveAssetContract.gate,
                 targetSize: CGSize(width: battlefieldLayout.lanePathWidth, height: height),
@@ -1820,20 +1813,23 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
             structure.name = SiegeObjectiveNodeName.structure
             // One bottom-anchored segment per blocked approach keeps safe lanes clear.
-            structure.position = CGPoint(x: laneX - container.position.x, y: -height / 2)
+            structure.position = CGPoint(x: offsetX, y: -height / 2)
             container.addChild(structure)
-        }
 
-        if isRuined {
-            container.addChild(makeRuinMarker(width: min(48, width * 0.3)))
-        } else {
-            addObjectiveHPBar(
-                to: container,
-                width: min(64, width * 0.4),
-                bottomY: height / 2 + 3,
-                remaining: remainingPower,
-                maximum: maxPower
-            )
+            if isRuined {
+                let ruin = makeRuinMarker(width: battlefieldLayout.lanePathWidth * 0.6)
+                ruin.position = CGPoint(x: offsetX, y: -height / 2)
+                container.addChild(ruin)
+            } else {
+                addObjectiveHPBar(
+                    to: container,
+                    width: min(64, battlefieldLayout.lanePathWidth * 0.8),
+                    bottomY: height / 2 + 3,
+                    centerX: offsetX,
+                    remaining: remainingPower,
+                    maximum: maxPower
+                )
+            }
         }
         return container
     }
@@ -1883,7 +1879,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         statusLabel.fontColor = GameUITheme.Color.textSecondary
         statusLabel.verticalAlignmentMode = .bottom
         statusLabel.position = CGPoint(x: 0, y: height + 10)
-        statusLabel.zPosition = 11
+        statusLabel.zPosition = 16
         statusLabel.text = barracksStatusText
         container.addChild(statusLabel)
         return container
@@ -1908,11 +1904,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return "GUARDS \(progress.unresolvedGuards.count)"
     }
 
-    /// Builds one objective structure: the HPA-476 semantic asset when
-    /// installed (bottom-center anchor, `-ruined` variant for destroyed
-    /// objectives), otherwise a procedural shape fallback that rises from
-    /// the node origin like bottom-anchored art. Canvas sizes are HPA-476's
-    /// call; this scene never pins pixel dimensions.
+    /// Fits bottom-anchored shipping art to scene geometry, with a shape if art is unavailable.
     private func makeSiegeStructure(
         assetName: String,
         targetSize: CGSize,
@@ -1922,8 +1914,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     ) -> SKNode {
         let variantName = isRuined ? assetName + "-ruined" : assetName
         if let image = UIImage(named: variantName) {
-            let sprite = SKSpriteNode(texture: SKTexture(image: image))
-            // Bottom-center anchor per the placeholder contract.
+            let texture = siegeStructureTextures[variantName] ?? SKTexture(imageNamed: variantName)
+            siegeStructureTextures[variantName] = texture
+            let sprite = SKSpriteNode(texture: texture)
             sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
             let scale = min(
                 targetSize.width / max(1, image.size.width),
@@ -1945,6 +1938,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func makeRuinMarker(width: CGFloat) -> SKNode {
         let ruin = SKNode()
         ruin.name = SiegeObjectiveNodeName.ruin
+        ruin.zPosition = 1
         let rubbleColor = SKColor(red: 0.24, green: 0.20, blue: 0.16, alpha: 1)
         for (index, offset) in [-0.32, 0.0, 0.34].enumerated() {
             let stone = SKShapeNode(circleOfRadius: width * (index == 1 ? 0.16 : 0.11))
@@ -1963,6 +1957,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         to container: SKNode,
         width: CGFloat,
         bottomY: CGFloat,
+        centerX: CGFloat = 0,
         remaining: Int,
         maximum: Int
     ) {
@@ -1976,7 +1971,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         background.strokeColor = SKColor(white: 1.0, alpha: 0.3)
         background.lineWidth = 1
         // Keep objective status above actors, below battlefield effects.
-        background.zPosition = 10
+        background.zPosition = 14
+        background.position.x = centerX
         background.path = CGPath(
             roundedRect: CGRect(x: -width / 2, y: barY, width: width, height: barHeight),
             cornerWidth: barHeight / 2,
@@ -1989,7 +1985,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         fill.name = SiegeObjectiveNodeName.hpFill
         fill.fillColor = SKColor(red: 0.85, green: 0.33, blue: 0.20, alpha: 1)
         fill.strokeColor = .clear
-        fill.zPosition = 11
+        fill.zPosition = 15
+        fill.position.x = centerX
         fill.path = CGPath(
             roundedRect: CGRect(
                 x: -width / 2,
@@ -2198,16 +2195,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // tick hasn't authorized. Building spawn resolution also uses the raw
         // `deltaTime` so production reflects real elapsed time during stalls.
         decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
+        decrementGuardAnimationRemaining(deltaTime: deltaTime)
 
-        // Guard `isMoving` is scoped to one combat tick, not one
-        // `syncGuardNodes` call: a mid-tick `redraw` (objective damage,
-        // auto-Rally) syncs Guards a second time after positions already
-        // advanced, and a per-sync comparison would read equal progress and
-        // kill the walk loop the same tick started. Reopen the movement
-        // observation window once, before positions advance.
-        for id in Array(guardNodes.keys) {
-            guardNodes[id]?.isMoving = false
-        }
         let result = combat.tick(
             deltaTime: deltaTime,
             siege: state.currentSiegeSnapshot,
@@ -2997,13 +2986,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         for guardActor in livingGuards {
-            var bundle = guardNodes[guardActor.id] ?? createGuardNode(id: guardActor.id)
-            // Accumulate within the tick: any observed movement keeps the
-            // walk loop alive through further same-tick syncs until
-            // `advanceCombat` reopens the window.
-            bundle.isMoving = bundle.isMoving
-                || (bundle.lastProgress.map { $0 != guardActor.position } ?? false)
-            bundle.lastProgress = guardActor.position
+            let bundle = guardNodes[guardActor.id] ?? createGuardNode()
             bundle.root.position = point(forLane: guardActor.lane, position: guardActor.position)
             bundle.root.setScale(soldierTargetHeight())
             guardNodes[guardActor.id] = bundle
@@ -3017,105 +3000,79 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    /// Builds final Guard art at unit body height, retaining the procedural
-    /// fallback when any frame in its animation trio is missing.
-    private func createGuardNode(id: BattleCombatState.GuardID) -> GuardNodeBundle {
+    private func createGuardNode() -> GuardNodeBundle {
         let root = SKNode()
         root.name = GuardNodeName.root
-
         let visual = SKNode()
         visual.name = GuardNodeName.visual
         root.addChild(visual)
 
-        if let frameName = firstAvailableSoldierAnimationFrameName(for: SiegeObjectiveAssetContract.guardAssetPrefix) {
-            let sprite = SKSpriteNode(texture: soldierAnimationTexture(named: frameName))
-            let geometry = SoldierAnimationGeometry(type: .infantry)
-            sprite.name = GuardNodeName.body
-            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
-            sprite.size = geometry.frameSize(forBodyHeight: 1)
-            sprite.position.y = -geometry.bodyRegion.minY * sprite.size.height
-            visual.addChild(sprite)
-            soldierLayer.addChild(root)
-            let bundle = GuardNodeBundle(root: root, visual: visual, body: sprite)
-            guardNodes[id] = bundle
-            return bundle
-        }
-
-        let body = SKShapeNode(rect: CGRect(x: -0.16, y: 0.10, width: 0.32, height: 0.42), cornerRadius: 0.06)
+        let body = SKSpriteNode(texture: soldierAnimationTextures(
+            for: SiegeObjectiveAssetContract.guardAssetPrefix, action: .walk
+        ).first)
+        let geometry = SoldierAnimationGeometry(type: .infantry)
         body.name = GuardNodeName.body
-        body.fillColor = SKColor(red: 0.52, green: 0.20, blue: 0.16, alpha: 1)
-        body.strokeColor = SKColor(white: 1.0, alpha: 0.3)
-        body.lineWidth = 0.02
+        body.anchorPoint = CGPoint(x: 0.5, y: 0)
+        body.size = geometry.frameSize(forBodyHeight: 1)
+        body.position.y = -geometry.bodyRegion.minY * body.size.height
         visual.addChild(body)
-
-        let shield = SKShapeNode(rect: CGRect(x: -0.13, y: 0.02, width: 0.26, height: 0.34), cornerRadius: 0.09)
-        shield.name = GuardNodeName.shield
-        shield.fillColor = SKColor(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
-        shield.strokeColor = SKColor(white: 1.0, alpha: 0.45)
-        shield.lineWidth = 0.02
-        shield.zPosition = 1
-        visual.addChild(shield)
-
-        let head = SKShapeNode(circleOfRadius: 0.11)
-        head.name = GuardNodeName.head
-        head.fillColor = SKColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)
-        head.strokeColor = SKColor(white: 1.0, alpha: 0.3)
-        head.lineWidth = 0.02
-        head.position = CGPoint(x: 0, y: 0.60)
-        visual.addChild(head)
-
-        let helmet = SKShapeNode(rect: CGRect(x: -0.13, y: 0.60, width: 0.26, height: 0.14), cornerRadius: 0.06)
-        helmet.name = GuardNodeName.helmet
-        helmet.fillColor = SKColor(red: 0.24, green: 0.27, blue: 0.32, alpha: 1)
-        helmet.strokeColor = SKColor(white: 1.0, alpha: 0.4)
-        helmet.lineWidth = 0.02
-        visual.addChild(helmet)
-
         soldierLayer.addChild(root)
-        let bundle = GuardNodeBundle(root: root, visual: visual, body: nil)
-        guardNodes[id] = bundle
-        return bundle
+        return GuardNodeBundle(root: root, visual: visual, body: body)
     }
 
     private func syncGuardLocomotion(for guardID: BattleCombatState.GuardID) {
-        guard let bundle = guardNodes[guardID], let body = bundle.body,
-              bundle.visual.action(forKey: GuardAnimationKey.attack) == nil,
-              bundle.visual.action(forKey: GuardAnimationKey.hit) == nil else {
-            return
-        }
-        let textures = soldierAnimationTextures(for: SiegeObjectiveAssetContract.guardAssetPrefix, action: .walk)
-        guard let firstTexture = textures.first else { return }
-        if bundle.isMoving {
-            guard bundle.visual.action(forKey: GuardAnimationKey.walk) == nil else { return }
-            let walk = soldierTextureAction(textures: textures, action: .walk, type: .infantry, sprite: body)
-            bundle.visual.run(SKAction.repeatForever(walk), withKey: GuardAnimationKey.walk)
+        guard let bundle = guardNodes[guardID], bundle.transientRemaining <= 0 else { return }
+        if combat.guards.first(where: { $0.id == guardID })?.isMoving == true {
+            startWalkAnimation(
+                on: bundle.visual, sprite: bundle.body,
+                assetPrefix: SiegeObjectiveAssetContract.guardAssetPrefix, type: .infantry
+            )
         } else {
-            bundle.visual.removeAction(forKey: GuardAnimationKey.walk)
-            body.texture = firstTexture
+            bundle.visual.removeAction(forKey: SoldierAnimationKey.walk)
+            bundle.body.texture = soldierAnimationTextures(
+                for: SiegeObjectiveAssetContract.guardAssetPrefix, action: .walk
+            ).first
+        }
+    }
+
+    // Raw frame time matches SpriteKit actions, including a frame that stalls past the pose duration.
+    private func decrementGuardAnimationRemaining(deltaTime: TimeInterval) {
+        guard deltaTime > 0 else { return }
+        for id in Array(guardNodes.keys) {
+            guard var bundle = guardNodes[id], bundle.transientRemaining > 0 else { continue }
+            bundle.transientRemaining = max(0, bundle.transientRemaining - deltaTime)
+            if bundle.transientRemaining == 0 {
+                bundle.transientAction = nil
+                bundle.visual.removeAction(forKey: SoldierAnimationKey.attack)
+                bundle.visual.removeAction(forKey: SoldierAnimationKey.hit)
+            }
+            guardNodes[id] = bundle
         }
     }
 
     private func playGuardTransient(_ action: SoldierAnimationAction, for guardID: BattleCombatState.GuardID) {
-        guard action != .walk, let bundle = guardNodes[guardID], let body = bundle.body else { return }
+        guard action != .walk, var bundle = guardNodes[guardID] else { return }
+        if action == .attack && isAttackAnimationBlocked(
+            type: .infantry,
+            attackInterval: 1 / HighcrestGuardRules.attackSpeed,
+            attackInProgress: bundle.transientAction == .attack && bundle.transientRemaining > 0,
+            hitRemaining: bundle.transientAction == .hit ? bundle.transientRemaining : 0
+        ) { return }
+        bundle.transientAction = action
+        bundle.transientRemaining = SoldierAnimationTiming.totalDuration(for: action, type: .infantry)
+        guardNodes[guardID] = bundle
         let visual = bundle.visual
-        let attackInFlight = visual.action(forKey: GuardAnimationKey.attack) != nil
-        let hitInFlight = visual.action(forKey: GuardAnimationKey.hit) != nil
-        if action == .attack && (attackInFlight || hitInFlight) { return }
-        if action == .hit && hitInFlight { return }
-        let textures = soldierAnimationTextures(for: SiegeObjectiveAssetContract.guardAssetPrefix, action: action)
-        guard let firstTexture = textures.first else { return }
-        let key = action == .attack ? GuardAnimationKey.attack : GuardAnimationKey.hit
-        visual.removeAction(forKey: GuardAnimationKey.walk)
-        visual.removeAction(forKey: GuardAnimationKey.attack)
-        visual.removeAction(forKey: GuardAnimationKey.hit)
-        body.texture = firstTexture
-        let animate = soldierTextureAction(textures: textures, action: action, type: .infantry, sprite: body)
-        let resume = SKAction.run { [weak self, weak visual] in
+        runTransientAnimation(
+            action, on: visual, sprite: bundle.body,
+            actor: (SiegeObjectiveAssetContract.guardAssetPrefix, .infantry)
+        ) { [weak self, weak visual] in
             guard let self, let visual, self.guardNodes[guardID]?.visual === visual else { return }
-            visual.removeAction(forKey: key)
+            self.guardNodes[guardID]?.transientRemaining = 0
+            self.guardNodes[guardID]?.transientAction = nil
+            visual.removeAction(forKey: SoldierAnimationKey.attack)
+            visual.removeAction(forKey: SoldierAnimationKey.hit)
             self.syncGuardLocomotion(for: guardID)
         }
-        visual.run(SKAction.sequence([animate, resume]), withKey: key)
     }
 
     /// Maps Guard tick events to short observational actions (HPA-469).
@@ -3134,44 +3091,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    /// Final attack art, or the procedural fallback's short lunge.
     private func playGuardAttackFeedback(for guardID: BattleCombatState.GuardID) {
-        if guardNodes[guardID]?.body != nil {
-            playGuardTransient(.attack, for: guardID)
-            return
-        }
-        guard let visual = guardNodes[guardID]?.visual else {
-            return
-        }
-        visual.removeAction(forKey: GuardAnimationKey.attack)
-        // The visual sits inside a root scaled to the Guard's render height,
-        // so a raw moveBy delta is multiplied by that scale on screen (~6pt
-        // would render as a battlefield-length jump). Divide the accumulated
-        // scale back out so the lunge is ~6pt in scene points.
-        let scale = visual.yScale * (visual.parent?.yScale ?? 1)
-        guard scale > 0 else {
-            return
-        }
-        let lunge = SKAction.moveBy(x: 0, y: -6 / scale, duration: 0.08)
-        lunge.timingMode = .easeOut
-        let recover = SKAction.moveBy(x: 0, y: 6 / scale, duration: 0.14)
-        recover.timingMode = .easeIn
-        visual.run(SKAction.sequence([lunge, recover]), withKey: GuardAnimationKey.attack)
+        playGuardTransient(.attack, for: guardID)
     }
 
-    /// Final hit art, or the procedural fallback's brief alpha flash.
     private func playGuardHitFeedback(for guardID: BattleCombatState.GuardID) {
-        if guardNodes[guardID]?.body != nil {
-            playGuardTransient(.hit, for: guardID)
-            return
-        }
-        guard let visual = guardNodes[guardID]?.visual else {
-            return
-        }
-        visual.removeAction(forKey: GuardAnimationKey.hit)
-        let flash = SKAction.fadeAlpha(to: 0.35, duration: 0.06)
-        let restore = SKAction.fadeAlpha(to: 1, duration: 0.12)
-        visual.run(SKAction.sequence([flash, restore]), withKey: GuardAnimationKey.hit)
+        playGuardTransient(.hit, for: guardID)
     }
 
     /// Fade-out removal for a dead Guard. The node leaves `guardNodes`
@@ -3755,20 +3680,49 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // sprite, mixing fallback and animated rendering. Textures are looked
         // up under the soldier's asset prefix (HPA-475), while the frame
         // timing stays on the shared per-type curve the bundle carries.
-        let textures = soldierAnimationTextures(for: soldierAssetPrefix(for: bundle), action: .walk)
-        guard !textures.isEmpty else {
-            return
-        }
-
-        sprite.run(
-            SKAction.repeatForever(soldierTextureAction(
-                textures: textures,
-                action: .walk,
-                type: bundle.type,
-                sprite: sprite
-            )),
-            withKey: SoldierAnimationKey.walk
+        startWalkAnimation(
+            on: sprite, sprite: sprite, assetPrefix: soldierAssetPrefix(for: bundle), type: bundle.type
         )
+    }
+
+    private func startWalkAnimation(
+        on node: SKNode, sprite: SKSpriteNode, assetPrefix: String, type: SoldierType
+    ) {
+        guard node.action(forKey: SoldierAnimationKey.walk) == nil else { return }
+        let textures = soldierAnimationTextures(for: assetPrefix, action: .walk)
+        guard !textures.isEmpty else { return }
+        node.run(.repeatForever(soldierTextureAction(
+            textures: textures, action: .walk, type: type, sprite: sprite
+        )), withKey: SoldierAnimationKey.walk)
+    }
+
+    private func isAttackAnimationBlocked(
+        type: SoldierType, attackInterval: TimeInterval, attackInProgress: Bool, hitRemaining: TimeInterval
+    ) -> Bool {
+        attackInProgress || (SoldierAnimationTiming.totalDuration(for: .hit, type: type) > attackInterval
+            && hitRemaining > 0)
+    }
+
+    private func runTransientAnimation(
+        _ action: SoldierAnimationAction, on node: SKNode, sprite: SKSpriteNode,
+        actor: (assetPrefix: String, type: SoldierType), completion: @escaping () -> Void
+    ) {
+        let textures = soldierAnimationTextures(for: actor.assetPrefix, action: action)
+        guard let first = textures.first else { return }
+        node.removeAction(forKey: SoldierAnimationKey.walk)
+        node.removeAction(forKey: SoldierAnimationKey.attack)
+        node.removeAction(forKey: SoldierAnimationKey.hit)
+        sprite.texture = first
+        let key: String
+        switch action {
+        case .walk: key = SoldierAnimationKey.walk
+        case .attack: key = SoldierAnimationKey.attack
+        case .hit: key = SoldierAnimationKey.hit
+        }
+        node.run(.sequence([
+            soldierTextureAction(textures: textures, action: action, type: actor.type, sprite: sprite),
+            .run(completion)
+        ]), withKey: key)
     }
 
     private func soldierTextureAction(
@@ -3856,16 +3810,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // the alternative (restarting on every trigger) never reaches the
         // strike frames and looks worse. See CLAUDE.md "Attack animations
         // last longer..." note for the design rationale.
-        let hitDurationExceedsAttackInterval =
-            SoldierAnimationTiming.totalDuration(for: .hit, type: soldierType)
-                > combat.attackInterval(for: soldierType)
-        let attackAnimationInProgress = sprite.action(forKey: SoldierAnimationKey.attack) != nil
-        let hitReactionBlockingNextAttack = hitDurationExceedsAttackInterval
-            && (soldierHitAnimationRemaining[soldierID] ?? 0) > 0
-        if action == .attack,
-           attackAnimationInProgress || hitReactionBlockingNextAttack {
-            return
-        }
+        if action == .attack && isAttackAnimationBlocked(
+            type: soldierType,
+            attackInterval: combat.attackInterval(for: soldierType),
+            attackInProgress: sprite.action(forKey: SoldierAnimationKey.attack) != nil,
+            hitRemaining: soldierHitAnimationRemaining[soldierID] ?? 0
+        ) { return }
 
         #if DEBUG
         switch action {
@@ -3878,44 +3828,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
         #endif
 
-        let key: String
-        switch action {
-        case .walk:
-            key = SoldierAnimationKey.walk
-        case .attack:
-            key = SoldierAnimationKey.attack
-        case .hit:
-            key = SoldierAnimationKey.hit
-            // Arm the hit-reaction countdown so the attack guard can defer
-            // attack triggers that would land before this animation finishes
-            // (e.g. cavalry: 0.87s attack interval vs 0.9s hit duration).
+        if action == .hit {
             soldierHitAnimationRemaining[soldierID] =
                 SoldierAnimationTiming.totalDuration(for: .hit, type: soldierType)
         }
-
-        // Remove every transient soldier-animation key before installing the new
-        // one. A soldier can both land a city attack and be hit by a tower in the
-        // same tick; if we only removed `walk` + the current key, the other
-        // transient animate-action would keep running concurrently and the two
-        // SKAction.animate streams would fight over `sprite.texture` every frame.
-        sprite.removeAction(forKey: SoldierAnimationKey.walk)
-        sprite.removeAction(forKey: SoldierAnimationKey.attack)
-        sprite.removeAction(forKey: SoldierAnimationKey.hit)
-
-        let animate = soldierTextureAction(
-            textures: textures,
-            action: action,
-            type: soldierType,
-            sprite: sprite
-        )
-        let resumeWalk = SKAction.run { [weak self] in
+        runTransientAnimation(
+            action, on: sprite, sprite: sprite,
+            actor: (soldierAssetPrefix(for: bundle), soldierType)
+        ) { [weak self] in
             self?.resumeWalkForSoldierIfNeeded(
-                id: soldierID,
-                type: soldierType,
-                isAllowed: resumesWalk
+                id: soldierID, type: soldierType, isAllowed: resumesWalk
             )
         }
-        sprite.run(SKAction.sequence([animate, resumeWalk]), withKey: key)
     }
 
     /// Restarts the looping walk animation for a soldier after a transient

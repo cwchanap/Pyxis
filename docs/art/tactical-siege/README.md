@@ -210,11 +210,11 @@ Local sources, contact sheets, native captures and video stay under ignored `doc
 
 ## Acceptance
 
-All **68 image sets** are installed. Both actor trios passed the unchanged storyboard validator and shared inventory/body-geometry checks. Gate coverage passes intact/ruined tests across all seven non-empty lane subsets, including left/right-only routes. Guard art uses the existing infantry geometry/actions and preserves transient priority; Captain and Rally use their existing consumers.
+All **68 image sets** are installed. Both actor trios passed the unchanged storyboard validator and shared inventory/body-geometry checks. Gate coverage passes intact/ruined tests across all seven non-empty lane subsets, including left/right-only routes. Guard art uses infantry geometry and the shared soldier attack/hit policy; Captain and Rally use their existing consumers.
 
-Objective HP/count overlays draw above actors and below effects so the Guard cannot hide them. The original procedural Guard fallback remains unchanged; the art path returns after registering its sprite bundle.
+Objective HP/count overlays draw above actor HP bars and below effects. Each blocked gate approach has its own shared-HP bar or ruin marker. The mandatory Guard animation trio replaces the procedural fallback; combat reports movement and elapsed-time countdowns govern transient playback even without a SpriteKit render loop. Unchanged objective redraws retain their nodes, and rebuilt structures reuse cached textures.
 
-Visual acceptance completed on iOS 26.5 Simulator:
+Original art-pack visual acceptance completed on iOS 26.5 Simulator (these captures predate the review fixes above):
 
 | Layout | Evidence | Result |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ Visual acceptance completed on iOS 26.5 Simulator:
 
 Static meaning survives in the regular captures: broken masonry and limp pennants distinguish ruins, `SHUT DOWN` remains readable without a Barracks HP bar, the faceless crimson Guard contrasts with allied actors, the silver-haired Captain matches the HUD portrait, and the existing `ASSAULT` marker still identifies the lane. The restrained Rally shimmer sits behind ordinary soldiers and never hides body/HP or becomes the only protection cue. Settings, tabs, Deploy and Rally remain clear. No gameplay or UI geometry was retuned for these captures.
 
-Final local gates:
+Original art-pack local gates:
 
 | Gate | Result |
 | --- | --- |
@@ -241,6 +241,10 @@ Unit result: `test_sim_2026-10-17T02-03-17-815Z_pid38393_363ca97e.xcresult`. UI 
 
 Coverage was exported with the existing `xccov` / `tools/xccov-to-lcov.rb` flow. The local patch estimate intersects added executable Swift lines with LCOV; it is not a hosted Codecov status. The existing 90% project/patch targets and CI remain unchanged. Hosted checks are verified on the completed PR after fresh review and the ready-for-review transition. Physical-device validation has not been run.
 
+Review-fix validation (2026-10-17): 380 focused combat/scene/fixture tests passed. The full serial iPhone 17 run passed 1,223 tests with no failures; its two 393×852-specific UI checks skipped on the 402×874 device, then both passed without skips on iPhone 16. SwiftLint `--no-cache` passed with existing warnings, and `git diff --check` passed. Fresh reference captures were inspected for intact/ruined Falconridge and Rally/Guard/Barracks layering; compact/iPad captures and physical-device validation were not rerun.
+
+Review-fix results: `test_sim_2026-10-17T22-36-55-937Z_pid42515_aae6fdd0.xcresult` (full suite) and `test_sim_2026-10-17T22-40-45-508Z_pid42515_63d4dab4.xcresult` (393×852 UI checks and 21 fixture captures), in XcodeBuildMCP's local result-bundle workspace.
+
 ## HPA-477 handoff
 
 Reuse these semantic names, canvases and complete actor trios unchanged. Country-content rollout needs no new image generation, runtime manifest, actor service or migration. Game rules, persistence, economy, rewards, routing and campaign definitions are unchanged.
@@ -252,5 +256,5 @@ Reuse these semantic names, canvases and complete actor trios unchanged. Country
 - Brought the ruined-Falconridge DEBUG fixture forward for first-pair art acceptance. Cost if wrong: remove one capture marker.
 - Corrected the stale return-damage UI expectation to damaged after asserting 36 damage and 10/35 Keep HP. Risk of masking a settlement regression is bounded by those literal model assertions.
 - Raised existing objective overlays above actors and below effects. Layering risk is covered by a depth-order test and native captures.
-- Kept the procedural Guard fallback verbatim using an art-path early return. Node-registration risk is covered by the scene suite; the fallback block was checked byte-for-byte against the base.
+- Removed the procedural Guard fallback after making its complete animation trio mandatory. Node registration belongs solely to the synchronization caller; scene tests cover creation, movement, transient expiry and loss.
 - Performed fresh review before starting hosted CI on the final pack. Cost: hosted checks start later; the PR stays Draft until local gates and review finish.

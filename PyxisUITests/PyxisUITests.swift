@@ -156,30 +156,30 @@ final class PyxisUITests: XCTestCase {
         switch fixture {
         case "battle", "battle-falconridge-ruined":
             return "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
-                + "family=frontier;fortress=intact"
+                + "family=frontier;fortress=intact;captain=deployed;rally=inactive;protected=0"
         case "battle-blocked":
             return "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1;"
                 + "family=frontier;fortress=intact;"
-                + "feedback=Finish the current squad before building."
+                + "feedback=Finish the current squad before building.;captain=deployed;rally=inactive;protected=0"
         case "battle-damaged":
             return "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
-                + "family=frontier;fortress=damaged"
+                + "family=frontier;fortress=damaged;captain=absent;rally=inactive;protected=0"
         case "battle-breached":
             return "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
-                + "family=frontier;fortress=breached"
+                + "family=frontier;fortress=breached;captain=absent;rally=inactive;protected=0"
         case "battle-emberford":
             return "Battle;stage=battleActive;mode=normal;city=1-7;manualLiving=0;"
-                + "family=ember;fortress=intact"
+                + "family=ember;fortress=intact;captain=deployed;rally=inactive;protected=0"
         case "battle-runewatch":
             return "Battle;stage=battleActive;mode=normal;city=1-9;manualLiving=0;"
-                + "family=arcane;fortress=intact"
+                + "family=arcane;fortress=intact;captain=deployed;rally=inactive;protected=0"
         case "battle-crownspire":
             return "Battle;stage=battleActive;mode=normal;city=1-15;manualLiving=0;"
-                + "family=royal;fortress=intact"
+                + "family=royal;fortress=intact;captain=deployed;rally=inactive;protected=0"
         case "return-damage":
             return "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
                 + "family=frontier;fortress=damaged;"
-                + "feedback=Buildings dealt 36 idle damage."
+                + "feedback=Buildings dealt 36 idle damage.;captain=deployed;rally=inactive;protected=0"
         default:
             return ""
         }
@@ -195,10 +195,10 @@ final class PyxisUITests: XCTestCase {
                 + "family=frontier;fortress=intact;captain=deployed;rally=active;protected=1"
         case "battle-guard-animation":
             return "Battle;stage=battleActive;mode=blocked;city=1-5;manualLiving=1;"
-                + "family=frontier;fortress=intact"
+                + "family=frontier;fortress=intact;captain=deployed;rally=inactive;protected=0"
         case "battle-highcrest-wave", "battle-highcrest-shutdown":
             return "Battle;stage=battleActive;mode=normal;city=1-5;manualLiving=0;"
-                + "family=frontier;fortress=intact"
+                + "family=frontier;fortress=intact;captain=deployed;rally=inactive;protected=0"
         default:
             return nil
         }
