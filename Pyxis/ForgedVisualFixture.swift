@@ -5,6 +5,9 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     case battle
     case battleBlocked = "battle-blocked"
     case battleFalconridgeRuined = "battle-falconridge-ruined"
+    case battleCaptainDeployed = "battle-captain-deployed"
+    case battleRallyActive = "battle-rally-active"
+    case battleGuardAnimation = "battle-guard-animation"
     case campEmpty = "camp-empty"
     case campOccupied = "camp-occupied"
     case map
@@ -31,7 +34,8 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             return .camp
         case .map, .mapPartial, .mapCountryComplete:
             return .map
-        case .battle, .battleBlocked, .battleFalconridgeRuined, .conquestLive, .conquestIdle,
+        case .battle, .battleBlocked, .battleFalconridgeRuined,
+             .battleCaptainDeployed, .battleRallyActive, .battleGuardAnimation, .conquestLive, .conquestIdle,
              .battleDamaged, .battleBreached, .battleEmberford, .battleRunewatch,
              .battleCrownspire, .returnDamage,
              .battleHighcrestWave, .battleHighcrestGuardDamaged,
@@ -74,7 +78,8 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         case .battleEmberford:
             return DevJumpState.make(city: 7)
         case .battleHighcrestWave, .battleHighcrestGuardDamaged,
-             .battleHighcrestShutdown, .battleHighcrestFinal:
+             .battleHighcrestShutdown, .battleHighcrestFinal,
+             .battleCaptainDeployed, .battleRallyActive, .battleGuardAnimation:
             return Self.highcrestGuardFixtureState(for: self)
         case .battleRunewatch:
             return DevJumpState.make(city: 9)
@@ -95,14 +100,18 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     /// durable Guards on the Barracks lane, optional Barracks shutdown damage.
     private static func highcrestGuardFixtureState(for fixture: ForgedVisualFixture) -> KingdomGameState {
         switch fixture {
-        case .battleHighcrestWave:
-            return highcrestGuardState(
+        case .battleHighcrestWave, .battleCaptainDeployed, .battleRallyActive, .battleGuardAnimation:
+            var state = highcrestGuardState(
                 guards: [
                     GuardSnapshot(lane: .left, remainingHP: 12),
                     GuardSnapshot(lane: .left, remainingHP: 12)
                 ],
                 reserve: 6
             )
+            if fixture == .battleRallyActive, let captain = state.siegeProgress.captain {
+                state.siegeProgress.selectedLane = captain.lane
+            }
+            return state
         case .battleHighcrestGuardDamaged:
             return highcrestGuardState(
                 guards: [

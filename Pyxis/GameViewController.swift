@@ -459,7 +459,38 @@ extension GameViewController {
            let battle = view.scene as? BattleScene {
             battle.enterForegroundForTesting(at: returnDate)
         }
+        if [.battleCaptainDeployed, .battleRallyActive, .battleGuardAnimation].contains(fixture),
+           let battle = view.scene as? BattleScene {
+            battle.dismissMilestoneArrivalForTesting()
+        }
+        if fixture == .battleRallyActive, let battle = view.scene as? BattleScene,
+           let layout = battle.battleChromeLayoutForTesting {
+            battle.spawnSoldierForTesting()
+            battle.handleTouchForTesting(at: CGPoint(x: layout.rallyHitFrame.midX, y: layout.rallyHitFrame.midY))
+            battle.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        }
+        if fixture == .battleGuardAnimation, let battle = view.scene as? BattleScene {
+            battle.spawnSoldierForTesting()
+            battle.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            // Real SKActions finish on the frozen capture scene; ticks only update the latest pose.
+            let move = SKAction.run { [weak battle] in battle?.advanceCombatSingleStepForTesting(deltaTime: 0.1) }
+            let stop = SKAction.run { [weak battle] in battle?.advanceCombatSingleStepForTesting(deltaTime: 0) }
+            let attack = SKAction.run { [weak battle] in battle?.playGuardAttackFeedbackForTesting() }
+            let hit = SKAction.run { [weak battle] in battle?.playGuardHitFeedbackForTesting() }
+            battle.run(.repeatForever(.sequence([
+                .wait(forDuration: 1.5), attack, .wait(forDuration: 2.5),
+                hit, .wait(forDuration: 1.5), stop, attack, .wait(forDuration: 2.5),
+                hit, .wait(forDuration: 1.5), move
+            ])), withKey: "guardCaptureSequence")
+        }
         view.accessibilityValue = forgedFixtureAccessibilityValue(for: view)
+        if fixture == .battleCaptainDeployed || fixture == .battleRallyActive,
+           let battle = view.scene as? BattleScene {
+            let captain = battle.livingCaptainForTesting == nil ? "absent" : "deployed"
+            let rally = battle.rallyRemainingSecondsForTesting > 0 ? "active" : "inactive"
+            view.accessibilityValue = (view.accessibilityValue ?? "")
+                + ";captain=\(captain);rally=\(rally);protected=\(battle.rallyAccentVisibleSoldierIDsForTesting.count)"
+        }
         return true
     }
 

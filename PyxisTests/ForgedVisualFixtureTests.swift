@@ -18,6 +18,9 @@ struct ForgedVisualFixtureTests {
             ("battle", .battle),
             ("battle-blocked", .battleBlocked),
             ("battle-falconridge-ruined", .battleFalconridgeRuined),
+            ("battle-captain-deployed", .battleCaptainDeployed),
+            ("battle-rally-active", .battleRallyActive),
+            ("battle-guard-animation", .battleGuardAnimation),
             ("camp-empty", .campEmpty),
             ("camp-occupied", .campOccupied),
             ("map", .map),
@@ -91,6 +94,54 @@ struct ForgedVisualFixtureTests {
         let remaining = state.currentSiegeSnapshot.objectiveRemainingPower
         #expect(remaining["falconridge.ridge-gate"] == 0)
         #expect(remaining["falconridge.arrow-tower"] == 0)
+    }
+
+    @Test("DEBUG tactical actor fixtures retain Highcrest and Captain capture preconditions")
+    func tacticalActorFixturesPinPreconditions() throws {
+        for marker in ["battle-captain-deployed", "battle-rally-active", "battle-guard-animation"] {
+            let fixture = try #require(ForgedVisualFixture(launchArguments: [
+                ForgedVisualFixture.launchArgument, marker
+            ]))
+            let state = fixture.makeState()
+            #expect(fixture.preferredTab == .battle)
+            #expect(state.cityNumberInCountry == 5)
+            #expect(state.stageStatus == .battleActive)
+            #expect(state.pendingBattleResult == nil)
+            let captain = try #require(state.siegeProgress.captain)
+            #expect(captain.remainingHP > 0)
+            #expect(!captain.rallyConsumed)
+            #expect(state.siegeProgress.guardReinforcements?.unresolvedGuards.count == 2)
+            if marker == "battle-rally-active" {
+                #expect(state.siegeProgress.selectedLane == captain.lane)
+            }
+        }
+    }
+
+    @Test("DEBUG actor bootstrap exposes the actual Captain, Rally and moving Guard state")
+    func tacticalActorHookStagesLivePresentation() throws {
+        for marker in ["battle-captain-deployed", "battle-rally-active", "battle-guard-animation"] {
+            let store = try makeStore(initialState: KingdomGameState())
+            let controller = GameViewController(store: store)
+            let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+            #expect(controller.installForgedVisualFixtureIfRequested(
+                in: view, arguments: [ForgedVisualFixture.launchArgument, marker]
+            ))
+            let battle = try #require(view.scene as? BattleScene)
+            #expect(battle.livingCaptainForTesting != nil)
+            #expect(!battle.isMilestoneArrivalVisibleForTesting)
+            if marker == "battle-rally-active" {
+                #expect(battle.rallyRemainingSecondsForTesting > 0)
+                #expect(battle.rallyAccentVisibleSoldierIDsForTesting.count == 1)
+                #expect(store.load().siegeProgress.captain?.rallyConsumed == true)
+                #expect(view.accessibilityValue?.contains("captain=deployed;rally=active;protected=1") == true)
+            } else if marker == "battle-captain-deployed" {
+                #expect(battle.rallyRemainingSecondsForTesting == 0)
+                #expect(view.accessibilityValue?.contains("captain=deployed;rally=inactive;protected=0") == true)
+            } else {
+                #expect(battle.firstLivingGuardVisualNodeForTesting?.action(forKey: "guardWalkAction") != nil)
+                #expect(battle.action(forKey: "guardCaptureSequence") != nil)
+            }
+        }
     }
 
     @Test("DEBUG damaged/breached fixtures pin City 1 living-kingdom thresholds")
