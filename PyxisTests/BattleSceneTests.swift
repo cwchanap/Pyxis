@@ -6212,6 +6212,38 @@ struct BattleSceneTests {
         #expect(scene.firstLivingGuardVisualNodeForTesting?.action(forKey: "guardWalkAction") != nil)
     }
 
+    @Test("A redundant Guard sync without movement keeps the walk loop running")
+    func redundantGuardSyncKeepsWalkLoop() throws {
+        // Objective-damage and auto-Rally ticks run `redraw` → a second
+        // `syncGuardNodes` after positions already advanced. That extra sync
+        // sees unchanged progress and must not clear a walk loop the tick
+        // already started; movement is observed per combat tick, not per
+        // sync call. Combat is frozen so only the explicit step moves the
+        // Guard — a racing render-loop tick would legitimately restart the
+        // loop and mask the regression.
+        var state = highcrestState()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ]
+        let scene = makeScene(
+            store: try makeStore(initialState: captainless(state)),
+            launchArguments: [BattleScene.freezeCombatLaunchArgument],
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        let before = try #require(scene.livingGuardsForTesting.first).position
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        #expect(visual.action(forKey: "guardWalkAction") != nil)
+
+        scene.redrawForTesting(shouldLayout: false)
+
+        let visualAfter = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        #expect(visualAfter === visual)
+        #expect(scene.livingGuardsForTesting.first?.position == before)
+        #expect(visualAfter.action(forKey: "guardWalkAction") != nil)
+    }
+
     @Test("Guard attack does not restart and progress sync preserves the transient")
     func guardAttackDoesNotRestartDuringSync() throws {
         let scene = try sceneWithOneGuard()

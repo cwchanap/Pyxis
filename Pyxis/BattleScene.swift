@@ -2198,6 +2198,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // tick hasn't authorized. Building spawn resolution also uses the raw
         // `deltaTime` so production reflects real elapsed time during stalls.
         decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
+
+        // Guard `isMoving` is scoped to one combat tick, not one
+        // `syncGuardNodes` call: a mid-tick `redraw` (objective damage,
+        // auto-Rally) syncs Guards a second time after positions already
+        // advanced, and a per-sync comparison would read equal progress and
+        // kill the walk loop the same tick started. Reopen the movement
+        // observation window once, before positions advance.
+        for id in Array(guardNodes.keys) {
+            guardNodes[id]?.isMoving = false
+        }
         let result = combat.tick(
             deltaTime: deltaTime,
             siege: state.currentSiegeSnapshot,
@@ -2988,7 +2998,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         for guardActor in livingGuards {
             var bundle = guardNodes[guardActor.id] ?? createGuardNode(id: guardActor.id)
-            bundle.isMoving = bundle.lastProgress.map { $0 != guardActor.position } ?? false
+            // Accumulate within the tick: any observed movement keeps the
+            // walk loop alive through further same-tick syncs until
+            // `advanceCombat` reopens the window.
+            bundle.isMoving = bundle.isMoving
+                || (bundle.lastProgress.map { $0 != guardActor.position } ?? false)
             bundle.lastProgress = guardActor.position
             bundle.root.position = point(forLane: guardActor.lane, position: guardActor.position)
             bundle.root.setScale(soldierTargetHeight())
