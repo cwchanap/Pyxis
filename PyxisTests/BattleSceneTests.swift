@@ -1929,7 +1929,19 @@ struct BattleSceneTests {
     }
 
     private var actorAnimationCases: [(prefix: String, type: SoldierType)] {
-        SoldierType.allCases.map { ($0.rawValue, $0) } + [("siege-guard", .infantry)]
+        SoldierType.allCases.map { ($0.rawValue, $0) }
+            + [("siege-guard", .infantry), ("vanguard-captain", .infantry)]
+    }
+
+    @Test("Captain portrait and Rally accent ship transparent 128px art")
+    func captainAndRallyAssetsAreInstalled() throws {
+        for name in ["vanguard-captain-portrait", "rally-protection-accent"] {
+            let image = try #require(UIImage(named: name))
+            let cgImage = try #require(image.cgImage)
+            #expect(cgImage.width == 128 && cgImage.height == 128)
+            #expect(opaquePixelBounds(in: image) != nil)
+            #expect(hasTransparentPixel(in: image))
+        }
     }
 
     @Test("Every authored actor animation trio is complete and uses 128px frames")
@@ -3954,13 +3966,14 @@ struct BattleSceneTests {
         // through the ordinary soldier bundle — the body is the shared
         // makeSoldierNode SKSpriteNode (never a bespoke Captain node), and
         // its HP bar fill is driven by the shared layoutSoldierHPBar sync at
-        // the durable 13/max fraction, not a static bar. No captain
-        // animation frames are authored, so playSoldierAnimation no-ops for
-        // the Captain today; the node-pipeline reuse is the visible half.
+        // the durable 13/max fraction, with the complete Captain trio using
+        // the shared animation path.
         let body = try #require(scene.firstLiveSoldierBodySpriteForTesting)
-        #expect(body.texture != nil || body.color != .clear)
-        #expect(scene.firstLiveSoldierIsAnimatedCanvasForTesting == false)
-        #expect(!scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
+        let texture = try #require(body.texture)
+        let firstWalk = try #require(UIImage(named: "vanguard-captain-walk-01"))
+        #expect(rgbaPixels(in: UIImage(cgImage: texture.cgImage())) == rgbaPixels(in: firstWalk))
+        #expect(scene.firstLiveSoldierIsAnimatedCanvasForTesting == true)
+        #expect(scene.firstLiveSoldierHasActionForTesting("soldierWalkAnimation"))
         let bars = try #require(scene.firstLiveSoldierHPBarPathBoundsForTesting)
         let expected = bars.background.width * CGFloat(13) / CGFloat(VanguardCaptainRules.maxHP(for: 1))
         #expect(abs(bars.fill.width - expected) < 0.01)

@@ -148,6 +148,47 @@ boards = {
 slice_soldier_storyboards(boards, Path("Pyxis/Assets.xcassets"), "siege-guard", 128)
 ```
 
+### Vanguard Captain — identity / walk
+
+```text
+Use case: stylized-concept.
+Asset type: 5-column by 2-row square-cell ten-pose sprite storyboard for an iOS anime tactical siege game, intended to slice into 128x128 frames.
+Create the original allied VANGUARD CAPTAIN identity and WALK cycle. A chibi heroic young adult woman commander with swept silver-white bob hair, a small cobalt-and-gold wing-shaped hair clasp, expressive determined face, polished steel plate armor with restrained gold trim, cobalt blue short cape, ivory cloth skirt panels, brown boots, a compact straight broadsword held close upward at her right shoulder, and a compact blue-and-gold round buckler. No helmet plume; visibly distinct from ordinary blue-plumed infantry and a faceless red enemy Guard.
+Style: polished hand-painted anime mobile game sprite, crisp dark outlines, broad readable cel-painted values, slightly isometric front three-quarter view facing upper-right (advancing toward the top-right of screen), soft warm light from upper-left, no cast shadow. Keep sword compact and nearly vertical during walk so complete width including equipment is roughly 85% of full body height.
+Layout: exactly 5 columns x 2 rows of equal SQUARE cells, left-to-right top-to-bottom. Entire image ratio 5:2. Each character fits entirely in its own cell with 10% clean empty gutter on ALL edges, same body/head size and same planted foot baseline. Occupy only about 70% of each cell's height. Flat exact opaque pure RGB(0,255,0) #00FF00 chroma green everywhere outside each figure, no gradients, shadows, grid lines, labels or effects. No green on the character.
+Walk poses 1 through 10 form a subtle distinct walking cycle: ready neutral, left step start, left stride, passing, right step start, right stride, passing, left recovery, small settling step, a second neutral ready pose with tiny cape/arm difference. Preserve equipment, hair and proportions in all ten poses. The neutral first and last must have the same torso/head height and center. Keep boots grounded; every adjacent pose visibly differs. No text, scenery, magical glow, circle, trail, duplicate figure in a cell or cropped weapons.
+```
+
+### Vanguard Captain — attack
+
+```text
+Use case: identity-preserve. Edit target: the provided ten-pose Vanguard Captain storyboard. Preserve the exact silver-white bob hair, blue-and-gold wing hair clasp, face, polished steel/gold armor, cobalt cape, ivory cloth, brown boots, straight broadsword and blue/gold round buckler. Keep the same camera, light, crisp anime painting and proportions. Exactly 5 columns by 2 rows of square cells on flat opaque pure RGB(0,255,0) #00FF00 chroma green with no shadow, lines, labels or effects. Entire figure and equipment fit every cell with 10% empty gutters, feet on one common baseline, same body/head size. First and tenth poses are the reference's neutral ready stance; keep torso/head core height and center stable across those bookends. Every adjacent pose differs. Change only motion to a ten-pose sword ATTACK cycle: 1 neutral, 2-3 wind up compactly, 4-6 forward diagonal sword cut, 7-9 recover, 10 neutral. A clear physical strike with shield retained close, no giant reach, no VFX, arc, glow, attacker, damage number, blood or new equipment. No green on the character.
+```
+
+### Vanguard Captain — hit
+
+```text
+Use case: identity-preserve. Edit target: the provided ten-pose Vanguard Captain storyboard. Preserve the exact silver-white bob hair, blue-and-gold wing hair clasp, face, polished steel/gold armor, cobalt cape, ivory cloth, brown boots, straight broadsword and blue/gold round buckler. Keep the same camera, light, crisp anime painting and proportions. Exactly 5 columns by 2 rows of square cells on flat opaque pure RGB(0,255,0) #00FF00 chroma green with no shadow, lines, labels or effects. Entire figure and equipment fit every cell with 10% empty gutters, feet on one common baseline, same body/head size. First and tenth poses are the reference's neutral ready stance; keep torso/head core height and center stable across those bookends. Every adjacent pose differs. Change only motion to a ten-pose HIT REACTION: 1 neutral, 2-3 brace behind buckler, 4-6 restrained backward flinch with knees bent, 7-9 recover, 10 neutral. Planted boots and consistent body size, no fall, death, attacker, impact VFX, damage number, blood, glow or new equipment. No green on the character.
+```
+
+### Vanguard Captain — portrait
+
+```text
+Use case: identity-preserve. Input image is the identity reference for the original Vanguard Captain. Create one square HUD PORTRAIT of this exact silver-white bob-haired young woman commander: same blue/gold wing hair clasp, blue eyes, determined friendly face, steel and gold-trim shoulder armor, cobalt cape at the neck. Chest-up three-quarter view, face large and centered, looking toward upper-right. Polished hand-painted anime mobile game style, crisp dark outlines, warm upper-left light. Actual transparent background. Clean cutout silhouette inside all edges with a small margin, no frame, circle, badge, text, weapon covering face, background scene, glow, alternate costume or new character.
+```
+
+### Rally protection accent
+
+```text
+Use case: stylized-concept. Asset type: one 128x128 transparent sprite accent for the Rally protection buff in a hand-painted anime tactical siege game. Create a restrained cool cyan-blue and pale-gold protective shimmer concentrated at the bottom-center feet of a small allied soldier. Two short curved luminous wisps rising only slightly at the sides, with a tiny simple shield-shaped glint at the center near the ground. Most of the square canvas is empty transparent space above; the effect occupies the bottom 30 percent and middle 70 percent width. Soft feathered translucent edges, gentle glow, crisp small core accents, readable over warm brown battlefield. Truly transparent background. No character, weapon, landscape, cast shadow, full enclosing bubble, full ring or circular AoE radius, timer, number, text, bar, frame, icon button, starburst or bright full-body aura. It should sit beneath an ordinary soldier without hiding body or HP; protection is a subtle supporting accent, not invulnerability.
+```
+
+### Captain and Rally preparation
+
+Captain sources: walk/identity `exec-b331fbf0-d1ae-4c79-97ff-f80cfa51b301.png`, attack `exec-ca6ef942-c285-4988-bef3-480aa7e61a51.png`, hit `exec-82a85bff-7fbc-456b-86c8-4ed5dca1bd05.png`, portrait `exec-bb66019f-a2fb-4a34-9a85-4c189905d909.png`. The three edits reference the original walk identity. Use the Guard chroma correction/composition workflow with uniform action height **356 px** before slicing. Retain the largest connected alpha silhouette in each cell to discard isolated fragments from neighboring generated poses. Use the two distinct walk neutral bookends for the other actions. The final walk union is 80×94 px with 8 px foot margin. All three boards pass `prepare_soldier_storyboards` together before atomic installation using prefix `vanguard-captain`.
+
+Portrait: preserve the generated transparent canvas and downsample to 128×128 with LANCZOS. Rally source `exec-0c4ca9b7-f9b8-4fbe-9287-e49c92f35980.png`: preserve its lower-canvas placement and alpha, downsample to 128×128. Both use `write_contents_json`. No background removal, independent width stretching, alternate actor skin or duplicated resting image is installed.
+
 ## Acceptance
 
 Structure stage: all six image sets are installed. Tower and Gate intact/ruined pairs were reviewed in native 393×852 Falconridge captures; Gate coverage also passes intact/ruined tests across all seven non-empty lane subsets. Barracks intact/shutdown captures use the existing Highcrest fixtures; repeat combined readability review after replacing the procedural Guards and at compact/iPad sizes in Task 4.
@@ -156,4 +197,6 @@ Task 1 validation: 277 BattleScene/fixture tests passed serially; the reference 
 
 Guard stage: the complete 30-frame trio passes the unchanged slicer and all 262 BattleScene tests, including infantry geometry, walking, transient priority/no-restart, and objective-overlay depth. Existing objective HP/count overlays now draw above actors and below effects so the art cannot hide them. Native 393×852 acceptance uses the Highcrest wave fixture. SwiftLint passed with no new changed-file diagnostics.
 
-Captain installation, final combined captures, full unit/UI suites, Release build, and coverage remain pending.
+Captain stage: all 32 Captain/Rally image sets are installed. The shared actor inventory/bounds checks, Captain runtime integration and HUD suites pass **309/309** serially, including the updated production-art expectation in the former Captain fallback test. No shipping Swift changes were needed for these assets.
+
+Final combined captures, full unit/UI suites, Release build, and coverage remain pending.
