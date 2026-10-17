@@ -189,6 +189,25 @@ Captain sources: walk/identity `exec-b331fbf0-d1ae-4c79-97ff-f80cfa51b301.png`, 
 
 Portrait: preserve the generated transparent canvas and downsample to 128×128 with LANCZOS. Rally source `exec-0c4ca9b7-f9b8-4fbe-9287-e49c92f35980.png`: preserve its lower-canvas placement and alpha, downsample to 128×128. Both use `write_contents_json`. No background removal, independent width stretching, alternate actor skin or duplicated resting image is installed.
 
+## Reproducing captures
+
+Launch a DEBUG simulator build with `-pyxis-forged-fixture <marker> -pyxis-freeze-combat`:
+
+| Marker | Checkpoint |
+| --- | --- |
+| `battle` / `battle-falconridge-ruined` | Falconridge Gate/Tower intact and ruined |
+| `battle-highcrest-wave` / `battle-highcrest-shutdown` | Barracks count/HP and disabled silhouette |
+| `battle-captain-deployed` | Captain body and matching HUD portrait beside enemy Guards |
+| `battle-rally-active` | Actual Rally protection on an ordinary soldier; Captain is excluded |
+| `battle-guard-animation` | Repeating walk/attack/hit with real action completion and moving/still resumption |
+| `conquest-live` / `conquest-idle` | Required report content remains unobstructed |
+
+The three actor fixtures reuse Highcrest and dismiss its decorative arrival card through the existing DEBUG seam. Captain deployment uses the existing persisted restore path. Rally is activated through the existing HUD touch command after a same-lane ordinary soldier is deployed. No transient roster or protection timer is persisted.
+
+The Guard animation fixture freezes continuous combat while real SpriteKit actions run. It stages one ordinary soldier, then alternates existing attack/hit feedback commands and small/zero model ticks to select the latest moving/still pose. This is presentation playback evidence, not a new combat timing mode. The normal combat/persistence suites remain authoritative for damage and events.
+
+Local sources, contact sheets, native captures and video stay under ignored `docs/visual-parity/hpa-476/`. No separate Reduce Motion branch exists for these actors; static captures check meaning without claiming animation is disabled.
+
 ## Acceptance
 
 Structure stage: all six image sets are installed. Tower and Gate intact/ruined pairs were reviewed in native 393×852 Falconridge captures; Gate coverage also passes intact/ruined tests across all seven non-empty lane subsets. Barracks intact/shutdown captures use the existing Highcrest fixtures; repeat combined readability review after replacing the procedural Guards and at compact/iPad sizes in Task 4.
@@ -199,4 +218,15 @@ Guard stage: the complete 30-frame trio passes the unchanged slicer and all 262 
 
 Captain stage: all 32 Captain/Rally image sets are installed. The shared actor inventory/bounds checks, Captain runtime integration and HUD suites pass **309/309** serially, including the updated production-art expectation in the former Captain fallback test. No shipping Swift changes were needed for these assets.
 
-Final combined captures, full unit/UI suites, Release build, and coverage remain pending.
+Visual acceptance completed on iOS 26.5 Simulator:
+
+| Layout | Evidence | Result |
+| --- | --- | --- |
+| Reference phone, 393×852 | 21-state XCTest capture matrix; `captures/reference-review.png` | Gate/Tower pairs, Barracks/Guard, Captain portrait, Rally and reports readable |
+| Compact phone, 375×667 | `captures/compact-*.png` (750×1334 native) | Same combined states; controls, selected lane and objective overlays unobstructed |
+| Portrait iPad, 834×1210 | `captures/ipad-*.png` (1668×2420 native) | Same combined states; structures retain scale/ground line and reports remain clear |
+| Guard playback | `captures/guard-playback-393x852.mp4` (19.25 s), sampled contact sheet | Walk/attack/hit play and finish; moving and still resumption both observed |
+
+Static meaning survives in the regular captures: broken masonry and limp pennants distinguish ruins, `SHUT DOWN` remains readable without a Barracks HP bar, the faceless crimson Guard contrasts with allied actors, the silver-haired Captain matches the HUD portrait, and the existing `ASSAULT` marker still identifies the lane. The restrained Rally shimmer sits behind ordinary soldiers and never hides body/HP or becomes the only protection cue. Settings, tabs, Deploy and Rally remain clear. No gameplay or UI geometry was retuned for these captures.
+
+The full reference UI suite passed 5/5 with no skips, including the expanded 21-state semantic smoke. Full unit coverage, final builds, hosted checks and whole-branch review remain pending. Physical-device validation has not been run.
