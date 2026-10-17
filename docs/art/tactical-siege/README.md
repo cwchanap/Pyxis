@@ -79,6 +79,38 @@ Create the RUINED / shut-down version of exactly this building. Preserve the sam
 Maintain the warm painted anime tactical-fantasy style, and make disabled reinforcement production obvious at about 45x68 points without using text. Genuine transparent alpha around the ruin and through empty areas; absolutely no background haze, scenery, ground plane, shadow slab, fire, smoke, particles, glow, living characters, UI, HP bars, border or watermark.
 ```
 
+### Guard — original walk identity board
+
+```text
+Use case: stylized-concept.
+Asset type: Pyxis enemy Guard WALK animation SOURCE STORYBOARD, not a finished UI image.
+Create exactly TEN full-body poses of ONE consistent original chibi anime enemy shield Guard, in a precise 5-column by 2-row grid of square cells, read left-to-right top row then bottom row. Wide canvas aspect 5:2, ideally 2560x1024 with ten 512x512 cells. No cell lines, labels, numbers, words or borders. The ENTIRE background is flat pure chroma green RGB(0,255,0), hex #00FF00, with no gradients, shadows, glow or texture.
+Character identity in every cell: broad closed charcoal-steel helmet with a low crimson crest stripe (no tall plume or horns), narrow dark visor and small amber eye slit; warm grey plated armor; crimson shoulder cloth; a broad angular dark-red kite shield with one simple gold chevron; short steel sword held low; dark brown boots. Strong heavy enemy silhouette, shield leading toward lower-left/viewer's side. Front three-quarter view facing lower-left toward the player's castle, same fixed camera in all frames. Painted anime game-sprite treatment, dark crisp outline, warm upper-left lighting, readable like a small blue-plumed chibi allied infantry sprite but clearly a different enemy design. No green on the character.
+Each cell has exactly one Guard, same scale, same head/helmet/outfit/weapon. Body and equipment fit an approximately 300px-wide by 360px-tall silhouette centered at x=256; feet on y=472 in each 512px cell. Leave every outer 8% of each cell pure green with NOTHING touching those reserved gutters. Keep the entire sword, shield and crest inside the same compact bounds. These poses will reduce to 128x128 and must read at 54–70pt body height.
+Motion: a complete smooth ten-pose walk cycle. Pose 1 is a neutral ready stance; poses 2–9 alternate small forward/back foot steps with subtle torso and shield sway, no camera travel or size change; pose 10 returns to the same neutral ready stance. Feet always stay on the same baseline; no floating, jumping, motion smear, trails, hit effects, duplicate adjacent poses, scenery or props. Keep both neutral bookends at identical body height and scale.
+```
+
+### Guard — selected walk blade correction
+
+```text
+Use case: precise-object-edit. Make ONE SMALL correction to this original Pyxis Guard ten-pose WALK storyboard.
+Keep the helmet, head, torso, boots, crimson cloth, and especially the ORIGINAL broad red kite shield EXACTLY the same size, angle and position in every corresponding pose. Do NOT turn the shield edge-on, narrow the shield, move the shield inward, change the body width, or tuck the sword elbow inward.
+Change ONLY the short sword blade's angle at the existing grip: point it more down than out, approximately 65 degrees below horizontal, so its tip ends near the outside of the right boot instead of far to the right. Keep the sword's length, thickness and handle size. This should make the total silhouette moderately narrower, about 80–85% of helmet-to-boot height, while retaining the original heavy shield silhouette. Do not squash or stretch any art.
+Preserve the ten distinct walk poses, 5-column by 2-row square-cell grid, wide 5:2 canvas, fixed camera and warm upper-left light. Use a uniform pure #00FF00 chroma-green background with no shadows, gradients, labels, numbers, cell lines or effects. Keep matching neutral bookends in cells 1 and 10.
+```
+
+### Guard — attack board
+
+```text
+Use case: precise-object-edit. Edit target: the provided ten-pose Pyxis enemy Guard storyboard. Preserve the exact character identity, charcoal helmet with crimson stripe, dark steel armor, crimson cloth, red kite shield with gold chevron, short sword, camera, light direction, scale and 5-column by 2-row square-cell layout. Keep a flat pure #00FF00 RGB(0,255,0) chroma-green background everywhere outside the character, with no gradients, shadow, cell lines, text or effects. Give every cell a clean empty 8% gutter on every edge. Keep feet on one common baseline and keep the entire shield/sword silhouette compact inside its cell. Poses 1 and 10 must be the same neutral ready stance as pose 1 in the reference. Do not enlarge the head or change equipment between cells. Change only the motion to a ten-pose short-sword ATTACK sequence facing lower-left toward the player's castle. Poses 2–3 wind up the sword beside the waist while the shield stays forward; poses 4–6 execute a strong low forward thrust/slash, never raising the blade above the helmet; poses 7–9 recover. Show ten distinct adjacent poses and a clear strike in the middle. No blood, blade trails, sparks or impact graphics. The whole character stays the same body scale with only small foot/torso articulation.
+```
+
+### Guard — hit board
+
+```text
+Use case: precise-object-edit. Edit target: the provided ten-pose Pyxis enemy Guard storyboard. Preserve the exact character identity, charcoal helmet with crimson stripe, dark steel armor, crimson cloth, red kite shield with gold chevron, short sword, camera, light direction, scale and 5-column by 2-row square-cell layout. Keep a flat pure #00FF00 RGB(0,255,0) chroma-green background everywhere outside the character, with no gradients, shadow, cell lines, text or effects. Give every cell a clean empty 8% gutter on every edge. Keep feet on one common baseline and keep the entire shield/sword silhouette compact inside its cell. Poses 1 and 10 must be the same neutral ready stance as pose 1 in the reference. Do not enlarge the head or change equipment between cells. Change only the motion to a ten-pose HIT REACTION sequence. Poses 2–3 brace behind the shield; poses 4–6 recoil slightly back with bent knees and shield jolting toward the torso; poses 7–9 recover; pose 10 returns to neutral. Preserve planted foot baseline and consistent helmet/body size; a readable restrained flinch rather than a fall or death. Show distinct adjacent poses. No attacker, blood, damage numbers, flashes, stars, sparks or impact graphics.
+```
+
 ### Static preparation
 
 Tower sources: `exec-d6a7f3bd-3cf1-412c-982b-3f0f41052820.png` (intact) and `exec-9a686ec6-2f41-433f-a1cf-4bdefd8e2fa1.png` (ruined), generated by the built-in tool. Both source canvases are 935×1683. Trim transparent bounds, apply one shared LANCZOS scale of `min(304 / maxPairOpaqueWidth, 560 / maxPairOpaqueHeight)`, center each variant horizontally on 320×576, and place its visible base at y=568 (8 px bottom margin). The shared scale preserves masonry size between variants; the ruined art is never enlarged to fill the intact height. Preserve alpha and write the imageset metadata with `write_contents_json`.
@@ -89,10 +121,39 @@ Barracks sources: `exec-b9ca356e-dc64-418f-93d1-00eaeb99c956.png` (intact) and `
 
 Accepted source copies are kept locally under ignored `docs/visual-parity/hpa-476/sources/<asset>-source.png`; native evidence is under its `captures/` sibling. Generator originals are left in the tool's default output directory.
 
+### Guard storyboard preparation
+
+Selected raw sources: walk `exec-48a2f265-672b-4609-b87c-4ebf85f49112.png`, attack `exec-07a9448c-1af2-4552-ba01-b7ef3f2f090e.png`, hit `exec-bafe8b71-347b-4bab-9d51-7831b5841a9a.png`. Attack/hit and the selected walk correction reference the original identity board `exec-d02dff7d-736c-46a6-adfd-5d122e86d683.png`. The broad shield stays unchanged; the selected walk edit only brings the sword closer to the boot.
+
+Manual source composition, before running the unchanged slicer:
+
+1. Pad the 1983×793 raw sheets to 1985×794 with the default green key so the existing `storyboard_cells` helper extracts ten square cells.
+2. Correct uneven generated background green: pixels with `g > 140`, `g > r + 60`, and `g > b + 60` are background. Guard materials intentionally contain no green. Crop each resulting alpha silhouette, preserving its colors and pose.
+3. Apply one uniform scale per action, `348 / max(croppedPoseHeights)`; do not stretch width independently. Center the lower 5% silhouette bounds at x=256 in a 512×512 cell, clamp the left placement between 42 and `470 - resizedWidth`, and place the visible base at y=471. Recompose on exact RGBA `(0,255,0,255)`; reserved gutters remain empty.
+4. Reuse the selected walk's two distinct authored neutral bookends as attack/hit bookends. Keep both walk bookends; they pass the existing neutral core tests and remain distinct across the loop boundary.
+5. Assemble approved 2560×1024 sheets and run the existing complete-trio helper atomically. No slicer threshold or CLI allow-list is changed.
+
+Final approved sheets are local `sources/siege-guard-{walk,attack,hit}-storyboard.png` under the ignored visual-parity directory. Walk alpha union is `(25,28,107,120)`: 82×92 px with an 8 px foot margin, within the shared infantry contract's ±2 px tolerance. All 30 output frames are 128×128.
+
+```python
+from pathlib import Path
+from PIL import Image
+from tools.slice_soldier_animation_strips import slice_soldier_storyboards
+
+source = Path("docs/visual-parity/hpa-476/sources")
+boards = {
+    action: Image.open(source / f"siege-guard-{action}-storyboard.png")
+    for action in ("walk", "attack", "hit")
+}
+slice_soldier_storyboards(boards, Path("Pyxis/Assets.xcassets"), "siege-guard", 128)
+```
+
 ## Acceptance
 
 Structure stage: all six image sets are installed. Tower and Gate intact/ruined pairs were reviewed in native 393×852 Falconridge captures; Gate coverage also passes intact/ruined tests across all seven non-empty lane subsets. Barracks intact/shutdown captures use the existing Highcrest fixtures; repeat combined readability review after replacing the procedural Guards and at compact/iPad sizes in Task 4.
 
 Task 1 validation: 277 BattleScene/fixture tests passed serially; the reference UI capture smoke passed all 16 fixture states; the generic simulator build passed; lint passed with existing unrelated warnings and no warnings/errors in changed Swift files. The stale `return-damage` UI expectation was corrected from intact to damaged after pinning its 36 damage and 10/35 remaining Keep HP in the fixture test.
 
-Guard/Captain production, final combined captures, full unit/UI suites, Release build, and coverage remain pending.
+Guard stage: the complete 30-frame trio passes the unchanged slicer and all 262 BattleScene tests, including infantry geometry, walking, transient priority/no-restart, and objective-overlay depth. Existing objective HP/count overlays now draw above actors and below effects so the art cannot hide them. Native 393×852 acceptance uses the Highcrest wave fixture. SwiftLint passed with no new changed-file diagnostics.
+
+Captain installation, final combined captures, full unit/UI suites, Release build, and coverage remain pending.
