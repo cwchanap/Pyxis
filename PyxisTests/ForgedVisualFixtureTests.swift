@@ -138,10 +138,26 @@ struct ForgedVisualFixtureTests {
                 #expect(battle.rallyRemainingSecondsForTesting == 0)
                 #expect(view.accessibilityValue?.contains("captain=deployed;rally=inactive;protected=0") == true)
             } else {
-                #expect(battle.firstLivingGuardVisualNodeForTesting?.action(forKey: "guardWalkAction") != nil)
+                #expect(battle.firstLivingGuardVisualNodeForTesting?.action(forKey: "soldierWalkAnimation") != nil)
                 #expect(battle.action(forKey: "guardCaptureSequence") != nil)
             }
         }
+    }
+
+    @Test("DEBUG Captain fixture semantics survive normal scene routing")
+    func tacticalActorSemanticsSurviveSceneRouting() throws {
+        let store = try makeStore(initialState: KingdomGameState())
+        let controller = GameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        #expect(controller.installForgedVisualFixtureIfRequested(
+            in: view, arguments: [ForgedVisualFixture.launchArgument, "battle-captain-deployed"]
+        ))
+        let battle = try #require(view.scene as? BattleScene)
+        battle.requestGameplayTabForTesting(.camp)
+        let camp = try #require(view.scene as? BuildingViewScene)
+        camp.requestGameplayTabForTesting(.battle)
+        #expect(view.accessibilityValue?.hasSuffix(";captain=deployed;rally=inactive;protected=0") == true)
     }
 
     @Test("DEBUG damaged/breached fixtures pin City 1 living-kingdom thresholds")
@@ -325,7 +341,7 @@ struct ForgedVisualFixtureTests {
         #expect(
             view.accessibilityValue ==
                 "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
-                + "family=frontier;fortress=intact"
+                + "family=frontier;fortress=intact;captain=deployed;rally=inactive;protected=0"
         )
     }
 
@@ -335,27 +351,27 @@ struct ForgedVisualFixtureTests {
             (
                 .battleDamaged,
                 "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
-                    + "family=frontier;fortress=damaged"
+                    + "family=frontier;fortress=damaged;captain=absent;rally=inactive;protected=0"
             ),
             (
                 .battleBreached,
                 "Battle;stage=battleActive;mode=normal;city=1-1;manualLiving=0;"
-                    + "family=frontier;fortress=breached"
+                    + "family=frontier;fortress=breached;captain=absent;rally=inactive;protected=0"
             ),
             (
                 .battleEmberford,
                 "Battle;stage=battleActive;mode=normal;city=1-7;manualLiving=0;"
-                    + "family=ember;fortress=intact"
+                    + "family=ember;fortress=intact;captain=deployed;rally=inactive;protected=0"
             ),
             (
                 .battleRunewatch,
                 "Battle;stage=battleActive;mode=normal;city=1-9;manualLiving=0;"
-                    + "family=arcane;fortress=intact"
+                    + "family=arcane;fortress=intact;captain=deployed;rally=inactive;protected=0"
             ),
             (
                 .battleCrownspire,
                 "Battle;stage=battleActive;mode=normal;city=1-15;manualLiving=0;"
-                    + "family=royal;fortress=intact"
+                    + "family=royal;fortress=intact;captain=deployed;rally=inactive;protected=0"
             )
         ]
 
@@ -402,7 +418,7 @@ struct ForgedVisualFixtureTests {
             view.accessibilityValue ==
                 "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
                 + "family=frontier;fortress=damaged;"
-                + "feedback=Buildings dealt 36 idle damage."
+                + "feedback=Buildings dealt 36 idle damage.;captain=deployed;rally=inactive;protected=0"
         )
     }
 
@@ -470,7 +486,7 @@ struct ForgedVisualFixtureTests {
             view.accessibilityValue ==
                 "Battle;stage=battleActive;mode=blocked;city=1-3;manualLiving=1;"
                 + "family=frontier;fortress=intact;"
-                + "feedback=Finish the current squad before building."
+                + "feedback=Finish the current squad before building.;captain=deployed;rally=inactive;protected=0"
         )
     }
 
@@ -606,7 +622,7 @@ struct ForgedVisualFixtureTests {
         let battle = try #require(view.scene as? BattleScene)
         #expect(view.accessibilityValue ==
             "Battle;stage=battleActive;mode=normal;city=1-5;manualLiving=0;"
-                + "family=frontier;fortress=intact")
+                + "family=frontier;fortress=intact;captain=deployed;rally=inactive;protected=0")
         #expect(battle.guardNodeCountForTesting == 2)
         let waveLabel = try #require(
             battle.siegeObjectiveNodeForTesting(.barracks)?.childNode(

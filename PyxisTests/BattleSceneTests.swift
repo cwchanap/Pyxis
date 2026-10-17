@@ -1945,14 +1945,16 @@ struct BattleSceneTests {
     }
 
     @Test("Every authored actor animation trio is complete and uses 128px frames")
-    func allSoldierAnimationFramesAreInstalled() throws {
+    func allSoldierAnimationFramesAreInstalled() {
         for actor in actorAnimationCases {
             var frameCount = 0
             for action in SoldierAnimationAction.allCases {
                 for index in 1...SoldierAnimationTiming.frameCount {
                     let name = "\(actor.prefix)-\(action.rawValue)-\(String(format: "%02d", index))"
-                    let image = try #require(UIImage(named: name), "Missing actor animation frame: \(name)")
-                    let cgImage = try #require(image.cgImage)
+                    guard let image = UIImage(named: name), let cgImage = image.cgImage else {
+                        Issue.record("Missing actor animation frame: \(name)")
+                        continue
+                    }
                     #expect(cgImage.width == 128 && cgImage.height == 128, "\(name)")
                     frameCount += 1
                 }
@@ -5585,8 +5587,42 @@ struct BattleSceneTests {
                 #expect(abs(union.minX + node.position.x - (centers[0] - laneWidth / 2)) < laneWidth * 0.05)
                 #expect(abs(union.maxX + node.position.x - (centers[centers.count - 1] + laneWidth / 2))
                         < laneWidth * 0.05)
-                #expect(node.children.filter { $0.name == "siegeRuin" }.count == (remaining == 0 ? 1 : 0))
-                #expect(node.children.filter { $0.name == "siegeHPFill" }.count == (remaining > 0 ? 1 : 0))
+                let feedback = node.children.filter {
+                    $0.name == (remaining == 0 ? "siegeRuin" : "siegeHPBackground")
+                }.sorted { $0.frame.midX < $1.frame.midX }
+                #expect(feedback.count == lanes.count)
+                for (marker, center) in zip(feedback, centers) {
+                    #expect(abs(marker.frame.midX + node.position.x - center) < 0.5)
+                }
+                #expect(node.children.filter { $0.name == "siegeHPFill" }.count == (remaining > 0 ? lanes.count : 0))
+            }
+        }
+    }
+
+    @Test("Unchanged siege redraws retain objective nodes and resizes reuse their textures")
+    func siegeRedrawReusesNodesAndTextures() throws {
+        let scene = makeScene(store: try makeStore(initialState: falconridgeState()))
+        let tower = try #require(scene.siegeObjectiveNodeForTesting(.arrowTower))
+        let texture = try #require((tower.childNode(withName: "siegeStructure") as? SKSpriteNode)?.texture)
+        scene.redrawForTesting(shouldLayout: false)
+        #expect(scene.siegeObjectiveNodeForTesting(.arrowTower) === tower)
+        scene.size = CGSize(width: 393, height: 852)
+        scene.redrawForTesting(shouldLayout: true)
+        let resized = try #require(scene.siegeObjectiveNodeForTesting(.arrowTower))
+        #expect(resized !== tower)
+        #expect((resized.childNode(withName: "siegeStructure") as? SKSpriteNode)?.texture === texture)
+    }
+
+    @Test("Ruin markers draw above their ruined structure art")
+    func ruinMarkersDrawAboveStructureArt() throws {
+        for state in [falconridgeState(supportDamage: [.gate: 11, .arrowTower: 46]),
+                      highcrestState(supportDamage: [.barracks: 20])] {
+            let scene = makeScene(store: try makeStore(initialState: state))
+            for kind in [CitySiegeLayout.ObjectiveKind.gate, .arrowTower, .barracks] {
+                guard let objective = scene.siegeObjectiveNodeForTesting(kind) else { continue }
+                let structure = try #require(objective.childNode(withName: "siegeStructure"))
+                let ruin = try #require(objective.childNode(withName: "siegeRuin"))
+                #expect(ruin.zPosition > structure.zPosition)
             }
         }
     }
@@ -6181,7 +6217,7 @@ struct BattleSceneTests {
         #expect(abs(body.size.height * root.yScale - 63.9 * 128 / 94) < 0.01)
         #expect(body.anchorPoint == CGPoint(x: 0.5, y: 0))
         #expect(abs(body.position.y * root.yScale + 63.9 * 8 / 94) < 0.01)
-        #expect(visual.action(forKey: "guardWalkAction") == nil)
+        #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
     }
 
     @Test("Guard art leaves Barracks count and objective HP overlays in front")
@@ -6193,11 +6229,15 @@ struct BattleSceneTests {
         let status = try #require(barracks.childNode(withName: "siegeBarracksStatus"))
         let background = try #require(barracks.childNode(withName: "siegeHPBackground"))
         let fill = try #require(barracks.childNode(withName: "siegeHPFill"))
+        scene.spawnSoldierForTesting()
+        let soldier = try #require(firstNode(named: "normal-soldier", in: scene))
+        let soldierHP = try #require(soldier.children.first { $0.zPosition == 3 })
         func stackingZ(_ node: SKNode) -> CGFloat {
             sequence(first: node, next: { $0.parent }).reduce(0) { $0 + $1.zPosition }
         }
         #expect(stackingZ(status) > stackingZ(body))
         #expect(stackingZ(background) > stackingZ(body))
+        #expect(stackingZ(background) > stackingZ(soldierHP))
         #expect(stackingZ(fill) > stackingZ(background))
     }
 
@@ -6209,7 +6249,7 @@ struct BattleSceneTests {
         scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
         let after = try #require(scene.livingGuardsForTesting.first).position
         #expect(after < before)
-        #expect(scene.firstLivingGuardVisualNodeForTesting?.action(forKey: "guardWalkAction") != nil)
+        #expect(scene.firstLivingGuardVisualNodeForTesting?.action(forKey: "soldierWalkAnimation") != nil)
     }
 
     @Test("A redundant Guard sync without movement keeps the walk loop running")
@@ -6234,14 +6274,14 @@ struct BattleSceneTests {
         scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
         let before = try #require(scene.livingGuardsForTesting.first).position
         let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
-        #expect(visual.action(forKey: "guardWalkAction") != nil)
+        #expect(visual.action(forKey: "soldierWalkAnimation") != nil)
 
         scene.redrawForTesting(shouldLayout: false)
 
         let visualAfter = try #require(scene.firstLivingGuardVisualNodeForTesting)
         #expect(visualAfter === visual)
         #expect(scene.livingGuardsForTesting.first?.position == before)
-        #expect(visualAfter.action(forKey: "guardWalkAction") != nil)
+        #expect(visualAfter.action(forKey: "soldierWalkAnimation") != nil)
     }
 
     @Test("Guard attack does not restart and progress sync preserves the transient")
@@ -6249,38 +6289,58 @@ struct BattleSceneTests {
         let scene = try sceneWithOneGuard()
         let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
         scene.playGuardAttackFeedbackForTesting()
-        let attack = try #require(visual.action(forKey: "guardAttackAction"))
+        let attack = try #require(visual.action(forKey: "soldierAttackAnimation"))
         let body = try #require(visual.childNode(withName: "guardBody") as? SKSpriteNode)
         let texture = try #require(body.texture)
         let firstAttack = try #require(UIImage(named: "siege-guard-attack-01"))
         #expect(rgbaPixels(in: UIImage(cgImage: texture.cgImage())) == rgbaPixels(in: firstAttack))
         scene.playGuardAttackFeedbackForTesting()
-        #expect(visual.action(forKey: "guardAttackAction") === attack)
+        #expect(visual.action(forKey: "soldierAttackAnimation") === attack)
         scene.spawnSoldierForTesting()
         scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
-        #expect(visual.action(forKey: "guardAttackAction") === attack)
-        #expect(visual.action(forKey: "guardWalkAction") == nil)
+        #expect(visual.action(forKey: "soldierAttackAnimation") === attack)
+        #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
     }
 
-    @Test("Guard hit preempts attack and repeated hits or attacks preserve that reaction")
+    @Test("Guard hit preempts attack and the next attack can replace the shorter hit reaction")
     func guardHitPreemptsAttackWithoutRestart() throws {
         let scene = try sceneWithOneGuard()
         let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
         scene.playGuardAttackFeedbackForTesting()
         scene.playGuardHitFeedbackForTesting()
-        let hit = try #require(visual.action(forKey: "guardHitAction"))
+        _ = try #require(visual.action(forKey: "soldierHitAnimation"))
         let body = try #require(visual.childNode(withName: "guardBody") as? SKSpriteNode)
         let texture = try #require(body.texture)
         let firstHit = try #require(UIImage(named: "siege-guard-hit-01"))
         #expect(rgbaPixels(in: UIImage(cgImage: texture.cgImage())) == rgbaPixels(in: firstHit))
-        #expect(visual.action(forKey: "guardAttackAction") == nil)
+        #expect(visual.action(forKey: "soldierAttackAnimation") == nil)
         for _ in 0..<3 { scene.playGuardHitFeedbackForTesting() }
         scene.playGuardAttackFeedbackForTesting()
         scene.spawnSoldierForTesting()
         scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
-        #expect(visual.action(forKey: "guardHitAction") === hit)
-        #expect(visual.action(forKey: "guardAttackAction") == nil)
-        #expect(visual.action(forKey: "guardWalkAction") == nil)
+        #expect(visual.action(forKey: "soldierHitAnimation") == nil)
+        #expect(visual.action(forKey: "soldierAttackAnimation") != nil)
+        #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
+    }
+
+    @Test("Guard transients expire on elapsed time without a SpriteKit render loop")
+    func guardTransientsExpireWithoutRenderLoop() throws {
+        let scene = try sceneWithOneGuard()
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        scene.playGuardAttackFeedbackForTesting()
+        let firstAttack = try #require(visual.action(forKey: "soldierAttackAnimation"))
+        for _ in 0..<21 { scene.advanceCombatSingleStepForTesting(deltaTime: 0.1) }
+        #expect(visual.action(forKey: "soldierAttackAnimation") == nil)
+        scene.playGuardAttackFeedbackForTesting()
+        #expect(visual.action(forKey: "soldierAttackAnimation") !== firstAttack)
+        scene.playGuardHitFeedbackForTesting()
+        for _ in 0..<10 { scene.advanceCombatSingleStepForTesting(deltaTime: 0.1) }
+        #expect(visual.action(forKey: "soldierHitAnimation") == nil)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        #expect(visual.action(forKey: "soldierWalkAnimation") != nil)
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0)
+        #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
     }
 
     @Test("Barracks death shows SHUT DOWN and keeps surviving Guards")
@@ -6322,7 +6382,7 @@ struct BattleSceneTests {
         for _ in 0..<50 {
             scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
             if let visual = scene.firstLivingGuardVisualNodeForTesting {
-                sawHitAction = sawHitAction || visual.action(forKey: "guardHitAction") != nil
+                sawHitAction = sawHitAction || visual.action(forKey: "soldierHitAnimation") != nil
             }
             if scene.guardNodeCountForTesting == 0 {
                 break
@@ -6359,7 +6419,7 @@ struct BattleSceneTests {
         for _ in 0..<30 where !sawAttackAction {
             scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
             if let visual = scene.firstLivingGuardVisualNodeForTesting {
-                sawAttackAction = visual.action(forKey: "guardAttackAction") != nil
+                sawAttackAction = visual.action(forKey: "soldierAttackAnimation") != nil
             }
         }
 

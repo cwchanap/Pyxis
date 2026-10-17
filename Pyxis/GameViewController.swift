@@ -484,13 +484,6 @@ extension GameViewController {
             ])), withKey: "guardCaptureSequence")
         }
         view.accessibilityValue = forgedFixtureAccessibilityValue(for: view)
-        if fixture == .battleCaptainDeployed || fixture == .battleRallyActive,
-           let battle = view.scene as? BattleScene {
-            let captain = battle.livingCaptainForTesting == nil ? "absent" : "deployed"
-            let rally = battle.rallyRemainingSecondsForTesting > 0 ? "active" : "inactive"
-            view.accessibilityValue = (view.accessibilityValue ?? "")
-                + ";captain=\(captain);rally=\(rally);protected=\(battle.rallyAccentVisibleSoldierIDsForTesting.count)"
-        }
         return true
     }
 
@@ -538,6 +531,10 @@ extension GameViewController {
             if !feedback.isEmpty {
                 value += ";feedback=\(feedback)"
             }
+            let captain = scene.livingCaptainForTesting == nil ? "absent" : "deployed"
+            let rally = scene.rallyRemainingSecondsForTesting > 0 ? "active" : "inactive"
+            value += ";captain=\(captain);rally=\(rally)"
+                + ";protected=\(scene.rallyAccentVisibleSoldierIDsForTesting.count)"
             return value
 
         case let scene as BuildingViewScene:

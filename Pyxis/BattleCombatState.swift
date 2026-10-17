@@ -167,6 +167,9 @@ struct BattleCombatState: Equatable {
         var position: Double
         var attackCooldownRemaining: Double
 
+        /// Movement during the latest tick, independent of scene synchronization.
+        var isMoving = false
+
         var isAlive: Bool {
             currentHP > 0
         }
@@ -418,6 +421,7 @@ struct BattleCombatState: Equatable {
         siege snapshot: SiegeSnapshot,
         rallyAutoTriggerAvailable: Bool = false
     ) -> TickResult {
+        guards.indices.forEach { guards[$0].isMoving = false }
         let deltaTime = clampedDeltaTime(rawDeltaTime)
         let keepID = snapshot.layout.keepObjective.id
         guard deltaTime > 0, snapshot.objectiveRemainingPower[keepID, default: 0] > 0 else {
@@ -676,6 +680,7 @@ struct BattleCombatState: Equatable {
                 stopPosition,
                 guards[index].position - HighcrestGuardRules.movementSpeed * deltaTime
             )
+            guards[index].isMoving = true
         }
     }
 
