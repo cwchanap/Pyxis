@@ -1,6 +1,6 @@
 # Tactical siege art pack — HPA-476
 
-Production work in progress on PR #46. Final acceptance and quality gates are recorded only after they run.
+Shared production art pack for PR #46, with generation provenance and validated gameplay integration.
 
 ## Contract
 
@@ -210,13 +210,9 @@ Local sources, contact sheets, native captures and video stay under ignored `doc
 
 ## Acceptance
 
-Structure stage: all six image sets are installed. Tower and Gate intact/ruined pairs were reviewed in native 393×852 Falconridge captures; Gate coverage also passes intact/ruined tests across all seven non-empty lane subsets. Barracks intact/shutdown captures use the existing Highcrest fixtures; repeat combined readability review after replacing the procedural Guards and at compact/iPad sizes in Task 4.
+All **68 image sets** are installed. Both actor trios passed the unchanged storyboard validator and shared inventory/body-geometry checks. Gate coverage passes intact/ruined tests across all seven non-empty lane subsets, including left/right-only routes. Guard art uses the existing infantry geometry/actions and preserves transient priority; Captain and Rally use their existing consumers.
 
-Task 1 validation: 277 BattleScene/fixture tests passed serially; the reference UI capture smoke passed all 16 fixture states; the generic simulator build passed; lint passed with existing unrelated warnings and no warnings/errors in changed Swift files. The stale `return-damage` UI expectation was corrected from intact to damaged after pinning its 36 damage and 10/35 remaining Keep HP in the fixture test.
-
-Guard stage: the complete 30-frame trio passes the unchanged slicer and all 262 BattleScene tests, including infantry geometry, walking, transient priority/no-restart, and objective-overlay depth. Existing objective HP/count overlays now draw above actors and below effects so the art cannot hide them. Native 393×852 acceptance uses the Highcrest wave fixture. SwiftLint passed with no new changed-file diagnostics.
-
-Captain stage: all 32 Captain/Rally image sets are installed. The shared actor inventory/bounds checks, Captain runtime integration and HUD suites pass **309/309** serially, including the updated production-art expectation in the former Captain fallback test. No shipping Swift changes were needed for these assets.
+Objective HP/count overlays draw above actors and below effects so the Guard cannot hide them. The original procedural Guard fallback remains unchanged; the art path returns after registering its sprite bundle.
 
 Visual acceptance completed on iOS 26.5 Simulator:
 
@@ -229,4 +225,33 @@ Visual acceptance completed on iOS 26.5 Simulator:
 
 Static meaning survives in the regular captures: broken masonry and limp pennants distinguish ruins, `SHUT DOWN` remains readable without a Barracks HP bar, the faceless crimson Guard contrasts with allied actors, the silver-haired Captain matches the HUD portrait, and the existing `ASSAULT` marker still identifies the lane. The restrained Rally shimmer sits behind ordinary soldiers and never hides body/HP or becomes the only protection cue. Settings, tabs, Deploy and Rally remain clear. No gameplay or UI geometry was retuned for these captures.
 
-The full reference UI suite passed 5/5 with no skips, including the expanded 21-state semantic smoke. Full unit coverage, final builds, hosted checks and whole-branch review remain pending. Physical-device validation has not been run.
+Final local gates:
+
+| Gate | Result |
+| --- | --- |
+| Full unit suite, serial, coverage enabled | 1,215 passed; no failures/skips |
+| Full UI suite, serial, reference phone | 5 methods / 6 executions passed; no failures/skips; 21 capture states |
+| SwiftLint, `--no-cache` | Passed with existing warnings; no new changed-code diagnostics |
+| Generic simulator Debug and Release builds | Both passed |
+| Inventory / scope / whitespace | Exactly 68 sets; protected files unchanged; `git diff --check` passed |
+| Existing CI LCOV converter | 17,809 / 18,651 Swift executable lines covered = 95.49% |
+| Local patch coverage estimate | 140 / 146 changed executable lines covered = 95.89% |
+
+Unit result: `test_sim_2026-10-17T02-03-17-815Z_pid38393_363ca97e.xcresult`. UI result: `test_sim_2026-10-17T02-06-11-014Z_pid38393_4086c84b.xcresult`. Both are in XcodeBuildMCP's local result-bundle workspace. The UI tool response timed out at 300 s, but the original run completed successfully; `xcresulttool get test-results summary` confirmed the saved pass. No duplicate run was used to hide an assertion failure.
+
+Coverage was exported with the existing `xccov` / `tools/xccov-to-lcov.rb` flow. The local patch estimate intersects added executable Swift lines with LCOV; it is not a hosted Codecov status. The existing 90% project/patch targets and CI remain unchanged. Hosted checks are verified on the completed PR after fresh review and the ready-for-review transition. Physical-device validation has not been run.
+
+## HPA-477 handoff
+
+Reuse these semantic names, canvases and complete actor trios unchanged. Country-content rollout needs no new image generation, runtime manifest, actor service or migration. Game rules, persistence, economy, rewards, routing and campaign definitions are unchanged.
+
+## Implementation decisions
+
+- Reused the existing PR checkout and preserved unrelated untracked directories. Cost if wrong: recreate worktree isolation.
+- Used complete test suites after method-only Swift Testing filters executed zero tests. Cost: slower focused checks.
+- Brought the ruined-Falconridge DEBUG fixture forward for first-pair art acceptance. Cost if wrong: remove one capture marker.
+- Corrected the stale return-damage UI expectation to damaged after asserting 36 damage and 10/35 Keep HP. Risk of masking a settlement regression is bounded by those literal model assertions.
+- Raised existing objective overlays above actors and below effects. Layering risk is covered by a depth-order test and native captures.
+- Kept the procedural Guard fallback verbatim using an art-path early return. Node-registration risk is covered by the scene suite; the fallback block was checked byte-for-byte against the base.
+- Performed fresh review before starting hosted CI on the final pack. Cost: hosted checks start later; the PR stays Draft until local gates and review finish.
+
