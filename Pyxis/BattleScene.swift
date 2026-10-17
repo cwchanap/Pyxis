@@ -3013,7 +3013,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         visual.name = GuardNodeName.visual
         root.addChild(visual)
 
-        let spriteBody: SKSpriteNode?
         if let frameName = firstAvailableSoldierAnimationFrameName(for: SiegeObjectiveAssetContract.guardAssetPrefix) {
             let sprite = SKSpriteNode(texture: soldierAnimationTexture(named: frameName))
             let geometry = SoldierAnimationGeometry(type: .infantry)
@@ -3022,42 +3021,44 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             sprite.size = geometry.frameSize(forBodyHeight: 1)
             sprite.position.y = -geometry.bodyRegion.minY * sprite.size.height
             visual.addChild(sprite)
-            spriteBody = sprite
-        } else {
-            spriteBody = nil
-            let body = SKShapeNode(rect: CGRect(x: -0.16, y: 0.10, width: 0.32, height: 0.42), cornerRadius: 0.06)
-            body.name = GuardNodeName.body
-            body.fillColor = SKColor(red: 0.52, green: 0.20, blue: 0.16, alpha: 1)
-            body.strokeColor = SKColor(white: 1.0, alpha: 0.3)
-            body.lineWidth = 0.02
-            visual.addChild(body)
-
-            let shield = SKShapeNode(rect: CGRect(x: -0.13, y: 0.02, width: 0.26, height: 0.34), cornerRadius: 0.09)
-            shield.name = GuardNodeName.shield
-            shield.fillColor = SKColor(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
-            shield.strokeColor = SKColor(white: 1.0, alpha: 0.45)
-            shield.lineWidth = 0.02
-            shield.zPosition = 1
-            visual.addChild(shield)
-
-            let head = SKShapeNode(circleOfRadius: 0.11)
-            head.name = GuardNodeName.head
-            head.fillColor = SKColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)
-            head.strokeColor = SKColor(white: 1.0, alpha: 0.3)
-            head.lineWidth = 0.02
-            head.position = CGPoint(x: 0, y: 0.60)
-            visual.addChild(head)
-
-            let helmet = SKShapeNode(rect: CGRect(x: -0.13, y: 0.60, width: 0.26, height: 0.14), cornerRadius: 0.06)
-            helmet.name = GuardNodeName.helmet
-            helmet.fillColor = SKColor(red: 0.24, green: 0.27, blue: 0.32, alpha: 1)
-            helmet.strokeColor = SKColor(white: 1.0, alpha: 0.4)
-            helmet.lineWidth = 0.02
-            visual.addChild(helmet)
+            soldierLayer.addChild(root)
+            let bundle = GuardNodeBundle(root: root, visual: visual, body: sprite)
+            guardNodes[id] = bundle
+            return bundle
         }
 
+        let body = SKShapeNode(rect: CGRect(x: -0.16, y: 0.10, width: 0.32, height: 0.42), cornerRadius: 0.06)
+        body.name = GuardNodeName.body
+        body.fillColor = SKColor(red: 0.52, green: 0.20, blue: 0.16, alpha: 1)
+        body.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        body.lineWidth = 0.02
+        visual.addChild(body)
+
+        let shield = SKShapeNode(rect: CGRect(x: -0.13, y: 0.02, width: 0.26, height: 0.34), cornerRadius: 0.09)
+        shield.name = GuardNodeName.shield
+        shield.fillColor = SKColor(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
+        shield.strokeColor = SKColor(white: 1.0, alpha: 0.45)
+        shield.lineWidth = 0.02
+        shield.zPosition = 1
+        visual.addChild(shield)
+
+        let head = SKShapeNode(circleOfRadius: 0.11)
+        head.name = GuardNodeName.head
+        head.fillColor = SKColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)
+        head.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        head.lineWidth = 0.02
+        head.position = CGPoint(x: 0, y: 0.60)
+        visual.addChild(head)
+
+        let helmet = SKShapeNode(rect: CGRect(x: -0.13, y: 0.60, width: 0.26, height: 0.14), cornerRadius: 0.06)
+        helmet.name = GuardNodeName.helmet
+        helmet.fillColor = SKColor(red: 0.24, green: 0.27, blue: 0.32, alpha: 1)
+        helmet.strokeColor = SKColor(white: 1.0, alpha: 0.4)
+        helmet.lineWidth = 0.02
+        visual.addChild(helmet)
+
         soldierLayer.addChild(root)
-        let bundle = GuardNodeBundle(root: root, visual: visual, body: spriteBody)
+        let bundle = GuardNodeBundle(root: root, visual: visual, body: nil)
         guardNodes[id] = bundle
         return bundle
     }
