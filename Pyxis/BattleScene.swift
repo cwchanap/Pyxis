@@ -60,13 +60,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     ///
     /// ```text
     /// siege-barracks — bottom-center — intact, ruined/disabled
-    /// siege-guard    — feet/bottom-center — resting, walk, attack, hit
+    /// siege-guard    — feet/bottom-center — walk-01 (still), walk, attack, hit
     /// ```
     enum SiegeObjectiveAssetContract {
         static let gate = "siege-gate"
         static let arrowTower = "siege-arrow-tower"
         static let barracks = "siege-barracks"
-        static let assaultFlag = "siege-assault-flag"
+        static let guardAssetPrefix = "siege-guard"
     }
 
     private enum SiegeObjectiveNodeName {
@@ -104,6 +104,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private enum GuardAnimationKey {
+        static let walk = "guardWalkAction"
         static let attack = "guardAttackAction"
         static let hit = "guardHitAction"
         static let loss = "guardLossAction"
@@ -112,6 +113,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private struct GuardNodeBundle {
         let root: SKNode
         let visual: SKNode
+        let body: SKSpriteNode?
+        var lastProgress: Double?
+        var isMoving = false
     }
 
     private struct SoldierNodeBundle {
@@ -1879,6 +1883,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         statusLabel.fontColor = GameUITheme.Color.textSecondary
         statusLabel.verticalAlignmentMode = .bottom
         statusLabel.position = CGPoint(x: 0, y: height + 10)
+        statusLabel.zPosition = 11
         statusLabel.text = barracksStatusText
         container.addChild(statusLabel)
         return container
@@ -1970,7 +1975,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         background.fillColor = SKColor(white: 0.05, alpha: 0.9)
         background.strokeColor = SKColor(white: 1.0, alpha: 0.3)
         background.lineWidth = 1
-        background.zPosition = 1
+        // Keep objective status above actors, below battlefield effects.
+        background.zPosition = 10
         background.path = CGPath(
             roundedRect: CGRect(x: -width / 2, y: barY, width: width, height: barHeight),
             cornerWidth: barHeight / 2,
@@ -1983,7 +1989,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         fill.name = SiegeObjectiveNodeName.hpFill
         fill.fillColor = SKColor(red: 0.85, green: 0.33, blue: 0.20, alpha: 1)
         fill.strokeColor = .clear
-        fill.zPosition = 2
+        fill.zPosition = 11
         fill.path = CGPath(
             roundedRect: CGRect(
                 x: -width / 2,
@@ -2981,9 +2987,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         for guardActor in livingGuards {
-            let bundle = guardNodes[guardActor.id] ?? createGuardNode(id: guardActor.id)
+            var bundle = guardNodes[guardActor.id] ?? createGuardNode(id: guardActor.id)
+            bundle.isMoving = bundle.lastProgress.map { $0 != guardActor.position } ?? false
+            bundle.lastProgress = guardActor.position
             bundle.root.position = point(forLane: guardActor.lane, position: guardActor.position)
             bundle.root.setScale(soldierTargetHeight())
+            guardNodes[guardActor.id] = bundle
+            syncGuardLocomotion(for: guardActor.id)
         }
 
         if let barracks = state.currentSiegeLayout.barracksObjective,
@@ -2993,11 +3003,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    /// Builds the procedural Guard placeholder: a helmet/head + shield/body
-    /// composition laid out in a unit-height space so the root's scale owns
-    /// on-screen size. The shield leads downward — toward the player castle —
-    /// so the pose reads enemy-facing without tint-only tricks. HPA-476 owns
-    /// the final `siege-guard` art.
+    /// Builds final Guard art at unit body height, retaining the procedural
+    /// fallback when any frame in its animation trio is missing.
     private func createGuardNode(id: BattleCombatState.GuardID) -> GuardNodeBundle {
         let root = SKNode()
         root.name = GuardNodeName.root
@@ -3006,40 +3013,94 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         visual.name = GuardNodeName.visual
         root.addChild(visual)
 
-        let body = SKShapeNode(rect: CGRect(x: -0.16, y: 0.10, width: 0.32, height: 0.42), cornerRadius: 0.06)
-        body.name = GuardNodeName.body
-        body.fillColor = SKColor(red: 0.52, green: 0.20, blue: 0.16, alpha: 1)
-        body.strokeColor = SKColor(white: 1.0, alpha: 0.3)
-        body.lineWidth = 0.02
-        visual.addChild(body)
+        let spriteBody: SKSpriteNode?
+        if let frameName = firstAvailableSoldierAnimationFrameName(for: SiegeObjectiveAssetContract.guardAssetPrefix) {
+            let sprite = SKSpriteNode(texture: soldierAnimationTexture(named: frameName))
+            let geometry = SoldierAnimationGeometry(type: .infantry)
+            sprite.name = GuardNodeName.body
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            sprite.size = geometry.frameSize(forBodyHeight: 1)
+            sprite.position.y = -geometry.bodyRegion.minY * sprite.size.height
+            visual.addChild(sprite)
+            spriteBody = sprite
+        } else {
+            spriteBody = nil
+            let body = SKShapeNode(rect: CGRect(x: -0.16, y: 0.10, width: 0.32, height: 0.42), cornerRadius: 0.06)
+            body.name = GuardNodeName.body
+            body.fillColor = SKColor(red: 0.52, green: 0.20, blue: 0.16, alpha: 1)
+            body.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+            body.lineWidth = 0.02
+            visual.addChild(body)
 
-        let shield = SKShapeNode(rect: CGRect(x: -0.13, y: 0.02, width: 0.26, height: 0.34), cornerRadius: 0.09)
-        shield.name = GuardNodeName.shield
-        shield.fillColor = SKColor(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
-        shield.strokeColor = SKColor(white: 1.0, alpha: 0.45)
-        shield.lineWidth = 0.02
-        shield.zPosition = 1
-        visual.addChild(shield)
+            let shield = SKShapeNode(rect: CGRect(x: -0.13, y: 0.02, width: 0.26, height: 0.34), cornerRadius: 0.09)
+            shield.name = GuardNodeName.shield
+            shield.fillColor = SKColor(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
+            shield.strokeColor = SKColor(white: 1.0, alpha: 0.45)
+            shield.lineWidth = 0.02
+            shield.zPosition = 1
+            visual.addChild(shield)
 
-        let head = SKShapeNode(circleOfRadius: 0.11)
-        head.name = GuardNodeName.head
-        head.fillColor = SKColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)
-        head.strokeColor = SKColor(white: 1.0, alpha: 0.3)
-        head.lineWidth = 0.02
-        head.position = CGPoint(x: 0, y: 0.60)
-        visual.addChild(head)
+            let head = SKShapeNode(circleOfRadius: 0.11)
+            head.name = GuardNodeName.head
+            head.fillColor = SKColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)
+            head.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+            head.lineWidth = 0.02
+            head.position = CGPoint(x: 0, y: 0.60)
+            visual.addChild(head)
 
-        let helmet = SKShapeNode(rect: CGRect(x: -0.13, y: 0.60, width: 0.26, height: 0.14), cornerRadius: 0.06)
-        helmet.name = GuardNodeName.helmet
-        helmet.fillColor = SKColor(red: 0.24, green: 0.27, blue: 0.32, alpha: 1)
-        helmet.strokeColor = SKColor(white: 1.0, alpha: 0.4)
-        helmet.lineWidth = 0.02
-        visual.addChild(helmet)
+            let helmet = SKShapeNode(rect: CGRect(x: -0.13, y: 0.60, width: 0.26, height: 0.14), cornerRadius: 0.06)
+            helmet.name = GuardNodeName.helmet
+            helmet.fillColor = SKColor(red: 0.24, green: 0.27, blue: 0.32, alpha: 1)
+            helmet.strokeColor = SKColor(white: 1.0, alpha: 0.4)
+            helmet.lineWidth = 0.02
+            visual.addChild(helmet)
+        }
 
         soldierLayer.addChild(root)
-        let bundle = GuardNodeBundle(root: root, visual: visual)
+        let bundle = GuardNodeBundle(root: root, visual: visual, body: spriteBody)
         guardNodes[id] = bundle
         return bundle
+    }
+
+    private func syncGuardLocomotion(for guardID: BattleCombatState.GuardID) {
+        guard let bundle = guardNodes[guardID], let body = bundle.body,
+              bundle.visual.action(forKey: GuardAnimationKey.attack) == nil,
+              bundle.visual.action(forKey: GuardAnimationKey.hit) == nil else {
+            return
+        }
+        let textures = soldierAnimationTextures(for: SiegeObjectiveAssetContract.guardAssetPrefix, action: .walk)
+        guard let firstTexture = textures.first else { return }
+        if bundle.isMoving {
+            guard bundle.visual.action(forKey: GuardAnimationKey.walk) == nil else { return }
+            let walk = soldierTextureAction(textures: textures, action: .walk, type: .infantry, sprite: body)
+            bundle.visual.run(SKAction.repeatForever(walk), withKey: GuardAnimationKey.walk)
+        } else {
+            bundle.visual.removeAction(forKey: GuardAnimationKey.walk)
+            body.texture = firstTexture
+        }
+    }
+
+    private func playGuardTransient(_ action: SoldierAnimationAction, for guardID: BattleCombatState.GuardID) {
+        guard action != .walk, let bundle = guardNodes[guardID], let body = bundle.body else { return }
+        let visual = bundle.visual
+        let attackInFlight = visual.action(forKey: GuardAnimationKey.attack) != nil
+        let hitInFlight = visual.action(forKey: GuardAnimationKey.hit) != nil
+        if action == .attack && (attackInFlight || hitInFlight) { return }
+        if action == .hit && hitInFlight { return }
+        let textures = soldierAnimationTextures(for: SiegeObjectiveAssetContract.guardAssetPrefix, action: action)
+        guard let firstTexture = textures.first else { return }
+        let key = action == .attack ? GuardAnimationKey.attack : GuardAnimationKey.hit
+        visual.removeAction(forKey: GuardAnimationKey.walk)
+        visual.removeAction(forKey: GuardAnimationKey.attack)
+        visual.removeAction(forKey: GuardAnimationKey.hit)
+        body.texture = firstTexture
+        let animate = soldierTextureAction(textures: textures, action: action, type: .infantry, sprite: body)
+        let resume = SKAction.run { [weak self, weak visual] in
+            guard let self, let visual, self.guardNodes[guardID]?.visual === visual else { return }
+            visual.removeAction(forKey: key)
+            self.syncGuardLocomotion(for: guardID)
+        }
+        visual.run(SKAction.sequence([animate, resume]), withKey: key)
     }
 
     /// Maps Guard tick events to short observational actions (HPA-469).
@@ -3058,8 +3119,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
     }
 
-    /// Short lunge toward the player castle and back. Decorative only.
+    /// Final attack art, or the procedural fallback's short lunge.
     private func playGuardAttackFeedback(for guardID: BattleCombatState.GuardID) {
+        if guardNodes[guardID]?.body != nil {
+            playGuardTransient(.attack, for: guardID)
+            return
+        }
         guard let visual = guardNodes[guardID]?.visual else {
             return
         }
@@ -3079,8 +3144,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         visual.run(SKAction.sequence([lunge, recover]), withKey: GuardAnimationKey.attack)
     }
 
-    /// Brief alpha flash marking a soldier's hit on the Guard.
+    /// Final hit art, or the procedural fallback's brief alpha flash.
     private func playGuardHitFeedback(for guardID: BattleCombatState.GuardID) {
+        if guardNodes[guardID]?.body != nil {
+            playGuardTransient(.hit, for: guardID)
+            return
+        }
         guard let visual = guardNodes[guardID]?.visual else {
             return
         }
@@ -5124,6 +5193,16 @@ extension BattleScene {
                     position: $0.position
                 )
             }
+    }
+
+    func playGuardAttackFeedbackForTesting() {
+        guard let id = combat.guards.first(where: \.isAlive)?.id else { return }
+        playGuardAttackFeedback(for: id)
+    }
+
+    func playGuardHitFeedbackForTesting() {
+        guard let id = combat.guards.first(where: \.isAlive)?.id else { return }
+        playGuardHitFeedback(for: id)
     }
 
     var guardNodeCountForTesting: Int {

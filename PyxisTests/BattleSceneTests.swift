@@ -1928,24 +1928,48 @@ struct BattleSceneTests {
         }
     }
 
-    @Test("Every authored soldier animation frame is installed in the asset catalog")
+    private var actorAnimationCases: [(prefix: String, type: SoldierType)] {
+        SoldierType.allCases.map { ($0.rawValue, $0) } + [("siege-guard", .infantry)]
+    }
+
+    @Test("Every authored actor animation trio is complete and uses 128px frames")
     func allSoldierAnimationFramesAreInstalled() throws {
-        // Closes the lazy-detection hole left after SoldierAnimationManifest was
-        // removed: a missing or misnamed frame (e.g. `cavalry-walk-07`) would
-        // otherwise only surface at runtime via the silent no-op in
-        // `playSoldierAnimation`. Iterating every (type, action, frame) trio
-        // synchronously here turns an asset-catalog regression into a test
-        // failure on every run, before it can reach a simulator.
-        for soldierType in SoldierType.allCases {
+        for actor in actorAnimationCases {
+            var frameCount = 0
             for action in SoldierAnimationAction.allCases {
-                for frameIndex in 1...SoldierAnimationTiming.frameCount {
-                    let name = "\(soldierType.rawValue)-\(action.rawValue)-\(String(format: "%02d", frameIndex))"
-                    #expect(
-                        UIImage(named: name) != nil,
-                        "Missing soldier animation frame: \(name)"
-                    )
+                for index in 1...SoldierAnimationTiming.frameCount {
+                    let name = "\(actor.prefix)-\(action.rawValue)-\(String(format: "%02d", index))"
+                    let image = try #require(UIImage(named: name), "Missing actor animation frame: \(name)")
+                    let cgImage = try #require(image.cgImage)
+                    #expect(cgImage.width == 128 && cgImage.height == 128, "\(name)")
+                    frameCount += 1
                 }
             }
+            #expect(frameCount == 30)
+        }
+    }
+
+    @Test("Walk silhouettes match each actor's logical body size and foot margin")
+    func actorWalkBoundsMatchBodyGeometry() throws {
+        for actor in actorAnimationCases {
+            var minX = 128
+            var minY = 128
+            var maxX = 0
+            var maxY = 0
+            for index in 1...10 {
+                let name = "\(actor.prefix)-walk-\(String(format: "%02d", index))"
+                let image = try #require(UIImage(named: name))
+                let bounds = try #require(opaquePixelBounds(in: image))
+                minX = min(minX, bounds.minX)
+                minY = min(minY, bounds.minY)
+                maxX = max(maxX, bounds.maxXExclusive)
+                maxY = max(maxY, bounds.maxYExclusive)
+            }
+            let region = SoldierAnimationGeometry(type: actor.type).bodyRegion
+            #expect(abs(CGFloat(maxX - minX) - region.width * 128) <= 2, "\(actor.prefix) width")
+            #expect(abs(CGFloat(maxY - minY) - region.height * 128) <= 2, "\(actor.prefix) height")
+            // Pixel rows start at the top; the geometry's foot margin starts at the bottom.
+            #expect(abs(CGFloat(128 - maxY) - region.minY * 128) <= 2, "\(actor.prefix) foot margin")
         }
     }
 
@@ -6120,25 +6144,98 @@ struct BattleSceneTests {
         #expect(label.text == "GUARDS 2")
     }
 
-    @Test("Guard nodes are structurally distinct enemy-facing placeholders")
-    func guardNodesAreStructurallyDistinctEnemyFacingPlaceholders() throws {
+    private func sceneWithOneGuard() throws -> BattleScene {
         var state = highcrestState()
         state.siegeProgress.guardReinforcements?.unresolvedGuards = [
             GuardSnapshot(lane: .left, remainingHP: 12)
         ]
-        let scene = makeScene(store: try makeStore(initialState: state))
+        return makeScene(store: try makeStore(initialState: captainless(state)),
+                         size: CGSize(width: 393, height: 852))
+    }
 
+    @Test("Guard uses authored enemy art at infantry body height with grounded feet")
+    func guardUsesAuthoredArtAndInfantryGeometry() throws {
+        let scene = try sceneWithOneGuard()
         let root = try #require(scene.firstLivingGuardRootNodeForTesting)
-        #expect(root.name == "siege-guard")
-        // Procedural composition, never a tinted sprite.
-        #expect(!(root is SKSpriteNode))
         let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
-        let helmet = try #require(visual.childNode(withName: "guardHelmet"))
-        let shield = try #require(visual.childNode(withName: "guardShield"))
+        let body = try #require(visual.childNode(withName: "guardBody") as? SKSpriteNode)
+        let texture = try #require(body.texture)
+        let firstWalk = try #require(UIImage(named: "siege-guard-walk-01"))
+        #expect(root.name == "siege-guard")
+        #expect(rgbaPixels(in: UIImage(cgImage: texture.cgImage())) == rgbaPixels(in: firstWalk))
+        // At 852pt scene height the body is 63.9pt; infantry's canvas/body ratio is 128/94.
+        #expect(abs(body.size.width * root.xScale - 63.9 * 128 / 94) < 0.01)
+        #expect(abs(body.size.height * root.yScale - 63.9 * 128 / 94) < 0.01)
+        #expect(body.anchorPoint == CGPoint(x: 0.5, y: 0))
+        #expect(abs(body.position.y * root.yScale + 63.9 * 8 / 94) < 0.01)
+        #expect(visual.action(forKey: "guardWalkAction") == nil)
+    }
+
+    @Test("Guard art leaves Barracks count and objective HP overlays in front")
+    func guardArtKeepsObjectiveOverlaysReadable() throws {
+        let scene = try sceneWithOneGuard()
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
         let body = try #require(visual.childNode(withName: "guardBody"))
-        // Enemy-facing: the shield leads toward the player castle (lower y).
-        #expect(shield.frame.midY < body.frame.midY)
-        #expect(helmet.frame.midY > body.frame.midY)
+        let barracks = try #require(scene.siegeObjectiveNodeForTesting(.barracks))
+        let status = try #require(barracks.childNode(withName: "siegeBarracksStatus"))
+        let background = try #require(barracks.childNode(withName: "siegeHPBackground"))
+        let fill = try #require(barracks.childNode(withName: "siegeHPFill"))
+        func stackingZ(_ node: SKNode) -> CGFloat {
+            sequence(first: node, next: { $0.parent }).reduce(0) { $0 + $1.zPosition }
+        }
+        #expect(stackingZ(status) > stackingZ(body))
+        #expect(stackingZ(background) > stackingZ(body))
+        #expect(stackingZ(fill) > stackingZ(background))
+    }
+
+    @Test("A moving Guard starts its authored walk loop")
+    func movingGuardStartsWalkArt() throws {
+        let scene = try sceneWithOneGuard()
+        let before = try #require(scene.livingGuardsForTesting.first).position
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        let after = try #require(scene.livingGuardsForTesting.first).position
+        #expect(after < before)
+        #expect(scene.firstLivingGuardVisualNodeForTesting?.action(forKey: "guardWalkAction") != nil)
+    }
+
+    @Test("Guard attack does not restart and progress sync preserves the transient")
+    func guardAttackDoesNotRestartDuringSync() throws {
+        let scene = try sceneWithOneGuard()
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        scene.playGuardAttackFeedbackForTesting()
+        let attack = try #require(visual.action(forKey: "guardAttackAction"))
+        let body = try #require(visual.childNode(withName: "guardBody") as? SKSpriteNode)
+        let texture = try #require(body.texture)
+        let firstAttack = try #require(UIImage(named: "siege-guard-attack-01"))
+        #expect(rgbaPixels(in: UIImage(cgImage: texture.cgImage())) == rgbaPixels(in: firstAttack))
+        scene.playGuardAttackFeedbackForTesting()
+        #expect(visual.action(forKey: "guardAttackAction") === attack)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        #expect(visual.action(forKey: "guardAttackAction") === attack)
+        #expect(visual.action(forKey: "guardWalkAction") == nil)
+    }
+
+    @Test("Guard hit preempts attack and repeated hits or attacks preserve that reaction")
+    func guardHitPreemptsAttackWithoutRestart() throws {
+        let scene = try sceneWithOneGuard()
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        scene.playGuardAttackFeedbackForTesting()
+        scene.playGuardHitFeedbackForTesting()
+        let hit = try #require(visual.action(forKey: "guardHitAction"))
+        let body = try #require(visual.childNode(withName: "guardBody") as? SKSpriteNode)
+        let texture = try #require(body.texture)
+        let firstHit = try #require(UIImage(named: "siege-guard-hit-01"))
+        #expect(rgbaPixels(in: UIImage(cgImage: texture.cgImage())) == rgbaPixels(in: firstHit))
+        #expect(visual.action(forKey: "guardAttackAction") == nil)
+        for _ in 0..<3 { scene.playGuardHitFeedbackForTesting() }
+        scene.playGuardAttackFeedbackForTesting()
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        #expect(visual.action(forKey: "guardHitAction") === hit)
+        #expect(visual.action(forKey: "guardAttackAction") == nil)
+        #expect(visual.action(forKey: "guardWalkAction") == nil)
     }
 
     @Test("Barracks death shows SHUT DOWN and keeps surviving Guards")
