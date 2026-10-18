@@ -6359,6 +6359,55 @@ struct BattleSceneTests {
         #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
     }
 
+    @Test("A Guard hit countdown expires at the authored duration without floating-point residue")
+    func guardHitCountdownExpiresAtAuthoredDuration() throws {
+        // Nine 0.1s decrements from the 0.9s hit leave ~1.4e-16 rather than
+        // zero; without the 1ms snap the residue keeps `transientRemaining`
+        // positive and `playGuardTransient` drops an attack landing at the
+        // expiry boundary — the failure mode the soldier hit countdown
+        // already tolerates. No soldier is spawned, so the model emits no
+        // competing Guard events while the countdown drains.
+        let scene = try sceneWithOneGuard()
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        scene.playGuardHitFeedbackForTesting()
+        #expect(visual.action(forKey: "soldierHitAnimation") != nil)
+
+        for _ in 0..<9 { scene.advanceCombatSingleStepForTesting(deltaTime: 0.1) }
+
+        #expect(scene.firstLivingGuardTransientRemainingForTesting == nil)
+        #expect(visual.action(forKey: "soldierHitAnimation") == nil)
+        scene.playGuardAttackFeedbackForTesting()
+        #expect(visual.action(forKey: "soldierAttackAnimation") != nil)
+    }
+
+    @Test("A static-fallback Guard (partial catalog) keeps a procedural body and skips transient playback")
+    func staticFallbackGuardKeepsProceduralBodyAndSkipsTransients() throws {
+        // Simulates the release-build failure mode where the `siege-guard`
+        // trio is partially installed: the animated-canvas probe fails, so
+        // the Guard must keep the pre-art procedural body instead of a
+        // textureless sprite, and walk/transient playback must not install
+        // on it — mirroring the soldier `isAnimatedCanvas` gate.
+        let scene = try sceneWithOneGuard()
+        scene.forceGuardStaticFallbackCanvasForTesting()
+
+        #expect(scene.firstLivingGuardIsAnimatedCanvasForTesting == false)
+        let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
+        let body = try #require(visual.childNode(withName: "guardBody"))
+        #expect(body is SKShapeNode)
+        #expect(visual.childNode(withName: "guardShield") != nil)
+
+        scene.playGuardAttackFeedbackForTesting()
+        #expect(visual.action(forKey: "soldierAttackAnimation") == nil)
+        scene.playGuardHitFeedbackForTesting()
+        #expect(visual.action(forKey: "soldierHitAnimation") == nil)
+        #expect(scene.firstLivingGuardTransientRemainingForTesting == nil)
+
+        // A moving fallback Guard never starts the walk loop either.
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
+    }
+
     @Test("Barracks death shows SHUT DOWN and keeps surviving Guards")
     func barracksDeathShowsShutdownWithSurvivingGuard() throws {
         var state = highcrestState(supportDamage: [.barracks: Int.max])
