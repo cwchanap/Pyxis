@@ -85,6 +85,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let root = "siege-guard"
         static let visual = "guardVisual"
         static let body = "guardBody"
+        static let shield = "guardShield"
+        static let head = "guardHead"
+        static let helmet = "guardHelmet"
         static let statusLabel = "siegeBarracksStatus"
     }
 
@@ -95,7 +98,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private struct GuardNodeBundle {
         let root: SKNode
         let visual: SKNode
-        let body: SKSpriteNode
+        /// `SKSpriteNode` on the animated-canvas path (complete `siege-guard`
+        /// trio installed); the procedural torso `SKShapeNode` on the
+        /// fallback path, where no sprite exists to animate.
+        let body: SKNode
+        /// `true` when the complete `siege-guard` animation trio passed the
+        /// `firstAvailableSoldierAnimationFrameName` probe and `body` is an
+        /// animation-canvas sprite. `false` for the procedural fallback —
+        /// walk/transient playback must not install on it, mirroring
+        /// `SoldierNodeBundle.isAnimatedCanvas`.
+        let isAnimatedCanvas: Bool
         var transientAction: SoldierAnimationAction?
         var transientRemaining: TimeInterval = 0
     }
@@ -3008,29 +3020,91 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         visual.name = GuardNodeName.visual
         root.addChild(visual)
 
-        let body = SKSpriteNode(texture: soldierAnimationTextures(
-            for: SiegeObjectiveAssetContract.guardAssetPrefix, action: .walk
-        ).first)
-        let geometry = SoldierAnimationGeometry(type: .infantry)
+        // The animated path requires the complete 30-frame `siege-guard`
+        // trio — the same gate `makeSoldierNode` applies. A partial or
+        // missing trio would leave `soldierAnimationTextures` returning an
+        // empty set (asserting in DEBUG) and the sprite textureless, so the
+        // node falls back to the procedural Guard body instead.
+        let isAnimatedCanvas = firstAvailableSoldierAnimationFrameName(
+            for: SiegeObjectiveAssetContract.guardAssetPrefix
+        ) != nil
+        let body: SKNode
+        if isAnimatedCanvas {
+            let sprite = SKSpriteNode(texture: soldierAnimationTextures(
+                for: SiegeObjectiveAssetContract.guardAssetPrefix, action: .walk
+            ).first)
+            let geometry = SoldierAnimationGeometry(type: .infantry)
+            sprite.anchorPoint = CGPoint(x: 0.5, y: 0)
+            sprite.size = geometry.frameSize(forBodyHeight: 1)
+            sprite.position.y = -geometry.bodyRegion.minY * sprite.size.height
+            visual.addChild(sprite)
+            body = sprite
+        } else {
+            body = makeGuardFallbackBody(in: visual)
+        }
         body.name = GuardNodeName.body
-        body.anchorPoint = CGPoint(x: 0.5, y: 0)
-        body.size = geometry.frameSize(forBodyHeight: 1)
-        body.position.y = -geometry.bodyRegion.minY * body.size.height
-        visual.addChild(body)
         soldierLayer.addChild(root)
-        return GuardNodeBundle(root: root, visual: visual, body: body)
+        return GuardNodeBundle(
+            root: root, visual: visual, body: body, isAnimatedCanvas: isAnimatedCanvas
+        )
+    }
+
+    /// Procedural Guard placeholder for a missing `siege-guard` trio: the
+    /// pre-art body/shield/head/helmet composition laid out in the same
+    /// unit-height space as the animated canvas, so the root's scale still
+    /// owns on-screen size. Release keeps the Guards visible rather than
+    /// shipping a textureless sprite; the trio's completeness is guarded
+    /// separately by `PyxisTests.allSoldierAnimationFramesAreInstalled`.
+    private func makeGuardFallbackBody(in visual: SKNode) -> SKNode {
+        let body = SKShapeNode(
+            rect: CGRect(x: -0.16, y: 0.10, width: 0.32, height: 0.42), cornerRadius: 0.06
+        )
+        body.fillColor = SKColor(red: 0.52, green: 0.20, blue: 0.16, alpha: 1)
+        body.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        body.lineWidth = 0.02
+        visual.addChild(body)
+
+        let shield = SKShapeNode(
+            rect: CGRect(x: -0.13, y: 0.02, width: 0.26, height: 0.34), cornerRadius: 0.09
+        )
+        shield.name = GuardNodeName.shield
+        shield.fillColor = SKColor(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
+        shield.strokeColor = SKColor(white: 1.0, alpha: 0.45)
+        shield.lineWidth = 0.02
+        shield.zPosition = 1
+        visual.addChild(shield)
+
+        let head = SKShapeNode(circleOfRadius: 0.11)
+        head.name = GuardNodeName.head
+        head.fillColor = SKColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)
+        head.strokeColor = SKColor(white: 1.0, alpha: 0.3)
+        head.lineWidth = 0.02
+        head.position = CGPoint(x: 0, y: 0.60)
+        visual.addChild(head)
+
+        let helmet = SKShapeNode(
+            rect: CGRect(x: -0.13, y: 0.60, width: 0.26, height: 0.14), cornerRadius: 0.06
+        )
+        helmet.name = GuardNodeName.helmet
+        helmet.fillColor = SKColor(red: 0.24, green: 0.27, blue: 0.32, alpha: 1)
+        helmet.strokeColor = SKColor(white: 1.0, alpha: 0.4)
+        helmet.lineWidth = 0.02
+        visual.addChild(helmet)
+        return body
     }
 
     private func syncGuardLocomotion(for guardID: BattleCombatState.GuardID) {
         guard let bundle = guardNodes[guardID], bundle.transientRemaining <= 0 else { return }
+        // The procedural fallback has no walk frames or idle texture to drive.
+        guard bundle.isAnimatedCanvas, let sprite = bundle.body as? SKSpriteNode else { return }
         if combat.guards.first(where: { $0.id == guardID })?.isMoving == true {
             startWalkAnimation(
-                on: bundle.visual, sprite: bundle.body,
+                on: bundle.visual, sprite: sprite,
                 assetPrefix: SiegeObjectiveAssetContract.guardAssetPrefix, type: .infantry
             )
         } else {
             bundle.visual.removeAction(forKey: SoldierAnimationKey.walk)
-            bundle.body.texture = soldierAnimationTextures(
+            sprite.texture = soldierAnimationTextures(
                 for: SiegeObjectiveAssetContract.guardAssetPrefix, action: .walk
             ).first
         }
@@ -3042,7 +3116,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         for id in Array(guardNodes.keys) {
             guard var bundle = guardNodes[id], bundle.transientRemaining > 0 else { continue }
             bundle.transientRemaining = max(0, bundle.transientRemaining - deltaTime)
-            if bundle.transientRemaining == 0 {
+            // Snap to zero below the same 1ms epsilon the soldier hit
+            // countdown uses: floating-point residue (e.g. 1.4e-16 after
+            // nine 0.1s steps from 0.9s) would otherwise keep the transient
+            // "active" past the authored duration and drop the next attack
+            // trigger in `playGuardTransient`.
+            if bundle.transientRemaining <= 0.001 {
+                bundle.transientRemaining = 0
                 bundle.transientAction = nil
                 bundle.visual.removeAction(forKey: SoldierAnimationKey.attack)
                 bundle.visual.removeAction(forKey: SoldierAnimationKey.hit)
@@ -3052,7 +3132,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func playGuardTransient(_ action: SoldierAnimationAction, for guardID: BattleCombatState.GuardID) {
-        guard action != .walk, var bundle = guardNodes[guardID] else { return }
+        guard action != .walk, var bundle = guardNodes[guardID],
+              bundle.isAnimatedCanvas, let sprite = bundle.body as? SKSpriteNode else { return }
         // Guard priority is stricter than the shared soldier helper: a hit
         // preempts a live attack, a live hit absorbs repeated hits without
         // restarting, and no attack starts while any transient is in flight
@@ -3066,7 +3147,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guardNodes[guardID] = bundle
         let visual = bundle.visual
         runTransientAnimation(
-            action, on: visual, sprite: bundle.body,
+            action, on: visual, sprite: sprite,
             actor: (SiegeObjectiveAssetContract.guardAssetPrefix, .infantry)
         ) { [weak self, weak visual] in
             guard let self, let visual, self.guardNodes[guardID]?.visual === visual else { return }
@@ -5149,6 +5230,29 @@ extension BattleScene {
 
     var guardNodeCountForTesting: Int {
         guardNodes.count
+    }
+
+    /// Pre-seeds the `siege-guard` animated-canvas probe with a negative
+    /// result (mirrors `forceStaticFallbackCanvasForTesting`) and rebuilds
+    /// any live Guard nodes so they are created on the procedural fallback
+    /// path — simulating the release-build failure mode where the trio is
+    /// partially installed while `soldierAnimationTextures` still returns
+    /// real textures for whichever actions ARE complete.
+    func forceGuardStaticFallbackCanvasForTesting() {
+        soldierAnimatedCanvasFrameNameCache[SiegeObjectiveAssetContract.guardAssetPrefix] = .some(nil)
+        for id in guardNodes.keys {
+            guardNodes[id]?.root.removeFromParent()
+        }
+        guardNodes.removeAll()
+        syncGuardNodes()
+    }
+
+    /// Returns true when the first living Guard's bundle was built on the
+    /// animated-canvas path; false when it is on the procedural fallback.
+    var firstLivingGuardIsAnimatedCanvasForTesting: Bool? {
+        guard let id = combat.guards.first(where: \.isAlive)?.id,
+              let bundle = guardNodes[id] else { return nil }
+        return bundle.isAnimatedCanvas
     }
 
     // MARK: Captain testing accessors (HPA-475)
