@@ -3052,12 +3052,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private func playGuardTransient(_ action: SoldierAnimationAction, for guardID: BattleCombatState.GuardID) {
         guard action != .walk, var bundle = guardNodes[guardID] else { return }
-        if action == .attack && isAttackAnimationBlocked(
-            type: .infantry,
-            attackInterval: 1 / HighcrestGuardRules.attackSpeed,
-            attackInProgress: bundle.transientAction == .attack && bundle.transientRemaining > 0,
-            hitRemaining: bundle.transientAction == .hit ? bundle.transientRemaining : 0
-        ) { return }
+        // Guard priority is stricter than the shared soldier helper: a hit
+        // preempts a live attack, a live hit absorbs repeated hits without
+        // restarting, and no attack starts while any transient is in flight
+        // (the 0.9s hit reaction is shorter than the Guard's 1.0s attack
+        // interval, so the soldier helper's hit-duration carve-out would
+        // never suppress an attack on a live hit).
+        if bundle.transientRemaining > 0,
+           action == .attack || bundle.transientAction == .hit { return }
         bundle.transientAction = action
         bundle.transientRemaining = SoldierAnimationTiming.totalDuration(for: action, type: .infantry)
         guardNodes[guardID] = bundle
@@ -5196,6 +5198,15 @@ extension BattleScene {
 
     var firstLivingGuardVisualNodeForTesting: SKNode? {
         combat.guards.filter(\.isAlive).first.flatMap { guardNodes[$0.id]?.visual }
+    }
+
+    /// Remaining time on the first living Guard's transient animation
+    /// countdown; nil when no transient is in flight.
+    var firstLivingGuardTransientRemainingForTesting: TimeInterval? {
+        guard let id = combat.guards.first(where: \.isAlive)?.id,
+              let bundle = guardNodes[id],
+              bundle.transientRemaining > 0 else { return nil }
+        return bundle.transientRemaining
     }
 
     func advanceCombatForTesting(deltaTime: TimeInterval) {

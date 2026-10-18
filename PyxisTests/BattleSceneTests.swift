@@ -6302,23 +6302,36 @@ struct BattleSceneTests {
         #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
     }
 
-    @Test("Guard hit preempts attack and the next attack can replace the shorter hit reaction")
+    @Test("Guard hit preempts attack, and repeated hits or a mid-hit attack never restart the live hit")
     func guardHitPreemptsAttackWithoutRestart() throws {
         let scene = try sceneWithOneGuard()
         let visual = try #require(scene.firstLivingGuardVisualNodeForTesting)
         scene.playGuardAttackFeedbackForTesting()
         scene.playGuardHitFeedbackForTesting()
-        _ = try #require(visual.action(forKey: "soldierHitAnimation"))
+        let hit = try #require(visual.action(forKey: "soldierHitAnimation"))
         let body = try #require(visual.childNode(withName: "guardBody") as? SKSpriteNode)
         let texture = try #require(body.texture)
         let firstHit = try #require(UIImage(named: "siege-guard-hit-01"))
         #expect(rgbaPixels(in: UIImage(cgImage: texture.cgImage())) == rgbaPixels(in: firstHit))
         #expect(visual.action(forKey: "soldierAttackAnimation") == nil)
+
+        // A live hit absorbs repeated hits and blocks attacks outright —
+        // the in-flight pose and its countdown are left untouched.
+        let hitRemaining = try #require(scene.firstLivingGuardTransientRemainingForTesting)
         for _ in 0..<3 { scene.playGuardHitFeedbackForTesting() }
+        #expect(visual.action(forKey: "soldierHitAnimation") === hit)
+        #expect(scene.firstLivingGuardTransientRemainingForTesting == hitRemaining)
         scene.playGuardAttackFeedbackForTesting()
-        scene.spawnSoldierForTesting()
-        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        #expect(visual.action(forKey: "soldierHitAnimation") === hit)
+        #expect(visual.action(forKey: "soldierAttackAnimation") == nil)
+        #expect(scene.firstLivingGuardTransientRemainingForTesting == hitRemaining)
+
+        // Once the hit expires on combat elapsed time, the next attack
+        // starts a fresh cycle. No soldier is spawned, so the model emits
+        // no competing Guard events while the countdown drains.
+        for _ in 0..<10 { scene.advanceCombatSingleStepForTesting(deltaTime: 0.1) }
         #expect(visual.action(forKey: "soldierHitAnimation") == nil)
+        scene.playGuardAttackFeedbackForTesting()
         #expect(visual.action(forKey: "soldierAttackAnimation") != nil)
         #expect(visual.action(forKey: "soldierWalkAnimation") == nil)
     }
