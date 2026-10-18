@@ -5589,12 +5589,15 @@ struct BattleSceneTests {
                         < laneWidth * 0.05)
                 let feedback = node.children.filter {
                     $0.name == (remaining == 0 ? "siegeRuin" : "siegeHPBackground")
-                }.sorted { $0.frame.midX < $1.frame.midX }
-                #expect(feedback.count == lanes.count)
-                for (marker, center) in zip(feedback, centers) {
-                    #expect(abs(marker.frame.midX + node.position.x - center) < 0.5)
                 }
-                #expect(node.children.filter { $0.name == "siegeHPFill" }.count == (remaining > 0 ? lanes.count : 0))
+                #expect(feedback.count == 1, "lane subset \(mask)")
+                let indicator = try #require(feedback.first)
+                #expect(abs(indicator.position.x) < 0.5)
+                if remaining == 0 {
+                    let firstSegment = try #require(segments.first)
+                    #expect(abs(indicator.position.y - firstSegment.position.y) < 0.5)
+                }
+                #expect(node.children.filter { $0.name == "siegeHPFill" }.count == (remaining > 0 ? 1 : 0))
             }
         }
     }
