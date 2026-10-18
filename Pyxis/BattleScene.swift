@@ -1776,7 +1776,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return container
     }
 
-    /// One segment and shared-HP indicator per blocked lane; safe approaches stay clear.
+    /// One segment per blocked lane plus a single shared HP/ruin indicator
+    /// across the span; safe approaches stay clear.
     private func makeGateObjective(
         _ objective: CitySiegeLayout.Objective,
         layout: CitySiegeLayout,
@@ -1815,21 +1816,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // One bottom-anchored segment per blocked approach keeps safe lanes clear.
             structure.position = CGPoint(x: offsetX, y: -height / 2)
             container.addChild(structure)
+        }
 
-            if isRuined {
-                let ruin = makeRuinMarker(width: battlefieldLayout.lanePathWidth * 0.6)
-                ruin.position = CGPoint(x: offsetX, y: -height / 2)
-                container.addChild(ruin)
-            } else {
-                addObjectiveHPBar(
-                    to: container,
-                    width: min(64, battlefieldLayout.lanePathWidth * 0.8),
-                    bottomY: height / 2 + 3,
-                    centerX: offsetX,
-                    remaining: remainingPower,
-                    maximum: maxPower
-                )
-            }
+        guard !xs.isEmpty else { return container }
+        if isRuined {
+            let ruin = makeRuinMarker(width: battlefieldLayout.lanePathWidth * 0.6)
+            ruin.position = CGPoint(x: 0, y: -height / 2)
+            container.addChild(ruin)
+        } else {
+            addObjectiveHPBar(
+                to: container,
+                width: min(64, battlefieldLayout.lanePathWidth * 0.8),
+                bottomY: height / 2 + 3,
+                remaining: remainingPower,
+                maximum: maxPower
+            )
         }
         return container
     }
