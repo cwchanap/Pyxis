@@ -811,13 +811,15 @@ struct BattleSceneTests {
             completedCityCount: 14,
             cityBattleStates: [
                 cityKey.storageKey: CityBattleState(
-                    // A level-6 infantry survives City 15's first fortified
-                    // tower shot long enough to produce the live conquest.
+                    // A level-6 infantry soldier lands the live conquest hit.
                     slots: [1: CityBuilding(type: .barracks, level: 6)]
                 )
             ]
         )
+        // Every support objective is destroyed first, so the soldier's first hit lands on the Keep
+        // (1 HP) and produces the live conquest on any authored route.
         SiegeTestSupport.setKeepRemaining(1, on: &finalCityState)
+        SiegeTestSupport.destroySupportObjectives(of: &finalCityState)
         let store = try makeStore(initialState: finalCityState)
         let scene = makeScene(store: store, feedback: feedback)
         scene.spawnSoldierForTesting()
