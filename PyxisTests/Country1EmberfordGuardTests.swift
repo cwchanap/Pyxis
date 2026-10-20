@@ -39,7 +39,9 @@ struct Country1EmberfordGuardTests {
         )
     }
 
-    /// A recovering Captain (0 HP) that never attacks, so Guard and lane tests stay focused.
+    /// A recovering Captain (0 HP) that stays out of the fight for its full recovery window
+    /// (`VanguardCaptainRules.recoverySeconds`), so Guard and lane tests stay focused. A test that
+    /// advances live combat past that window lets it redeploy.
     private static var parkedCaptain: VanguardCaptainProgress {
         VanguardCaptainProgress(
             lane: .left,

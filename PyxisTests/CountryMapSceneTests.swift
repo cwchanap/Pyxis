@@ -2883,8 +2883,8 @@ struct CountryMapSceneTests {
 
     @Test("Emberford current-city RETURN settlement absorbs through Guards without healing them")
     func emberfordCurrentCityReturnSettlementAbsorbsThroughGuardsWithoutHealing() throws {
-        // The same armed window as the Highcrest case: one spawn and one due wave on the
-        // Barracks lane, absorbed by Guards before any city damage, routed to Battle.
+        // The same 120s armed window as the Highcrest case: four due Guard waves materialize on the
+        // Barracks lane and a building spawn is absorbed by Guards before any city damage, routed to Battle.
         let anchor = Date(timeIntervalSinceNow: -120)
         // Keep HP above City 7's authored Keep maximum, so the Keep starts whole.
         var initialState = SiegeTestSupport.makeBattleState(
