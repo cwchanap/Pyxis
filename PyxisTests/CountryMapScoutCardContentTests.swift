@@ -426,17 +426,16 @@ private extension CountryMapScoutCardContentTests {
         )
     }
 
-    /// Authored tactical footers per city, one route-derived line per support
-    /// objective (Falconridge's Tower/Gate split, Highcrest's left-lane Barracks
-    /// (HPA-469), and the HPA-477 two-support cities); single-Keep cities nil.
-    /// The footer a scout card must project for `definition`. Authored cities pin
-    /// their text in the table; a city whose siege layout is not authored yet has no
-    /// pinned text, so it must project the footer derived from its catalog layout.
+    /// The footer a scout card must project for `definition`: the literal text pinned
+    /// in `expectedTacticalFooters`. These are hand-written expectations, not values
+    /// derived from the code under test. Every Country 1 city has one.
     static func expectedTacticalFooter(for definition: CityDefinition) -> String? {
         expectedTacticalFooters[definition.cityNumber]
-            ?? CountryMapScoutCardContent.tacticalFooter(for: definition.siegeLayout)
     }
 
+    /// Pinned footer text per city. One- and two-support cities list every support by route
+    /// (Falconridge's exact pilot text among them). Three- and four-support cities show one
+    /// entry by the Barracks > fire-source Tower > Gate rule (HPA-477).
     private static var expectedTacticalFooters: [Int: String] {
         [
             1: "L/C Gate",
