@@ -80,8 +80,13 @@ struct Country1EmberfordGuardTests {
         let store = Self.makeStore(initialState: entry)
         let scene = Self.makeScene(store: store)
 
+        // Before the first wave is due, nothing is fielded and the full reserve remains.
+        scene.advanceCombatForTesting(deltaTime: 29.9)
+        #expect(Self.guardSnapshots(of: scene).isEmpty)
+        #expect(store.load().siegeProgress.guardReinforcements?.remainingReserve == Country1GuardRules.totalReserve)
+
         // The first wave is due at 30 s: two full-HP Guards and a reserve of 10.
-        scene.advanceCombatForTesting(deltaTime: 30.1)
+        scene.advanceCombatForTesting(deltaTime: 0.2)
         #expect(Self.guardSnapshots(of: scene) == [
             GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP)
@@ -117,7 +122,13 @@ struct Country1EmberfordGuardTests {
         shutdownScene.advanceCombatForTesting(deltaTime: 90.0)
         let persisted = try #require(store.load().siegeProgress.guardReinforcements)
         #expect(persisted.remainingReserve == 8)
-        #expect(Self.guardSnapshots(of: shutdownScene).count <= fielded.count)
+        // The Vanguard Captain (auto-deployed from City 3) engages the fielded Guards during the extra
+        // 90 s, so the roster may shrink. Guards still remain: the shutdown and time never clear the
+        // roster, none is added, and the save matches the live roster.
+        let survivors = Self.guardSnapshots(of: shutdownScene)
+        #expect(!survivors.isEmpty)
+        #expect(survivors.count <= fielded.count)
+        #expect(persisted.unresolvedGuards == survivors)
     }
 
     @Test("Emberford Guard state round-trips through the store and restores into combat")
