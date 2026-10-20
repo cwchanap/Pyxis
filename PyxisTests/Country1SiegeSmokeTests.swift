@@ -216,6 +216,15 @@ struct Country1SiegeSmokeTests {
         .init(type: .stable, level: 1)
     ]
 
+    /// City 7: budget 162 (15 + 147); unlocked Barracks, Archery Range, Stable.
+    /// Barracks L4 (15 + 12 + 20 + 33) + Archery Range L2 (18 + 14) + Stable L2 (28 + 22)
+    /// = 162, exactly the budget.
+    private static let city7Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 4),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .stable, level: 2)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -316,6 +325,20 @@ struct Country1SiegeSmokeTests {
             city: 6,
             lane: .left,
             camp: Self.city6Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    @Test("City 7 default lane watch-only conquers inside the bounded simulated budget")
+    func city7WatchOnlyDefaultLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 7,
+            lane: .center,
+            camp: Self.city7Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false

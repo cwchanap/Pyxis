@@ -137,6 +137,29 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "granite-pass.arrow-tower", coveredLanes: BattleLane.allCases)
     )
 
+    /// The authored Emberford Barracks-shelter siege layout (HPA-477), shared by
+    /// the fixture entry. First non-Highcrest Barracks city: Guards deploy from it.
+    private static let emberfordSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "emberford.keep", kind: .keep, durabilityWeight: 20, visualLane: .center, visualProgress: 1.0),
+            .init(
+                id: "emberford.barracks",
+                kind: .barracks,
+                durabilityWeight: 1,
+                visualLane: .left,
+                visualProgress: 0.72
+            ),
+            .init(id: "emberford.gate", kind: .gate, durabilityWeight: 4, visualLane: .center, visualProgress: 0.80)
+        ],
+        routes: [
+            .left: ["emberford.barracks", "emberford.keep"],
+            .center: ["emberford.gate", "emberford.keep"],
+            .right: ["emberford.keep"]
+        ],
+        defaultLane: .center,
+        defensiveFire: .init(sourceObjectiveID: "emberford.keep", coveredLanes: [.left, .right])
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -249,7 +272,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: granitePassSiegeLayout
         ),
-        .init(7, name: "Emberford", flavorText: "Burning oil guards the bridge inland.", conquestTitle: "Emberford Secured", .burningOil, .left, .right, .ember),
+        .init(
+            7,
+            name: "Emberford",
+            flavorText: "Burning oil guards the bridge inland.",
+            conquestTitle: "Emberford Secured",
+            .burningOil,
+            .left,
+            .right,
+            .ember,
+            siegeLayout: emberfordSiegeLayout
+        ),
         .init(8, name: "Greywall", flavorText: "Layered stone walls protect a busy town.", conquestTitle: "Greywall Falls", .stoneWall, .center, .left, .frontier),
         .init(9, name: "Runewatch", flavorText: "Arcane wards shimmer over the night road.", conquestTitle: "Runewatch Unbound", .arcaneWard, .right, .center, .arcane),
         .init(10, name: "Ironthorn Gate", flavorText: "A hardened gate blocks the inner road.", conquestTitle: "Ironthorn Gate Broken", .spikedGate, .left, .right, .frontier),
@@ -512,10 +545,36 @@ struct Country1CityCatalogTests {
         #expect(granitePassTower > granitePassGate)
         #expect(granitePassPower["granite-pass.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 6))
 
-        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge), 4 (Bramblegate), 5 (Highcrest)
-        // and 6 (Granite Pass) author tactical layouts. The rest stay single-Keep on their
-        // standard lane until later tasks author them.
-        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5, 6].contains(definition.cityNumber) {
+        // City 7 (Emberford) is the first non-Highcrest Barracks city (HPA-477). Its Barracks
+        // route is sheltered by the Keep's fire, the Gate route is not, and the direct route
+        // meets fire with no Barracks at all.
+        let emberford = Country1CityCatalog.definition(for: 7).siegeLayout
+        #expect(emberford.objectives.map(\.id) == ["emberford.keep", "emberford.barracks", "emberford.gate"])
+        #expect(emberford.keepObjective.id == "emberford.keep")
+        #expect(emberford.objective(id: "emberford.barracks")?.kind == .barracks)
+        #expect(emberford.objective(id: "emberford.barracks")?.visualProgress == 0.72)
+        #expect(emberford.objective(id: "emberford.barracks")?.visualLane == .left)
+        #expect(emberford.objective(id: "emberford.gate")?.kind == .gate)
+        #expect(emberford.objective(id: "emberford.gate")?.visualProgress == 0.80)
+        #expect(emberford.objective(id: "emberford.gate")?.visualLane == .center)
+        #expect(emberford.routes[.left] == ["emberford.barracks", "emberford.keep"])
+        #expect(emberford.routes[.center] == ["emberford.gate", "emberford.keep"])
+        #expect(emberford.routes[.right] == ["emberford.keep"])
+        #expect(emberford.defensiveFire.sourceObjectiveID == "emberford.keep")
+        #expect(emberford.defensiveFire.coveredLanes == [.left, .right])
+        #expect(emberford.barracksObjective?.id == "emberford.barracks")
+        #expect(emberford.defaultLane == .center)
+        let emberfordPower = emberford.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 7))
+        let emberfordBarracks = emberfordPower["emberford.barracks", default: 0]
+        let emberfordGate = emberfordPower["emberford.gate", default: 0]
+        #expect(emberfordBarracks > 0)
+        #expect(emberfordGate > emberfordBarracks)
+        #expect(emberfordPower["emberford.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 7))
+
+        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge), 4 (Bramblegate), 5 (Highcrest),
+        // 6 (Granite Pass) and 7 (Emberford) author tactical layouts. The rest stay single-Keep
+        // on their standard lane until later tasks author them.
+        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5, 6, 7].contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"
