@@ -34,14 +34,18 @@ struct SiegeStateTests {
 
     // MARK: Construction (fail-closed invariants)
 
-    // Authored invariant violations (zero or multiple keeps, empty/duplicate
-    // IDs, non-positive weights, out-of-range progress, missing lanes, empty
-    // or dangling or backward or ID-repeating routes, dangling fire source,
-    // repeated fire coverage) trap via `precondition` inside
-    // `CitySiegeLayout.init`, matching the LaneDefenseProfile house style.
-    // Traps cannot be intercepted in-process, so these suites pin every
-    // constructible-valid behavior instead; invalid catalog authoring
-    // crashes static initialization loudly instead of silently normalizing.
+    // Authored invariant violations (zero or multiple keeps, fewer than one or
+    // more than five objectives, more than two gates, more than one arrow
+    // tower or barracks, empty/duplicate IDs, non-positive weights,
+    // out-of-range progress, missing lanes, empty or dangling or backward or
+    // ID-repeating routes, a non-keep objective on no route, a dangling fire
+    // source, an arrow tower that is not the fire source, repeated fire
+    // coverage) trap via `precondition` inside `CitySiegeLayout.init`,
+    // matching the LaneDefenseProfile house style. Traps cannot be
+    // intercepted in-process, so these suites pin every constructible-valid
+    // behavior instead (including the five-objective boundary below); invalid
+    // catalog authoring crashes static initialization loudly instead of
+    // silently normalizing.
 
     @Test("Valid layouts, including a Gate shared across routes, still construct")
     func validLayoutsIncludingSharedGateAcrossRoutesStillConstruct() {
@@ -80,6 +84,67 @@ struct SiegeStateTests {
             #expect(layout.defensiveFire.coveredLanes.count == BattleLane.allCases.count)
             #expect(Set(layout.defensiveFire.coveredLanes) == Set(BattleLane.allCases))
         }
+    }
+
+    @Test("A five-objective layout with two gates, one tower, one barracks and a keep still constructs")
+    func fiveObjectiveBoundaryLayoutConstructsAtEveryCap() {
+        // Sits exactly on every cap: five objectives, two gates, one tower
+        // (the fire source), one barracks. Each support is on a route and
+        // every route stays ordered and ends at the keep.
+        let layout = CitySiegeLayout(
+            objectives: [
+                .init(
+                    id: "boundary.keep",
+                    kind: .keep,
+                    durabilityWeight: 6,
+                    visualLane: .center,
+                    visualProgress: 1.0
+                ),
+                .init(
+                    id: "boundary.arrow-tower",
+                    kind: .arrowTower,
+                    durabilityWeight: 2,
+                    visualLane: .left,
+                    visualProgress: 0.72
+                ),
+                .init(
+                    id: "boundary.barracks",
+                    kind: .barracks,
+                    durabilityWeight: 1,
+                    visualLane: .left,
+                    visualProgress: 0.72
+                ),
+                .init(
+                    id: "boundary.gate-front",
+                    kind: .gate,
+                    durabilityWeight: 1,
+                    visualLane: .right,
+                    visualProgress: 0.76
+                ),
+                .init(
+                    id: "boundary.gate-rear",
+                    kind: .gate,
+                    durabilityWeight: 1,
+                    visualLane: .center,
+                    visualProgress: 0.84
+                )
+            ],
+            routes: [
+                .left: ["boundary.arrow-tower", "boundary.barracks", "boundary.keep"],
+                .center: ["boundary.gate-front", "boundary.gate-rear", "boundary.keep"],
+                .right: ["boundary.barracks", "boundary.gate-front", "boundary.keep"]
+            ],
+            defaultLane: .left,
+            defensiveFire: .init(sourceObjectiveID: "boundary.arrow-tower", coveredLanes: BattleLane.allCases)
+        )
+
+        #expect(layout.objectives.count == 5)
+        #expect(layout.objectives.filter { $0.kind == .gate }.count == 2)
+        #expect(layout.objectives.filter { $0.kind == .arrowTower }.count == 1)
+        #expect(layout.barracksObjective?.id == "boundary.barracks")
+        #expect(layout.keepObjective.id == "boundary.keep")
+        #expect(layout.defensiveFire.sourceObjectiveID == "boundary.arrow-tower")
+        #expect(Set(layout.defensiveFire.coveredLanes) == Set(BattleLane.allCases))
     }
 
     // MARK: Falconridge pins

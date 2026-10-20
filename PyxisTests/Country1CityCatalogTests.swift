@@ -309,6 +309,304 @@ struct Country1CityCatalogTests {
         }
     }
 
+    // MARK: Behavioral geometry (HPA-477)
+
+    private struct SyntheticGeometryCase {
+        let label: String
+        let layout: CitySiegeLayout
+        let cityNumber: Int
+        let expectedFragment: String
+    }
+
+    private static func geometryObjective(
+        _ id: String,
+        _ kind: CitySiegeLayout.ObjectiveKind,
+        weight: Int,
+        progress: Double
+    ) -> CitySiegeLayout.Objective {
+        CitySiegeLayout.Objective(
+            id: id,
+            kind: kind,
+            durabilityWeight: weight,
+            visualLane: .center,
+            visualProgress: progress
+        )
+    }
+
+    /// Behavioral geometry rules for one authored siege layout (HPA-477).
+    /// Structural rules (objective counts, gate and tower caps, route
+    /// reachability, tower as fire source) belong to `CitySiegeLayout.init`
+    /// and are not rechecked here. Returns one readable line per violation;
+    /// empty means the layout passes.
+    private static func geometryViolations(of layout: CitySiegeLayout, cityNumber: Int) throws -> [String] {
+        let configuration = BattleCombatState.Configuration.live(cityLevel: cityNumber)
+        let ranges = try liveSoldierAttackRanges(configuration)
+        var violations = allocationViolations(of: layout, cityNumber: cityNumber)
+        violations += identicalRouteViolations(of: layout)
+        violations += towerCoverageViolations(of: layout)
+        violations += try barracksShelterViolations(
+            of: layout,
+            ranges: ranges,
+            towerAttackRange: configuration.towerAttackRange
+        )
+        violations += guardReachViolations(of: layout, ranges: ranges)
+        return violations
+    }
+
+    /// Per-type soldier attack ranges read from real spawns, so the rules track
+    /// `BattleCombatState` (archer is 2.2x the base range, not a hard-coded 0.264).
+    private static func liveSoldierAttackRanges(
+        _ configuration: BattleCombatState.Configuration
+    ) throws -> [(soldier: SoldierType, range: Double)] {
+        var combat = BattleCombatState(configuration: configuration)
+        var ranges: [(soldier: SoldierType, range: Double)] = []
+        for type in SoldierType.allCases {
+            let id = combat.spawnSoldier(type: type, source: .manual, level: 1, attackPower: 1, lane: .left)
+            let range = try #require(combat.soldier(id: id)).attackRange
+            ranges.append((soldier: type, range: range))
+        }
+        return ranges
+    }
+
+    /// Every objective holds positive max HP, and the allocation spends the
+    /// city's whole budget.
+    private static func allocationViolations(of layout: CitySiegeLayout, cityNumber: Int) -> [String] {
+        let budget = KingdomGameState.cityMaxPower(for: cityNumber)
+        let maxPowers = layout.maxPowerAllocation(totalBudget: budget)
+        var violations = layout.objectives
+            .filter { maxPowers[$0.id, default: 0] <= 0 }
+            .map { "\($0.id) allocates no max HP at budget \(budget)" }
+        let allocated = maxPowers.values.reduce(0, +)
+        if allocated != budget {
+            violations.append("allocated max HP sums to \(allocated), not cityMaxPower \(budget)")
+        }
+        return violations
+    }
+
+    /// Lanes with identical ordered routes must agree on binary fire coverage,
+    /// or one gets equivalent obstacles with strictly less source fire.
+    private static func identicalRouteViolations(of layout: CitySiegeLayout) -> [String] {
+        let covered = Set(layout.defensiveFire.coveredLanes)
+        var violations: [String] = []
+        for lane in BattleLane.allCases {
+            for other in BattleLane.allCases where other.rawValue > lane.rawValue {
+                guard layout.routes[lane] == layout.routes[other],
+                      covered.contains(lane) != covered.contains(other) else { continue }
+                let route = layout.routes[lane] ?? []
+                violations.append("\(lane) and \(other) share route \(route) but fire covers only one of them")
+            }
+        }
+        return violations
+    }
+
+    /// Every lane whose route holds the Tower must be covered, so killing an
+    /// undefended Tower cannot disable fire for the other lanes for free.
+    private static func towerCoverageViolations(of layout: CitySiegeLayout) -> [String] {
+        guard let tower = layout.objectives.first(where: { $0.kind == .arrowTower }) else { return [] }
+        let covered = Set(layout.defensiveFire.coveredLanes)
+        return BattleLane.allCases.compactMap { lane -> String? in
+            guard layout.routes[lane]?.contains(tower.id) == true, !covered.contains(lane) else { return nil }
+            return "\(lane) route contains tower \(tower.id) but fire does not cover that lane"
+        }
+    }
+
+    /// Barracks shelter: every lane through the Barracks is covered by fire, and
+    /// soldiers stalled at the Barracks stay inside the fire source's reach
+    /// (`barracks - attackRange >= source - towerAttackRange`) for every type.
+    private static func barracksShelterViolations(
+        of layout: CitySiegeLayout,
+        ranges: [(soldier: SoldierType, range: Double)],
+        towerAttackRange: Double
+    ) throws -> [String] {
+        guard let barracks = layout.barracksObjective else { return [] }
+        let source = try #require(layout.objective(id: layout.defensiveFire.sourceObjectiveID))
+        let covered = Set(layout.defensiveFire.coveredLanes)
+        let reachLimit = source.visualProgress - towerAttackRange
+        var violations: [String] = []
+        for lane in BattleLane.allCases where layout.routes[lane]?.contains(barracks.id) == true {
+            if !covered.contains(lane) {
+                violations.append("\(lane) route contains barracks \(barracks.id) but fire does not cover that lane")
+            }
+            for entry in ranges {
+                let stall = barracks.visualProgress - entry.range
+                if stall < reachLimit {
+                    violations.append(
+                        "\(lane) barracks stall for \(entry.soldier) at \(stall) "
+                            + "is outside \(source.id) fire reach \(reachLimit)"
+                    )
+                }
+            }
+        }
+        return violations
+    }
+
+    /// Guard reach: Guards deploy from the Barracks floor, so every support
+    /// objective must keep soldiers it stalls within Guard reach of that floor
+    /// (`support - attackRange + guardRange >= barracks`).
+    private static func guardReachViolations(
+        of layout: CitySiegeLayout,
+        ranges: [(soldier: SoldierType, range: Double)]
+    ) -> [String] {
+        guard let barracks = layout.barracksObjective else { return [] }
+        var violations: [String] = []
+        for support in layout.objectives where support.kind != .keep {
+            guard layout.routes.values.contains(where: { $0.contains(support.id) }) else { continue }
+            for entry in ranges {
+                let reach = support.visualProgress - entry.range + HighcrestGuardRules.attackRange
+                if reach < barracks.visualProgress {
+                    violations.append(
+                        "Guards at \(barracks.id) cannot reach \(entry.soldier) stalled at \(support.id)"
+                    )
+                }
+            }
+        }
+        return violations
+    }
+
+    @Test func everyAuthoredCityPassesTheBehavioralGeometryRules() throws {
+        for definition in Country1CityCatalog.definitions {
+            let violations = try Self.geometryViolations(
+                of: definition.siegeLayout,
+                cityNumber: definition.cityNumber
+            )
+            #expect(
+                violations.isEmpty,
+                "City \(definition.cityNumber) breaks the geometry rules: \(violations.joined(separator: "; "))"
+            )
+        }
+    }
+
+    @Test func syntheticLayoutsBreakingOneBehavioralRuleEachAreReported() throws {
+        // Each layout passes every `CitySiegeLayout.init` precondition, so it
+        // constructs without trapping, yet breaks exactly one behavioral rule.
+        let identicalRoutes = CitySiegeLayout(
+            objectives: [
+                Self.geometryObjective("bad.keep", .keep, weight: 1, progress: 1.0),
+                Self.geometryObjective("bad.gate", .gate, weight: 1, progress: 0.5)
+            ],
+            routes: [
+                .left: ["bad.gate", "bad.keep"],
+                .center: ["bad.gate", "bad.keep"],
+                .right: ["bad.keep"]
+            ],
+            defaultLane: .left,
+            defensiveFire: .init(sourceObjectiveID: "bad.keep", coveredLanes: [.left])
+        )
+        let uncoveredBarracksLane = CitySiegeLayout(
+            objectives: [
+                Self.geometryObjective("bad.keep", .keep, weight: 20, progress: 1.0),
+                Self.geometryObjective("bad.barracks", .barracks, weight: 1, progress: 0.72)
+            ],
+            routes: [
+                .left: ["bad.barracks", "bad.keep"],
+                .center: ["bad.keep"],
+                .right: ["bad.keep"]
+            ],
+            defaultLane: .right,
+            defensiveFire: .init(sourceObjectiveID: "bad.keep", coveredLanes: [.center, .right])
+        )
+        let unreachableSupport = CitySiegeLayout(
+            objectives: [
+                Self.geometryObjective("bad.keep", .keep, weight: 20, progress: 1.0),
+                Self.geometryObjective("bad.barracks", .barracks, weight: 1, progress: 0.72),
+                Self.geometryObjective("bad.gate", .gate, weight: 1, progress: 0.30)
+            ],
+            routes: [
+                .left: ["bad.gate", "bad.barracks", "bad.keep"],
+                .center: ["bad.barracks", "bad.keep"],
+                .right: ["bad.keep"]
+            ],
+            defaultLane: .right,
+            defensiveFire: .init(sourceObjectiveID: "bad.keep", coveredLanes: BattleLane.allCases)
+        )
+        let barracksOutsideFire = CitySiegeLayout(
+            objectives: [
+                Self.geometryObjective("bad.keep", .keep, weight: 20, progress: 1.0),
+                Self.geometryObjective("bad.barracks", .barracks, weight: 1, progress: 0.30)
+            ],
+            routes: [
+                .left: ["bad.barracks", "bad.keep"],
+                .center: ["bad.keep"],
+                .right: ["bad.keep"]
+            ],
+            defaultLane: .right,
+            defensiveFire: .init(sourceObjectiveID: "bad.keep", coveredLanes: BattleLane.allCases)
+        )
+        let uncoveredTowerLane = CitySiegeLayout(
+            objectives: [
+                Self.geometryObjective("bad.keep", .keep, weight: 1, progress: 1.0),
+                Self.geometryObjective("bad.tower", .arrowTower, weight: 1, progress: 0.68)
+            ],
+            routes: [
+                .left: ["bad.tower", "bad.keep"],
+                .center: ["bad.keep"],
+                .right: ["bad.keep"]
+            ],
+            defaultLane: .center,
+            defensiveFire: .init(sourceObjectiveID: "bad.tower", coveredLanes: [.center, .right])
+        )
+        let starvedObjective = CitySiegeLayout(
+            objectives: [
+                Self.geometryObjective("bad.keep", .keep, weight: 100, progress: 1.0),
+                Self.geometryObjective("bad.gate", .gate, weight: 1, progress: 0.5)
+            ],
+            routes: [
+                .left: ["bad.gate", "bad.keep"],
+                .center: ["bad.gate", "bad.keep"],
+                .right: ["bad.keep"]
+            ],
+            defaultLane: .center,
+            defensiveFire: .init(sourceObjectiveID: "bad.keep", coveredLanes: BattleLane.allCases)
+        )
+
+        let cases: [SyntheticGeometryCase] = [
+            SyntheticGeometryCase(
+                label: "identical routes with unequal fire",
+                layout: identicalRoutes,
+                cityNumber: 1,
+                expectedFragment: "share route"
+            ),
+            SyntheticGeometryCase(
+                label: "barracks lane outside fire",
+                layout: uncoveredBarracksLane,
+                cityNumber: 5,
+                expectedFragment: "contains barracks"
+            ),
+            SyntheticGeometryCase(
+                label: "support Guards cannot reach",
+                layout: unreachableSupport,
+                cityNumber: 5,
+                expectedFragment: "cannot reach"
+            ),
+            SyntheticGeometryCase(
+                label: "barracks stall outside fire reach",
+                layout: barracksOutsideFire,
+                cityNumber: 5,
+                expectedFragment: "is outside"
+            ),
+            SyntheticGeometryCase(
+                label: "tower lane outside its own fire",
+                layout: uncoveredTowerLane,
+                cityNumber: 1,
+                expectedFragment: "contains tower"
+            ),
+            SyntheticGeometryCase(
+                label: "objective allocated no max HP",
+                layout: starvedObjective,
+                cityNumber: 1,
+                expectedFragment: "allocates no max HP"
+            )
+        ]
+
+        for testCase in cases {
+            let violations = try Self.geometryViolations(of: testCase.layout, cityNumber: testCase.cityNumber)
+            #expect(
+                violations.contains { $0.contains(testCase.expectedFragment) },
+                "\(testCase.label) should report \"\(testCase.expectedFragment)\"; got \(violations)"
+            )
+        }
+    }
+
     // MARK: Vanguard Captain rules (HPA-475)
 
     @Test func vanguardCaptainRulesMatchAuthoredTuning() {
