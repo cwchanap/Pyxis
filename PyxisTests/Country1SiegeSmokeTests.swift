@@ -45,6 +45,11 @@ enum Country1SiegeSmoke {
     static let ticksPerSecond = 10
     static let manualSpawnEveryTicks = 10
 
+    /// Opt-in gate for the heavy alternate-lane comparisons (City 15, ~27 s wall each).
+    /// Run with `TEST_RUNNER_COUNTRY1_SMOKE_ROUTES=1` so xcodebuild forwards the variable
+    /// into the test process. Off by default to keep the always-on suite cheap.
+    nonisolated static let routeComparisonsEnabled = ProcessInfo.processInfo.environment["COUNTRY1_SMOKE_ROUTES"] == "1"
+
     /// `maxSimulatedSeconds` only exists so the stall check can use a short bound.
     /// `manualSpawnsEnabled: false` is the watch-only policy (controller R10): no
     /// manual spawns, so only building-spawned soldiers and automatic Captain/Rally act.
@@ -169,6 +174,20 @@ enum Country1SiegeSmoke {
                 : nil
         )
         return state
+    }
+}
+
+/// One matched alternate-lane comparison (HPA-477 Task 8). Reuses a city's committed camp and
+/// spawn policy on a non-default lane. Only conquests are asserted; the printed line carries the
+/// balance numbers, which are never exact-value assertions.
+struct Country1RouteComparison: CustomTestStringConvertible, Sendable {
+    let city: Int
+    let lane: BattleLane
+    let camp: [Country1SiegeSmoke.Building]
+    let manualSpawnsEnabled: Bool
+
+    var testDescription: String {
+        "City \(city) \(lane.displayName.lowercased()) lane, \(manualSpawnsEnabled ? "manual spawns" : "watch-only")"
     }
 }
 
@@ -396,6 +415,26 @@ struct Country1SiegeSmokeTests {
         .init(type: .siegeWorkshop, level: 1),
         .init(type: .siegeWorkshop, level: 1),
         .init(type: .siegeWorkshop, level: 1)
+    ]
+
+    /// Always-on alternate-lane comparisons. Each measures under about 2 s of wall time
+    /// (City 1, 3, 5, 9 and 10 routes); no alternate lane here stalls at its matched camp.
+    private static let alwaysOnRouteComparisons: [Country1RouteComparison] = [
+        .init(city: 1, lane: .left, camp: city1Camp, manualSpawnsEnabled: false),
+        .init(city: 1, lane: .right, camp: city1Camp, manualSpawnsEnabled: false),
+        .init(city: 3, lane: .right, camp: city3Camp, manualSpawnsEnabled: true),
+        .init(city: 5, lane: .center, camp: city5Camp, manualSpawnsEnabled: true),
+        .init(city: 9, lane: .center, camp: city9Camp, manualSpawnsEnabled: false),
+        .init(city: 9, lane: .right, camp: city9Camp, manualSpawnsEnabled: false),
+        .init(city: 10, lane: .left, camp: city10Camp, manualSpawnsEnabled: false),
+        .init(city: 10, lane: .right, camp: city10Camp, manualSpawnsEnabled: false)
+    ]
+
+    /// Opt-in alternate-lane comparisons for City 15 (about 27 s wall each). Enable with
+    /// `TEST_RUNNER_COUNTRY1_SMOKE_ROUTES=1 xcodebuild ... -only-testing:PyxisTests/Country1SiegeSmokeTests test`.
+    private static let optInRouteComparisons: [Country1RouteComparison] = [
+        .init(city: 15, lane: .center, camp: city15Camp, manualSpawnsEnabled: false),
+        .init(city: 15, lane: .right, camp: city15Camp, manualSpawnsEnabled: false)
     ]
 
     @Test("City 3 default lane conquers inside the bounded simulated budget")
@@ -682,6 +721,38 @@ struct Country1SiegeSmokeTests {
         #expect(result.reachedConquest)
     }
 
+    @Test(
+        "Always-on alternate lanes conquer inside the bounded simulated budget",
+        arguments: Country1SiegeSmokeTests.alwaysOnRouteComparisons
+    )
+    func alwaysOnAlternateLaneConquersWithinBound(_ comparison: Country1RouteComparison) {
+        Self.expectAlternateLaneConquest(comparison)
+    }
+
+    @Test(
+        "Opt-in City 15 alternate lanes conquer inside the bounded simulated budget",
+        .enabled(if: Country1SiegeSmoke.routeComparisonsEnabled),
+        arguments: Country1SiegeSmokeTests.optInRouteComparisons
+    )
+    func optInAlternateLaneConquersWithinBound(_ comparison: Country1RouteComparison) {
+        Self.expectAlternateLaneConquest(comparison)
+    }
+
+    /// Runs one matched alternate-lane comparison and asserts only that it conquers inside the
+    /// bound. The diagnostic line is the `#expect` message, so a failure prints the full run.
+    private static func expectAlternateLaneConquest(_ comparison: Country1RouteComparison) {
+        let result = Country1SiegeSmoke.run(
+            city: comparison.city,
+            lane: comparison.lane,
+            camp: comparison.camp,
+            soldierUpgradeLevel: 1,
+            seed: seed,
+            manualSpawnsEnabled: comparison.manualSpawnsEnabled
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest, Comment(rawValue: Country1SiegeSmoke.line(for: result)))
+    }
+
     @Test("A siege that cannot finish inside its bound stops as a stall instead of hanging")
     func boundedHarnessReportsStallInsteadOfHanging() {
         let result = Country1SiegeSmoke.run(
@@ -693,6 +764,6 @@ struct Country1SiegeSmokeTests {
             maxSimulatedSeconds: 3
         )
         #expect(result.stalled)
-        #expect(result.elapsedSeconds <= 3)
+        #expect(result.elapsedSeconds == 3.0)
     }
 }
