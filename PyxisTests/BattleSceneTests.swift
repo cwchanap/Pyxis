@@ -2146,7 +2146,9 @@ struct BattleSceneTests {
     }
 
     @Test func manualSpawnUsesHighestMatchingBuildingLevelAndTraitAdjustedDamage() throws {
-        let cityKey = CityKey(countryNumber: 1, cityNumber: 11)
+        // City 15 (reinforced-Keep trait, single-Keep) so every lane is Keep-direct. City 11's
+        // Barracks route would absorb this damage before the Keep.
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 15)
         let cityState = CityBattleState(
             slots: [
                 1: CityBuilding(type: .siegeWorkshop, level: 1),
@@ -2155,8 +2157,8 @@ struct BattleSceneTests {
         )
         var state = KingdomGameState(
             gold: 200,
-            cityNumberInCountry: 11,
-            completedCityCount: 10,
+            cityNumberInCountry: 15,
+            completedCityCount: 14,
             cityBattleStates: [cityKey.storageKey: cityState]
         )
         SiegeTestSupport.setKeepRemaining(100, on: &state)

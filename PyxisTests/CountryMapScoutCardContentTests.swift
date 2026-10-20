@@ -442,7 +442,8 @@ private extension CountryMapScoutCardContentTests {
             7: "L Barracks · C Gate",
             8: "L Tower · C/R Gate",
             9: "L Barracks · R Tower",
-            10: "L Tower"
+            10: "L Tower",
+            11: "R Barracks"
         ]
     }
 }
