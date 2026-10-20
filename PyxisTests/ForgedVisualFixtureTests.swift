@@ -37,7 +37,10 @@ struct ForgedVisualFixtureTests {
             ("battle-highcrest-wave", .battleHighcrestWave),
             ("battle-highcrest-guard-damaged", .battleHighcrestGuardDamaged),
             ("battle-highcrest-shutdown", .battleHighcrestShutdown),
-            ("battle-highcrest-final", .battleHighcrestFinal)
+            ("battle-highcrest-final", .battleHighcrestFinal),
+            ("battle-crownspire-ruined", .battleCrownspireRuined),
+            ("battle-emberford-guards", .battleEmberfordGuards),
+            ("battle-pinewatch", .battlePinewatch)
         ]
 
         for (rawValue, fixture) in expected {
@@ -94,6 +97,63 @@ struct ForgedVisualFixtureTests {
         let remaining = state.currentSiegeSnapshot.objectiveRemainingPower
         #expect(remaining["falconridge.ridge-gate"] == 0)
         #expect(remaining["falconridge.arrow-tower"] == 0)
+    }
+
+    @Test("DEBUG ruined Crownspire fixture destroys all five-structure supports and damages the Keep")
+    func ruinedCrownspireFixturePinsSupportState() throws {
+        let fixture = try #require(ForgedVisualFixture(launchArguments: [
+            ForgedVisualFixture.launchArgument, "battle-crownspire-ruined"
+        ]))
+        let state = fixture.makeState()
+        #expect(fixture.preferredTab == .battle)
+        #expect(state.cityNumberInCountry == 15)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.pendingBattleResult == nil)
+        #expect(state.currentKeepRemainingPower > 0)
+        #expect(state.currentKeepRemainingPower < state.currentKeepMaxPower)
+        let remaining = state.currentSiegeSnapshot.objectiveRemainingPower
+        // Both Gates, the Arrow Tower (the sole fire source) and the Barracks are ruined.
+        for id in [
+            "crownspire-keep.arrow-tower", "crownspire-keep.gate",
+            "crownspire-keep.barracks", "crownspire-keep.east-gate"
+        ] {
+            #expect(remaining[id] == 0)
+        }
+    }
+
+    @Test("DEBUG Emberford Guard fixture stages two Barracks-lane Guards with the reserve partly spent")
+    func emberfordGuardFixturePinsGuardState() throws {
+        let fixture = try #require(ForgedVisualFixture(launchArguments: [
+            ForgedVisualFixture.launchArgument, "battle-emberford-guards"
+        ]))
+        let state = fixture.makeState()
+        #expect(fixture.preferredTab == .battle)
+        #expect(state.cityNumberInCountry == 7)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.pendingBattleResult == nil)
+        let guards = try #require(state.siegeProgress.guardReinforcements)
+        #expect(guards.unresolvedGuards == [
+            GuardSnapshot(lane: .left, remainingHP: 12),
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ])
+        // Of the 12-Guard budget, 2 are on the field and 6 remain in reserve, so 4 are spent.
+        #expect(guards.remainingReserve == 6)
+        #expect(state.siegeProgress.damageByObjectiveID["emberford.barracks"] == nil)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+    }
+
+    @Test("DEBUG Pinewatch fixture stages intact City 2 for the shared-Gate route check")
+    func pinewatchFixturePinsIntactCityTwo() throws {
+        let fixture = try #require(ForgedVisualFixture(launchArguments: [
+            ForgedVisualFixture.launchArgument, "battle-pinewatch"
+        ]))
+        let state = fixture.makeState()
+        #expect(fixture.preferredTab == .battle)
+        #expect(state.cityNumberInCountry == 2)
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.pendingBattleResult == nil)
+        #expect(state.siegeProgress.damageByObjectiveID.isEmpty)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
     }
 
     @Test("DEBUG tactical actor fixtures retain Highcrest and Captain capture preconditions")

@@ -25,6 +25,9 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     case battleHighcrestGuardDamaged = "battle-highcrest-guard-damaged"
     case battleHighcrestShutdown = "battle-highcrest-shutdown"
     case battleHighcrestFinal = "battle-highcrest-final"
+    case battleCrownspireRuined = "battle-crownspire-ruined"
+    case battleEmberfordGuards = "battle-emberford-guards"
+    case battlePinewatch = "battle-pinewatch"
 
     static let launchArgument = "-pyxis-forged-fixture"
 
@@ -39,7 +42,8 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
              .battleDamaged, .battleBreached, .battleEmberford, .battleRunewatch,
              .battleCrownspire, .returnDamage,
              .battleHighcrestWave, .battleHighcrestGuardDamaged,
-             .battleHighcrestShutdown, .battleHighcrestFinal:
+             .battleHighcrestShutdown, .battleHighcrestFinal,
+             .battleCrownspireRuined, .battleEmberfordGuards, .battlePinewatch:
             return .battle
         }
     }
@@ -75,16 +79,13 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
                 cityNumber: 1,
                 keepRemaining: self == .battleBreached ? 2 : 7
             )
-        case .battleEmberford:
-            return DevJumpState.make(city: 7)
+        case .battleEmberford, .battleEmberfordGuards, .battlePinewatch,
+             .battleRunewatch, .battleCrownspire, .battleCrownspireRuined:
+            return Self.cityBattleState(for: self)
         case .battleHighcrestWave, .battleHighcrestGuardDamaged,
              .battleHighcrestShutdown, .battleHighcrestFinal,
              .battleCaptainDeployed, .battleRallyActive, .battleGuardAnimation:
             return Self.highcrestGuardFixtureState(for: self)
-        case .battleRunewatch:
-            return DevJumpState.make(city: 9)
-        case .battleCrownspire:
-            return DevJumpState.make(city: 15)
         case .returnDamage:
             return Self.returnDamageState()
         case .campEmpty, .campOccupied:
@@ -196,6 +197,54 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         }
     }
 
+    /// City 15 ruin capture (five-structure layout): both Gates, the Arrow Tower
+    /// (the sole fire source) and the Barracks are destroyed; the Keep is at 60% HP.
+    private static func crownspireRuinedState() -> KingdomGameState {
+        var state = DevJumpState.make(city: 15)
+        seedSiegeProgress(
+            keepRemaining: state.currentKeepMaxPower * 3 / 5,
+            supportDamage: [.gate: Int.max, .arrowTower: Int.max, .barracks: Int.max],
+            on: &state
+        )
+        return state
+    }
+
+    /// Country 1 city-jump battle captures: intact cities come from `DevJumpState`,
+    /// plus the Emberford Guard and Crownspire ruin variants.
+    private static func cityBattleState(for fixture: ForgedVisualFixture) -> KingdomGameState {
+        switch fixture {
+        case .battleEmberford:
+            return DevJumpState.make(city: 7)
+        case .battleEmberfordGuards:
+            return emberfordGuardState()
+        case .battlePinewatch:
+            return DevJumpState.make(city: 2)
+        case .battleRunewatch:
+            return DevJumpState.make(city: 9)
+        case .battleCrownspire:
+            return DevJumpState.make(city: 15)
+        case .battleCrownspireRuined:
+            return crownspireRuinedState()
+        default:
+            preconditionFailure("Non-city fixture routed to the city-jump mapper: \(fixture)")
+        }
+    }
+
+    /// City 7 Guard capture: two full-HP Guards on the Barracks (left) lane with
+    /// 6 of the 12-Guard reserve left (4 spent); the Barracks and Keep are intact.
+    private static func emberfordGuardState() -> KingdomGameState {
+        var state = DevJumpState.make(city: 7)
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 6,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 12),
+                GuardSnapshot(lane: .left, remainingHP: 12)
+            ]
+        )
+        return state
+    }
+
     private static func returnDamageState() -> KingdomGameState {
         var state = DevJumpState.make(city: 3)
         let backgroundAt = Date(timeIntervalSince1970: 1_000)
@@ -209,7 +258,8 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
 
     /// Seeds current-city siege progress with the SiegeTestSupport pattern
     /// (HPA-468): Keep HP is the sole conquest/liveness authority and damage
-    /// clamps to each objective's authored maximum.
+    /// clamps to each objective's authored maximum. A kind's damage applies to
+    /// every objective of that kind (City 15 authors two Gates).
     private static func seedSiegeProgress(
         keepRemaining: Int,
         supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:],
@@ -230,12 +280,11 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             state.siegeProgress.damageByObjectiveID.removeValue(forKey: keepID)
         }
         for (kind, damage) in supportDamage {
-            guard let objectiveID = layout.objectives.first(where: { $0.kind == kind })?.id else {
-                continue // no such support objective in this layout
-            }
-            let clamped = clamp(damage, toMax: maxPowers[objectiveID, default: 0])
-            if clamped > 0 {
-                state.siegeProgress.damageByObjectiveID[objectiveID] = clamped
+            for objective in layout.objectives where objective.kind == kind {
+                let clamped = clamp(damage, toMax: maxPowers[objective.id, default: 0])
+                if clamped > 0 {
+                    state.siegeProgress.damageByObjectiveID[objective.id] = clamped
+                }
             }
         }
     }
