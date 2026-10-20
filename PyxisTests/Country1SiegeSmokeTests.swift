@@ -177,9 +177,9 @@ enum Country1SiegeSmoke {
     }
 }
 
-/// One matched alternate-lane comparison (HPA-477 Task 8). Reuses a city's committed camp and
-/// spawn policy on a non-default lane. Only conquests are asserted; the printed line carries the
-/// balance numbers, which are never exact-value assertions.
+/// One matched comparison (HPA-477 Task 8). Reuses a city's committed camp and spawn policy on one lane.
+/// Only conquests are asserted; the printed line carries the balance numbers, which are never exact-value
+/// assertions.
 struct Country1RouteComparison: CustomTestStringConvertible, Sendable {
     let city: Int
     let lane: BattleLane
@@ -195,6 +195,9 @@ struct Country1RouteComparison: CustomTestStringConvertible, Sendable {
 struct Country1SiegeSmokeTests {
     private static let seed: UInt64 = 477
 
+    /// City 3 pilot camp (manual-spawn pilot, Falconridge): Barracks L2 (15 + 12 = 27) + Archery Range L1
+    /// (18) = 45 gold. The cumulative budget through City 2 is 35 (15 + 8 + 12), so this shipped pilot camp
+    /// is 10 gold over that convention. It is kept as authored; the pilot lines stay byte-identical.
     private static let city3Camp: [Country1SiegeSmoke.Building] = [
         .init(type: .barracks, level: 2),
         .init(type: .archeryRange, level: 1)
@@ -204,8 +207,20 @@ struct Country1SiegeSmokeTests {
         .init(type: .barracks, level: 1)
     ]
 
+    /// City 5 pilot camp (manual-spawn pilot, Highcrest): Barracks L1 = 15 of the 76-gold cumulative budget
+    /// (15 + 8 + 12 + 17 + 24). The camp is thin, which is why its watch-only runs stall on every lane; the
+    /// stall is a camp-size effect, not a spawn-policy dependency. See `city5WatchOnlyCamp` for the watch-only case.
     private static let city5Camp: [Country1SiegeSmoke.Building] = [
         .init(type: .barracks, level: 1)
+    ]
+
+    /// City 5 watch-only camp: Barracks L3 (47) + Archery Range L1 (18) = 65 of the 76-gold cumulative budget
+    /// (leftover 11), within budget. Default right lane (exposed, 0.80x Tower fire) conquers in 367.6 s with 65
+    /// losses. Other lanes on the same camp: left conquers in 297.2 s (Barracks down at 18.2 s); centre
+    /// conquers in 834.0 s, close to the bound.
+    private static let city5WatchOnlyCamp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 3),
+        .init(type: .archeryRange, level: 1)
     ]
 
     /// Watch-only camps for the authored Country 1 cities (HPA-477). Budget is
@@ -463,6 +478,14 @@ struct Country1SiegeSmokeTests {
         #expect(result.reachedConquest)
     }
 
+    /// City 3 default lane (centre) on the committed pilot camp, watch-only: no manual spawns.
+    @Test("City 3 default center lane watch-only conquers inside the bounded simulated budget")
+    func city3WatchOnlyDefaultLaneConquersWithinBound() {
+        Self.expectMatchedConquest(
+            Country1RouteComparison(city: 3, lane: .center, camp: Self.city3Camp, manualSpawnsEnabled: false)
+        )
+    }
+
     @Test("City 5 default lane conquers inside the bounded simulated budget")
     func city5DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -487,6 +510,14 @@ struct Country1SiegeSmokeTests {
         )
         print(Country1SiegeSmoke.line(for: result))
         #expect(result.reachedConquest)
+    }
+
+    /// City 5 default lane (right, exposed) on the 65-gold watch-only camp: no manual spawns.
+    @Test("City 5 default right lane watch-only conquers inside the bounded simulated budget")
+    func city5WatchOnlyDefaultLaneConquersWithinBound() {
+        Self.expectMatchedConquest(
+            Country1RouteComparison(city: 5, lane: .right, camp: Self.city5WatchOnlyCamp, manualSpawnsEnabled: false)
+        )
     }
 
     @Test("City 1 default lane watch-only conquers inside the bounded simulated budget")
@@ -726,7 +757,7 @@ struct Country1SiegeSmokeTests {
         arguments: Country1SiegeSmokeTests.alwaysOnRouteComparisons
     )
     func alwaysOnAlternateLaneConquersWithinBound(_ comparison: Country1RouteComparison) {
-        Self.expectAlternateLaneConquest(comparison)
+        Self.expectMatchedConquest(comparison)
     }
 
     @Test(
@@ -735,12 +766,12 @@ struct Country1SiegeSmokeTests {
         arguments: Country1SiegeSmokeTests.optInRouteComparisons
     )
     func optInAlternateLaneConquersWithinBound(_ comparison: Country1RouteComparison) {
-        Self.expectAlternateLaneConquest(comparison)
+        Self.expectMatchedConquest(comparison)
     }
 
-    /// Runs one matched alternate-lane comparison and asserts only that it conquers inside the
-    /// bound. The diagnostic line is the `#expect` message, so a failure prints the full run.
-    private static func expectAlternateLaneConquest(_ comparison: Country1RouteComparison) {
+    /// Runs one matched comparison (an alternate or default lane on a committed camp and policy) and
+    /// asserts only that it conquers inside the bound. The diagnostic line is the `#expect` message.
+    private static func expectMatchedConquest(_ comparison: Country1RouteComparison) {
         let result = Country1SiegeSmoke.run(
             city: comparison.city,
             lane: comparison.lane,
