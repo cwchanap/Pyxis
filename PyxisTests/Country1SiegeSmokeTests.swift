@@ -283,6 +283,22 @@ struct Country1SiegeSmokeTests {
         .init(type: .stable, level: 1)
     ]
 
+    /// City 12 watch-only camp: budget 1056 (15 + 1041 of rewards through City 11); unlocked
+    /// all five types. Five Barracks L5 (670) + Archery Range L3 x2 (2 x 55 = 110) + Stable L3 (86)
+    /// + Mage Tower L2 (70) + Siege Workshop L2 (97) = 1033 (leftover 23). Within budget.
+    private static let city12Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .archeryRange, level: 3),
+        .init(type: .archeryRange, level: 3),
+        .init(type: .stable, level: 3),
+        .init(type: .mageTower, level: 2),
+        .init(type: .siegeWorkshop, level: 2)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -459,6 +475,22 @@ struct Country1SiegeSmokeTests {
             city: 11,
             lane: .right,
             camp: Self.city11Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    /// City 12 default lane is the standard lane (left): the Gate route. The Barracks and the
+    /// Tower sit on the other two routes.
+    @Test("City 12 default Gate lane watch-only conquers inside the bounded simulated budget")
+    func city12WatchOnlyDefaultLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 12,
+            lane: .left,
+            camp: Self.city12Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false

@@ -498,7 +498,54 @@ enum Country1CityCatalog {
             conquestTitle: "Ashbridge Secured",
             defenseTrait: .burningOil,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
-            visualFamily: .ember
+            visualFamily: .ember,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 30:1:1:1 Keep:Gate:Barracks:Tower HP (82501 + 2750 + 2750 + 2750 of 90751):
+                    // the Keep is the conquest authority. The Tower is the single fire source,
+                    // covering every lane, and the right route's only stop. The Gate is the left
+                    // route's only stop, and the Barracks is the centre route's only stop. The
+                    // flame identity stays in the burning-oil defense trait.
+                    .init(
+                        id: "ashbridge.keep",
+                        kind: .keep,
+                        durabilityWeight: 30,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "ashbridge.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .left,
+                        visualProgress: 0.80
+                    ),
+                    .init(
+                        id: "ashbridge.barracks",
+                        kind: .barracks,
+                        durabilityWeight: 1,
+                        visualLane: .center,
+                        visualProgress: 0.72
+                    ),
+                    .init(
+                        id: "ashbridge.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 1,
+                        visualLane: .right,
+                        visualProgress: 0.83
+                    )
+                ],
+                routes: [
+                    .left: ["ashbridge.gate", "ashbridge.keep"],
+                    .center: ["ashbridge.barracks", "ashbridge.keep"],
+                    .right: ["ashbridge.arrow-tower", "ashbridge.keep"]
+                ],
+                defaultLane: .left,
+                defensiveFire: .init(
+                    sourceObjectiveID: "ashbridge.arrow-tower",
+                    coveredLanes: BattleLane.allCases
+                )
+            )
         ),
         CityDefinition(
             cityNumber: 13,
