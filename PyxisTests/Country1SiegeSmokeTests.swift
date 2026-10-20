@@ -256,6 +256,20 @@ struct Country1SiegeSmokeTests {
         .init(type: .mageTower, level: 1)
     ]
 
+    /// City 10 watch-only camp: budget 500 (15 + 485 of rewards through City 9); unlocked
+    /// Barracks, Archery Range, Stable, Mage Tower. Five Barracks L4 (5 x 80 = 400) +
+    /// Archery Range L2 (32) + Stable L2 (50) = 482 (leftover 18). As in the City 9 camp,
+    /// five Barracks keep the soldier flow ahead of the Tower's fire. Within budget.
+    private static let city10Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 4),
+        .init(type: .barracks, level: 4),
+        .init(type: .barracks, level: 4),
+        .init(type: .barracks, level: 4),
+        .init(type: .barracks, level: 4),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .stable, level: 2)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -401,6 +415,21 @@ struct Country1SiegeSmokeTests {
             city: 9,
             lane: .left,
             camp: Self.city9Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    /// City 10 default Gate lane is the standard lane (centre). The Tower route is the left lane.
+    @Test("City 10 default lane watch-only conquers inside the bounded simulated budget")
+    func city10WatchOnlyDefaultLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 10,
+            lane: .center,
+            camp: Self.city10Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false

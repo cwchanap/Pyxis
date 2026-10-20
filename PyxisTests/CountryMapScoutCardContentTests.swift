@@ -428,28 +428,22 @@ private extension CountryMapScoutCardContentTests {
     /// objective (Falconridge's Tower/Gate split, Highcrest's left-lane Barracks
     /// (HPA-469), and the HPA-477 two-support cities); single-Keep cities nil.
     static func expectedTacticalFooter(for cityNumber: Int) -> String? {
-        switch cityNumber {
-        case 1:
-            return "L/C Gate"
-        case 2:
-            return "L/R Gate"
-        case 3:
-            return "L Tower · C/R Gate"
-        case 4:
-            return "L/C Gate · R Gate"
-        case 5:
-            return "L Barracks"
-        case 6:
-            return "L/C Gate · R Tower"
-        case 7:
-            return "L Barracks · C Gate"
-        case 8:
-            return "L Tower · C/R Gate"
-        case 9:
-            return "L Barracks · R Tower"
-        default:
-            return nil
-        }
+        expectedTacticalFooters[cityNumber]
+    }
+
+    private static var expectedTacticalFooters: [Int: String] {
+        [
+            1: "L/C Gate",
+            2: "L/R Gate",
+            3: "L Tower · C/R Gate",
+            4: "L/C Gate · R Gate",
+            5: "L Barracks",
+            6: "L/C Gate · R Tower",
+            7: "L Barracks · C Gate",
+            8: "L Tower · C/R Gate",
+            9: "L Barracks · R Tower",
+            10: "L Tower"
+        ]
     }
 }
 
