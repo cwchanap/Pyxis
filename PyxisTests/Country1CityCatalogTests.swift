@@ -6,7 +6,9 @@
 import Testing
 @testable import Pyxis
 
+@MainActor
 struct Country1CityCatalogTests {
+    @MainActor
     private struct ExpectedDefinition {
         let cityNumber: Int
         let name: String

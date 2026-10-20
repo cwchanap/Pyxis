@@ -36,22 +36,26 @@ enum Country1SiegeSmoke {
         let guardReserveRemaining: Int?
         /// Simulated second at which the Barracks reached 0 HP, if it did.
         let barracksShutdownSeconds: Double?
+        let manualSpawnsEnabled: Bool
 
         var stalled: Bool { !reachedConquest }
     }
 
-    static let maxSimulatedSeconds = 900.0
+    nonisolated static let maxSimulatedSeconds = 900.0
     static let ticksPerSecond = 10
     static let manualSpawnEveryTicks = 10
 
     /// `maxSimulatedSeconds` only exists so the stall check can use a short bound.
+    /// `manualSpawnsEnabled: false` is the watch-only policy (controller R10): no
+    /// manual spawns, so only building-spawned soldiers and automatic Captain/Rally act.
     static func run(
         city: Int,
         lane: BattleLane,
         camp: [Building],
         soldierUpgradeLevel: Int,
         seed: UInt64,
-        maxSimulatedSeconds: Double = maxSimulatedSeconds
+        maxSimulatedSeconds: Double = maxSimulatedSeconds,
+        manualSpawnsEnabled: Bool = true
     ) -> Result {
         let suiteName = "Country1SiegeSmoke.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -78,7 +82,7 @@ enum Country1SiegeSmoke {
         var spawnCount = 0
         var barracksShutdownTick: Int?
         while tick < maxTicks, scene.gameStateForTesting.pendingBattleResult == nil {
-            if tick % manualSpawnEveryTicks == 0 {
+            if manualSpawnsEnabled, tick % manualSpawnEveryTicks == 0 {
                 scene.selectManualSoldierTypeForTesting(spawnTypes[spawnCount % spawnTypes.count])
                 scene.spawnSoldierForTesting()
                 spawnCount += 1
@@ -106,7 +110,8 @@ enum Country1SiegeSmoke {
             troopLosses: losses.reduce(0) { $0 + $1.count },
             guardsSpawned: guards.map { Country1GuardRules.totalReserve - $0.remainingReserve },
             guardReserveRemaining: guards?.remainingReserve,
-            barracksShutdownSeconds: barracksShutdownTick.map { Double($0) / Double(ticksPerSecond) }
+            barracksShutdownSeconds: barracksShutdownTick.map { Double($0) / Double(ticksPerSecond) },
+            manualSpawnsEnabled: manualSpawnsEnabled
         )
     }
 
@@ -117,7 +122,9 @@ enum Country1SiegeSmoke {
         let waves = result.guardsSpawned.map { String($0 / Country1GuardRules.guardsPerWave) } ?? "n/a"
         let reserve = result.guardReserveRemaining.map(String.init) ?? "n/a"
         let shutdown = result.barracksShutdownSeconds.map { String(format: "%.1f", $0) } ?? "none"
-        return [
+        // Appended only for watch-only runs so the default pilot lines stay byte-identical.
+        let watchOnlyTokens = result.manualSpawnsEnabled ? [] : ["manualSpawns=off"]
+        return ([
             "COUNTRY1_SMOKE",
             "city=\(result.city)",
             "lane=\(result.lane.displayName.lowercased())",
@@ -130,7 +137,7 @@ enum Country1SiegeSmoke {
             "guardWaves=\(waves)",
             "guardReserve=\(reserve)",
             "barracksShutdown=\(shutdown)"
-        ].joined(separator: " ")
+        ] + watchOnlyTokens).joined(separator: " ")
     }
 
     /// Mirrors `KingdomGameState.startCityFromMap` for a fresh entry, except the
