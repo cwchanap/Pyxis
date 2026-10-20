@@ -184,6 +184,133 @@ struct CountryMapScoutCardContentTests {
         }
     }
 
+    @Test func twoSupportFooterKeepsEverySupportEntryInAuthoredOrder() {
+        let layout = Self.syntheticLayout(
+            supports: [.init("barracks", .barracks, 0.72), .init("tower", .arrowTower, 0.80)],
+            routes: [.left: ["barracks", "keep"], .center: ["keep"], .right: ["tower", "keep"]],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "L Barracks · R Tower")
+    }
+
+    @Test func ironthornFooterShowsOnlyItsTowerOverTwoGates() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("tower", .arrowTower, 0.80),
+                .init("gate-centre", .gate, 0.78),
+                .init("gate-right", .gate, 0.84)
+            ],
+            routes: [.left: ["tower", "keep"], .center: ["gate-centre", "keep"], .right: ["gate-right", "keep"]],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "L Tower")
+    }
+
+    @Test func kingshieldFooterShowsItsBarracksOverTowerAndGate() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("tower", .arrowTower, 0.80),
+                .init("gate", .gate, 0.82),
+                .init("barracks", .barracks, 0.72)
+            ],
+            routes: [.left: ["tower", "keep"], .center: ["gate", "keep"], .right: ["barracks", "keep"]],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "R Barracks")
+    }
+
+    @Test func ashbridgeFooterShowsItsBarracksEvenWhenAuthoredAfterAGate() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("gate", .gate, 0.80),
+                .init("barracks", .barracks, 0.72),
+                .init("tower", .arrowTower, 0.83)
+            ],
+            routes: [.left: ["gate", "keep"], .center: ["barracks", "keep"], .right: ["tower", "keep"]],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "C Barracks")
+    }
+
+    @Test func starveilFooterShowsItsKeepSourcedBarracksOverTwoGates() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("gate-left", .gate, 0.80),
+                .init("barracks", .barracks, 0.72),
+                .init("gate-right", .gate, 0.83)
+            ],
+            routes: [.left: ["gate-left", "keep"], .center: ["barracks", "keep"], .right: ["gate-right", "keep"]],
+            fireSourceID: "keep"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "C Barracks")
+    }
+
+    @Test func stonecrownFooterShowsItsTowerOverTwoGates() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("gate-left", .gate, 0.77),
+                .init("tower", .arrowTower, 0.82),
+                .init("gate-right", .gate, 0.84)
+            ],
+            routes: [.left: ["gate-left", "keep"], .center: ["tower", "keep"], .right: ["gate-right", "keep"]],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "C Tower")
+    }
+
+    @Test func crownspireFooterShowsOnlyTheBarracksOfFourSupports() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("tower", .arrowTower, 0.78),
+                .init("barracks", .barracks, 0.72),
+                .init("gate-left", .gate, 0.84),
+                .init("gate-right", .gate, 0.82)
+            ],
+            routes: [
+                .left: ["tower", "gate-left", "keep"],
+                .center: ["barracks", "gate-left", "keep"],
+                .right: ["gate-right", "keep"]
+            ],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "C Barracks")
+    }
+
+    @Test func gateGateTowerFooterShowsTheTowerNotAnyGate() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("gate-left", .gate, 0.58),
+                .init("gate-centre", .gate, 0.76),
+                .init("tower", .arrowTower, 0.68)
+            ],
+            routes: [.left: ["gate-left", "keep"], .center: ["gate-centre", "keep"], .right: ["tower", "keep"]],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "R Tower")
+    }
+
+    @Test func sharedBarracksFooterKeepsEveryLaneOfItsSingleEntry() {
+        let layout = Self.syntheticLayout(
+            supports: [
+                .init("barracks", .barracks, 0.72),
+                .init("tower", .arrowTower, 0.80),
+                .init("gate", .gate, 0.84)
+            ],
+            routes: [.left: ["barracks", "keep"], .center: ["barracks", "keep"], .right: ["tower", "gate", "keep"]],
+            fireSourceID: "tower"
+        )
+
+        #expect(CountryMapScoutCardContent.tacticalFooter(for: layout) == "L/C Barracks")
+    }
+
     @Test
     func eachUnlockedCityProjectsItsAuthoredScoutDetails() {
         let expected: [ExpectedScoutDetails] = [
@@ -264,6 +391,39 @@ struct CountryMapScoutCardContentTests {
 }
 
 private extension CountryMapScoutCardContentTests {
+    /// Synthetic layout for footer projection shapes the catalog does not
+    /// author yet (3-4 supports). The Keep is the first objective, as authored,
+    /// and the final stop on every route; `fireSourceID` names the Tower or the
+    /// Keep and covers every lane.
+    static func syntheticLayout(
+        supports: [SyntheticSupport],
+        routes: [BattleLane: [String]],
+        fireSourceID: String
+    ) -> CitySiegeLayout {
+        let keep = CitySiegeLayout.Objective(
+            id: "keep",
+            kind: .keep,
+            durabilityWeight: 1,
+            visualLane: .center,
+            visualProgress: 1.0
+        )
+        let objectives = [keep] + supports.map { support in
+            CitySiegeLayout.Objective(
+                id: support.id,
+                kind: support.kind,
+                durabilityWeight: 1,
+                visualLane: .center,
+                visualProgress: support.progress
+            )
+        }
+        return CitySiegeLayout(
+            objectives: objectives,
+            routes: routes,
+            defaultLane: .center,
+            defensiveFire: .init(sourceObjectiveID: fireSourceID, coveredLanes: BattleLane.allCases)
+        )
+    }
+
     /// Authored tactical footers per city, one route-derived line per support
     /// objective (Falconridge's Tower/Gate split, Highcrest's left-lane Barracks
     /// (HPA-469), and the HPA-477 two-support cities); single-Keep cities nil.
@@ -288,6 +448,19 @@ private extension CountryMapScoutCardContentTests {
         default:
             return nil
         }
+    }
+}
+
+/// One support objective in a synthetic footer layout (see `syntheticLayout`).
+private struct SyntheticSupport {
+    let id: String
+    let kind: CitySiegeLayout.ObjectiveKind
+    let progress: Double
+
+    init(_ id: String, _ kind: CitySiegeLayout.ObjectiveKind, _ progress: Double) {
+        self.id = id
+        self.kind = kind
+        self.progress = progress
     }
 }
 

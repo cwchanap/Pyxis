@@ -113,16 +113,22 @@ enum CountryMapScoutCardContent: Equatable {
     }
 
     /// Derives the concise tactical footer from an authored siege layout:
-    /// one entry per support objective, lanes joined `/` and kinds abbreviated
-    /// (`L Tower · C/R Gate` for Falconridge). Single-Keep layouts have no
-    /// support objectives and derive `nil`. Route membership (each lane's
-    /// authored route containing the objective's stable ID) is the single
-    /// source for lane letters, so the footer always matches the routes
-    /// combat and the Battle scene render from.
+    /// one entry per support objective when there are one or two, lanes joined
+    /// `/` and kinds abbreviated (`L Tower · C/R Gate` for Falconridge).
+    /// Single-Keep layouts have no support objectives and derive `nil`. Route
+    /// membership (each lane's authored route containing the objective's stable
+    /// ID) is the single source for lane letters, so the footer always matches
+    /// the routes combat and the Battle scene render from.
+    ///
+    /// Three or four supports collapse to one entry, the highest priority
+    /// (Barracks > Tower > Gate), so the single-line lane frame stays legible.
     static func tacticalFooter(for layout: CitySiegeLayout) -> String? {
         let supportObjectives = layout.objectives.filter { $0.kind != .keep }
         guard !supportObjectives.isEmpty else { return nil }
-        return supportObjectives.map { objective -> String in
+        let shownObjectives = supportObjectives.count <= 2
+            ? supportObjectives
+            : [highestPriorityEntry(in: supportObjectives)]
+        return shownObjectives.map { objective -> String in
             let lanes = BattleLane.allCases.filter { lane in
                 layout.routes[lane]?.contains(objective.id) == true
             }
@@ -130,6 +136,17 @@ enum CountryMapScoutCardContent: Equatable {
             return "\(laneLetters) \(objective.kind.tacticalName)"
         }
         .joined(separator: " · ")
+    }
+
+    /// Barracks > Tower > Gate. `init` allows at most one Barracks and one
+    /// Tower, so each first match is the only one. Otherwise every support is
+    /// a Gate, and the first authored Gate wins the tie.
+    private static func highestPriorityEntry(
+        in supports: [CitySiegeLayout.Objective]
+    ) -> CitySiegeLayout.Objective {
+        supports.first { $0.kind == .barracks }
+            ?? supports.first { $0.kind == .arrowTower }
+            ?? supports[0]
     }
 }
 
