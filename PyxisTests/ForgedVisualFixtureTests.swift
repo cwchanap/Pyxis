@@ -162,19 +162,36 @@ struct ForgedVisualFixtureTests {
 
     @Test("DEBUG damaged/breached fixtures pin City 1 living-kingdom thresholds")
     func damagedAndBreachedFixturesPinCityOneThresholds() {
+        // City 1's Keep holds its allocated share of the 20-HP budget (the Gate holds the rest).
         let damaged = ForgedVisualFixture.battleDamaged.makeState()
+        let damagedLayout = damaged.currentSiegeLayout
         #expect(damaged.cityNumberInCountry == 1)
         #expect(damaged.cityMaxPower == 20)
-        #expect(damaged.currentKeepMaxPower == 20)
-        #expect(damaged.currentKeepRemainingPower == 12)
+        let damagedShares = damagedLayout.maxPowerAllocation(totalBudget: damaged.cityMaxPower)
+        #expect(damaged.currentKeepMaxPower == damagedShares[damagedLayout.keepObjective.id])
+        #expect(damaged.currentKeepRemainingPower == 7)
+        #expect(LivingKingdomPresentation.battle(
+            cityNumber: 1,
+            remainingHP: damaged.currentKeepRemainingPower,
+            maxHP: damaged.currentKeepMaxPower,
+            hasPendingConquest: false
+        ).stage == .damaged)
         #expect(damaged.stageStatus == .battleActive)
         #expect(damaged.pendingBattleResult == nil)
 
         let breached = ForgedVisualFixture.battleBreached.makeState()
+        let breachedLayout = breached.currentSiegeLayout
         #expect(breached.cityNumberInCountry == 1)
         #expect(breached.cityMaxPower == 20)
-        #expect(breached.currentKeepMaxPower == 20)
-        #expect(breached.currentKeepRemainingPower == 5)
+        let breachedShares = breachedLayout.maxPowerAllocation(totalBudget: breached.cityMaxPower)
+        #expect(breached.currentKeepMaxPower == breachedShares[breachedLayout.keepObjective.id])
+        #expect(breached.currentKeepRemainingPower == 2)
+        #expect(LivingKingdomPresentation.battle(
+            cityNumber: 1,
+            remainingHP: breached.currentKeepRemainingPower,
+            maxHP: breached.currentKeepMaxPower,
+            hasPendingConquest: false
+        ).stage == .breached)
         #expect(breached.stageStatus == .battleActive)
         #expect(breached.pendingBattleResult == nil)
     }

@@ -1147,6 +1147,8 @@ struct KingdomGameStateTests {
         let upgradeDate = startDate.addingTimeInterval(200)
         let resolveDate = upgradeDate.addingTimeInterval(100)
         var state = KingdomGameState(gold: 200)
+        // Direct lane: City 1's default center route spends damage on the Gate first.
+        state.siegeProgress.selectedLane = .right
 
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: startDate) == .built(cost: 15, remainingGold: 185))
 
@@ -1234,7 +1236,7 @@ struct KingdomGameStateTests {
         #expect(result.damageDealt == 6)
         #expect(result.conqueredCities == 0)
         #expect(result.goldEarned == 0)
-        #expect(state.currentKeepRemainingPower == 14)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - 6)
         #expect(state.stageStatus == .battleActive)
         #expect(state.activeSiegeSession?.appliedDamage == [
             SiegeDamageAttribution(type: .infantry, source: .manual, lane: .center, damage: 6)
@@ -1446,6 +1448,8 @@ struct KingdomGameStateTests {
         let start = Date(timeIntervalSinceReferenceDate: 2_000)
         let end = start.addingTimeInterval(100)
         var state = KingdomGameState(gold: 100)
+        // Direct lane: City 1's default center route spends damage on the Gate first.
+        state.siegeProgress.selectedLane = .right
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         state.enterBackground(at: start)
@@ -1544,7 +1548,7 @@ struct KingdomGameStateTests {
     @Test func buildingIdleDamageCanConquerCurrentCity() throws {
         let start = Date(timeIntervalSinceReferenceDate: 3_000)
         let end = start.addingTimeInterval(1_000)
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 2)
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 2, selectedLane: .right)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
         #expect(state.buildBuilding(.barracks, inSlot: 2, at: start) == .built(cost: 15, remainingGold: 70))
 
@@ -1641,6 +1645,8 @@ struct KingdomGameStateTests {
         let firstEnd = start.addingTimeInterval(100)
         let secondEnd = firstEnd.addingTimeInterval(50)
         var state = KingdomGameState(gold: 100)
+        // Direct lane: City 1's default center route spends damage on the Gate first.
+        state.siegeProgress.selectedLane = .right
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         state.enterBackground(at: start)
@@ -1690,6 +1696,8 @@ struct KingdomGameStateTests {
         let t5 = t0.addingTimeInterval(500)
         let t6 = t5.addingTimeInterval(60)
         var state = KingdomGameState(gold: 100)
+        // Direct lane: City 1's default center route spends damage on the Gate first.
+        state.siegeProgress.selectedLane = .right
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: t0) == .built(cost: 15, remainingGold: 85))
 
         // BattleScene calls markCurrentCityBuildingProgressInactive when entering building view
@@ -1742,7 +1750,7 @@ struct KingdomGameStateTests {
     @Test func buildingSettlementConquestDoesNotRestoreCompletedCityLots() {
         let past = Date(timeIntervalSinceReferenceDate: 1_000)
         let now = past.addingTimeInterval(100)
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 1)
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 1, selectedLane: .right)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: past) == .built(cost: 15, remainingGold: 85))
 
         // Building a second slot settles 100s of progress → 1 damage → conquers city
@@ -1757,7 +1765,7 @@ struct KingdomGameStateTests {
     @Test func upgradeSettlementConquestDoesNotRestoreCompletedCityLots() {
         let past = Date(timeIntervalSinceReferenceDate: 1_000)
         let now = past.addingTimeInterval(100)
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 1)
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 1, selectedLane: .right)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: past) == .built(cost: 15, remainingGold: 85))
 
         // Upgrading settles 100s of progress → 1 damage → conquers city
@@ -2278,7 +2286,7 @@ struct KingdomGameStateTests {
 
         #expect(state.spendRouteDamageBudget(3, lane: .right) == 3)
 
-        #expect(state.currentKeepRemainingPower == 17)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - 3)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2303,7 +2311,7 @@ struct KingdomGameStateTests {
         #expect(selected == .selected(idleProgress: .none))
 
         #expect(state.siegeProgress.selectedLane == .right)
-        #expect(state.currentKeepRemainingPower == 20)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2341,12 +2349,12 @@ struct KingdomGameStateTests {
             atCity: 1,
             gold: 100,
             keepRemaining: 2,
-            selectedLane: .left
+            selectedLane: .right
         )
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
         state.enterBackground(at: start)
 
-        let result = state.selectAssaultLane(.right, at: end)
+        let result = state.selectAssaultLane(.center, at: end)
 
         let settled = KingdomGameState.IdleProgressResult(
             elapsedSeconds: 200,
@@ -2355,7 +2363,7 @@ struct KingdomGameStateTests {
             goldEarned: 8
         )
         #expect(result == .conqueredDuringSettlement(settled))
-        #expect(state.siegeProgress.selectedLane == .left) // selection unchanged
+        #expect(state.siegeProgress.selectedLane == .right) // selection unchanged
         #expect(state.stageStatus == .cityConqueredPendingMap)
     }
 

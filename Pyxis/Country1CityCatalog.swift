@@ -19,7 +19,34 @@ enum Country1CityCatalog {
             conquestTitle: "Willowford Secured",
             defenseTrait: .standardWatch,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 3:1 Keep:Gate HP (15 + 5 of 20): the Keep is the majority and the
+                    // conquest authority; the gate adds unfired HP on the left/center routes.
+                    .init(
+                        id: "willowford.keep",
+                        kind: .keep,
+                        durabilityWeight: 3,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "willowford.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .center,
+                        visualProgress: 0.76
+                    )
+                ],
+                routes: [
+                    .left: ["willowford.gate", "willowford.keep"],
+                    .center: ["willowford.gate", "willowford.keep"],
+                    .right: ["willowford.keep"]
+                ],
+                defaultLane: .center,
+                defensiveFire: .init(sourceObjectiveID: "willowford.keep", coveredLanes: [.right])
+            )
         ),
         CityDefinition(
             cityNumber: 2,

@@ -180,7 +180,8 @@ struct ActiveSiegeLifecycleTests {
     @Test func idleConquestAttributesDamageByTypeAndMarksIdle() throws {
         let start = Date(timeIntervalSinceReferenceDate: 3_000)
         let end = start.addingTimeInterval(1_000)
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 2)
+        // Direct lane: City 1's default center route spends damage on the Gate first.
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 2, selectedLane: .right)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
         #expect(state.buildBuilding(.barracks, inSlot: 2, at: start) == .built(cost: 15, remainingGold: 70))
         state.recordActiveBattleTime(2)
@@ -202,7 +203,8 @@ struct ActiveSiegeLifecycleTests {
     @Test func settlementConquestAttributesDamageByTypeAndMarksIdle() throws {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         let settlement = start.addingTimeInterval(100)
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 1)
+        // Direct lane: City 1's default center route spends damage on the Gate first.
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 1, selectedLane: .right)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         let result = state.buildBuilding(.barracks, inSlot: 2, at: settlement)

@@ -1016,8 +1016,11 @@ struct GameViewControllerTests {
     @Test func liveConquestFitFailureGatesControllerViaCallbackOnly() throws {
         // Start with an active battle (no pending result) and normal insets.
         // Keep sits at 1 HP so the single spawned soldier's first attack
-        // conquers within the advanced combat window.
-        let store = try makeStore(initialState: SiegeTestSupport.makeBattleState(keepRemaining: 1))
+        // conquers within the advanced combat window. Direct lane: City 1's default
+        // center route spends the attack on the Gate first.
+        let store = try makeStore(
+            initialState: SiegeTestSupport.makeBattleState(keepRemaining: 1, selectedLane: .right)
+        )
         let controller = makeGameViewController(store: store)
         let view = SafeAreaOverridingSKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         controller.view = view
