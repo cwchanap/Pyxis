@@ -552,6 +552,63 @@ struct ActiveSiegeLifecycleTests {
         #expect(state.siegeProgress.guardReinforcements == nil)
     }
 
+    // MARK: Emberford (City 7) idle settlement on a non-Highcrest Barracks city (HPA-477)
+
+    @Test func emberfordBackgroundSettlementAbsorbsThroughGuardsBeforeAbstractDamage() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 3_000)
+        // Keep HP above City 7's authored Keep maximum, so the Keep starts whole.
+        var state = SiegeTestSupport.makeBattleState(atCity: 7, gold: 100, keepRemaining: 5_000, selectedLane: .right)
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: start.addingTimeInterval(120))
+
+        // The same 120 s window as the Highcrest pilot: one idle spawn is absorbed by the oldest
+        // same-lane Guard, and four due waves (8 Guards) materialize before any damage is spent.
+        let power = state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
+        let progress = try #require(state.siegeProgress.guardReinforcements)
+        #expect(progress.unresolvedGuards == [
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP - power)
+        ] + Array(repeating: GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP), count: 7))
+        #expect(progress.remainingReserve == 4)
+        #expect(progress.waveElapsedSeconds == 0)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
+        #expect(result.damageDealt == 0)
+        #expect(result.conqueredCities == 0)
+        #expect(result.goldEarned == 0)
+        #expect(state.pendingBattleResult == nil)
+    }
+
+    @Test func emberfordSettlementConquestPaysGoldOnceAndNeverRepeats() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 4_200)
+        var state = SiegeTestSupport.makeBattleState(atCity: 7, gold: 100, keepRemaining: 1, selectedLane: .right)
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 0,
+            unresolvedGuards: []
+        )
+        guard case .built = state.buildBuilding(.barracks, inSlot: 1, at: start) else {
+            Issue.record("expected first build to succeed")
+            return
+        }
+
+        // The second build settles the 100 s window, conquers the Keep, and is not charged.
+        let reward = KingdomGameState.goldReward(for: 7)
+        let result = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(100))
+        #expect(result == .cityConqueredDuringSettlement(goldEarned: reward, remainingGold: 85 + reward))
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .idle)
+        #expect(pending.goldEarned == reward)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+
+        // A repeated completion of the same result is refused, and the gold stays put.
+        #expect(state.completeCurrentCity(with: pending).awarded == false)
+        #expect(state.gold == 85 + reward)
+    }
+
     // MARK: Vanguard Captain lifecycle (HPA-475 Task 5)
 
     @Test func backgroundAndSettlementDoNotAdvanceCaptainRecovery() throws {
