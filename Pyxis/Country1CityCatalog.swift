@@ -609,7 +609,53 @@ enum Country1CityCatalog {
             conquestTitle: "Stonecrown Breached",
             defenseTrait: .stoneWall,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 30:1:2:1 Keep:Gate:Tower:East Gate HP (370146 + 12338 + 24676 + 12338 of 419498):
+                    // the Keep is the conquest authority. The Tower is the single fire source, covering
+                    // every lane, and the centre route's only stop. The left and right Gates each guard
+                    // one flank route; the right route is the standard lane and never reaches the Tower.
+                    .init(
+                        id: "stonecrown.keep",
+                        kind: .keep,
+                        durabilityWeight: 30,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "stonecrown.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .left,
+                        visualProgress: 0.77
+                    ),
+                    .init(
+                        id: "stonecrown.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 2,
+                        visualLane: .center,
+                        visualProgress: 0.82
+                    ),
+                    .init(
+                        id: "stonecrown.east-gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .right,
+                        visualProgress: 0.84
+                    )
+                ],
+                routes: [
+                    .left: ["stonecrown.gate", "stonecrown.keep"],
+                    .center: ["stonecrown.arrow-tower", "stonecrown.keep"],
+                    .right: ["stonecrown.east-gate", "stonecrown.keep"]
+                ],
+                defaultLane: .right,
+                defensiveFire: .init(
+                    sourceObjectiveID: "stonecrown.arrow-tower",
+                    coveredLanes: BattleLane.allCases
+                )
+            )
         ),
         CityDefinition(
             cityNumber: 15,
