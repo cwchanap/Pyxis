@@ -52,8 +52,8 @@ Do **not** create new frameworks, production source files, asset files, CI workf
 
 ### 4. Keep Scout useful without new UI
 
-- [ ] In `CountryMapScoutCardContent.tacticalFooter`, derive only decision-relevant support text, ranked Barracks > Tower > Gate, at most two entries. Use actual route membership for L/C/R; never invent a lane. Resolve ties deterministically.
-- [ ] Check all 15 text outputs against the existing measured single-line fit in compact/regular geometry. If two entries do not fit at 8pt, fall back to one accurate highest-priority entry; do not add a second line or screen. Preserve `Open: <exposed lane>` for Keep-only fallback tests if relevant.
+- [ ] In `CountryMapScoutCardContent.tacticalFooter`, keep all existing one/two-support output (including Falconridge) and choose just one truthful high-priority support for layouts with three/four: Barracks > source Tower > Gate, ties by authored order. Derive L/C/R from route membership and never invent lanes. This is one compact hint, not a full structure inventory.
+- [ ] Test all 15 actual outputs against existing measured single-line fit in compact/regular geometry. If a two-support footer fails the 8pt compact floor, simplify the source-side selection to one highest-priority entry for that case; do not add view-side string parsing, an extra Scout field, a second line, or another screen. Preserve `Open: <exposed lane>` for Keep-only fallback tests if relevant.
 - [ ] Assert every Scout remains attackable/returnable, regular and compact. Add tests for two Gate IDs and a five-structure footer.
 
 ### 5. Representative battle, idle, and visual smoke
