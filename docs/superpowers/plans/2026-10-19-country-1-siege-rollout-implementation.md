@@ -32,7 +32,7 @@ Do **not** create new frameworks, production source files, asset files, CI workf
 
 - [ ] In `Country1CityCatalogTests`, replace `nonPilotCitiesUseSingleKeepDefaultedToTheirStandardLane` with all-city assertions for authored layouts; preserve exact City 3/5 pilot fixtures and use concise per-city assertions (support kinds, ordered lane-route IDs, defensive source and default lane), not a second copy of every production definition.
 - [ ] Add a positive catalog-wide contract for 1–5 objectives, one Keep, ≤1 Tower, ≤1 Barracks, ≤2 Gates, unique IDs, route/source references, lane reachability, support participation, and positive HP allocations at actual `cityMaxPower`.
-- [ ] Confirm `CitySiegeLayout` still fails closed through initializer preconditions for unknown/repeated IDs, wrong order, invalid source, missing route, and now >5 structures / >1 Tower. Test the catalog's valid cases rather than introducing an error-returning duplicate validator.
+- [ ] Confirm `CitySiegeLayout` still fails closed through initializer preconditions for unknown/repeated IDs, wrong order, invalid source, missing route, and now **>5 structures / >1 Tower / >2 Gates**. Test the catalog's valid cases rather than introducing an error-returning duplicate validator.
 - [ ] Run the focused tests to see the new expectations fail before authoring.
 
 ### 2. Author Country 1 in the existing catalog
