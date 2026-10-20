@@ -207,7 +207,43 @@ enum Country1CityCatalog {
             conquestTitle: "Granite Pass Open",
             defenseTrait: .stoneWall,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 6:2:3 Keep:Gate:Tower HP (502 + 167 + 250 of 919): the Keep is the
+                    // majority and the conquest authority. The Tower sits between the Gate and
+                    // the Keep share and is the only fire source, covering every lane. The
+                    // shared Gate sits on the centre lane (left and centre routes).
+                    .init(
+                        id: "granite-pass.keep",
+                        kind: .keep,
+                        durabilityWeight: 6,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "granite-pass.gate",
+                        kind: .gate,
+                        durabilityWeight: 2,
+                        visualLane: .center,
+                        visualProgress: 0.76
+                    ),
+                    .init(
+                        id: "granite-pass.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 3,
+                        visualLane: .right,
+                        visualProgress: 0.80
+                    )
+                ],
+                routes: [
+                    .left: ["granite-pass.gate", "granite-pass.keep"],
+                    .center: ["granite-pass.gate", "granite-pass.keep"],
+                    .right: ["granite-pass.arrow-tower", "granite-pass.keep"]
+                ],
+                defaultLane: .left,
+                defensiveFire: .init(sourceObjectiveID: "granite-pass.arrow-tower", coveredLanes: BattleLane.allCases)
+            )
         ),
         CityDefinition(
             cityNumber: 7,
