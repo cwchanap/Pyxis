@@ -5887,6 +5887,11 @@ struct BattleSceneTests {
         let fill = try #require(scene.cityHPBarFillFrameForTesting)
         let fullFill = try #require(fullScene.cityHPBarFillFrameForTesting)
 
+        // A hidden or unlaid-out bar reports a zero-width frame, which would satisfy the ratio check
+        // below vacuously (0 against 0). Both frames must carry a real width first.
+        #expect(fullFill.width > 1)
+        #expect(fill.width > 1)
+
         // Keep 10 of its authored max (15 for City 1) → the fill is 10 / keepMax of a full bar.
         // Compared against a full-Keep scene so the background stroke does not skew the frame.
         #expect(abs(fill.width - fullFill.width * 10.0 / Double(keepMax)) < 1.0)
