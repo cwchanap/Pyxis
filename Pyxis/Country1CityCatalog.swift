@@ -55,7 +55,35 @@ enum Country1CityCatalog {
             conquestTitle: "Pinewatch Secured",
             defenseTrait: .standardWatch,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 3:1 Keep:Gate HP (33 + 10 of 43): the Keep is the majority and the
+                    // conquest authority. The Gate is shared by the left and right detours,
+                    // a tie that breaks to the left lane.
+                    .init(
+                        id: "pinewatch.keep",
+                        kind: .keep,
+                        durabilityWeight: 3,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "pinewatch.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .left,
+                        visualProgress: 0.76
+                    )
+                ],
+                routes: [
+                    .left: ["pinewatch.gate", "pinewatch.keep"],
+                    .center: ["pinewatch.keep"],
+                    .right: ["pinewatch.gate", "pinewatch.keep"]
+                ],
+                defaultLane: .right,
+                defensiveFire: .init(sourceObjectiveID: "pinewatch.keep", coveredLanes: [.center])
+            )
         ),
         CityDefinition(
             cityNumber: 3,

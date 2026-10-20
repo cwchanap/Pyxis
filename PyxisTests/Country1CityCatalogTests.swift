@@ -75,6 +75,22 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "willowford.keep", coveredLanes: [.right])
     )
 
+    /// The authored Pinewatch gate-detour siege layout (HPA-477), shared by the
+    /// fixture entry. City 2 has no Barracks and no Captain.
+    private static let pinewatchSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "pinewatch.keep", kind: .keep, durabilityWeight: 3, visualLane: .center, visualProgress: 1.0),
+            .init(id: "pinewatch.gate", kind: .gate, durabilityWeight: 1, visualLane: .left, visualProgress: 0.76)
+        ],
+        routes: [
+            .left: ["pinewatch.gate", "pinewatch.keep"],
+            .center: ["pinewatch.keep"],
+            .right: ["pinewatch.gate", "pinewatch.keep"]
+        ],
+        defaultLane: .right,
+        defensiveFire: .init(sourceObjectiveID: "pinewatch.keep", coveredLanes: [.center])
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -132,7 +148,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: willowfordSiegeLayout
         ),
-        .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left, .frontier),
+        .init(
+            2,
+            name: "Pinewatch",
+            flavorText: "A hill watchtown guarding the old trade road.",
+            conquestTitle: "Pinewatch Secured",
+            .standardWatch,
+            .center,
+            .left,
+            .frontier,
+            siegeLayout: pinewatchSiegeLayout
+        ),
         .init(
             3,
             name: "Falconridge",
@@ -348,9 +374,29 @@ struct Country1CityCatalogTests {
         #expect(maxPower["willowford.gate", default: 0] > 0)
         #expect(maxPower["willowford.keep", default: 0] > maxPower["willowford.gate", default: 0])
 
-        // Cities 3 (Falconridge), 5 (Highcrest) and 1 (Willowford) author tactical layouts.
-        // The rest stay single-Keep on their standard lane until later tasks author them.
-        for definition in Country1CityCatalog.definitions where ![1, 3, 5].contains(definition.cityNumber) {
+        // City 2 (Pinewatch) authors a gate detour (HPA-477): the Keep is the only
+        // fire source and covers the centre lane alone. Its left and right routes
+        // both detour through the Gate, which takes no fire.
+        let pinewatch = Country1CityCatalog.definition(for: 2).siegeLayout
+        #expect(pinewatch.objectives.map(\.id) == ["pinewatch.keep", "pinewatch.gate"])
+        #expect(pinewatch.keepObjective.id == "pinewatch.keep")
+        #expect(pinewatch.objective(id: "pinewatch.gate")?.kind == .gate)
+        #expect(pinewatch.objective(id: "pinewatch.gate")?.visualProgress == 0.76)
+        #expect(pinewatch.objective(id: "pinewatch.gate")?.visualLane == .left)
+        #expect(pinewatch.routes[.left] == ["pinewatch.gate", "pinewatch.keep"])
+        #expect(pinewatch.routes[.center] == ["pinewatch.keep"])
+        #expect(pinewatch.routes[.right] == ["pinewatch.gate", "pinewatch.keep"])
+        #expect(pinewatch.defensiveFire.sourceObjectiveID == "pinewatch.keep")
+        #expect(pinewatch.defensiveFire.coveredLanes == [.center])
+        #expect(pinewatch.barracksObjective == nil)
+        #expect(pinewatch.defaultLane == .right)
+        let pinewatchPower = pinewatch.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 2))
+        #expect(pinewatchPower["pinewatch.gate", default: 0] > 0)
+        #expect(pinewatchPower["pinewatch.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 2))
+
+        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge) and 5 (Highcrest) author
+        // tactical layouts. The rest stay single-Keep on their standard lane until later tasks author them.
+        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 5].contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"
