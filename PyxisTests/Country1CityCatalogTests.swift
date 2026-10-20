@@ -721,7 +721,7 @@ struct Country1CityCatalogTests {
         #expect(Set(fire.coveredLanes) == Set(BattleLane.allCases))
     }
 
-    @Test func nonPilotCitiesUseSingleKeepDefaultedToTheirStandardLane() {
+    @Test func authoredCitiesMatchTheirTacticalLayoutFeatures() {
         // City 1 (Willowford) authors a gate layout (HPA-477). Its features are
         // asserted directly, not against a duplicated CityDefinition.
         let layout = Country1CityCatalog.definition(for: 1).siegeLayout
