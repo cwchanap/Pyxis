@@ -2845,7 +2845,7 @@ struct CountryMapSceneTests {
         )
         initialState.siegeProgress.guardReinforcements = GuardReinforcementProgress(
             waveElapsedSeconds: 5.5,
-            remainingReserve: HighcrestGuardRules.totalReserve - 1,
+            remainingReserve: Country1GuardRules.totalReserve - 1,
             unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 5)]
         )
         initialState.cityBattleStates[initialState.currentCityKey.storageKey] = CityBattleState(
@@ -2872,7 +2872,7 @@ struct CountryMapSceneTests {
         #expect(progress.remainingReserve == 3)
         #expect(progress.unresolvedGuards.count == 9)
         #expect(progress.unresolvedGuards.reduce(0) { $0 + $1.remainingHP }
-            == 5 + HighcrestGuardRules.maxHP * 8 - power)
+            == 5 + Country1GuardRules.maxHP * 8 - power)
         #expect(progress.unresolvedGuards.first!.remainingHP < 5)
         #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
         #expect(saved.stageStatus == .battleActive)

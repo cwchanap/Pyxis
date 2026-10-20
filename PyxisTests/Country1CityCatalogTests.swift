@@ -248,6 +248,19 @@ struct Country1CityCatalogTests {
         #expect(maxPower["highcrest.barracks"] == 20)
     }
 
+    /// Pins the shared Guard constants to the City 5 (Highcrest) pilot baseline.
+    /// Every Barracks city uses these values, so changing one changes the pilot.
+    @Test func guardRulesMatchTheCityFivePilotBaseline() {
+        #expect(Country1GuardRules.maxHP == 12)
+        #expect(Country1GuardRules.attackPower == 3)
+        #expect(Country1GuardRules.waveIntervalSeconds == 30)
+        #expect(Country1GuardRules.totalReserve == 12)
+        #expect(Country1GuardRules.guardsPerWave == 2)
+        #expect(Country1GuardRules.attackSpeed == 1.0)
+        #expect(Country1GuardRules.attackRange == 0.28)
+        #expect(Country1GuardRules.movementSpeed == 0.30)
+    }
+
     /// Shelter invariant (Highcrest route-balance pass): every soldier type
     /// that stalls at the Barracks must stand inside the Keep's defensive
     /// fire, so Barracks chewers can never chew for free. Geometry:
@@ -452,7 +465,7 @@ struct Country1CityCatalogTests {
         for support in layout.objectives where support.kind != .keep {
             guard layout.routes.values.contains(where: { $0.contains(support.id) }) else { continue }
             for entry in ranges {
-                let reach = support.visualProgress - entry.range + HighcrestGuardRules.attackRange
+                let reach = support.visualProgress - entry.range + Country1GuardRules.attackRange
                 if reach < barracks.visualProgress {
                     violations.append(
                         "Guards at \(barracks.id) cannot reach \(entry.soldier) stalled at \(support.id)"

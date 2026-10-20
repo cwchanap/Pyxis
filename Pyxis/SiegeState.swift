@@ -297,9 +297,9 @@ struct GuardSnapshot: Codable, Equatable {
     var remainingHP: Int
 }
 
-/// Persisted Highcrest Guard reinforcement state (HPA-469). The forgiving
+/// Persisted Country 1 Guard reinforcement state (HPA-469). The forgiving
 /// half: the owning game state clamps values back into the authored tuning
-/// ranges (see `normalizedForHighcrest` beside the Highcrest authoring).
+/// ranges (see `normalizedForCountry1` beside `Country1GuardRules`).
 struct GuardReinforcementProgress: Codable, Equatable {
     var waveElapsedSeconds: Double
     var remainingReserve: Int

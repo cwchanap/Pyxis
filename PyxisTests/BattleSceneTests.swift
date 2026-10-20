@@ -5873,7 +5873,7 @@ struct BattleSceneTests {
         keepRemaining: Int = BattleSceneTests.highcrestKeepMax,
         supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:],
         selectedLane: BattleLane = .left,
-        guardProgress: GuardReinforcementProgress = .freshHighcrest(),
+        guardProgress: GuardReinforcementProgress = .freshCountry1(),
         slots: [Int: CityBuilding] = [:]
     ) -> KingdomGameState {
         var state = SiegeTestSupport.makeBattleState(
@@ -5953,7 +5953,7 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 0.2)
         let persisted = try #require(store.load().siegeProgress.guardReinforcements)
         #expect(persisted.unresolvedGuards == [GuardSnapshot(lane: .left, remainingHP: 5)])
-        #expect(persisted.remainingReserve == HighcrestGuardRules.totalReserve - 1)
+        #expect(persisted.remainingReserve == Country1GuardRules.totalReserve - 1)
     }
 
     @Test("Cold relaunch foreground rebuilds combat Guards from the settled roster")
@@ -5968,10 +5968,10 @@ struct BattleSceneTests {
         let start = Date(timeIntervalSinceNow: -1_000)
         var state = highcrestState(
             guardProgress: GuardReinforcementProgress(
-                waveElapsedSeconds: HighcrestGuardRules.waveIntervalSeconds - 1,
-                remainingReserve: HighcrestGuardRules.totalReserve,
+                waveElapsedSeconds: Country1GuardRules.waveIntervalSeconds - 1,
+                remainingReserve: Country1GuardRules.totalReserve,
                 unresolvedGuards: [
-                    GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP)
+                    GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP)
                 ]
             )
         )
@@ -5991,10 +5991,10 @@ struct BattleSceneTests {
         // left lane — left the original Guard at 2 HP.
         let settled = try #require(scene.gameStateForTesting.siegeProgress.guardReinforcements)
         #expect(settled.remainingReserve == 0)
-        #expect(settled.unresolvedGuards.count == HighcrestGuardRules.totalReserve)
+        #expect(settled.unresolvedGuards.count == Country1GuardRules.totalReserve)
         #expect(settled.unresolvedGuards.first == GuardSnapshot(lane: .left, remainingHP: 2))
         #expect(settled.unresolvedGuards.dropFirst().allSatisfy {
-            $0 == GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP)
+            $0 == GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP)
         })
 
         // Combat now mirrors the settled roster, not the stale pre-idle one.
@@ -6109,7 +6109,7 @@ struct BattleSceneTests {
         let tick = try #require(killTick(waveElapsedSeed: 0))
         // Seed so the wave becomes due exactly on the kill tick (with a 0.05
         // margin against float drift) and not one tick earlier.
-        let alignedSeed = HighcrestGuardRules.waveIntervalSeconds + 0.05 - Double(tick) * 0.1
+        let alignedSeed = Country1GuardRules.waveIntervalSeconds + 0.05 - Double(tick) * 0.1
         let store = try makeStore(initialState: highcrestState(
             supportDamage: [.barracks: barracksMax - 1],
             guardProgress: GuardReinforcementProgress(

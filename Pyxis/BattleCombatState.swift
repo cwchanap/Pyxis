@@ -362,7 +362,7 @@ struct BattleCombatState: Equatable {
     }
 
     /// Restores (or freshly spawns) one transient Guard at Keep progress on
-    /// the snapshot's lane. Combat numbers come from `HighcrestGuardRules`;
+    /// the snapshot's lane. Combat numbers come from `Country1GuardRules`;
     /// only lane + HP survive a scene replacement, so IDs and positions are
     /// always rebuilt here.
     @discardableResult
@@ -374,8 +374,8 @@ struct BattleCombatState: Equatable {
             Guard(
                 id: id,
                 lane: snapshot.lane,
-                maxHP: HighcrestGuardRules.maxHP,
-                currentHP: min(max(1, snapshot.remainingHP), HighcrestGuardRules.maxHP),
+                maxHP: Country1GuardRules.maxHP,
+                currentHP: min(max(1, snapshot.remainingHP), Country1GuardRules.maxHP),
                 position: siege.layout.keepObjective.visualProgress,
                 attackCooldownRemaining: 0
             )
@@ -663,7 +663,7 @@ struct BattleCombatState: Equatable {
     }
 
     /// Guards close downward on the foremost soldier of their own lane while
-    /// outside their own `HighcrestGuardRules.attackRange`, clamped at the
+    /// outside their own `Country1GuardRules.attackRange`, clamped at the
     /// authored Barracks progress (or 0 without one) and never crossing the
     /// target. A Guard with no allied target holds position.
     private mutating func advanceGuards(deltaTime: Double, snapshot: SiegeSnapshot) {
@@ -672,13 +672,13 @@ struct BattleCombatState: Equatable {
             guard let target = foremostSoldier(in: guards[index].lane) else {
                 continue
             }
-            let stopPosition = max(floor, target.position + HighcrestGuardRules.attackRange)
+            let stopPosition = max(floor, target.position + Country1GuardRules.attackRange)
             guard guards[index].position > stopPosition else {
                 continue
             }
             guards[index].position = max(
                 stopPosition,
-                guards[index].position - HighcrestGuardRules.movementSpeed * deltaTime
+                guards[index].position - Country1GuardRules.movementSpeed * deltaTime
             )
             guards[index].isMoving = true
         }
@@ -753,7 +753,7 @@ struct BattleCombatState: Equatable {
                 continue
             }
             let distance = guards[index].position - soldiers[targetIndex].position
-            guard distance <= HighcrestGuardRules.attackRange else {
+            guard distance <= Country1GuardRules.attackRange else {
                 continue
             }
 
@@ -766,7 +766,7 @@ struct BattleCombatState: Equatable {
             // 1) before the current-HP clamp; Guards have no lane multiplier.
             let incomingDamage = max(
                 1,
-                Int((Double(HighcrestGuardRules.attackPower) * rallyMultiplier(for: soldiers[targetIndex])).rounded())
+                Int((Double(Country1GuardRules.attackPower) * rallyMultiplier(for: soldiers[targetIndex])).rounded())
             )
             let preHitHP = soldiers[targetIndex].currentHP
             let appliedDamage = min(incomingDamage, preHitHP)
@@ -809,7 +809,7 @@ struct BattleCombatState: Equatable {
                 )
             }
 
-            guards[index].attackCooldownRemaining += 1.0 / max(0.1, HighcrestGuardRules.attackSpeed)
+            guards[index].attackCooldownRemaining += 1.0 / max(0.1, Country1GuardRules.attackSpeed)
         }
     }
 

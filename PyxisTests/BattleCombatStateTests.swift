@@ -1181,7 +1181,7 @@ struct BattleCombatStateTests {
         #expect(restored.id == guardID)
         #expect(restored.lane == .right)
         #expect(restored.currentHP == 5)
-        #expect(restored.maxHP == HighcrestGuardRules.maxHP)
+        #expect(restored.maxHP == Country1GuardRules.maxHP)
         #expect(restored.position == snapshot.layout.keepObjective.visualProgress)
         #expect(combat.guardSnapshots == [GuardSnapshot(lane: .right, remainingHP: 5)])
     }
@@ -1194,7 +1194,7 @@ struct BattleCombatStateTests {
         }
 
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1204,20 +1204,20 @@ struct BattleCombatStateTests {
             if !result.guardAttacks.isEmpty {
                 metGuard = true
                 #expect(result.guardAttacks.map(\.soldierID) == [soldier])
-                #expect(result.guardAttacks.map(\.appliedDamage) == [HighcrestGuardRules.attackPower])
+                #expect(result.guardAttacks.map(\.appliedDamage) == [Country1GuardRules.attackPower])
                 break
             }
         }
 
         #expect(metGuard)
-        #expect(try #require(combat.soldier(id: soldier)).currentHP == 10 - HighcrestGuardRules.attackPower)
+        #expect(try #require(combat.soldier(id: soldier)).currentHP == 10 - Country1GuardRules.attackPower)
     }
 
     @Test func guardNeverDescendsBelowBarracksProgress() {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
         _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1232,7 +1232,7 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
         let soldier = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .center)
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 1_000)
         )
 
@@ -1244,7 +1244,7 @@ struct BattleCombatStateTests {
         // Highcrest Barracks would stand, up to its own attack range.
         let soldierPosition = try #require(combat.soldier(id: soldier)).position
         #expect(combat.guards[0].position < SiegeFixtures.highcrestBarracksProgress)
-        #expect(combat.guards[0].position - soldierPosition <= HighcrestGuardRules.attackRange + 0.001)
+        #expect(combat.guards[0].position - soldierPosition <= Country1GuardRules.attackRange + 0.001)
     }
 
     @Test func soldierAndGuardMovementNeverCross() throws {
@@ -1257,7 +1257,7 @@ struct BattleCombatStateTests {
             _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
         }
         combat.restoreGuard(
-            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1267,8 +1267,8 @@ struct BattleCombatStateTests {
             let soldierPosition = try #require(combat.soldier(id: soldier)).position
             let guardPosition = combat.guards[0].position
             #expect(guardPosition > soldierPosition)
-            #expect(guardPosition - soldierPosition >= HighcrestGuardRules.attackRange - 0.001)
-            if abs(guardPosition - soldierPosition - HighcrestGuardRules.attackRange) < 0.001 {
+            #expect(guardPosition - soldierPosition >= Country1GuardRules.attackRange - 0.001)
+            if abs(guardPosition - soldierPosition - Country1GuardRules.attackRange) < 0.001 {
                 guardReachedStop = true
             }
         }
@@ -1291,7 +1291,7 @@ struct BattleCombatStateTests {
         #expect(combat.soldier(id: archer)?.position == stallPosition)
 
         combat.restoreGuard(
-            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1315,7 +1315,7 @@ struct BattleCombatStateTests {
         let trailing = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
         _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1333,7 +1333,7 @@ struct BattleCombatStateTests {
         let trailingActor = try #require(combat.soldier(id: trailing))
         #expect(trailingActor.currentHP == trailingActor.maxHP)
         let foremostActor = try #require(combat.soldier(id: foremost))
-        #expect(foremostActor.currentHP == foremostActor.maxHP - HighcrestGuardRules.attackPower)
+        #expect(foremostActor.currentHP == foremostActor.maxHP - Country1GuardRules.attackPower)
     }
 
     @Test func guardNeverTargetsAnotherLaneOrPlayerCastle() throws {
@@ -1344,7 +1344,7 @@ struct BattleCombatStateTests {
             _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
         }
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1404,7 +1404,7 @@ struct BattleCombatStateTests {
             _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot(barracksRemaining: 0))
         }
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot(barracksRemaining: 0)
         )
 
@@ -1427,7 +1427,7 @@ struct BattleCombatStateTests {
             _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
         }
         combat.restoreGuard(
-            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1436,7 +1436,7 @@ struct BattleCombatStateTests {
         #expect(result.didReachConquest)
         #expect(result.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.highcrestKeepID])
         #expect(result.guardLosses.isEmpty)
-        #expect(combat.guardSnapshots == [GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP)])
+        #expect(combat.guardSnapshots == [GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP)])
     }
 
     @Test func emptyGuardRosterPreservesExistingTowerMovementAttackBehavior() {
@@ -1499,7 +1499,7 @@ struct BattleCombatStateTests {
                 _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
             }
             combat.restoreGuard(
-                GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+                GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
                 siege: SiegeFixtures.highcrestSnapshot()
             )
 
@@ -1510,7 +1510,7 @@ struct BattleCombatStateTests {
             #expect(result.guardHits.map(\.appliedDamage) == [2])
             #expect(result.guardAttacks.isEmpty)
             #expect(try #require(combat.guardSnapshots.first).remainingHP
-                == HighcrestGuardRules.maxHP - 2)
+                == Country1GuardRules.maxHP - 2)
         }
     }
 
@@ -1521,7 +1521,7 @@ struct BattleCombatStateTests {
             _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
         }
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -1709,7 +1709,7 @@ struct BattleCombatStateTests {
         // One tick so both equal-speed infantry sit at the same position.
         _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -2013,7 +2013,7 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 8))
         let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
         combat.startRally(lane: .center)
@@ -2038,7 +2038,7 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 11))
         _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
         combat.restoreGuard(
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
         combat.startRally(lane: .left)
@@ -2062,7 +2062,7 @@ struct BattleCombatStateTests {
             upgradeLevel: 1
         )
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
         combat.startRally(lane: .center)
@@ -2136,7 +2136,7 @@ struct BattleCombatStateTests {
             upgradeLevel: 1
         )
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -2307,7 +2307,7 @@ struct BattleCombatStateTests {
             upgradeLevel: 1
         )
         combat.restoreGuard(
-            GuardSnapshot(lane: .left, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -2333,7 +2333,7 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -2363,7 +2363,7 @@ struct BattleCombatStateTests {
             upgradeLevel: 1
         )
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
@@ -2393,7 +2393,7 @@ struct BattleCombatStateTests {
             upgradeLevel: 1
         )
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
         combat.startRally(lane: .center)
@@ -2432,11 +2432,11 @@ struct BattleCombatStateTests {
             upgradeLevel: 1
         )
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
         combat.restoreGuard(
-            GuardSnapshot(lane: .center, remainingHP: HighcrestGuardRules.maxHP),
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
             siege: SiegeFixtures.highcrestSnapshot()
         )
 
