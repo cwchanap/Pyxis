@@ -5875,17 +5875,22 @@ struct BattleSceneTests {
     }
 
     @Test func keepSpriteHPBarReflectsTheKeepHPRatio() throws {
-        let store = try makeStore(initialState: SiegeTestSupport.makeBattleState(
-            gold: 100,
-            keepRemaining: 10
-        ))
-        let scene = makeScene(store: store)
+        // A compact size lays out the legacy Keep HP bar (the default 390x844 hides it).
+        let size = CGSize(width: 393, height: 700)
+        let state = SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: 10)
+        let keepMax = state.currentKeepMaxPower
+        let scene = makeScene(store: try makeStore(initialState: state), size: size)
+        let fullScene = makeScene(
+            store: try makeStore(initialState: SiegeTestSupport.makeBattleState(gold: 100, keepRemaining: keepMax)),
+            size: size
+        )
 
-        let background = try #require(scene.cityHPBarFrameForTesting)
         let fill = try #require(scene.cityHPBarFillFrameForTesting)
+        let fullFill = try #require(fullScene.cityHPBarFillFrameForTesting)
 
-        // Keep 10 of max 20 → half-full fill.
-        #expect(abs(fill.width - background.width * 0.5) < 1.0)
+        // Keep 10 of its authored max (15 for City 1) → the fill is 10 / keepMax of a full bar.
+        // Compared against a full-Keep scene so the background stroke does not skew the frame.
+        #expect(abs(fill.width - fullFill.width * 10.0 / Double(keepMax)) < 1.0)
     }
 
     // MARK: Highcrest Barracks + Guard presentation (HPA-469)

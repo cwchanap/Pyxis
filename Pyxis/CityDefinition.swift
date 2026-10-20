@@ -19,9 +19,9 @@ struct CityDefinition: Equatable {
     let laneDefenseProfile: LaneDefenseProfile
     let visualFamily: CityVisualFamily
     /// Authored fail-closed siege layout. Defaults to the standard
-    /// single-Keep shape on the profile's standard lane; tactical pilot
-    /// cities author a custom layout (Falconridge's tower/gate split,
-    /// Highcrest's Guard barracks).
+    /// single-Keep shape on the profile's standard lane; tactical cities
+    /// author a custom layout (Falconridge's tower/gate split, Highcrest's
+    /// and Emberford's Guard barracks, and the gate, tower and detour layouts).
     let siegeLayout: CitySiegeLayout
 
     var displayTitle: String {
