@@ -15,6 +15,15 @@ import Foundation
 /// math intentionally lives here only — production exposes Keep HP as the
 /// sole conquest/liveness authority.
 enum SiegeTestSupport {
+    /// City numbers whose authored layout is the single-Keep shape on their
+    /// standard lane. Derived from the catalog, so single-Keep suites keep a
+    /// valid representative until every Country 1 city authors its own layout.
+    static var singleKeepCityNumbers: [Int] {
+        Country1CityCatalog.definitions
+            .filter { $0.siegeLayout == .singleKeep(defaultLane: $0.laneDefenseProfile.standardLane) }
+            .map(\.cityNumber)
+    }
+
     /// Resolves the first objective of `kind` in the current city's authored
     /// layout, or nil when the layout has no such objective.
     static func objectiveID(

@@ -489,8 +489,10 @@ struct ActiveSiegeLifecycleTests {
         #expect(state.completeCurrentCity(with: pending).awarded == false)
     }
 
-    @Test func nonPilotCityKeepsNilGuardStateAndUnchangedSiegeFlow() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 2, keepRemaining: 10, selectedLane: .right)
+    @Test func singleKeepCityKeepsNilGuardStateAndUnchangedSiegeFlow() throws {
+        // The first derived single-Keep city (City 9 until its layout is authored).
+        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
+        var state = SiegeTestSupport.makeBattleState(atCity: cityNumber, keepRemaining: 10, selectedLane: .right)
 
         // Fresh entry carries no Guard scheduler state, and both the wave
         // scheduler and the live-sync seam are no-ops that never materialize
@@ -542,8 +544,8 @@ struct ActiveSiegeLifecycleTests {
         #expect(conquest.conqueredCities == 1)
         let pending = try #require(state.pendingBattleResult)
         #expect(pending.conquestMode == .live)
-        #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: 2))
-        #expect(pending.goldEarned == KingdomGameState.goldReward(for: 2))
+        #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: cityNumber))
+        #expect(pending.goldEarned == KingdomGameState.goldReward(for: cityNumber))
         #expect(state.gold == pending.goldEarned)
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.activeSiegeSession == nil)

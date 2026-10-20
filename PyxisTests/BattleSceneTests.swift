@@ -5452,11 +5452,12 @@ struct BattleSceneTests {
         #expect(scene.siegeObjectiveNodeForTesting(.keep) == nil)
     }
 
-    @Test("Non-pilot cities render no siege objective nodes or coverage")
-    func nonPilotCityRendersNoSiegeObjectivesOrCoverage() throws {
-        // City 2 is the single-Keep representative; City 1 authors a Gate.
+    @Test("Single-Keep cities render no siege objective nodes or coverage")
+    func singleKeepCityRendersNoSiegeObjectivesOrCoverage() throws {
+        // The first derived single-Keep city (City 9 until its layout is authored).
+        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
         let scene = makeScene(store: try makeStore(
-            initialState: stateWithBarracks(cityNumberInCountry: 2, completedCityCount: 1)
+            initialState: stateWithBarracks(cityNumberInCountry: cityNumber, completedCityCount: cityNumber - 1)
         ))
 
         #expect(scene.siegeObjectiveNodeCountForTesting == 0)
@@ -5522,10 +5523,15 @@ struct BattleSceneTests {
         #expect(abs(origin.y - centerGate.y) > 1)
     }
 
-    @Test("Non-pilot defensive fire keeps the per-lane gate origin")
-    func nonPilotDefensiveFireKeepsLaneGateOrigin() throws {
+    @Test("Single-Keep defensive fire keeps the per-lane gate origin")
+    func singleKeepDefensiveFireKeepsLaneGateOrigin() throws {
+        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
         let scene = makeScene(store: try makeStore(
-            initialState: stateWithBarracks(keepRemaining: 100, cityNumberInCountry: 2, completedCityCount: 1)
+            initialState: stateWithBarracks(
+                keepRemaining: 100,
+                cityNumberInCountry: cityNumber,
+                completedCityCount: cityNumber - 1
+            )
         ))
         let lane = scene.gameStateForTesting.siegeProgress.selectedLane
 
@@ -6174,10 +6180,11 @@ struct BattleSceneTests {
         #expect(persisted.remainingReserve == 12)
     }
 
-    @Test("Non-pilot city creates no Guard or Barracks nodes")
-    func nonPilotCityCreatesNoGuardOrBarracksNodes() throws {
+    @Test("Single-Keep city creates no Guard or Barracks nodes")
+    func singleKeepCityCreatesNoGuardOrBarracksNodes() throws {
+        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
         let scene = makeScene(store: try makeStore(
-            initialState: stateWithBarracks(cityNumberInCountry: 2, completedCityCount: 1)
+            initialState: stateWithBarracks(cityNumberInCountry: cityNumber, completedCityCount: cityNumber - 1)
         ))
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 6.2)

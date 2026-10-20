@@ -1138,8 +1138,9 @@ struct KingdomGameStateTests {
         // The first barracks accumulated 100s of idle time (10s effective active),
         // producing 1 spawn at level 1 (1 damage). The new archery range should NOT
         // get credited for time before it existed.
-        // The Keep should have absorbed 1 damage from the first building only.
-        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - 1)
+        // Exactly 1 damage lands on the city's objectives from the first building only.
+        // City 2's default detour spends it on the Gate before the Keep.
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == state.cityMaxPower - 1)
     }
 
     @Test func upgradingBuildingSettlesProgressSoOldLevelIsUsedForPendingTime() {
@@ -1322,14 +1323,15 @@ struct KingdomGameStateTests {
     }
 
     @Test func startingCurrentActiveCityDoesNotResetHP() {
-        var state = SiegeTestSupport.makeBattleState(atCity: 2, keepRemaining: 42)
+        // Pinewatch's Keep maximum is 33 (3:1 Gate split of 43), so 20 is a damaged Keep.
+        var state = SiegeTestSupport.makeBattleState(atCity: 2, keepRemaining: 20)
 
         let result = state.startCityFromMap(2)
 
         #expect(result == .entered(country: 1, city: 2))
         #expect(state.cityNumberInCountry == 2)
         #expect(state.cityLevel == 2)
-        #expect(state.currentKeepRemainingPower == 42)
+        #expect(state.currentKeepRemainingPower == 20)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -1662,9 +1664,10 @@ struct KingdomGameStateTests {
     @Test func idleCatchUpIsCappedAtEightHours() {
         let start = Date(timeIntervalSinceReferenceDate: 4_000)
         let end = start.addingTimeInterval(Double(KingdomGameState.maxIdleCatchUpSeconds + 120))
-        // City 7's Keep can absorb the full capped budget without conquest, and
-        // its .stoneWall trait leaves infantry (Barracks spawns) at neutral 1.0×.
-        var state = SiegeTestSupport.makeBattleState(atCity: 7, gold: 100, keepRemaining: 10_000)
+        // City 8 has no Barracks objective, so no Guard absorption applies. Its
+        // objectives absorb the full capped budget without conquest, and its
+        // .stoneWall trait leaves infantry (Barracks spawns) at neutral 1.0×.
+        var state = SiegeTestSupport.makeBattleState(atCity: 8, gold: 100, keepRemaining: 10_000)
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         state.enterBackground(at: start)
@@ -1744,7 +1747,12 @@ struct KingdomGameStateTests {
         let barracksDamage = 5
         let settleDamage = 5  // From T0→T5 settle: 500s/10 = 50s effective, barracks = 5 spawns
         #expect(result.damageDealt == archeryDamage + barracksDamage)
-        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - settleDamage - result.damageDealt)
+        // City 2's default detour spends the damage on its Gate before the Keep, so the
+        // total objective HP carries the same accounting.
+        #expect(
+            SiegeTestSupport.totalObjectiveRemainingPower(of: state)
+                == state.cityMaxPower - settleDamage - result.damageDealt
+        )
     }
 
     @Test func buildingSettlementConquestDoesNotRestoreCompletedCityLots() {
@@ -2385,9 +2393,10 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.selectedLane == state.currentCityDefinition.siegeLayout.defaultLane)
         #expect(state.siegeProgress.damageByObjectiveID.isEmpty)
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
-        // City 4 is a single-Keep city: no Falconridge history survives.
-        #expect(SiegeTestSupport.objectiveID(for: .gate, in: state) == nil)
-        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == state.currentKeepMaxPower)
+        // City 4 authors its own gates: no Falconridge objective survives, and every
+        // City 4 objective starts at full HP.
+        #expect(state.currentSiegeLayout.objectives.allSatisfy { !$0.id.hasPrefix("falconridge.") })
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == state.cityMaxPower)
     }
 
     @Test func pendingResultRetainsSiegeProgressForRestoredPresentation() throws {
