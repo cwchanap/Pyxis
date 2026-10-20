@@ -299,6 +299,41 @@ struct Country1SiegeSmokeTests {
         .init(type: .siegeWorkshop, level: 2)
     ]
 
+    /// City 13 watch-only camp (realistic, not accelerated): budget 1533 (15 + 1518 of rewards
+    /// through City 12); all five types unlocked. Five Barracks L5 (5 x 134 = 670) + Archery Range
+    /// L2 x5 (5 x 32 = 160) + Stable L1 x5 (140) + Mage Tower L1 x5 (200) + Siege Workshop L1 x5
+    /// (275) = 1445 (leftover 88). Five buildings per type fill 25 slots, so the Keep's fire on
+    /// every lane meets a steady soldier flow. A thinner camp (Barracks L5 x5, Archery L4 x2, Stable
+    /// L4, Mage L3, Siege L3, 1288 gold) stalls the fortified left Gate lane at the 900 s bound
+    /// (647 soldiers lost, no conquest).
+    private static let city13Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .stable, level: 1),
+        .init(type: .stable, level: 1),
+        .init(type: .stable, level: 1),
+        .init(type: .stable, level: 1),
+        .init(type: .stable, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -491,6 +526,22 @@ struct Country1SiegeSmokeTests {
             city: 12,
             lane: .left,
             camp: Self.city12Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    /// City 13 default lane is the standard lane (centre): the Barracks route. The Keep fires on
+    /// every lane, so the fortified left Gate lane is the slowest route.
+    @Test("City 13 default Barracks lane watch-only conquers inside the bounded simulated budget")
+    func city13WatchOnlyBarracksLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 13,
+            lane: .center,
+            camp: Self.city13Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false

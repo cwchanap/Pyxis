@@ -554,7 +554,53 @@ enum Country1CityCatalog {
             conquestTitle: "Starveil Citadel Falls",
             defenseTrait: .arcaneWard,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
-            visualFamily: .arcane
+            visualFamily: .arcane,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 30:1:1:1 Keep:Gate:Barracks:East Gate HP (177379 + 5912 + 5912 + 5912 of 195115):
+                    // the Keep is the conquest authority and the only fire source, covering every lane.
+                    // The Barracks is the centre (standard) route's only stop; each Gate guards one
+                    // flank route. The arcane ward stays in the defense trait.
+                    .init(
+                        id: "starveil-citadel.keep",
+                        kind: .keep,
+                        durabilityWeight: 30,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "starveil-citadel.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .left,
+                        visualProgress: 0.80
+                    ),
+                    .init(
+                        id: "starveil-citadel.barracks",
+                        kind: .barracks,
+                        durabilityWeight: 1,
+                        visualLane: .center,
+                        visualProgress: 0.72
+                    ),
+                    .init(
+                        id: "starveil-citadel.east-gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .right,
+                        visualProgress: 0.83
+                    )
+                ],
+                routes: [
+                    .left: ["starveil-citadel.gate", "starveil-citadel.keep"],
+                    .center: ["starveil-citadel.barracks", "starveil-citadel.keep"],
+                    .right: ["starveil-citadel.east-gate", "starveil-citadel.keep"]
+                ],
+                defaultLane: .center,
+                defensiveFire: .init(
+                    sourceObjectiveID: "starveil-citadel.keep",
+                    coveredLanes: BattleLane.allCases
+                )
+            )
         ),
         CityDefinition(
             cityNumber: 14,

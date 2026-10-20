@@ -378,6 +378,52 @@ struct Country1CityCatalogTests {
         )
     )
 
+    /// The authored Starveil Citadel Keep-sourced three-route layout (HPA-477), shared by the
+    /// fixture entry. The Gate guards the left route, the Barracks the centre (standard) lane,
+    /// and a second Gate the right route. The Keep fires on every lane.
+    private static let starveilSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(
+                id: "starveil-citadel.keep",
+                kind: .keep,
+                durabilityWeight: 30,
+                visualLane: .center,
+                visualProgress: 1.0
+            ),
+            .init(
+                id: "starveil-citadel.gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .left,
+                visualProgress: 0.80
+            ),
+            .init(
+                id: "starveil-citadel.barracks",
+                kind: .barracks,
+                durabilityWeight: 1,
+                visualLane: .center,
+                visualProgress: 0.72
+            ),
+            .init(
+                id: "starveil-citadel.east-gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .right,
+                visualProgress: 0.83
+            )
+        ],
+        routes: [
+            .left: ["starveil-citadel.gate", "starveil-citadel.keep"],
+            .center: ["starveil-citadel.barracks", "starveil-citadel.keep"],
+            .right: ["starveil-citadel.east-gate", "starveil-citadel.keep"]
+        ],
+        defaultLane: .center,
+        defensiveFire: .init(
+            sourceObjectiveID: "starveil-citadel.keep",
+            coveredLanes: BattleLane.allCases
+        )
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -556,7 +602,17 @@ struct Country1CityCatalogTests {
             .ember,
             siegeLayout: ashbridgeSiegeLayout
         ),
-        .init(13, name: "Starveil Citadel", flavorText: "Arcane wards protect the capital heights.", conquestTitle: "Starveil Citadel Falls", .arcaneWard, .left, .right, .arcane),
+        .init(
+            13,
+            name: "Starveil Citadel",
+            flavorText: "Arcane wards protect the capital heights.",
+            conquestTitle: "Starveil Citadel Falls",
+            .arcaneWard,
+            .left,
+            .right,
+            .arcane,
+            siegeLayout: starveilSiegeLayout
+        ),
         .init(14, name: "Stonecrown", flavorText: "Massive stone walls ring the royal seat.", conquestTitle: "Stonecrown Breached", .stoneWall, .center, .left, .frontier),
         .init(15, name: "Crownspire Keep", flavorText: "The final keep rises above the capital.", conquestTitle: "Crownspire Keep Falls", .reinforcedKeep, .right, .center, .royal)
     ]
@@ -981,9 +1037,39 @@ struct Country1CityCatalogTests {
         #expect(ashbridgePower["ashbridge.arrow-tower", default: 0] > 0)
         #expect(ashbridgePower["ashbridge.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 12))
 
-        // Cities 1 (Willowford) through 12 (Ashbridge) author tactical layouts. The rest stay
-        // single-Keep on their standard lane until later tasks author them.
-        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        // City 13 (Starveil Citadel) is Keep-sourced (HPA-477): the Keep fires on every lane, the
+        // Gate guards the left route, the Barracks the centre (standard) route, and a second Gate
+        // the right route. The arcane ward stays a defense trait, not a layout feature.
+        let starveil = Country1CityCatalog.definition(for: 13).siegeLayout
+        #expect(starveil.objectives.map(\.id) == [
+            "starveil-citadel.keep", "starveil-citadel.gate", "starveil-citadel.barracks", "starveil-citadel.east-gate"
+        ])
+        #expect(starveil.keepObjective.id == "starveil-citadel.keep")
+        #expect(starveil.objective(id: "starveil-citadel.gate")?.kind == .gate)
+        #expect(starveil.objective(id: "starveil-citadel.gate")?.visualProgress == 0.80)
+        #expect(starveil.objective(id: "starveil-citadel.gate")?.visualLane == .left)
+        #expect(starveil.objective(id: "starveil-citadel.barracks")?.kind == .barracks)
+        #expect(starveil.objective(id: "starveil-citadel.barracks")?.visualProgress == 0.72)
+        #expect(starveil.objective(id: "starveil-citadel.barracks")?.visualLane == .center)
+        #expect(starveil.objective(id: "starveil-citadel.east-gate")?.kind == .gate)
+        #expect(starveil.objective(id: "starveil-citadel.east-gate")?.visualProgress == 0.83)
+        #expect(starveil.objective(id: "starveil-citadel.east-gate")?.visualLane == .right)
+        #expect(starveil.routes[.left] == ["starveil-citadel.gate", "starveil-citadel.keep"])
+        #expect(starveil.routes[.center] == ["starveil-citadel.barracks", "starveil-citadel.keep"])
+        #expect(starveil.routes[.right] == ["starveil-citadel.east-gate", "starveil-citadel.keep"])
+        #expect(starveil.defensiveFire.sourceObjectiveID == "starveil-citadel.keep")
+        #expect(starveil.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(starveil.barracksObjective?.id == "starveil-citadel.barracks")
+        #expect(starveil.defaultLane == .center)
+        let starveilPower = starveil.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 13))
+        #expect(starveilPower["starveil-citadel.gate", default: 0] > 0)
+        #expect(starveilPower["starveil-citadel.barracks", default: 0] > 0)
+        #expect(starveilPower["starveil-citadel.east-gate", default: 0] > 0)
+        #expect(starveilPower["starveil-citadel.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 13))
+
+        // Cities 1 (Willowford) through 13 (Starveil Citadel) author tactical layouts. Cities 14
+        // and 15 stay single-Keep on their standard lane until later tasks author them.
+        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
         for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
