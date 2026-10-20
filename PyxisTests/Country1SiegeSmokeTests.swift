@@ -225,18 +225,17 @@ struct Country1SiegeSmokeTests {
         .init(type: .stable, level: 2)
     ]
 
-    /// City 8 smoke camp, NOT progression-realistic (controller ruling R8). Budget is
-    /// 236 (15 + 221). Budget-fit camps stall at the 900 s bound with 145-283 losses:
-    /// Barracks L4 + Archery L3 + Stable L2 + Mage L1 (225) and similar mixes. Tower
-    /// fire (12 damage, 11 after defence, every 1.25 s, covering every lane) kills
-    /// early soldiers before they breach the Gate. This accelerated camp uses two
-    /// Barracks L5 + Archery Range L2 + Stable L2 = 350 (~1.5x budget) and conquers
-    /// at 156.7 s. It checks route plumbing and no-stall only, not balance.
+    /// City 8 watch-only camp (realistic, not accelerated; R8 is no longer used here). Budget 236
+    /// (15 + 221); unlocked Barracks, Archery Range, Stable, Mage Tower. Barracks L4 (80) + Archery
+    /// Range L3 (55) + Stable L2 (50) + Mage Tower L1 (40) = 225 (leftover 11). The Tower fires on
+    /// every lane, so the standard right and fortified centre Gate routes stall at the bound with
+    /// all 283 spawned soldiers lost. The exposed left route is the Tower's own route and conquers
+    /// in 202.6 s, so City 8 defaults to it. No weight or progress sweep conquers a Gate route here.
     private static let city8Camp: [Country1SiegeSmoke.Building] = [
-        .init(type: .barracks, level: 5),
-        .init(type: .barracks, level: 5),
-        .init(type: .archeryRange, level: 2),
-        .init(type: .stable, level: 2)
+        .init(type: .barracks, level: 4),
+        .init(type: .archeryRange, level: 3),
+        .init(type: .stable, level: 2),
+        .init(type: .mageTower, level: 1)
     ]
 
     /// City 9 watch-only camp: budget 344 (15 + 329 of rewards through City 8); unlocked
@@ -521,11 +520,13 @@ struct Country1SiegeSmokeTests {
         #expect(result.reachedConquest)
     }
 
-    @Test("City 8 default lane watch-only conquers inside the bounded simulated budget")
+    /// City 8 default lane is the exposed Tower route (left). The realistic 225-gold camp stalls both
+    /// Gate routes at the bound, so the Tower route is the only default that conquers.
+    @Test("City 8 default Tower lane watch-only conquers inside the bounded simulated budget")
     func city8WatchOnlyDefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
             city: 8,
-            lane: .right,
+            lane: .left,
             camp: Self.city8Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
