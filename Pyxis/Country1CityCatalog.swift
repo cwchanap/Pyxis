@@ -252,7 +252,43 @@ enum Country1CityCatalog {
             conquestTitle: "Emberford Secured",
             defenseTrait: .burningOil,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
-            visualFamily: .ember
+            visualFamily: .ember,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 20:4:1 Keep:Gate:Barracks HP (1580 + 316 + 79 of 1975): the Keep is 20:1
+                    // over the Barracks, the Highcrest ratio. The Barracks sits on the left
+                    // route, which the Keep's fire covers, so its chewers stay in reach. The
+                    // Gate sits on the centre route, which takes no fire.
+                    .init(
+                        id: "emberford.keep",
+                        kind: .keep,
+                        durabilityWeight: 20,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "emberford.barracks",
+                        kind: .barracks,
+                        durabilityWeight: 1,
+                        visualLane: .left,
+                        visualProgress: 0.72
+                    ),
+                    .init(
+                        id: "emberford.gate",
+                        kind: .gate,
+                        durabilityWeight: 4,
+                        visualLane: .center,
+                        visualProgress: 0.80
+                    )
+                ],
+                routes: [
+                    .left: ["emberford.barracks", "emberford.keep"],
+                    .center: ["emberford.gate", "emberford.keep"],
+                    .right: ["emberford.keep"]
+                ],
+                defaultLane: .center,
+                defensiveFire: .init(sourceObjectiveID: "emberford.keep", coveredLanes: [.left, .right])
+            )
         ),
         CityDefinition(
             cityNumber: 8,
