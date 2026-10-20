@@ -218,6 +218,51 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "runewatch.arrow-tower", coveredLanes: BattleLane.allCases)
     )
 
+    /// The authored Ironthorn Gate reinforced-remix siege layout (HPA-477), shared by the
+    /// fixture entry. The Tower guards the left route; one Gate guards the centre and one the right.
+    private static let ironthornSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(
+                id: "ironthorn-gate.keep",
+                kind: .keep,
+                durabilityWeight: 10,
+                visualLane: .center,
+                visualProgress: 1.0
+            ),
+            .init(
+                id: "ironthorn-gate.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 3,
+                visualLane: .left,
+                visualProgress: 0.80
+            ),
+            .init(
+                id: "ironthorn-gate.gate",
+                kind: .gate,
+                durabilityWeight: 2,
+                visualLane: .center,
+                visualProgress: 0.78
+            ),
+            .init(
+                id: "ironthorn-gate.east-gate",
+                kind: .gate,
+                durabilityWeight: 2,
+                visualLane: .right,
+                visualProgress: 0.84
+            )
+        ],
+        routes: [
+            .left: ["ironthorn-gate.arrow-tower", "ironthorn-gate.keep"],
+            .center: ["ironthorn-gate.gate", "ironthorn-gate.keep"],
+            .right: ["ironthorn-gate.east-gate", "ironthorn-gate.keep"]
+        ],
+        defaultLane: .center,
+        defensiveFire: .init(
+            sourceObjectiveID: "ironthorn-gate.arrow-tower",
+            coveredLanes: BattleLane.allCases
+        )
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -363,7 +408,17 @@ struct Country1CityCatalogTests {
             .arcane,
             siegeLayout: runewatchSiegeLayout
         ),
-        .init(10, name: "Ironthorn Gate", flavorText: "A hardened gate blocks the inner road.", conquestTitle: "Ironthorn Gate Broken", .spikedGate, .left, .right, .frontier),
+        .init(
+            10,
+            name: "Ironthorn Gate",
+            flavorText: "A hardened gate blocks the inner road.",
+            conquestTitle: "Ironthorn Gate Broken",
+            .spikedGate,
+            .left,
+            .right,
+            .frontier,
+            siegeLayout: ironthornSiegeLayout
+        ),
         .init(11, name: "Kingshield Keep", flavorText: "A reinforced fortress guards the royal road.", conquestTitle: "Kingshield Keep Falls", .reinforcedKeep, .center, .left, .frontier),
         .init(12, name: "Ashbridge", flavorText: "Fire cauldrons guard the last crossing.", conquestTitle: "Ashbridge Secured", .burningOil, .right, .center, .ember),
         .init(13, name: "Starveil Citadel", flavorText: "Arcane wards protect the capital heights.", conquestTitle: "Starveil Citadel Falls", .arcaneWard, .left, .right, .arcane),
@@ -699,9 +754,39 @@ struct Country1CityCatalogTests {
         #expect(runewatchPower["runewatch.arrow-tower", default: 0] > 0)
         #expect(runewatchPower["runewatch.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 9))
 
-        // Cities 1 (Willowford) through 9 (Runewatch) author tactical layouts. The rest stay
+        // City 10 (Ironthorn Gate) is the reinforced remix (HPA-477): the Tower guards the left
+        // route, one Gate the centre route, and a second Gate the right route. The Tower is the
+        // only fire source and covers every lane. Three supports and no Barracks, so no Guards.
+        let ironthorn = Country1CityCatalog.definition(for: 10).siegeLayout
+        #expect(ironthorn.objectives.map(\.id) == [
+            "ironthorn-gate.keep", "ironthorn-gate.arrow-tower", "ironthorn-gate.gate", "ironthorn-gate.east-gate"
+        ])
+        #expect(ironthorn.keepObjective.id == "ironthorn-gate.keep")
+        #expect(ironthorn.objective(id: "ironthorn-gate.arrow-tower")?.kind == .arrowTower)
+        #expect(ironthorn.objective(id: "ironthorn-gate.arrow-tower")?.visualProgress == 0.80)
+        #expect(ironthorn.objective(id: "ironthorn-gate.arrow-tower")?.visualLane == .left)
+        #expect(ironthorn.objective(id: "ironthorn-gate.gate")?.kind == .gate)
+        #expect(ironthorn.objective(id: "ironthorn-gate.gate")?.visualProgress == 0.78)
+        #expect(ironthorn.objective(id: "ironthorn-gate.gate")?.visualLane == .center)
+        #expect(ironthorn.objective(id: "ironthorn-gate.east-gate")?.kind == .gate)
+        #expect(ironthorn.objective(id: "ironthorn-gate.east-gate")?.visualProgress == 0.84)
+        #expect(ironthorn.objective(id: "ironthorn-gate.east-gate")?.visualLane == .right)
+        #expect(ironthorn.routes[.left] == ["ironthorn-gate.arrow-tower", "ironthorn-gate.keep"])
+        #expect(ironthorn.routes[.center] == ["ironthorn-gate.gate", "ironthorn-gate.keep"])
+        #expect(ironthorn.routes[.right] == ["ironthorn-gate.east-gate", "ironthorn-gate.keep"])
+        #expect(ironthorn.defensiveFire.sourceObjectiveID == "ironthorn-gate.arrow-tower")
+        #expect(ironthorn.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(ironthorn.barracksObjective == nil)
+        #expect(ironthorn.defaultLane == .center)
+        let ironthornPower = ironthorn.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 10))
+        #expect(ironthornPower["ironthorn-gate.arrow-tower", default: 0] > 0)
+        #expect(ironthornPower["ironthorn-gate.gate", default: 0] > 0)
+        #expect(ironthornPower["ironthorn-gate.east-gate", default: 0] > 0)
+        #expect(ironthornPower["ironthorn-gate.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 10))
+
+        // Cities 1 (Willowford) through 10 (Ironthorn Gate) author tactical layouts. The rest stay
         // single-Keep on their standard lane until later tasks author them.
-        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),

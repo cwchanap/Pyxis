@@ -387,7 +387,53 @@ enum Country1CityCatalog {
             conquestTitle: "Ironthorn Gate Broken",
             defenseTrait: .spikedGate,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 10:3:2:2 Keep:Tower:Gate:East Gate HP (11551 + 3464 + 2309 + 2309 of 19633):
+                    // the Keep is the conquest authority. The Tower is the single fire source,
+                    // covering every lane. The left route runs through the Tower; the centre and
+                    // right routes each have their own Gate.
+                    .init(
+                        id: "ironthorn-gate.keep",
+                        kind: .keep,
+                        durabilityWeight: 10,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "ironthorn-gate.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 3,
+                        visualLane: .left,
+                        visualProgress: 0.80
+                    ),
+                    .init(
+                        id: "ironthorn-gate.gate",
+                        kind: .gate,
+                        durabilityWeight: 2,
+                        visualLane: .center,
+                        visualProgress: 0.78
+                    ),
+                    .init(
+                        id: "ironthorn-gate.east-gate",
+                        kind: .gate,
+                        durabilityWeight: 2,
+                        visualLane: .right,
+                        visualProgress: 0.84
+                    )
+                ],
+                routes: [
+                    .left: ["ironthorn-gate.arrow-tower", "ironthorn-gate.keep"],
+                    .center: ["ironthorn-gate.gate", "ironthorn-gate.keep"],
+                    .right: ["ironthorn-gate.east-gate", "ironthorn-gate.keep"]
+                ],
+                defaultLane: .center,
+                defensiveFire: .init(
+                    sourceObjectiveID: "ironthorn-gate.arrow-tower",
+                    coveredLanes: BattleLane.allCases
+                )
+            )
         ),
         CityDefinition(
             cityNumber: 11,
