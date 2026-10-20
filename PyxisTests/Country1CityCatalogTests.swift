@@ -167,7 +167,8 @@ struct Country1CityCatalogTests {
     )
 
     /// The authored Greywall Tower-versus-Gate siege layout (HPA-477), shared by
-    /// the fixture entry. City 8 has no Barracks.
+    /// the fixture entry. City 8 has no Barracks. Its default lane is the exposed
+    /// Tower route (left): the Gate routes stall at the realistic budget camp.
     private static let greywallSiegeLayout = CitySiegeLayout(
         objectives: [
             .init(id: "greywall.keep", kind: .keep, durabilityWeight: 6, visualLane: .center, visualProgress: 1.0),
@@ -185,7 +186,7 @@ struct Country1CityCatalogTests {
             .center: ["greywall.gate", "greywall.keep"],
             .right: ["greywall.gate", "greywall.keep"]
         ],
-        defaultLane: .right,
+        defaultLane: .left,
         defensiveFire: .init(sourceObjectiveID: "greywall.arrow-tower", coveredLanes: BattleLane.allCases)
     )
 
@@ -1015,7 +1016,8 @@ struct Country1CityCatalogTests {
         #expect(greywall.defensiveFire.sourceObjectiveID == "greywall.arrow-tower")
         #expect(greywall.defensiveFire.coveredLanes == BattleLane.allCases)
         #expect(greywall.barracksObjective == nil)
-        #expect(greywall.defaultLane == .right)
+        // The Gate routes never conquer at the realistic 225-gold camp, so the default is the Tower route.
+        #expect(greywall.defaultLane == .left)
         let greywallPower = greywall.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 8))
         let greywallTower = greywallPower["greywall.arrow-tower", default: 0]
         let greywallGate = greywallPower["greywall.gate", default: 0]

@@ -303,7 +303,9 @@ enum Country1CityCatalog {
                     // 6:3:2 Keep:Tower:Gate HP (2317 + 1158 + 772 of 4247): the Keep is the
                     // majority and the conquest authority. The Tower sits between the Gate and
                     // the Keep share and is the only fire source, covering every lane. The
-                    // shared Gate sits on the centre lane (centre and right routes).
+                    // shared Gate sits on the centre lane (centre and right routes). The default
+                    // is the exposed Tower route: at the realistic budget camp both Gate routes
+                    // stall, because the Tower's fire kills every soldier before a Gate falls.
                     .init(
                         id: "greywall.keep",
                         kind: .keep,
@@ -331,7 +333,7 @@ enum Country1CityCatalog {
                     .center: ["greywall.gate", "greywall.keep"],
                     .right: ["greywall.gate", "greywall.keep"]
                 ],
-                defaultLane: .right,
+                defaultLane: .left,
                 defensiveFire: .init(sourceObjectiveID: "greywall.arrow-tower", coveredLanes: BattleLane.allCases)
             )
         ),
