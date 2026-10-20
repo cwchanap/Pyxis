@@ -277,28 +277,35 @@ struct CountryMapScoutCardTextLayoutTests {
     }
 
     @Test(arguments: CountryMapLayoutTestFixtures.supported)
-    func falconridgeTacticalFooterFitsAtAMeasuredSizeInEverySupportedLayout(
+    func tacticalFootersFitAtAMeasuredSizeInEverySupportedLayout(
         fixture: CountryMapLayoutTestFixture
     ) throws {
         let cardLayout = try scoutCardLayout(for: fixture)
         let footerSize: CGFloat = cardLayout.isCompact ? 9 : (isPhoneLayout(fixture) ? 13 : 11)
-        let footer = try #require(CountryMapScoutCardContent.tacticalFooter(
-            for: Country1CityCatalog.definition(for: 3).siegeLayout
-        ))
-
-        // The measured contract: the footer fits the existing lane frame at
-        // some approved size ≥ 8pt via the shared fitter (fail-closed card
-        // path otherwise).
-        #expect(CountryMapScoutCardTextLayout.fittedFontSize(
-            footer,
-            startingAt: footerSize,
-            minimum: 8,
-            maximumWidth: cardLayout.exposedLaneFrame.width,
-            measure: { text, size in
-                (try? width(text, fontName: GameUITheme.Font.medium, size: size))
-                    ?? .greatestFiniteMagnitude
+        // Every city that authors a footer, so cities authored later are checked
+        // without editing this test.
+        let footers: [(cityNumber: Int, footer: String)] = Country1CityCatalog.definitions.compactMap { definition in
+            CountryMapScoutCardContent.tacticalFooter(for: definition.siegeLayout).map {
+                (cityNumber: definition.cityNumber, footer: $0)
             }
-        ) != nil, "\(fixture.name): Falconridge footer must fit at ≥8pt")
+        }
+        #expect(!footers.isEmpty)
+
+        // The measured contract: each footer fits the existing lane frame at
+        // some approved size ≥ 8pt via the shared fitter (fail-closed card
+        // path otherwise). The portrait iPad frame is the narrowest (82pt).
+        for (cityNumber, footer) in footers {
+            #expect(CountryMapScoutCardTextLayout.fittedFontSize(
+                footer,
+                startingAt: footerSize,
+                minimum: 8,
+                maximumWidth: cardLayout.exposedLaneFrame.width,
+                measure: { text, size in
+                    (try? width(text, fontName: GameUITheme.Font.medium, size: size))
+                        ?? .greatestFiniteMagnitude
+                }
+            ) != nil, "\(fixture.name): city \(cityNumber) footer \"\(footer)\" must fit at ≥8pt")
+        }
     }
 
     @Test func falconridgeTacticalFooterFitsTheCompactPhoneLaneFrame() throws {
