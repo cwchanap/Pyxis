@@ -424,6 +424,53 @@ struct Country1CityCatalogTests {
         )
     )
 
+    /// The authored Stonecrown Tower-sourced three-route layout (HPA-477), shared by the fixture
+    /// entry. The Gate guards the left route, the Arrow Tower the centre, and a second Gate the
+    /// right route, which is the default (standard) lane and never reaches the Tower. The Tower's
+    /// fire covers every lane.
+    private static let stonecrownSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(
+                id: "stonecrown.keep",
+                kind: .keep,
+                durabilityWeight: 30,
+                visualLane: .center,
+                visualProgress: 1.0
+            ),
+            .init(
+                id: "stonecrown.gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .left,
+                visualProgress: 0.77
+            ),
+            .init(
+                id: "stonecrown.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 2,
+                visualLane: .center,
+                visualProgress: 0.82
+            ),
+            .init(
+                id: "stonecrown.east-gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .right,
+                visualProgress: 0.84
+            )
+        ],
+        routes: [
+            .left: ["stonecrown.gate", "stonecrown.keep"],
+            .center: ["stonecrown.arrow-tower", "stonecrown.keep"],
+            .right: ["stonecrown.east-gate", "stonecrown.keep"]
+        ],
+        defaultLane: .right,
+        defensiveFire: .init(
+            sourceObjectiveID: "stonecrown.arrow-tower",
+            coveredLanes: BattleLane.allCases
+        )
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -613,7 +660,17 @@ struct Country1CityCatalogTests {
             .arcane,
             siegeLayout: starveilSiegeLayout
         ),
-        .init(14, name: "Stonecrown", flavorText: "Massive stone walls ring the royal seat.", conquestTitle: "Stonecrown Breached", .stoneWall, .center, .left, .frontier),
+        .init(
+            14,
+            name: "Stonecrown",
+            flavorText: "Massive stone walls ring the royal seat.",
+            conquestTitle: "Stonecrown Breached",
+            .stoneWall,
+            .center,
+            .left,
+            .frontier,
+            siegeLayout: stonecrownSiegeLayout
+        ),
         .init(15, name: "Crownspire Keep", flavorText: "The final keep rises above the capital.", conquestTitle: "Crownspire Keep Falls", .reinforcedKeep, .right, .center, .royal)
     ]
 
@@ -1067,9 +1124,39 @@ struct Country1CityCatalogTests {
         #expect(starveilPower["starveil-citadel.east-gate", default: 0] > 0)
         #expect(starveilPower["starveil-citadel.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 13))
 
-        // Cities 1 (Willowford) through 13 (Starveil Citadel) author tactical layouts. Cities 14
-        // and 15 stay single-Keep on their standard lane until later tasks author them.
-        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        // City 14 (Stonecrown) is Tower-sourced (HPA-477): the Arrow Tower guards the centre route
+        // and fires on every lane. The Gate guards the left route and a second Gate the right route,
+        // which is the default (standard) lane and never reaches the Tower.
+        let stonecrown = Country1CityCatalog.definition(for: 14).siegeLayout
+        #expect(stonecrown.objectives.map(\.id) == [
+            "stonecrown.keep", "stonecrown.gate", "stonecrown.arrow-tower", "stonecrown.east-gate"
+        ])
+        #expect(stonecrown.keepObjective.id == "stonecrown.keep")
+        #expect(stonecrown.objective(id: "stonecrown.gate")?.kind == .gate)
+        #expect(stonecrown.objective(id: "stonecrown.gate")?.visualProgress == 0.77)
+        #expect(stonecrown.objective(id: "stonecrown.gate")?.visualLane == .left)
+        #expect(stonecrown.objective(id: "stonecrown.arrow-tower")?.kind == .arrowTower)
+        #expect(stonecrown.objective(id: "stonecrown.arrow-tower")?.visualProgress == 0.82)
+        #expect(stonecrown.objective(id: "stonecrown.arrow-tower")?.visualLane == .center)
+        #expect(stonecrown.objective(id: "stonecrown.east-gate")?.kind == .gate)
+        #expect(stonecrown.objective(id: "stonecrown.east-gate")?.visualProgress == 0.84)
+        #expect(stonecrown.objective(id: "stonecrown.east-gate")?.visualLane == .right)
+        #expect(stonecrown.routes[.left] == ["stonecrown.gate", "stonecrown.keep"])
+        #expect(stonecrown.routes[.center] == ["stonecrown.arrow-tower", "stonecrown.keep"])
+        #expect(stonecrown.routes[.right] == ["stonecrown.east-gate", "stonecrown.keep"])
+        #expect(stonecrown.defensiveFire.sourceObjectiveID == "stonecrown.arrow-tower")
+        #expect(stonecrown.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(stonecrown.barracksObjective == nil)
+        #expect(stonecrown.defaultLane == .right)
+        let stonecrownPower = stonecrown.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 14))
+        #expect(stonecrownPower["stonecrown.gate", default: 0] > 0)
+        #expect(stonecrownPower["stonecrown.arrow-tower", default: 0] > 0)
+        #expect(stonecrownPower["stonecrown.east-gate", default: 0] > 0)
+        #expect(stonecrownPower["stonecrown.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 14))
+
+        // Cities 1 (Willowford) through 14 (Stonecrown) author tactical layouts. City 15
+        // (Crownspire Keep) stays single-Keep on its standard lane until a later step authors it.
+        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
         for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
