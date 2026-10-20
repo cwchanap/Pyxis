@@ -366,6 +366,39 @@ struct Country1SiegeSmokeTests {
         .init(type: .siegeWorkshop, level: 1)
     ]
 
+    /// City 15 watch-only camp (realistic, not accelerated): budget 3226 (15 + 3211 of rewards
+    /// through City 14); all five types unlocked. Five Barracks L6 (5 x 223 = 1115) + Archery Range
+    /// L6 x5 (5 x 260 = 1300) + Stable L2 x5 (250) + Mage Tower L1 x5 (200) + Siege Workshop L1 x5
+    /// (275) = 3140 (leftover 86). The Keep's 773076 HP makes this the longest siege; the realistic
+    /// camp still conquers every lane inside the 900 s bound, so no accelerated levels are used.
+    private static let city15Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 6),
+        .init(type: .barracks, level: 6),
+        .init(type: .barracks, level: 6),
+        .init(type: .barracks, level: 6),
+        .init(type: .barracks, level: 6),
+        .init(type: .archeryRange, level: 6),
+        .init(type: .archeryRange, level: 6),
+        .init(type: .archeryRange, level: 6),
+        .init(type: .archeryRange, level: 6),
+        .init(type: .archeryRange, level: 6),
+        .init(type: .stable, level: 2),
+        .init(type: .stable, level: 2),
+        .init(type: .stable, level: 2),
+        .init(type: .stable, level: 2),
+        .init(type: .stable, level: 2),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .mageTower, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1),
+        .init(type: .siegeWorkshop, level: 1)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -590,6 +623,23 @@ struct Country1SiegeSmokeTests {
             city: 14,
             lane: .right,
             camp: Self.city14Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    /// City 15 default lane is the standard lane (left): the Tower route, whose first stop is the
+    /// fire source. The Barracks and its Guard reserve sit on the centre route, so this line prints
+    /// Guard waves and reserve that are fielded on the selected lane while the Barracks stands.
+    @Test("City 15 default Tower lane watch-only conquers inside the bounded simulated budget")
+    func city15WatchOnlyDefaultLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 15,
+            lane: .left,
+            camp: Self.city15Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
