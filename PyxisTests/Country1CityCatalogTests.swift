@@ -183,6 +183,41 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "greywall.arrow-tower", coveredLanes: BattleLane.allCases)
     )
 
+    /// The authored Runewatch Barracks-and-Tower siege layout (HPA-477), shared by
+    /// the fixture entry. The five-Barracks camp feeds the left route; the Tower covers every lane.
+    private static let runewatchSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(
+                id: "runewatch.keep",
+                kind: .keep,
+                durabilityWeight: 30,
+                visualLane: .center,
+                visualProgress: 1.0
+            ),
+            .init(
+                id: "runewatch.barracks",
+                kind: .barracks,
+                durabilityWeight: 1,
+                visualLane: .left,
+                visualProgress: 0.72
+            ),
+            .init(
+                id: "runewatch.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 1,
+                visualLane: .right,
+                visualProgress: 0.80
+            )
+        ],
+        routes: [
+            .left: ["runewatch.barracks", "runewatch.keep"],
+            .center: ["runewatch.keep"],
+            .right: ["runewatch.arrow-tower", "runewatch.keep"]
+        ],
+        defaultLane: .left,
+        defensiveFire: .init(sourceObjectiveID: "runewatch.arrow-tower", coveredLanes: BattleLane.allCases)
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -317,7 +352,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: greywallSiegeLayout
         ),
-        .init(9, name: "Runewatch", flavorText: "Arcane wards shimmer over the night road.", conquestTitle: "Runewatch Unbound", .arcaneWard, .right, .center, .arcane),
+        .init(
+            9,
+            name: "Runewatch",
+            flavorText: "Arcane wards shimmer over the night road.",
+            conquestTitle: "Runewatch Unbound",
+            .arcaneWard,
+            .right,
+            .center,
+            .arcane,
+            siegeLayout: runewatchSiegeLayout
+        ),
         .init(10, name: "Ironthorn Gate", flavorText: "A hardened gate blocks the inner road.", conquestTitle: "Ironthorn Gate Broken", .spikedGate, .left, .right, .frontier),
         .init(11, name: "Kingshield Keep", flavorText: "A reinforced fortress guards the royal road.", conquestTitle: "Kingshield Keep Falls", .reinforcedKeep, .center, .left, .frontier),
         .init(12, name: "Ashbridge", flavorText: "Fire cauldrons guard the last crossing.", conquestTitle: "Ashbridge Secured", .burningOil, .right, .center, .ember),
@@ -630,9 +675,34 @@ struct Country1CityCatalogTests {
         #expect(greywallTower > greywallGate)
         #expect(greywallPower["greywall.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 8))
 
-        // Cities 1 (Willowford) through 8 (Greywall) author tactical layouts. The rest stay
+        // City 9 (Runewatch) pits the Barracks route against the Tower route (HPA-477). The
+        // Barracks sits on the left route, the Arrow Tower on the right route, and the centre
+        // lane goes straight to the Keep. The Tower is the only fire source and covers every lane.
+        let runewatch = Country1CityCatalog.definition(for: 9).siegeLayout
+        #expect(runewatch.objectives.map(\.id) == ["runewatch.keep", "runewatch.barracks", "runewatch.arrow-tower"])
+        #expect(runewatch.keepObjective.id == "runewatch.keep")
+        #expect(runewatch.objective(id: "runewatch.barracks")?.kind == .barracks)
+        #expect(runewatch.objective(id: "runewatch.barracks")?.visualProgress == 0.72)
+        #expect(runewatch.objective(id: "runewatch.barracks")?.visualLane == .left)
+        #expect(runewatch.objective(id: "runewatch.arrow-tower")?.kind == .arrowTower)
+        #expect(runewatch.objective(id: "runewatch.arrow-tower")?.visualProgress == 0.80)
+        #expect(runewatch.objective(id: "runewatch.arrow-tower")?.visualLane == .right)
+        #expect(runewatch.routes[.left] == ["runewatch.barracks", "runewatch.keep"])
+        #expect(runewatch.routes[.center] == ["runewatch.keep"])
+        #expect(runewatch.routes[.right] == ["runewatch.arrow-tower", "runewatch.keep"])
+        #expect(runewatch.defensiveFire.sourceObjectiveID == "runewatch.arrow-tower")
+        #expect(runewatch.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(runewatch.barracksObjective?.id == "runewatch.barracks")
+        #expect(runewatch.defaultLane == .left)
+        let runewatchPower = runewatch.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 9))
+        #expect(runewatchPower["runewatch.barracks", default: 0] > 0)
+        #expect(runewatchPower["runewatch.arrow-tower", default: 0] > 0)
+        #expect(runewatchPower["runewatch.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 9))
+
+        // Cities 1 (Willowford) through 9 (Runewatch) author tactical layouts. The rest stay
         // single-Keep on their standard lane until later tasks author them.
-        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5, 6, 7, 8].contains(definition.cityNumber) {
+        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"

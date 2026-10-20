@@ -239,6 +239,23 @@ struct Country1SiegeSmokeTests {
         .init(type: .stable, level: 2)
     ]
 
+    /// City 9 watch-only camp: budget 344 (15 + 329 of rewards through City 8); unlocked
+    /// Barracks, Archery Range, Stable, Mage Tower. Five Barracks L3 (5 x 47 = 235) +
+    /// Archery Range L2 (32) + Stable L1 (28) + Mage Tower L1 (40) = 335 (leftover 9).
+    /// One building per type stalls the Barracks route at the 900 s bound: the Tower's
+    /// fire kills each lone soldier before it reaches a structure. Five Barracks keep
+    /// enough soldiers in the field to outpace that fire. Within budget, no accelerated levels.
+    private static let city9Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 3),
+        .init(type: .barracks, level: 3),
+        .init(type: .barracks, level: 3),
+        .init(type: .barracks, level: 3),
+        .init(type: .barracks, level: 3),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .stable, level: 1),
+        .init(type: .mageTower, level: 1)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -367,6 +384,23 @@ struct Country1SiegeSmokeTests {
             city: 8,
             lane: .right,
             camp: Self.city8Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    /// City 9 Barracks route is the default (standard) lane. The printed line carries the
+    /// Barracks shutdown time and the Guard waves/reserve; the shutdown lands before the first
+    /// 30 s Guard wave (27.4 s, reserve 12 unspent).
+    @Test("City 9 default Barracks lane watch-only conquers inside the bounded simulated budget")
+    func city9WatchOnlyBarracksLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 9,
+            lane: .left,
+            camp: Self.city9Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false

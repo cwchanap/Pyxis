@@ -20,8 +20,9 @@ enum CountryMapScoutCardContent: Equatable {
         let flavorText: String
         /// Concise tactical objective summary for cities whose authored siege
         /// layout has support objectives (HPA-468 pilot), e.g.
-        /// `L Tower · C/R Gate` for Falconridge. `nil` for single-Keep cities;
-        /// the node then renders `Open: <exposed lane>`.
+        /// `L Tower · C/R Gate` for Falconridge. Three or four supports collapse
+        /// to one entry (the highest priority, Barracks > Tower > Gate). `nil` for
+        /// single-Keep cities; the node then renders `Open: <exposed lane>`.
         let tacticalFooter: String?
         let status: CountryMapScoutStatus
 
