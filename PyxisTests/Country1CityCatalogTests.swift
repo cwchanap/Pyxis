@@ -114,6 +114,29 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "bramblegate.keep", coveredLanes: BattleLane.allCases)
     )
 
+    /// The authored Granite Pass Tower-versus-Gate siege layout (HPA-477), shared
+    /// by the fixture entry. City 6 has no Barracks.
+    private static let granitePassSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "granite-pass.keep", kind: .keep, durabilityWeight: 6, visualLane: .center, visualProgress: 1.0),
+            .init(id: "granite-pass.gate", kind: .gate, durabilityWeight: 2, visualLane: .center, visualProgress: 0.76),
+            .init(
+                id: "granite-pass.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 3,
+                visualLane: .right,
+                visualProgress: 0.80
+            )
+        ],
+        routes: [
+            .left: ["granite-pass.gate", "granite-pass.keep"],
+            .center: ["granite-pass.gate", "granite-pass.keep"],
+            .right: ["granite-pass.arrow-tower", "granite-pass.keep"]
+        ],
+        defaultLane: .left,
+        defensiveFire: .init(sourceObjectiveID: "granite-pass.arrow-tower", coveredLanes: BattleLane.allCases)
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -215,7 +238,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: highcrestSiegeLayout
         ),
-        .init(6, name: "Granite Pass", flavorText: "Stone walls seal the mountain road ahead.", conquestTitle: "Granite Pass Open", .stoneWall, .right, .center, .frontier),
+        .init(
+            6,
+            name: "Granite Pass",
+            flavorText: "Stone walls seal the mountain road ahead.",
+            conquestTitle: "Granite Pass Open",
+            .stoneWall,
+            .right,
+            .center,
+            .frontier,
+            siegeLayout: granitePassSiegeLayout
+        ),
         .init(7, name: "Emberford", flavorText: "Burning oil guards the bridge inland.", conquestTitle: "Emberford Secured", .burningOil, .left, .right, .ember),
         .init(8, name: "Greywall", flavorText: "Layered stone walls protect a busy town.", conquestTitle: "Greywall Falls", .stoneWall, .center, .left, .frontier),
         .init(9, name: "Runewatch", flavorText: "Arcane wards shimmer over the night road.", conquestTitle: "Runewatch Unbound", .arcaneWard, .right, .center, .arcane),
@@ -451,10 +484,38 @@ struct Country1CityCatalogTests {
         #expect(bramblegatePower["bramblegate.east-gate", default: 0] > 0)
         #expect(bramblegatePower["bramblegate.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 4))
 
-        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge), 4 (Bramblegate) and
-        // 5 (Highcrest) author tactical layouts. The rest stay single-Keep on their standard
-        // lane until later tasks author them.
-        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5].contains(definition.cityNumber) {
+        // City 6 (Granite Pass) pits the Tower against the Gate (HPA-477). The left and
+        // centre routes share one Gate; the right route runs through the Arrow Tower,
+        // the only fire source. It covers every lane, so killing the Tower silences fire.
+        let granitePass = Country1CityCatalog.definition(for: 6).siegeLayout
+        #expect(
+            granitePass.objectives.map(\.id) == ["granite-pass.keep", "granite-pass.gate", "granite-pass.arrow-tower"]
+        )
+        #expect(granitePass.keepObjective.id == "granite-pass.keep")
+        #expect(granitePass.objective(id: "granite-pass.gate")?.kind == .gate)
+        #expect(granitePass.objective(id: "granite-pass.gate")?.visualProgress == 0.76)
+        #expect(granitePass.objective(id: "granite-pass.gate")?.visualLane == .center)
+        #expect(granitePass.objective(id: "granite-pass.arrow-tower")?.kind == .arrowTower)
+        #expect(granitePass.objective(id: "granite-pass.arrow-tower")?.visualProgress == 0.80)
+        #expect(granitePass.objective(id: "granite-pass.arrow-tower")?.visualLane == .right)
+        #expect(granitePass.routes[.left] == ["granite-pass.gate", "granite-pass.keep"])
+        #expect(granitePass.routes[.center] == ["granite-pass.gate", "granite-pass.keep"])
+        #expect(granitePass.routes[.right] == ["granite-pass.arrow-tower", "granite-pass.keep"])
+        #expect(granitePass.defensiveFire.sourceObjectiveID == "granite-pass.arrow-tower")
+        #expect(granitePass.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(granitePass.barracksObjective == nil)
+        #expect(granitePass.defaultLane == .left)
+        let granitePassPower = granitePass.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 6))
+        let granitePassGate = granitePassPower["granite-pass.gate", default: 0]
+        let granitePassTower = granitePassPower["granite-pass.arrow-tower", default: 0]
+        #expect(granitePassGate > 0)
+        #expect(granitePassTower > granitePassGate)
+        #expect(granitePassPower["granite-pass.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 6))
+
+        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge), 4 (Bramblegate), 5 (Highcrest)
+        // and 6 (Granite Pass) author tactical layouts. The rest stay single-Keep on their
+        // standard lane until later tasks author them.
+        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5, 6].contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"
