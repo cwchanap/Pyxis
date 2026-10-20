@@ -60,6 +60,18 @@ struct CitySiegeLayout: Equatable {
         precondition(keeps.count == 1, "CitySiegeLayout must contain exactly one keep objective")
         let keepID = keeps[0].id
         precondition(
+            (1...5).contains(objectives.count),
+            "CitySiegeLayout must contain between one and five objectives"
+        )
+        precondition(
+            objectives.filter { $0.kind == .gate }.count <= 2,
+            "CitySiegeLayout must contain at most two gate objectives"
+        )
+        precondition(
+            objectives.filter { $0.kind == .arrowTower }.count <= 1,
+            "CitySiegeLayout must contain at most one arrow-tower objective"
+        )
+        precondition(
             objectives.filter { $0.kind == .barracks }.count <= 1,
             "CitySiegeLayout must contain at most one barracks objective"
         )
@@ -108,8 +120,19 @@ struct CitySiegeLayout: Equatable {
         }
 
         precondition(
+            objectives.allSatisfy { objective in
+                objective.kind == .keep || routes.values.contains { $0.contains(objective.id) }
+            },
+            "CitySiegeLayout non-keep objectives must each appear on at least one lane route"
+        )
+
+        precondition(
             progressByID[defensiveFire.sourceObjectiveID] != nil,
             "CitySiegeLayout defensive-fire source must reference an existing objective"
+        )
+        precondition(
+            objectives.allSatisfy { $0.kind != .arrowTower || $0.id == defensiveFire.sourceObjectiveID },
+            "CitySiegeLayout arrow-tower objective must be the defensive-fire source"
         )
         precondition(!defensiveFire.coveredLanes.isEmpty, "CitySiegeLayout defensive-fire coverage must be non-empty")
         precondition(
