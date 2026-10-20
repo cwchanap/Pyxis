@@ -1632,14 +1632,19 @@ struct BattleSceneTests {
             .mageTower, .mageTower, .mageTower, .mageTower, .mageTower,
             .siegeWorkshop, .siegeWorkshop, .siegeWorkshop, .siegeWorkshop, .siegeWorkshop
         ]
-        // City 15 keeps the Keep budget effectively unkillable (its authored
-        // Keep max spans the whole city budget), so the roster can grow for
-        // the full 200s without a conquest tearing it down.
+        // City 15's authored Keep holds 773,076 of the 901,921 city HP (the Tower,
+        // Barracks and Gates hold the rest). The Keep starts at that full authored
+        // maximum, so the roster can grow for the full 200s without a conquest
+        // tearing it down.
+        let city15Layout = Country1CityCatalog.definition(for: 15).siegeLayout
+        let city15KeepMax = city15Layout.maxPowerAllocation(
+            totalBudget: KingdomGameState.cityMaxPower(for: 15)
+        )[city15Layout.keepObjective.id, default: 0]
         let store = try makeStore(
             initialState: stateWithBuildings(
                 buildingTypes,
                 gold: 100,
-                keepRemaining: KingdomGameState.cityMaxPower(for: 15),
+                keepRemaining: city15KeepMax,
                 cityNumberInCountry: 15,
                 completedCityCount: 14
             )
