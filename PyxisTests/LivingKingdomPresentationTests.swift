@@ -10,10 +10,10 @@ import UIKit
 @Suite("Living Kingdom presentation")
 struct LivingKingdomPresentationTests {
     @Test(arguments: [
-        (13, LivingKingdomPresentation.FortressStage.intact),
-        (12, .damaged),
-        (6, .damaged),
-        (5, .breached),
+        (10, LivingKingdomPresentation.FortressStage.intact),
+        (9, .damaged),
+        (4, .damaged),
+        (3, .breached),
         (1, .breached),
         (0, .conquered)
     ])
@@ -21,12 +21,16 @@ struct LivingKingdomPresentationTests {
         remaining: Int,
         expected: LivingKingdomPresentation.FortressStage
     ) {
-        let maximum = KingdomGameState.cityMaxPower(for: 1)
-        #expect(maximum == 20)
+        // City 1's Keep holds its 3:1 share of the 20-HP budget; the Gate holds the rest.
+        let state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: remaining)
+        let layout = state.currentSiegeLayout
+        let allocatedKeepMax = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)[layout.keepObjective.id]
+        #expect(allocatedKeepMax == 15)
+        #expect(state.currentKeepMaxPower == allocatedKeepMax)
         #expect(LivingKingdomPresentation.battle(
             cityNumber: 1,
-            remainingHP: remaining,
-            maxHP: maximum,
+            remainingHP: state.currentKeepRemainingPower,
+            maxHP: state.currentKeepMaxPower,
             hasPendingConquest: false
         ).stage == expected)
     }

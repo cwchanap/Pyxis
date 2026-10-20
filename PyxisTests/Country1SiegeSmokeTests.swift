@@ -255,6 +255,39 @@ struct Country1SiegeSmokeTests {
         #expect(result.reachedConquest)
     }
 
+    /// Discriminating pair for watch-only (controller R11): with an empty camp and
+    /// manual spawns off nothing attacks, so the bounded run stalls. The same setup
+    /// with manual spawns on conquers inside the same 30 simulated-second bound.
+    @Test("City 1 empty-camp watch-only stalls inside 30 simulated seconds")
+    func city1EmptyCampWatchOnlyStallsWithinThirtySeconds() {
+        let result = Country1SiegeSmoke.run(
+            city: 1,
+            lane: .center,
+            camp: [],
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            maxSimulatedSeconds: 30,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.stalled)
+    }
+
+    @Test("City 1 empty-camp manual spawns conquer inside the same 30 simulated seconds")
+    func city1EmptyCampManualSpawnsConquerWithinThirtySeconds() {
+        let result = Country1SiegeSmoke.run(
+            city: 1,
+            lane: .center,
+            camp: [],
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            maxSimulatedSeconds: 30,
+            manualSpawnsEnabled: true
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
     @Test("A siege that cannot finish inside its bound stops as a stall instead of hanging")
     func boundedHarnessReportsStallInsteadOfHanging() {
         let result = Country1SiegeSmoke.run(
