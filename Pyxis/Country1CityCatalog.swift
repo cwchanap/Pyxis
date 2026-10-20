@@ -664,7 +664,61 @@ enum Country1CityCatalog {
             conquestTitle: "Crownspire Keep Falls",
             defenseTrait: .reinforcedKeep,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
-            visualFamily: .royal
+            visualFamily: .royal,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 30:2:1:1:1 Keep:Tower:Barracks:Gate:East Gate HP (773076 + 51538 + 25769 +
+                    // 25769 + 25769 of 901921): the Keep is the conquest authority. The Tower is the
+                    // single fire source, covering every lane, and the left route's first stop. The
+                    // Barracks is the centre route's first stop. The Gate stands before the Keep on
+                    // the left and centre routes, and the East Gate is the right route's only stop.
+                    .init(
+                        id: "crownspire-keep.keep",
+                        kind: .keep,
+                        durabilityWeight: 30,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "crownspire-keep.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 2,
+                        visualLane: .left,
+                        visualProgress: 0.78
+                    ),
+                    .init(
+                        id: "crownspire-keep.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .center,
+                        visualProgress: 0.84
+                    ),
+                    .init(
+                        id: "crownspire-keep.barracks",
+                        kind: .barracks,
+                        durabilityWeight: 1,
+                        visualLane: .center,
+                        visualProgress: 0.72
+                    ),
+                    .init(
+                        id: "crownspire-keep.east-gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .right,
+                        visualProgress: 0.82
+                    )
+                ],
+                routes: [
+                    .left: ["crownspire-keep.arrow-tower", "crownspire-keep.gate", "crownspire-keep.keep"],
+                    .center: ["crownspire-keep.barracks", "crownspire-keep.gate", "crownspire-keep.keep"],
+                    .right: ["crownspire-keep.east-gate", "crownspire-keep.keep"]
+                ],
+                defaultLane: .left,
+                defensiveFire: .init(
+                    sourceObjectiveID: "crownspire-keep.arrow-tower",
+                    coveredLanes: BattleLane.allCases
+                )
+            )
         )
     ]
 

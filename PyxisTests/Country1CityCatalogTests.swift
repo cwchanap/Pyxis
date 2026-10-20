@@ -471,6 +471,60 @@ struct Country1CityCatalogTests {
         )
     )
 
+    /// The authored Crownspire Keep five-structure layout (HPA-477), shared by the fixture entry.
+    /// The Tower guards the left route, the Gate stands before the Keep on the left and centre
+    /// routes, the Barracks guards the centre route, and a second Gate guards the right route. The
+    /// Tower is the only fire source and covers every lane. The left route is the standard lane.
+    private static let crownspireSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(
+                id: "crownspire-keep.keep",
+                kind: .keep,
+                durabilityWeight: 30,
+                visualLane: .center,
+                visualProgress: 1.0
+            ),
+            .init(
+                id: "crownspire-keep.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 2,
+                visualLane: .left,
+                visualProgress: 0.78
+            ),
+            .init(
+                id: "crownspire-keep.gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .center,
+                visualProgress: 0.84
+            ),
+            .init(
+                id: "crownspire-keep.barracks",
+                kind: .barracks,
+                durabilityWeight: 1,
+                visualLane: .center,
+                visualProgress: 0.72
+            ),
+            .init(
+                id: "crownspire-keep.east-gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .right,
+                visualProgress: 0.82
+            )
+        ],
+        routes: [
+            .left: ["crownspire-keep.arrow-tower", "crownspire-keep.gate", "crownspire-keep.keep"],
+            .center: ["crownspire-keep.barracks", "crownspire-keep.gate", "crownspire-keep.keep"],
+            .right: ["crownspire-keep.east-gate", "crownspire-keep.keep"]
+        ],
+        defaultLane: .left,
+        defensiveFire: .init(
+            sourceObjectiveID: "crownspire-keep.arrow-tower",
+            coveredLanes: BattleLane.allCases
+        )
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -671,7 +725,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: stonecrownSiegeLayout
         ),
-        .init(15, name: "Crownspire Keep", flavorText: "The final keep rises above the capital.", conquestTitle: "Crownspire Keep Falls", .reinforcedKeep, .right, .center, .royal)
+        .init(
+            15,
+            name: "Crownspire Keep",
+            flavorText: "The final keep rises above the capital.",
+            conquestTitle: "Crownspire Keep Falls",
+            .reinforcedKeep,
+            .right,
+            .center,
+            .royal,
+            siegeLayout: crownspireSiegeLayout
+        )
     ]
 
     @Test func catalogIsCompleteUniqueOrderedAndMatchesAuthoredCombatMetadata() {
@@ -1154,9 +1218,52 @@ struct Country1CityCatalogTests {
         #expect(stonecrownPower["stonecrown.east-gate", default: 0] > 0)
         #expect(stonecrownPower["stonecrown.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 14))
 
-        // Cities 1 (Willowford) through 14 (Stonecrown) author tactical layouts. City 15
-        // (Crownspire Keep) stays single-Keep on its standard lane until a later step authors it.
-        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        // City 15 (Crownspire Keep) has five structures (HPA-477): the Tower guards the left route, the
+        // Gate stands before the Keep on the left and centre routes, the Barracks guards the centre
+        // route, and a second Gate guards the right route. The Tower is the only fire source and covers
+        // every lane. The left route is the standard (default) lane. No boss phase.
+        let crownspire = Country1CityCatalog.definition(for: 15).siegeLayout
+        #expect(crownspire.objectives.map(\.id) == [
+            "crownspire-keep.keep",
+            "crownspire-keep.arrow-tower",
+            "crownspire-keep.gate",
+            "crownspire-keep.barracks",
+            "crownspire-keep.east-gate"
+        ])
+        #expect(crownspire.keepObjective.id == "crownspire-keep.keep")
+        #expect(crownspire.objective(id: "crownspire-keep.arrow-tower")?.kind == .arrowTower)
+        #expect(crownspire.objective(id: "crownspire-keep.arrow-tower")?.visualProgress == 0.78)
+        #expect(crownspire.objective(id: "crownspire-keep.arrow-tower")?.visualLane == .left)
+        #expect(crownspire.objective(id: "crownspire-keep.gate")?.kind == .gate)
+        #expect(crownspire.objective(id: "crownspire-keep.gate")?.visualProgress == 0.84)
+        #expect(crownspire.objective(id: "crownspire-keep.gate")?.visualLane == .center)
+        #expect(crownspire.objective(id: "crownspire-keep.barracks")?.kind == .barracks)
+        #expect(crownspire.objective(id: "crownspire-keep.barracks")?.visualProgress == 0.72)
+        #expect(crownspire.objective(id: "crownspire-keep.barracks")?.visualLane == .center)
+        #expect(crownspire.objective(id: "crownspire-keep.east-gate")?.kind == .gate)
+        #expect(crownspire.objective(id: "crownspire-keep.east-gate")?.visualProgress == 0.82)
+        #expect(crownspire.objective(id: "crownspire-keep.east-gate")?.visualLane == .right)
+        #expect(crownspire.routes[.left] == [
+            "crownspire-keep.arrow-tower", "crownspire-keep.gate", "crownspire-keep.keep"
+        ])
+        #expect(crownspire.routes[.center] == [
+            "crownspire-keep.barracks", "crownspire-keep.gate", "crownspire-keep.keep"
+        ])
+        #expect(crownspire.routes[.right] == ["crownspire-keep.east-gate", "crownspire-keep.keep"])
+        #expect(crownspire.defensiveFire.sourceObjectiveID == "crownspire-keep.arrow-tower")
+        #expect(crownspire.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(crownspire.barracksObjective?.id == "crownspire-keep.barracks")
+        #expect(crownspire.defaultLane == .left)
+        let crownspirePower = crownspire.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 15))
+        #expect(crownspirePower["crownspire-keep.arrow-tower", default: 0] > 0)
+        #expect(crownspirePower["crownspire-keep.gate", default: 0] > 0)
+        #expect(crownspirePower["crownspire-keep.barracks", default: 0] > 0)
+        #expect(crownspirePower["crownspire-keep.east-gate", default: 0] > 0)
+        #expect(crownspirePower["crownspire-keep.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 15))
+
+        // Cities 1 (Willowford) through 15 (Crownspire Keep) all author tactical layouts. The residual
+        // loop is empty and is replaced by an explicit no-single-Keep check in the cleanup step.
+        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
