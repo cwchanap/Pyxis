@@ -133,7 +133,43 @@ enum Country1CityCatalog {
             conquestTitle: "Bramblegate Broken",
             defenseTrait: .spikedGate,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .left, exposedLane: .right),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 3:1:1 Keep:Gate:East Gate HP (121 + 39 + 39 of 199): the Keep is the
+                    // majority and the conquest authority. The shared Gate sits on the centre
+                    // lane (the left and centre routes both pass it); the East Gate is the
+                    // right route's own chokepoint.
+                    .init(
+                        id: "bramblegate.keep",
+                        kind: .keep,
+                        durabilityWeight: 3,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "bramblegate.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .center,
+                        visualProgress: 0.76
+                    ),
+                    .init(
+                        id: "bramblegate.east-gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .right,
+                        visualProgress: 0.82
+                    )
+                ],
+                routes: [
+                    .left: ["bramblegate.gate", "bramblegate.keep"],
+                    .center: ["bramblegate.gate", "bramblegate.keep"],
+                    .right: ["bramblegate.east-gate", "bramblegate.keep"]
+                ],
+                defaultLane: .center,
+                defensiveFire: .init(sourceObjectiveID: "bramblegate.keep", coveredLanes: BattleLane.allCases)
+            )
         ),
         CityDefinition(
             cityNumber: 5,
