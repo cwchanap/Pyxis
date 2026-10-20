@@ -1,76 +1,92 @@
 # HPA-477 — Country 1 Tactical Siege Rollout Design
+
 **Date:** 2026-10-19  
 **Linear:** https://linear.app/cwchanap/issue/HPA-477/gameplay-roll-proven-tactical-siege-layouts-across-country-1  
-**Repository baseline:** `main` at `2e7046cbe20a37439636a0d8ee7dbe6c57f3d08a` (HPA-476 / PR #46 merged)  
-**Delivery:** one implementation PR, with this design and its paired plan committed first. This draft is planning-only, not a completed rollout.
+**Baseline:** `main` `2e7046cbe20a37439636a0d8ee7dbe6c57f3d08a` (HPA-476 / PR #46 merged)  
+**Delivery:** one implementation PR (PR #47); this document and the paired plan are planning-only until implementation lands.
 
-## Goal and decision
+## Goal and boundaries
 
-Make all 15 Country 1 sieges distinct and understandable through **authored layouts and restrained tuning**, using only shipped Keep, Gate, Arrow Tower, Barracks/Guard, three assault lanes, defense traits, Vanguard Captain, and Rally. Preserve the prepare → deploy → watch → conquer loop and the existing economy, idle catch-up, map, settings, and report routing.
+Turn all 15 Country 1 battles into distinct, legible sieges by authoring existing objective types directly in `Country1CityCatalog.definitions`. Keep the prepare → deploy → watch → conquer loop, existing HP budget/rewards/traits, three lane choices, Keep-only conquest, finite Guards, automatic Captain/Rally, scene routing, and idle settlement. Do not add encounter recipes, generators, a second simulator, generic scaling frameworks, per-city assets, or save migration.
 
-**Decision:** author layouts explicitly in `Country1CityCatalog.swift` rather than inventing encounter recipes, builders, generators, registries, or services. City 3 Falconridge and City 5 Highcrest are the reference pilots and should be unchanged unless representative reproducible play evidence proves a small correction necessary.
+Cities 3 Falconridge and 5 Highcrest are shipped pilot baselines. They remain unchanged unless matched fixed-seed gameplay evidence justifies a very small correction. All new layouts reuse HPA-476 structure, Guard, Captain, and Rally art.
 
-## What exists on main
+## Verified baseline facts
 
-- `CityDefinition.siegeLayout` defaults to a `CitySiegeLayout.singleKeep` layout. Only Cities **3** and **5** explicitly author nontrivial layouts today; other 13 cities still use the fallback.
-- `CitySiegeLayout` in `Pyxis/SiegeState.swift` preconditions one Keep, unique nonempty objective IDs, at most one Barracks, positive weights, three total ordered routes ending at Keep, nondecreasing progress, and a valid defensive-fire source. It currently **does not** enforce the ticket's five-structure limit.
-- `CitySiegeLayout.maxPowerAllocation(totalBudget:)` divides the existing budget, flooring shares and giving remainder to Keep. Keep remaining HP is the sole conquest authority. Every lane's route is an ordered list of shared stable IDs.
-- Combat has **one defensive-fire source** per layout and one set of covered lanes. Repeated towers would be visually present but not all mechanically meaningful, so author **at most one Arrow Tower per city** in this rollout.
-- Gate art renders one segment per blocked lane; tower, gate and barracks art is already integrated. HPA-476 / PR #46 supplies shared `siege-*`, Guard, Captain, and Rally assets; no new art is needed or owned here.
-- Guards already spawn for any layout containing a Barracks, but their rules and persistence normalizers are named `HighcrestGuardRules` / `freshHighcrest()` / `normalizedForHighcrest()`. The mechanics can be reused; do not introduce a second wave engine.
-- `CountryMapScoutCardContent.tacticalFooter(for:)` currently joins **every** support objective into one line. Its measured compact-card fitter has an 8pt fail-closed floor, so a five-structure layout risks making the Scout card unavailable.
+- `CityDefinition.siegeLayout` currently falls back to `.singleKeep`. Only Cities 3 and 5 have custom routes; the other 13 are fallback layouts. Once all 15 are explicit, remove `CityDefinition.init`'s optional/default `siegeLayout` parameter so missing layout authoring is a compiler error. Keep `CitySiegeLayout.singleKeep` for isolated tests.
+- `CitySiegeLayout.init` already fails closed for unique IDs, exactly one Keep, positive weights, all three nonempty routes terminating at the Keep, ordered progress, at most one Barracks, and valid defensive fire. Add only the missing production invariants below.
+- `maxPowerAllocation(totalBudget:)` partitions the existing city HP envelope across objectives and returns rounding remainder to the Keep. The Keep's remaining HP, not the sum of structure HP, decides conquest.
+- `DefensiveFire` has one **source objective** and a **binary set of covered lanes**, not per-lane weights; `LaneDefenseProfile` separately adjusts incoming tower damage for covered lanes. Defensive fire stops when its source is destroyed.
+- Guards use the selected lane, spawn from Keep progress, descend only as far as Barracks progress and attack within `HighcrestGuardRules.attackRange = 0.28`. Ranged soldiers can stop at `objective.visualProgress − attackRange`, with archers reaching up to `0.264`; a badly ordered Gate/Tower below the Barracks can leave stalled attackers unreachable to Guards.
+- Current Guard rules (2/30s, 12 reserve, HP 12, attack 3) were tuned specifically for Highcrest, whose 20:1 Keep/Barracks durability and ~26-second shutdown precede wave 1. Unlike player attack/HP and tower damage, those Guard stats are constant today. Those values are a **starting reference**, not proof of late-city balance.
+- `CountryMapScoutCardContent.tacticalFooter` currently prints all supports. At 3–4 supports, the single-line iPad lane frame (~82pt) is more restrictive than a regular phone frame. Use the existing measured 8pt minimum and do not add a new UI.
 
-## Authored campaign: starting encounter map
+## Authored layout proposal, corrected for combat geometry
 
-This table is a **testable authoring proposal**, not approved numeric balance. Keep existing city names, flavor, `CityDefenseTrait`, `LaneDefenseProfile`, visual families, and rewards. In the descriptions below, `K` is Keep, `G` Gate, `T` Arrow Tower, and `B` Barracks. The letters L/C/R denote routes, not new gameplay classes.
+Notation: `K` Keep, `G1/G2` Gates, `T` Arrow Tower, `B` Barracks; `L/C/R` are the **complete ordered routes**, implicitly ending in `K`. `Fire` gives the only source and all covered lanes. All Keep positions are `1.00`. Proposed support progress values are starting coordinates (to be confirmed by tests and screenshots), not shipped balance. No city exceeds five total structures, two Gates, one Tower, or one Barracks. Every support is on at least one route.
 
-| City | Proposal (including Keep) | Tactical question |
-|---|---|---|
-| 1 Willowford | K + G; G spans L/C, R direct; Keep fires primarily on direct R | Gate-free but exposed approach versus covered blocker route; no Captain yet |
-| 2 Pinewatch | K + G; G spans L/R, C direct; Keep covers C and L | A different default/safe-route choice, still gentle; no Captain |
-| 3 Falconridge | **Unchanged** K + T + G, tower-first L vs gate-first C/R | Preserve proven pilot and fixed-seed benchmark |
-| 4 Bramblegate | K + two G, one L/C and one R; different weights/positions | Chokepoint and shared-Gate readability without a new structure |
-| 5 Highcrest | **Unchanged** K + B, L shuts down Guards vs R direct | Preserve proven finite-Guard pilot and shutdown tradeoff |
-| 6 Granite Pass | K + G + T; G L/C, T R; T covers C/R | Tower suppression versus route blocker under stone-wall trait |
-| 7 Emberford | K + G + B; B L, G C, R direct | A modest finite-Guard choice alongside an ordinary Gate |
-| 8 Greywall | K + T + G; T L, G C/R; T covers L/R | Tower-first option with asymmetric defensive fire |
-| 9 Runewatch | K + B + T; B L, T R, C direct; T covers L/C | Shut down waves, eliminate tower, or race direct |
-| 10 Ironthorn Gate | K + two G + T; T L, G C and R; T covers C/R | Stronger gate lanes vs source-tower shutdown |
-| 11 Kingshield Keep | K + G + T + B; T L, G C, B R; T covers L/C | Three distinct familiar answers, no new reinforced-Keep system |
-| 12 Ashbridge | K + G + B + T; G L, B C, T R; T covers L/R | Barracks timing matters without extra Guard types |
-| 13 Starveil Citadel | K + two G + B; G L/R, B C; Keep covers L/C | Barracks pressure versus layered blockers; ward stays a trait |
-| 14 Stonecrown | K + two G + T; G L/R, T C; T covers L/R | Final gate/tower remix |
-| 15 Crownspire Keep | K + two G + T + B (**five**); T L, shared G C/L, B and second G R, T fires C/R | Finale combines known decisions; no boss phase |
+| City | L route | C route | R route | Source / fire coverage | Starting support progress / teaching goal |
+|---|---|---|---|---|---|
+| 1 Willowford | G1 → K | G1 → K | K | K / R | G1 .76; more HP without fire vs direct lane with fire; no Captain |
+| 2 Pinewatch | G1 → K | K | G1 → K | K / C | G1 .76; gate detour vs exposed direct-fire choice; no Captain |
+| 3 Falconridge | T → K | G1 → K | G1 → K | **T / L,C,R** | **UNCHANGED** T .68, G1 .58, Keep 3:4:1 |
+| 4 Bramblegate | G1 → K | G1 → K | G2 → K | K / L,C,R | G1 .76, G2 .82; two chokepoint variants |
+| 5 Highcrest | B → K | K | K | **K / L,C,R** | **UNCHANGED** B .72, Keep 20:1, Guard pilot |
+| 6 Granite Pass | G1 → K | G1 → K | T → K | T / L,C,R | G1 .76, T .80; disable defensive fire vs Gate |
+| 7 Emberford | B → K | G1 → K | K | K / L,R | B .72, G1 .80; Guard shutdown vs sheltered Gate/direct |
+| 8 Greywall | T → K | G1 → K | G1 → K | T / L,C,R | T .80, G1 .77; tower shutdown vs Gate |
+| 9 Runewatch | B → K | K | T → K | T / L,C,R | B .72, T .80; Guard shutdown vs Tower shutdown vs direct |
+| 10 Ironthorn Gate | T → K | G1 → K | G2 → K | T / L,C,R | T .80, G1 .78, G2 .84; reinforced remix |
+| 11 Kingshield Keep | T → K | G1 → K | B → K | T / L,C,R | T .80, G1 .82, B .72; all three defenses distinct |
+| 12 Ashbridge | G1 → K | B → K | T → K | T / L,C,R | G1 .80, B .72, T .83; flame identity stays a trait |
+| 13 Starveil Citadel | G1 → K | B → K | G2 → K | K / L,C,R | G1 .80, B .72, G2 .83; ward identity stays a trait |
+| 14 Stonecrown | G1 → K | T → K | G2 → K | T / L,C,R | G1 .77, T .82, G2 .84; gate/tower remix |
+| 15 Crownspire Keep | T → G1 → K | B → G1 → K | G2 → K | T / L,C,R | B .72, T .78, G1 .84, G2 .82; five familiar structures, no boss phase |
 
-The proposal deliberately uses a small family of authored situations instead of fifteen bespoke scripts. Explicit routes/coverage/weights/positions must be filled in per city, using unique city-prefixed objective IDs (for example, `willowford.keep`, `willowford.west-gate`). If a structure would be unreachable, irrelevant, visually overlapping, or create one universally superior free route, change **its authored placement/coverage/weight**, not combat semantics.
+Each city's `LaneDefenseProfile`, defense trait, flavor, visual family, and reward remain unchanged. Explicitly choose default lane (usually current standard lane) and per-objective durability weights when implementing. Check that the automatic default lane can conquer and that alternate routes have comprehensible tradeoffs; the initial table does **not** establish numeric balance.
 
-Use progress values strictly ordered along the route where multiple blockers occur. Keep at `1.0`; Guards spawn at Keep and use the Barracks progress as their movement floor. On Barracks cities, pay special attention to whether a ranged unit stalled at Barracks is under the intended source's tower/Keep fire. Do not require perfect lane parity; require a meaningful tradeoff.
+The City 3/5 table entries are descriptions of the current authored data, not instructions to rewrite the IDs or pilot layouts. All new stable objective IDs are city-prefixed (e.g. `runewatch.keep`, `runewatch.barracks`). Tower-source cities give the Tower's own route fire coverage. In Barracks cities, supports are placed no lower than Barracks progress so Guards can engage stalled attackers without adding Guard navigation.
 
-## Constraints and ownership
+### Structural invariants (existing `CitySiegeLayout.init` owner)
 
-1. `Country1CityCatalog.definitions` is the **sole** authoring source. Keep the existing 15-city order and labels. No `CityDefinition` schema expansion unless measured play evidence proves a field is genuinely needed.
-2. Enforce **1–5 total objectives**, exactly one Keep, **at most one Barracks, one Arrow Tower, and two Gates** through existing `CitySiegeLayout.init` fail-closed preconditions. The existing route/reference preconditions still apply. Only one Tower can be live as a defensive-fire source; do not change simulator fire rules to accommodate extra towers.
-3. Every authored objective must be meaningful: a Gate or Barracks must occur on at least one route; the Arrow Tower must both source defensive fire and be reachable through some route. Keep at most two Gates per city. Add positive tests on the compiled catalog, not a new runtime validator or swallowed precondition error.
-4. The sum of objective maximum HP is always `KingdomGameState.cityMaxPower(for:)`; no full-HP stacking, multiphase boss, increased rewards, or new currency. Initial weight ratios should be modest and adjusted by fixed-seed smoke, preserving Falconridge 3:4:1 and Highcrest 20:1 as baselines.
-5. Reuse current `HighcrestGuardRules` values (2 per wave, 30s, 12 reserve, existing combat stats) for any additional Barracks city **initially**. The rules and `GuardReinforcementProgress.freshHighcrest()` / `normalizedForHighcrest()` helpers are **defined in `Country1CityCatalog.swift`**, not `KingdomGameState.swift`; rename these in place to `Country1GuardRules`, `freshCountry1()` and `normalizedForCountry1()`, then update call sites/tests in the existing owners. Rewrite the Highcrest-specific tuning comment as **Country 1 baseline values derived from the Highcrest pilot**—not proof those values are balanced for other cities. Do **not** add a GuardProfile or per-city difficulty layer without evidence from smoke. Existing Guard state/recovery, once-per-siege Rally, and approximate idle/active semantics are unchanged.
-6. Captain availability starts at City 3 and remains automatic. Neither lane selection nor manual Rally can be mandatory for forward progress. Keep the existing `CityDefenseTrait` effects; ward/oil/wall language is **not** a request for shields, DOT, walls, or status systems.
-7. No save migration. This is development-only content; remapped IDs may invalidate old development saves, which is acceptable. Avoid compatibility scaffolding.
+Extend only the existing preconditions: **1–5** objectives, ≤2 Gates, ≤1 Tower, ≤1 Barracks; any Tower must be the chosen `defensiveFire.sourceObjectiveID`; and every non-Keep objective must appear on at least one lane route. Retain all prior ID/order/Keep/source validation. These preconditions intentionally trap and **cannot be unit-tested as invalid cases in-process**; code review and valid-layout tests establish the contract. Do not add a second validator, thrown errors, or catchable validation API.
 
-## Scout contract and visual readability
+### Behavioral geometry invariants (one catalog-wide test)
 
-Reuse `CountryMapScoutCardContent` and its **existing single-line measured lane-footer**. The current all-supports concatenation is unsuitable for three/four support objectives. For layouts with **one or two** supports, preserve the route-derived summary (especially Falconridge's exact pilot footer); for layouts with **three or four**, show **only the highest-priority truthful entry**, ordered Barracks shutdown > Arrow Tower source > Gate, ties stable by authored order. This intentionally previews a tactical decision rather than listing every structure. If even a two-support summary fails the existing compact 8pt fit test, simplify its authored summary policy to one entry before shipping; **do not** introduce dynamic view-side parsing, another Scout field, or a new text-layout system. Validate every city in regular and compact Scout geometry, especially City 15.
+All checks use each city's actual `CitySiegeLayout`, `BattleCombatState.Configuration.live(cityLevel:)`, and live soldier attack ranges—not a duplicated metadata model:
 
-Keep Keep HP/objective HP, intact/ruined structures, source coverage, lane flag, Barracks status, Guard actors, Captain portrait, Rally, tabs, Settings and conquest report legible. `BattleScene` remains the only consumer of objective art. Use the existing DEBUG city jump and visual fixtures; make the smallest fixture extension for representative late-city screenshots if necessary.
+1. **Identical route, identical fire coverage:** if two lanes have the same ordered route ID array, their membership in `defensiveFire.coveredLanes` must match. Otherwise one gets equivalent obstacles with strictly less source fire.
+2. **Tower self-cover:** every lane whose route contains the Tower must be among covered lanes. Killing an undefended Tower must not disable fire for the other lanes for free.
+3. **Barracks shelter:** for every lane whose route contains Barracks, that lane must be covered by the actual `defensiveFire` source, and `barracks.progress − soldier.attackRange >= source.progress − towerAttackRange` for each soldier type (including archer). This generalizes Highcrest's existing Keep-specific test without assuming every source is the Keep.
+4. **Guard reach:** if a city has Barracks, for each support objective `o` on any route and each soldier type, require `o.progress − soldier.attackRange + guardAttackRange >= barracks.progress`. This prevents Guards parking at their floor out of reach of soldiers attacking an earlier structure. Do not change the Guard movement code.
+5. Positive allocated max HP for all objectives at that city's real HP budget; no structural support is absent from all three routes (the latter is already enforced by `init`).
 
-## Acceptance and evidence
+Do not add a separate `LayoutValidator` type. These assertions are readable tests beside the existing catalog tests and real-pilot geometry tests, without baking test logic into production.
 
-- Unit/catalog: 15 ordered city definitions; unique nonempty stable IDs per layout; all supported objective kinds; 1–5 structures, ≤1 Barracks, ≤1 Tower, ≤2 Gates; reachable Keep on all three routes, monotonic progress, positive allocated HP for each authored objective at its actual city budget; relevant source/coverage and meaningful route membership.
-- Preserve exact Falconridge and Highcrest pilot layout/Guard regression tests; replace the outdated test asserting all other cities are `singleKeep`. Pin the chosen design for all other 13 with focused table-driven assertions rather than a second full duplicated catalog model.
-- Representative deterministic gameplay smoke on **Cities 1, 3, 5, 9, 10, 15**: add **City 9 Runewatch** to sample a *new mid-campaign Barracks + Tower + direct-route encounter*, rather than only the Highcrest pilot and City 15. Same-seed repeat at least twice for baseline loadout and differing route; record camp setup, lane, duration, allied losses, Guard waves/remaining reserve, Barracks shutdown (if applicable), and whether the tactical difference is visible. For City 9, explicitly compare Barracks destruction time to the first 30-second wave and confirm shutdown actually changes subsequent reinforcement pressure. Compare **watch-only/default-lane** as well as at least one optional manual lane/Rally choice. Avoid a universally free route or indefinite Guard/tower stall; do not chase globally optimal balance.
-- Real compact-phone + portrait-iPad smoke for Scout fit, structure/HP bounds and overlap, coverage, guard cues, Rally, tabs/Settings/report. Capture at least three visibly distinct siege layouts across campaign progression using installed shared art.
-- Run targeted Swift Testing and scene tests, full unit + UI suite, `swiftlint lint`, simulator Debug and Release builds, and existing Codecov project/patch **90%** thresholds. Disable parallel simulator testing.
-- Record measured tuning deviations against the starting authoring table in **this same PR**.
+### Guard-scaling decision before rename or authoring
+
+**Checkpoint 0 must decide whether the fixed 12 HP / 3 attack Guards remain meaningful at the City 15 representative camp's expected soldier upgrade level.** Capture the existing Highcrest baseline first; compare guard durability/attack against upgraded soldier damage/HP and, if feasible, a bounded live scenario. If Guards are one-hit decoration at the finale, implement the *smallest shared level-aware HP/attack formulas* alongside the existing Country 1 Guard constants, as part of the same Guard rename change. Keep City 5's **12 HP / 3 attack**, 2-per-30s finite 12 reserve and pilot behavior exactly unchanged.
+
+If scaling is adopted, use the **same numbers** for transient Guard actors, new wave/idle synthesis, snapshot normalization, and scene-restored Guards; do not silently heal survivors or create a second wave engine. Re-evaluate the pilot's abstract idle Guard absorption ceiling (formerly 12 × 12 = 144 HP) at the applicable city, while keeping the existing 8-hour cap, one-conquest bound and approximate settlement semantics. No `GuardProfile`, per-city difficulty framework, configurable AI, or new saved fields.
+
+The owner of `HighcrestGuardRules` and `GuardReinforcementProgress.freshHighcrest()/normalizedForHighcrest()` **definitions** is `Country1CityCatalog.swift`; other files contain call sites. Rename to `Country1GuardRules`, `freshCountry1()`, `normalizedForCountry1()` there, and update consumers. Retain the historical Highcrest tuning explanation as pilot rationale, not a late-city guarantee.
+
+## Scout and visual contract
+
+Preserve the route-derived Scout footer for 1–2 supports (especially the existing Falconridge exact output). For 3–4 supports choose **one** truthful high-priority entry in authored order, ranking Barracks > fire-source Tower > Gate; include actual L/C/R route membership. Use the existing single-line fitter with 8pt floor. If a two-support case fails the measured iPad constraint, shorten at the content-projection owner rather than parsing text in the view or adding fields. Extend `CountryMapScoutCardTextLayoutTests`' existing all-supported-fixtures tactical-footer test from City 3 to **all 15**.
+
+Visual evidence **must** include City 15's five structures on a compact supported phone and portrait iPad; also City 7 or 13 with a Keep-source Barracks and clustered 0.72–1.0 supports. Confirm all objective HP/ruins, binary lane coverage, Guard/Captain/Rally, Scouts, tabs, Settings, and conquest report remain readable. Capture three meaningfully different layouts with the existing shared art and DEBUG fixtures only.
+
+## Acceptance, risks and evidence
+
+- All 15 city definitions use an explicit required `siegeLayout`, compiled with the `CitySiegeLayout.init` contracts and catalog-wide behavioral/geometry tests above.
+- Preserve Falconridge's tower-versus-gate and Highcrest's Barracks shutdown pilots (including exact City 5 Guard stats). Keep max HP/one conquest reward/existing camp economy and idle behavior.
+- **City 1 is a regression-risk seam:** current tests assume a fresh City 1 Keep has the whole city HP. Author City 1 first, run the **full unit suite**, and update those tests (not production fallback logic) to derive Keep maximum from the new `maxPowerAllocation`. Inspect `BattleHUDContentTests`, `LivingKingdomPresentationTests`, `SoldierRuntimeGeometryTests`, `ForgedVisualFixtureTests`, and other default-city fixtures.
+- **Guard scaling is a balance-risk seam:** complete the pre-authoring City 15 upgrade comparison; pin any minimal level-aware formula to City 5=12/3 and cover active/idle/persistence consistently.
+- Keep one **committed, bounded, deterministic Swift Testing smoke** using the existing `BattleScene.advanceCombatForTesting` seam (no separate simulator or framework). Cover every city's **default watch-only lane**, plus relevant alternatives in Cities **1, 3, 5, 9, 10, 15**. Report fixed loadout/seed, elapsed simulated time, troop losses, Guard waves/reserve, and Barracks shutdown; coarse no-stall guardrail with a documented maximum simulated-time budget. Specifically verify City 9 Barracks shutdown against wave 1. Avoid an arbitrary universal strict speed-ratio assertion across deliberately asymmetric routes.
+- Exhaustive `15 cities × 3 lanes × repeated run-to-conquest` is **not required in every CI run** until a measured simulator runtime proves it affordable. Route coverage is exhaustively unit-tested; route comparisons and repeat runs remain release smoke. Do not build an unbounded SpriteKit-heavy CI suite without measuring its cost.
+- Run full serial unit/UI tests, SwiftLint, Debug and Release simulator builds, and unchanged Codecov **90% project and patch** thresholds; include compiled smoke output and targeted screenshots in this same PR.
 
 ## Explicit non-goals
 
-A new combat engine, procedural generator, encounter-template framework, pathfinder, editor, new enemy or hero, multiple Barracks, additional Arrow Tower simulation, special boss/finale logic, hero progression, new art/animation/SFX generation, save migration, cross-tab runtime redesign, economy or offline-rule rewrite, and Country 2.
+No new combat mechanics, extra defensive-fire sources, Guard classes, multi-Barracks, boss phases, hero progression, per-city art/SFX, save migrations, registry/framework/template/editor/procedural authoring, separate balance simulator, new currency/economy, or Country 2.
