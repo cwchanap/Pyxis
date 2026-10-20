@@ -160,6 +160,29 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "emberford.keep", coveredLanes: [.left, .right])
     )
 
+    /// The authored Greywall Tower-versus-Gate siege layout (HPA-477), shared by
+    /// the fixture entry. City 8 has no Barracks.
+    private static let greywallSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "greywall.keep", kind: .keep, durabilityWeight: 6, visualLane: .center, visualProgress: 1.0),
+            .init(
+                id: "greywall.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 3,
+                visualLane: .left,
+                visualProgress: 0.80
+            ),
+            .init(id: "greywall.gate", kind: .gate, durabilityWeight: 2, visualLane: .center, visualProgress: 0.77)
+        ],
+        routes: [
+            .left: ["greywall.arrow-tower", "greywall.keep"],
+            .center: ["greywall.gate", "greywall.keep"],
+            .right: ["greywall.gate", "greywall.keep"]
+        ],
+        defaultLane: .right,
+        defensiveFire: .init(sourceObjectiveID: "greywall.arrow-tower", coveredLanes: BattleLane.allCases)
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -283,7 +306,17 @@ struct Country1CityCatalogTests {
             .ember,
             siegeLayout: emberfordSiegeLayout
         ),
-        .init(8, name: "Greywall", flavorText: "Layered stone walls protect a busy town.", conquestTitle: "Greywall Falls", .stoneWall, .center, .left, .frontier),
+        .init(
+            8,
+            name: "Greywall",
+            flavorText: "Layered stone walls protect a busy town.",
+            conquestTitle: "Greywall Falls",
+            .stoneWall,
+            .center,
+            .left,
+            .frontier,
+            siegeLayout: greywallSiegeLayout
+        ),
         .init(9, name: "Runewatch", flavorText: "Arcane wards shimmer over the night road.", conquestTitle: "Runewatch Unbound", .arcaneWard, .right, .center, .arcane),
         .init(10, name: "Ironthorn Gate", flavorText: "A hardened gate blocks the inner road.", conquestTitle: "Ironthorn Gate Broken", .spikedGate, .left, .right, .frontier),
         .init(11, name: "Kingshield Keep", flavorText: "A reinforced fortress guards the royal road.", conquestTitle: "Kingshield Keep Falls", .reinforcedKeep, .center, .left, .frontier),
@@ -571,10 +604,35 @@ struct Country1CityCatalogTests {
         #expect(emberfordGate > emberfordBarracks)
         #expect(emberfordPower["emberford.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 7))
 
-        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge), 4 (Bramblegate), 5 (Highcrest),
-        // 6 (Granite Pass) and 7 (Emberford) author tactical layouts. The rest stay single-Keep
-        // on their standard lane until later tasks author them.
-        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5, 6, 7].contains(definition.cityNumber) {
+        // City 8 (Greywall) pits the Tower against the Gate (HPA-477). The left route runs
+        // through the Arrow Tower, while the centre and right routes share one Gate. The
+        // Tower is the only fire source and covers every lane.
+        let greywall = Country1CityCatalog.definition(for: 8).siegeLayout
+        #expect(greywall.objectives.map(\.id) == ["greywall.keep", "greywall.arrow-tower", "greywall.gate"])
+        #expect(greywall.keepObjective.id == "greywall.keep")
+        #expect(greywall.objective(id: "greywall.arrow-tower")?.kind == .arrowTower)
+        #expect(greywall.objective(id: "greywall.arrow-tower")?.visualProgress == 0.80)
+        #expect(greywall.objective(id: "greywall.arrow-tower")?.visualLane == .left)
+        #expect(greywall.objective(id: "greywall.gate")?.kind == .gate)
+        #expect(greywall.objective(id: "greywall.gate")?.visualProgress == 0.77)
+        #expect(greywall.objective(id: "greywall.gate")?.visualLane == .center)
+        #expect(greywall.routes[.left] == ["greywall.arrow-tower", "greywall.keep"])
+        #expect(greywall.routes[.center] == ["greywall.gate", "greywall.keep"])
+        #expect(greywall.routes[.right] == ["greywall.gate", "greywall.keep"])
+        #expect(greywall.defensiveFire.sourceObjectiveID == "greywall.arrow-tower")
+        #expect(greywall.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(greywall.barracksObjective == nil)
+        #expect(greywall.defaultLane == .right)
+        let greywallPower = greywall.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 8))
+        let greywallTower = greywallPower["greywall.arrow-tower", default: 0]
+        let greywallGate = greywallPower["greywall.gate", default: 0]
+        #expect(greywallGate > 0)
+        #expect(greywallTower > greywallGate)
+        #expect(greywallPower["greywall.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 8))
+
+        // Cities 1 (Willowford) through 8 (Greywall) author tactical layouts. The rest stay
+        // single-Keep on their standard lane until later tasks author them.
+        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5, 6, 7, 8].contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"
