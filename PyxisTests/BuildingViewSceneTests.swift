@@ -483,8 +483,9 @@ struct BuildingViewSceneTests {
 
     @Test("Camp foreground idle damage summary uses compact copy")
     func campForegroundPositiveIdleDamageUsesCompactSummary() throws {
-        // City 15 has ~23K power, so five barracks resolving the 8-hour idle
-        // cap deal 1,440 damage — compact-formatted, positive, non-conquest.
+        // Every support objective is destroyed first, so the Keep is the only live objective and no
+        // Guards absorb damage. Five barracks resolving the 8-hour idle cap then deal 1,440 damage:
+        // compact-formatted, positive, non-conquest.
         let origin = Date(timeIntervalSince1970: 1_000)
         var state = KingdomGameState(
             gold: 100,
@@ -496,6 +497,7 @@ struct BuildingViewSceneTests {
         for slot in 1...5 {
             _ = state.buildBuilding(.barracks, inSlot: slot, at: origin)
         }
+        SiegeTestSupport.destroySupportObjectives(of: &state)
         let store = try makeStore(initialState: state)
         let scene = makeScene(store: store, router: RouteSpy())
 

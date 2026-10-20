@@ -1465,8 +1465,8 @@ struct KingdomGameStateTests {
     }
 
     @Test func idleDamageUsesCurrentCityDefenseTraitCounters() {
-        // City 15 carries the reinforced-Keep trait with no Barracks. City 11's Barracks adds
-        // idle Guard absorption, which would change the damage this test pins.
+        // City 15 carries the reinforced-Keep trait. Every support objective is destroyed before the
+        // idle settlement, so the Keep is the only live objective and no Barracks Guards absorb damage.
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         let end = start.addingTimeInterval(1_000)
         var state = KingdomGameState(
@@ -1479,6 +1479,7 @@ struct KingdomGameStateTests {
         #expect(state.buildBuilding(.siegeWorkshop, inSlot: 1, at: start) == .built(cost: 55, remainingGold: 445))
         #expect(state.upgradeBuilding(inSlot: 1, at: start) == .upgraded(cost: 42, newLevel: 2, remainingGold: 403))
         #expect(state.upgradeBuilding(inSlot: 1, at: start) == .upgraded(cost: 69, newLevel: 3, remainingGold: 334))
+        SiegeTestSupport.destroySupportObjectives(of: &state)
         state.enterBackground(at: start)
 
         let result = state.returnFromBackground(at: end)
@@ -1490,14 +1491,15 @@ struct KingdomGameStateTests {
     }
 
     @Test func idleDamagePenaltyStillDealsAtLeastOneWhenBaseDamageIsPositive() {
-        // City 15 (reinforced-Keep trait, no Barracks): see idleDamageUsesCurrentCityDefenseTraitCounters.
+        // City 6 (stoneWall, no Barracks): archers are disadvantaged there (0.80x), the same
+        // penalty multiplier the reinforced-Keep trait applied to archers.
         let start = Date(timeIntervalSinceReferenceDate: 2_000)
         let end = start.addingTimeInterval(1_000)
         var state = KingdomGameState(
             gold: 500,
             lastBackgroundedAt: start,
-            cityNumberInCountry: 15,
-            completedCityCount: 14
+            cityNumberInCountry: 6,
+            completedCityCount: 5
         )
 
         #expect(state.buildBuilding(.archeryRange, inSlot: 1, at: start) == .built(cost: 18, remainingGold: 482))
@@ -1505,7 +1507,7 @@ struct KingdomGameStateTests {
 
         let result = state.returnFromBackground(at: end)
 
-        #expect(state.currentCityDefenseTrait == .reinforcedKeep)
+        #expect(state.currentCityDefenseTrait == .stoneWall)
         #expect(result.damageDealt > 0)
     }
 
@@ -2292,10 +2294,9 @@ struct KingdomGameStateTests {
         #expect(state.currentKeepRemainingPower == 35)
     }
 
-    @Test func singleKeepRouteSpendingReachesKeepDirectly() throws {
-        // The first derived single-Keep city (City 9 until its layout is authored).
-        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
-        var state = SiegeTestSupport.makeBattleState(atCity: cityNumber, keepRemaining: 20, selectedLane: .right)
+    @Test func keepOnlyRouteSpendingReachesKeepDirectly() {
+        // City 1 (Willowford): the .right route is the Keep alone, so spend lands on the Keep.
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 10, selectedLane: .right)
         let keepBeforeSpend = state.currentKeepRemainingPower
 
         #expect(state.spendRouteDamageBudget(3, lane: .right) == 3)

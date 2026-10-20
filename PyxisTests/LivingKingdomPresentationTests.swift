@@ -89,18 +89,29 @@ struct LivingKingdomPresentationTests {
         ).stage == .intact)
     }
 
-    @Test func nonPilotSingleKeepCitiesKeepMaxEqualsTotalCityPower() {
-        // Only the single-Keep cities, derived from the catalog, hold the full power
-        // budget on the Keep; the authored tactical layouts split it across objectives.
-        for city in SiegeTestSupport.singleKeepCityNumbers {
-            let state = SiegeTestSupport.makeBattleState(
-                atCity: city,
-                keepRemaining: KingdomGameState.cityMaxPower(for: city)
-            )
+    @Test func singleKeepFixtureHoldsTheWholeBudgetOnItsKeep() {
+        // Model-level: the single-Keep fixture gives its Keep the whole city budget. No catalog
+        // city uses that shape now, so the budget split is pinned on the value itself.
+        let layout = CitySiegeLayout.singleKeep(defaultLane: .center)
+        let budget = KingdomGameState.cityMaxPower(for: 1)
 
-            #expect(state.currentKeepMaxPower == state.cityMaxPower)
-            #expect(state.currentKeepRemainingPower == state.cityMaxPower)
-        }
+        #expect(layout.maxPowerAllocation(totalBudget: budget) == [layout.keepObjective.id: budget])
+    }
+
+    @Test func keepOnlyLaneSplitsTheCityBudgetAcrossItsAuthoredObjectives() {
+        // Real catalog check: City 1's .right route is the Keep alone. The Keep holds only its
+        // authored share, and the Gate holds the rest of the city budget.
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            keepRemaining: KingdomGameState.cityMaxPower(for: 1),
+            selectedLane: .right
+        )
+        let layout = state.currentSiegeLayout
+
+        #expect(layout.routes[.right] == [layout.keepObjective.id])
+        #expect(state.currentKeepMaxPower < state.cityMaxPower)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == state.cityMaxPower)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
     }
 
     @Test func pendingConquestProjectsConqueredStageEvenWithPositiveHP() {

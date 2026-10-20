@@ -690,14 +690,15 @@ struct CountryMapSceneTests {
     @Test("Final Country Map idle conquest routes to the pending report with one country outcome")
     func countryMapFinalIdleConquestEmitsExactlyOneCountryOutcome() throws {
         let start = Date.distantPast
-        // City 15's Keep is huge (~570k HP); pre-damage it to exactly the 100
-        // damage one barracks produces over the 10_000s foreground gap so the
-        // idle settlement conquers it.
+        // City 15's Keep is huge (~570k HP); pre-damage it to exactly the 100 damage one barracks
+        // produces over the 10_000s foreground gap so the idle settlement conquers it. Support
+        // objectives are destroyed first so that damage reaches the Keep on any authored route.
         var initialState = SiegeTestSupport.makeBattleState(
             atCity: 15,
             gold: 100,
             keepRemaining: 100
         )
+        SiegeTestSupport.destroySupportObjectives(of: &initialState)
         initialState.lastBackgroundedAt = start
         _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
         let preferences = RecordingFeedbackPreferencesManager()

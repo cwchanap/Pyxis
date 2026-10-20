@@ -109,7 +109,7 @@ struct CountryMapScoutCardContentTests {
                     exposedLane: definition.laneDefenseProfile.exposedLane,
                     goldReward: KingdomGameState.goldReward(for: 2),
                     flavorText: definition.flavorText,
-                    tacticalFooter: Self.expectedTacticalFooter(for: 2)
+                    tacticalFooter: Self.expectedTacticalFooter(for: definition)
                 )
             )
         )
@@ -143,7 +143,7 @@ struct CountryMapScoutCardContentTests {
                             exposedLane: definition.laneDefenseProfile.exposedLane,
                             goldReward: KingdomGameState.goldReward(for: nextCityNumber),
                             flavorText: definition.flavorText,
-                            tacticalFooter: Self.expectedTacticalFooter(for: nextCityNumber)
+                            tacticalFooter: Self.expectedTacticalFooter(for: definition)
                         )
                     )
             )
@@ -180,7 +180,9 @@ struct CountryMapScoutCardContentTests {
                 Issue.record("Expected Scout projection for city \(cityNumber)")
                 continue
             }
-            #expect(plain.tacticalFooter == Self.expectedTacticalFooter(for: cityNumber))
+            #expect(plain.tacticalFooter == Self.expectedTacticalFooter(
+                for: Country1CityCatalog.definition(for: cityNumber)
+            ))
         }
     }
 
@@ -355,7 +357,7 @@ struct CountryMapScoutCardContentTests {
                             exposedLane: item.exposedLane,
                             goldReward: KingdomGameState.goldReward(for: item.cityNumber),
                             flavorText: definition.flavorText,
-                            tacticalFooter: Self.expectedTacticalFooter(for: item.cityNumber),
+                            tacticalFooter: Self.expectedTacticalFooter(for: definition),
                             status: .current
                         )
                     )
@@ -427,8 +429,12 @@ private extension CountryMapScoutCardContentTests {
     /// Authored tactical footers per city, one route-derived line per support
     /// objective (Falconridge's Tower/Gate split, Highcrest's left-lane Barracks
     /// (HPA-469), and the HPA-477 two-support cities); single-Keep cities nil.
-    static func expectedTacticalFooter(for cityNumber: Int) -> String? {
-        expectedTacticalFooters[cityNumber]
+    /// The footer a scout card must project for `definition`. Authored cities pin
+    /// their text in the table; a city whose siege layout is not authored yet has no
+    /// pinned text, so it must project the footer derived from its catalog layout.
+    static func expectedTacticalFooter(for definition: CityDefinition) -> String? {
+        expectedTacticalFooters[definition.cityNumber]
+            ?? CountryMapScoutCardContent.tacticalFooter(for: definition.siegeLayout)
     }
 
     private static var expectedTacticalFooters: [Int: String] {
