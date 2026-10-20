@@ -18,10 +18,10 @@ struct CityDefinition: Equatable {
     let defenseTrait: CityDefenseTrait
     let laneDefenseProfile: LaneDefenseProfile
     let visualFamily: CityVisualFamily
-    /// Authored fail-closed siege layout. Defaults to the standard
-    /// single-Keep shape on the profile's standard lane; tactical cities
-    /// author a custom layout (Falconridge's tower/gate split, Highcrest's
-    /// and Emberford's Guard barracks, and the gate, tower and detour layouts).
+    /// Authored fail-closed siege layout, required at construction. Every
+    /// Country 1 city authors its own layout in `Country1CityCatalog` (HPA-477),
+    /// so no city falls back to a single-Keep shape. `CitySiegeLayout.singleKeep`
+    /// remains a fixture for isolated model tests only.
     let siegeLayout: CitySiegeLayout
 
     var displayTitle: String {
@@ -36,7 +36,7 @@ struct CityDefinition: Equatable {
         defenseTrait: CityDefenseTrait,
         laneDefenseProfile: LaneDefenseProfile,
         visualFamily: CityVisualFamily,
-        siegeLayout: CitySiegeLayout? = nil
+        siegeLayout: CitySiegeLayout
     ) {
         self.cityNumber = cityNumber
         self.name = name
@@ -45,6 +45,6 @@ struct CityDefinition: Equatable {
         self.defenseTrait = defenseTrait
         self.laneDefenseProfile = laneDefenseProfile
         self.visualFamily = visualFamily
-        self.siegeLayout = siegeLayout ?? .singleKeep(defaultLane: laneDefenseProfile.standardLane)
+        self.siegeLayout = siegeLayout
     }
 }
