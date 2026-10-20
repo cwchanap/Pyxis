@@ -44,8 +44,8 @@ struct CitySiegeLayout: Equatable {
         objectives.first { $0.kind == .keep }!
     }
 
-    /// The optional single `.barracks` objective (HPA-469 Highcrest Guard
-    /// pilot), or nil for layouts without one. `init` enforces at-most-one.
+    /// The optional single `.barracks` objective (HPA-469 Country 1 Guard
+    /// Barracks), or nil for layouts without one. `init` enforces at-most-one.
     var barracksObjective: Objective? {
         objectives.first { $0.kind == .barracks }
     }
@@ -146,7 +146,7 @@ struct CitySiegeLayout: Equatable {
         self.defensiveFire = defensiveFire
     }
 
-    /// The only non-pilot shape: one Keep at progress 1.0 that every lane
+    /// The single-Keep shape: one Keep at progress 1.0 that every lane
     /// attacks directly and that sources defensive fire over all lanes.
     static func singleKeep(defaultLane: BattleLane) -> CitySiegeLayout {
         CitySiegeLayout(
@@ -245,8 +245,8 @@ struct CitySiegeLayout: Equatable {
 struct SiegeProgress: Codable, Equatable {
     var selectedLane: BattleLane
     var damageByObjectiveID: [String: Int]
-    /// Highcrest Guard reinforcement state (HPA-469); nil for every
-    /// non-pilot city. Normalized by the owning game state.
+    /// Country 1 Guard reinforcement state (HPA-469); nil for a city without a
+    /// Barracks objective. Normalized by the owning game state.
     var guardReinforcements: GuardReinforcementProgress?
     /// Vanguard Captain state (HPA-475); nil below City 3. Normalized by
     /// the owning game state.

@@ -317,9 +317,10 @@ struct KingdomGameState: Codable, Equatable {
     /// of `.battleActive` — so a dead-Keep-active save is a crafted/corrupt
     /// save that would no-op combat forever. Recovery treats it as
     /// nearly-conquered instead of fabricating a conquest reward.
-    /// Highcrest (the authored Barracks layout) additionally normalizes its
-    /// Guard reinforcement state into the authored tuning ranges (HPA-469);
-    /// every other city normalizes reinforcement progress to nil.
+    /// A city whose authored layout has a Barracks (Highcrest and the later
+    /// Barracks cities) additionally normalizes its Guard reinforcement state
+    /// into the authored tuning ranges (HPA-469); every other city normalizes
+    /// reinforcement progress to nil.
     private static func normalizedSiegeProgress(
         _ progress: SiegeProgress?,
         layout: CitySiegeLayout,
@@ -833,7 +834,7 @@ struct KingdomGameState: Codable, Equatable {
         }
     }
 
-    /// Materializes due Highcrest Guard reinforcement waves (HPA-469) with
+    /// Materializes due Country 1 Guard reinforcement waves (HPA-469) with
     /// O(1) due-opportunity arithmetic: `waveElapsedSeconds` carries the
     /// sub-interval phase, each elapsed interval becomes `guardsPerWave`
     /// full-HP Guards on the currently selected lane drawn from the
@@ -878,8 +879,8 @@ struct KingdomGameState: Codable, Equatable {
     /// Reconciles live combat's Guard snapshots into durable siege progress
     /// (HPA-469): incoming lane/HP values are normalized with the same
     /// totalReserve-derived rule as decode and the normalized snapshots replace
-    /// `unresolvedGuards`. Returns whether durable state changed; non-pilot
-    /// cities are always unchanged.
+    /// `unresolvedGuards`. Returns whether durable state changed; a city without
+    /// a Barracks objective is always unchanged.
     @discardableResult
     mutating func synchronizeLiveGuardSnapshots(_ snapshots: [GuardSnapshot]) -> Bool {
         guard currentSiegeLayout.barracksObjective != nil,

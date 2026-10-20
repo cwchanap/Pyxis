@@ -362,7 +362,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         restorePersistedCaptainIntoCombat()
     }
 
-    /// Restores persisted Highcrest Guards into combat (HPA-469): only lane
+    /// Restores persisted Country 1 Guards into combat (HPA-469): only lane
     /// + HP survive persistence, so each snapshot is reconstructed at Keep
     /// progress with its persisted (possibly damaged) HP — deliberately no
     /// clamp-to-max healing. Transient IDs and positions are always new; the
@@ -1847,7 +1847,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return container
     }
 
-    /// The Highcrest Guard-pilot Barracks (HPA-469): bottom-center anchored
+    /// The Country 1 Guard Barracks objective (HPA-469 pilot, HPA-477 rollout): bottom-center anchored
     /// structure with an HP bar and a compact attached status label, or a
     /// rubble ruin labeled SHUT DOWN once destroyed. Reuses the shared
     /// siege structure/HP/ruin helpers — only the label is Barracks-specific.
@@ -2115,7 +2115,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     /// Durable-state-driven gate for the shared progress-save cadence
-    /// (HPA-469): true while Highcrest Guard reinforcement has something to
+    /// (HPA-469): true while Country 1 Guard reinforcement has something to
     /// persist — the Barracks is alive and waves remain in reserve or Guards
     /// are unresolved. No second timer: this only broadens the existing
     /// two-second cadence condition.
@@ -2221,7 +2221,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // sink already reported a durable change.
         let attacksMutatedState = applyCombatResult(result)
         let captainMutatedState = synchronizeAndPersistCaptain(result, deltaTime: clampedDeltaTime)
-        let guardsMutatedState = synchronizeAndPersistHighcrestGuards(deltaTime: clampedDeltaTime)
+        let guardsMutatedState = synchronizeAndPersistCountry1Guards(deltaTime: clampedDeltaTime)
         tickNeedsSave = tickNeedsSave
             || attacksMutatedState
             || captainMutatedState
@@ -2306,7 +2306,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         applyBattleHUD()
     }
 
-    /// Per-tick Highcrest Guard persistence (HPA-469). Runs AFTER
+    /// Per-tick Country 1 Guard persistence (HPA-469). Runs AFTER
     /// `applyCombatResult` — outside its structure-attack guard — so a tick
     /// where allies only damage a Guard (`soldierAttacks` empty) still syncs
     /// living-Guard HP into SiegeProgress. A Keep conquered this tick
@@ -2314,7 +2314,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// skipped entirely. Returns whether durable state changed; the tick
     /// folds it into the single end-of-tick save.
     @discardableResult
-    private func synchronizeAndPersistHighcrestGuards(deltaTime: TimeInterval) -> Bool {
+    private func synchronizeAndPersistCountry1Guards(deltaTime: TimeInterval) -> Bool {
         let guardStateChanged = state.synchronizeLiveGuardSnapshots(combat.guardSnapshots)
         var spawnedGuards: [GuardSnapshot] = []
         if state.stageStatus == .battleActive {
@@ -3701,7 +3701,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// Scene-space origin for defensive-fire projectile visuals (HPA-468):
     /// shots leave the actual source objective node — the Falconridge arrow
     /// tower at its authored 0.68 progress — rather than the lane gate
-    /// point. Keep-source layouts (every non-pilot city) keep the pre-siege
+    /// point. Keep-source layouts (the Keep is the only fire source) keep the pre-siege
     /// per-lane gate spawn, which is the fortress itself, so those visuals
     /// remain equivalent.
     private func defensiveFireProjectileOrigin(forTargetLane lane: BattleLane) -> CGPoint {
@@ -4036,7 +4036,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let result = state.returnFromBackground(at: date)
 
         store.save(state)
-        // Combat was torn down on background, but Highcrest Guards are
+        // Combat was torn down on background, but Country 1 Guards are
         // durable (HPA-469): rehydrate them from the post-idle-settlement
         // state so the first tick's live-snapshot sync cannot overwrite
         // `unresolvedGuards` with an empty roster. Skipped when the idle
@@ -4694,7 +4694,7 @@ extension BattleScene {
     }
 
     /// Number of pilot objective containers currently built (tower + gate
-    /// for Falconridge; zero for non-pilot cities).
+    /// for Falconridge; zero for a single-Keep city).
     var siegeObjectiveNodeCountForTesting: Int {
         siegeObjectiveNodes.count
     }

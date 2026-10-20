@@ -2289,12 +2289,15 @@ struct KingdomGameStateTests {
         #expect(state.currentKeepRemainingPower == 35)
     }
 
-    @Test func singleKeepRouteSpendingReachesKeepDirectly() {
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20, selectedLane: .right)
+    @Test func singleKeepRouteSpendingReachesKeepDirectly() throws {
+        // The first derived single-Keep city (City 9 until its layout is authored).
+        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
+        var state = SiegeTestSupport.makeBattleState(atCity: cityNumber, keepRemaining: 20, selectedLane: .right)
+        let keepBeforeSpend = state.currentKeepRemainingPower
 
         #expect(state.spendRouteDamageBudget(3, lane: .right) == 3)
 
-        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - 3)
+        #expect(state.currentKeepRemainingPower == keepBeforeSpend - 3)
         #expect(state.stageStatus == .battleActive)
     }
 
