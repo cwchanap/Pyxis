@@ -108,7 +108,8 @@ struct CountryMapScoutCardContentTests {
                     defenseTrait: definition.defenseTrait,
                     exposedLane: definition.laneDefenseProfile.exposedLane,
                     goldReward: KingdomGameState.goldReward(for: 2),
-                    flavorText: definition.flavorText
+                    flavorText: definition.flavorText,
+                    tacticalFooter: Self.expectedTacticalFooter(for: 2)
                 )
             )
         )
@@ -263,16 +264,27 @@ struct CountryMapScoutCardContentTests {
 }
 
 private extension CountryMapScoutCardContentTests {
-    /// Authored tactical footers per city: Falconridge's Tower/Gate split
-    /// and Highcrest's left-lane Barracks (HPA-469); single-Keep cities nil.
+    /// Authored tactical footers per city, one route-derived line per support
+    /// objective (Falconridge's Tower/Gate split, Highcrest's left-lane Barracks
+    /// (HPA-469), and the HPA-477 two-support cities); single-Keep cities nil.
     static func expectedTacticalFooter(for cityNumber: Int) -> String? {
         switch cityNumber {
         case 1:
             return "L/C Gate"
+        case 2:
+            return "L/R Gate"
         case 3:
             return "L Tower · C/R Gate"
+        case 4:
+            return "L/C Gate · R Gate"
         case 5:
             return "L Barracks"
+        case 6:
+            return "L/C Gate · R Tower"
+        case 7:
+            return "L Barracks · C Gate"
+        case 8:
+            return "L Tower · C/R Gate"
         default:
             return nil
         }
