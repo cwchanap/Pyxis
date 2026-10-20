@@ -18,7 +18,7 @@ struct Country1CityCatalogTests {
         let fortifiedLane: BattleLane
         let exposedLane: BattleLane
         let visualFamily: CityVisualFamily
-        let siegeLayout: CitySiegeLayout?
+        let siegeLayout: CitySiegeLayout
 
         init(
             _ cityNumber: Int,
@@ -29,7 +29,7 @@ struct Country1CityCatalogTests {
             _ fortifiedLane: BattleLane,
             _ exposedLane: BattleLane,
             _ visualFamily: CityVisualFamily,
-            siegeLayout: CitySiegeLayout? = nil
+            siegeLayout: CitySiegeLayout
         ) {
             self.cityNumber = cityNumber
             self.name = name
@@ -59,29 +59,10 @@ struct Country1CityCatalogTests {
         }
     }
 
-    /// Compares a catalog definition with its authored expectation. A city whose siege
-    /// layout is pinned (Cities 1-12) compares the full definition. A city whose layout
-    /// is not authored yet (13-15) compares identity only, so these checks stay
-    /// independent of the single-Keep fallback that `CityDefinition` substitutes.
+    /// Compares a catalog definition with its authored expectation: identity, lane
+    /// profile, and the full authored siege layout. Every Country 1 city pins its layout.
     private static func matchesExpected(_ actual: CityDefinition?, _ expected: ExpectedDefinition) -> Bool {
-        guard let actual else { return false }
-        guard expected.siegeLayout == nil else { return actual == expected.definition }
-        return withoutAuthoredLayout(actual) == withoutAuthoredLayout(expected.definition)
-    }
-
-    /// Rebuilds a definition with a nil layout, so both sides of an identity-only
-    /// comparison carry the same fallback layout and only identity fields decide.
-    private static func withoutAuthoredLayout(_ definition: CityDefinition) -> CityDefinition {
-        CityDefinition(
-            cityNumber: definition.cityNumber,
-            name: definition.name,
-            flavorText: definition.flavorText,
-            conquestTitle: definition.conquestTitle,
-            defenseTrait: definition.defenseTrait,
-            laneDefenseProfile: definition.laneDefenseProfile,
-            visualFamily: definition.visualFamily,
-            siegeLayout: nil
-        )
+        actual == expected.definition
     }
 
     /// The authored Willowford tactical siege layout (HPA-477), shared by the
@@ -1261,13 +1242,18 @@ struct Country1CityCatalogTests {
         #expect(crownspirePower["crownspire-keep.east-gate", default: 0] > 0)
         #expect(crownspirePower["crownspire-keep.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 15))
 
-        // Cities 1 (Willowford) through 15 (Crownspire Keep) all author tactical layouts. The residual
-        // loop is empty and is replaced by an explicit no-single-Keep check in the cleanup step.
-        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-        for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
+        // Every Country 1 city (1 Willowford through 15 Crownspire Keep) has an explicit authored
+        // layout that matches its expectation row, and none falls back to the single-Keep shape.
+        #expect(Country1CityCatalog.definitions.count == Self.expectedDefinitions.count)
+        for expected in Self.expectedDefinitions {
+            let definition = Country1CityCatalog.definition(for: expected.cityNumber)
             #expect(
-                definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
-                "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"
+                definition.siegeLayout == expected.siegeLayout,
+                "City \(expected.cityNumber) must use its authored siege layout"
+            )
+            #expect(
+                definition.siegeLayout != .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
+                "City \(expected.cityNumber) must not fall back to the single-Keep siege layout"
             )
         }
     }
