@@ -445,6 +445,8 @@ private extension CountryMapScoutCardContentTests {
             return "L Barracks · C Gate"
         case 8:
             return "L Tower · C/R Gate"
+        case 9:
+            return "L Barracks · R Tower"
         default:
             return nil
         }

@@ -342,7 +342,43 @@ enum Country1CityCatalog {
             conquestTitle: "Runewatch Unbound",
             defenseTrait: .arcaneWard,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .right, exposedLane: .center),
-            visualFamily: .arcane
+            visualFamily: .arcane,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 30:1:1 Keep:Barracks:Tower HP (8561 + 285 + 285 of 9131): the Keep is the
+                    // conquest authority. The small Barracks lets a Barracks-first attack shut the
+                    // Guards down before the first 30 s wave. The Tower is the single fire source,
+                    // covering every lane, and the right route's only stop.
+                    .init(
+                        id: "runewatch.keep",
+                        kind: .keep,
+                        durabilityWeight: 30,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "runewatch.barracks",
+                        kind: .barracks,
+                        durabilityWeight: 1,
+                        visualLane: .left,
+                        visualProgress: 0.72
+                    ),
+                    .init(
+                        id: "runewatch.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 1,
+                        visualLane: .right,
+                        visualProgress: 0.80
+                    )
+                ],
+                routes: [
+                    .left: ["runewatch.barracks", "runewatch.keep"],
+                    .center: ["runewatch.keep"],
+                    .right: ["runewatch.arrow-tower", "runewatch.keep"]
+                ],
+                defaultLane: .left,
+                defensiveFire: .init(sourceObjectiveID: "runewatch.arrow-tower", coveredLanes: BattleLane.allCases)
+            )
         ),
         CityDefinition(
             cityNumber: 10,
