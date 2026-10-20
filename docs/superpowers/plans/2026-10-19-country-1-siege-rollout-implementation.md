@@ -9,9 +9,9 @@
 
 | Existing owner | Intended change |
 |---|---|
-| `Pyxis/Country1CityCatalog.swift` | Explicit layouts and authored weights/routes for all 15; keep Cities 3/5 pinned; adjust Guard naming in place |
+| `Pyxis/Country1CityCatalog.swift` | Explicit layouts and weights/routes for all 15; keep Cities 3/5 pinned; **owns** `HighcrestGuardRules` and `GuardReinforcementProgress.freshHighcrest()` / `normalizedForHighcrest()` definitions—rename in place and generalize the Highcrest-specific tuning comment to describe Country 1 baseline values derived from the pilot |
 | `Pyxis/SiegeState.swift` | Narrow authored max-5/one-tower constraints; clarify shared Guard docs; no new state |
-| `Pyxis/KingdomGameState.swift` | Mechanically rename Highcrest-only Guard helper references for valid multi-city Barracks use; no new save/idle algorithm |
+| `Pyxis/KingdomGameState.swift` | Update call sites to the renamed shared Country 1 Guard rules/helpers for multi-city Barracks use; no new save/idle algorithm |
 | `Pyxis/BattleCombatState.swift`, `Pyxis/BattleScene.swift` | Change Guard naming/comments only initially; focused defect correction and scene proof if concrete issues arise |
 | `Pyxis/CountryMapScoutCardContent.swift` | Highest-priority route-derived compact hints, capped at two and shortened if needed |
 | `PyxisTests/Country1CityCatalogTests.swift` + `SiegeStateTests.swift` | Layout contracts, HP budgets, route/source meaning, preserved pilots |
@@ -26,7 +26,7 @@ Do **not** create new frameworks, production source files, asset files, CI workf
 
 - [ ] Freeze baseline SHA above and record the existing Falconridge City 3 and Highcrest City 5 reference loads/lanes. Use current simulation/test seams where possible; do not implement a standalone balance simulator or benchmark framework.
 - [ ] Define one reproducible representative loadout per sampled city, using valid existing camp buildings, upgrade levels, fixed RNG seed, and a documented manual-spawn policy. Compare two routes at matched loadout, and include no-input/default-lane behavior.
-- [ ] Record City 1/3/5/10/15 measurements in the PR body, including before/after for any pilot correction. Do not claim timings before running the actual simulator.
+- [ ] Record City 1/3/5/9/10/15 measurements in the PR body, including before/after for any pilot correction. Include City 9's Barracks shutdown relative to the first Guard wave. Do not claim timings before running the actual simulator.
 
 ### 1. Fail-first authored contract tests
 
@@ -45,7 +45,7 @@ Do **not** create new frameworks, production source files, asset files, CI workf
 
 ### 3. Reuse Guard mechanics with a small, honest rename
 
-- [ ] Rename `HighcrestGuardRules` / `freshHighcrest()` / `normalizedForHighcrest()` to a shared Country 1 Guard name in existing files and tests. Keep identical numerical values and the existing Barracks-presence guard; do not break City 5 behavior. Update stale Highcrest-only comments.
+- [ ] In **`Pyxis/Country1CityCatalog.swift`**, rename `HighcrestGuardRules` / `freshHighcrest()` / `normalizedForHighcrest()` to `Country1GuardRules` / `freshCountry1()` / `normalizedForCountry1()`; update call sites in `KingdomGameState.swift`, `BattleCombatState.swift`, scene code and relevant tests. Keep numerical values and the existing Barracks-presence guard identical; do not break City 5 behavior. Rewrite its pilot-specific 20:1/26-second tuning comment as historical Highcrest rationale for the **initial shared baseline**, not a claim of universal balance.
 - [ ] Verify fresh/decoded/entered sieges seed finite Guard reserve iff the city's layout contains a Barracks; Barracks death stops future waves, not surviving Guards; lane switches affect only new waves. Verify both active and idle/Camp settlement.
 - [ ] Reuse existing Guard transient actors and HPA-476 art. Do not make a per-city Guard tuning type unless measured late-city balance demonstrates a concrete need; if necessary, add the smallest authored scalar next to the layouts, without a difficulty engine.
 - [ ] Verify automatic Captain from City 3 and one Rally remain intact without changing their progression.
@@ -60,7 +60,7 @@ Do **not** create new frameworks, production source files, asset files, CI workf
 
 - [ ] Pin representative layouts' selected-lane route, damage spillover, source-relative tower coverage, Barracks shutdown, Guard HP/reserve normalization, Captain/Rally, and Keep-only win authority.
 - [ ] Exercise restored battle scenes, Map/Camp returns, idle catch-up and exactly-once rewards on a **non-Highcrest Barracks city**; no ghost waves or reward duplication.
-- [ ] Run repeated deterministic smoke for Cities **1, 3, 5, 10, 15** at matched camps: report lane, duration, losses, Guard wave counts/reserve, shutdown and tactical consequence. Tune only authored weights/placements/coverage (and Guard interval/reserve only with evidence); keep pilot modifications justified.
+- [ ] Run repeated deterministic smoke for Cities **1, 3, 5, 9, 10, 15** at matched camps: report lane, duration, losses, Guard wave counts/reserve, shutdown and tactical consequence. **City 9** must compare Barracks-first versus Tower-first/direct at the same loadout, record Barracks destruction time relative to the first 30-second Guard wave, and show whether shutdown cancels meaningful reinforcement pressure. Tune only authored weights/placements/coverage (and Guard interval/reserve only with evidence); keep pilot modifications justified.
 - [ ] Capture at least three different siege layouts via existing DEBUG city jump and fixtures; add the smallest late-city fixture if current ones cannot stage state. Review compact supported phone and portrait iPad for Scout/HP/structures/tower tint/Guards/Captain/Rally, plus tabs/Settings/report. No generated images.
 
 ### 6. Ship-ready verification and closeout
