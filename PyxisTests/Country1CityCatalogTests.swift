@@ -91,6 +91,29 @@ struct Country1CityCatalogTests {
         defensiveFire: .init(sourceObjectiveID: "pinewatch.keep", coveredLanes: [.center])
     )
 
+    /// The authored Bramblegate two-chokepoint siege layout (HPA-477), shared by
+    /// the fixture entry. City 4 has no Barracks.
+    private static let bramblegateSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "bramblegate.keep", kind: .keep, durabilityWeight: 3, visualLane: .center, visualProgress: 1.0),
+            .init(id: "bramblegate.gate", kind: .gate, durabilityWeight: 1, visualLane: .center, visualProgress: 0.76),
+            .init(
+                id: "bramblegate.east-gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .right,
+                visualProgress: 0.82
+            )
+        ],
+        routes: [
+            .left: ["bramblegate.gate", "bramblegate.keep"],
+            .center: ["bramblegate.gate", "bramblegate.keep"],
+            .right: ["bramblegate.east-gate", "bramblegate.keep"]
+        ],
+        defaultLane: .center,
+        defensiveFire: .init(sourceObjectiveID: "bramblegate.keep", coveredLanes: BattleLane.allCases)
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -170,7 +193,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: falconridgeSiegeLayout
         ),
-        .init(4, name: "Bramblegate", flavorText: "Iron spikes guard a narrow frontier gate.", conquestTitle: "Bramblegate Broken", .spikedGate, .left, .right, .frontier),
+        .init(
+            4,
+            name: "Bramblegate",
+            flavorText: "Iron spikes guard a narrow frontier gate.",
+            conquestTitle: "Bramblegate Broken",
+            .spikedGate,
+            .left,
+            .right,
+            .frontier,
+            siegeLayout: bramblegateSiegeLayout
+        ),
         .init(
             5,
             name: "Highcrest",
@@ -394,9 +427,34 @@ struct Country1CityCatalogTests {
         #expect(pinewatchPower["pinewatch.gate", default: 0] > 0)
         #expect(pinewatchPower["pinewatch.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 2))
 
-        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge) and 5 (Highcrest) author
-        // tactical layouts. The rest stay single-Keep on their standard lane until later tasks author them.
-        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 5].contains(definition.cityNumber) {
+        // City 4 (Bramblegate) authors two chokepoints (HPA-477): the left and centre
+        // routes share one Gate, and the right route takes a second, later Gate. The
+        // Keep fires on every lane.
+        let bramblegate = Country1CityCatalog.definition(for: 4).siegeLayout
+        #expect(bramblegate.objectives.map(\.id) == ["bramblegate.keep", "bramblegate.gate", "bramblegate.east-gate"])
+        #expect(bramblegate.keepObjective.id == "bramblegate.keep")
+        #expect(bramblegate.objective(id: "bramblegate.gate")?.kind == .gate)
+        #expect(bramblegate.objective(id: "bramblegate.gate")?.visualProgress == 0.76)
+        #expect(bramblegate.objective(id: "bramblegate.gate")?.visualLane == .center)
+        #expect(bramblegate.objective(id: "bramblegate.east-gate")?.kind == .gate)
+        #expect(bramblegate.objective(id: "bramblegate.east-gate")?.visualProgress == 0.82)
+        #expect(bramblegate.objective(id: "bramblegate.east-gate")?.visualLane == .right)
+        #expect(bramblegate.routes[.left] == ["bramblegate.gate", "bramblegate.keep"])
+        #expect(bramblegate.routes[.center] == ["bramblegate.gate", "bramblegate.keep"])
+        #expect(bramblegate.routes[.right] == ["bramblegate.east-gate", "bramblegate.keep"])
+        #expect(bramblegate.defensiveFire.sourceObjectiveID == "bramblegate.keep")
+        #expect(bramblegate.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(bramblegate.barracksObjective == nil)
+        #expect(bramblegate.defaultLane == .center)
+        let bramblegatePower = bramblegate.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 4))
+        #expect(bramblegatePower["bramblegate.gate", default: 0] > 0)
+        #expect(bramblegatePower["bramblegate.east-gate", default: 0] > 0)
+        #expect(bramblegatePower["bramblegate.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 4))
+
+        // Cities 1 (Willowford), 2 (Pinewatch), 3 (Falconridge), 4 (Bramblegate) and
+        // 5 (Highcrest) author tactical layouts. The rest stay single-Keep on their standard
+        // lane until later tasks author them.
+        for definition in Country1CityCatalog.definitions where ![1, 2, 3, 4, 5].contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"
