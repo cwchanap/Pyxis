@@ -343,8 +343,8 @@ struct KingdomGameState: Codable, Equatable {
             selectedLane: progress?.selectedLane ?? layout.defaultLane,
             damageByObjectiveID: damageByObjectiveID,
             guardReinforcements: layout.barracksObjective != nil
-                ? (progress?.guardReinforcements?.normalizedForHighcrest()
-                    ?? GuardReinforcementProgress.freshHighcrest())
+                ? (progress?.guardReinforcements?.normalizedForCountry1()
+                    ?? GuardReinforcementProgress.freshCountry1())
                 : nil,
             captain: progress?.captain
         )
@@ -488,7 +488,7 @@ struct KingdomGameState: Codable, Equatable {
             selectedLane: entryLayout.defaultLane,
             damageByObjectiveID: [:],
             guardReinforcements: entryLayout.barracksObjective != nil
-                ? GuardReinforcementProgress.freshHighcrest()
+                ? GuardReinforcementProgress.freshCountry1()
                 : nil,
             captain: VanguardCaptainRules.isAvailable(cityNumber: cityNumber)
                 ? .freshCaptain(
@@ -854,19 +854,19 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         let totalElapsed = progress.waveElapsedSeconds + max(0, deltaTime)
-        let dueOpportunities = Int(totalElapsed / HighcrestGuardRules.waveIntervalSeconds)
+        let dueOpportunities = Int(totalElapsed / Country1GuardRules.waveIntervalSeconds)
         progress.waveElapsedSeconds = totalElapsed.truncatingRemainder(
-            dividingBy: HighcrestGuardRules.waveIntervalSeconds
+            dividingBy: Country1GuardRules.waveIntervalSeconds
         )
         let spawnCount = min(
             progress.remainingReserve,
-            dueOpportunities * HighcrestGuardRules.guardsPerWave
+            dueOpportunities * Country1GuardRules.guardsPerWave
         )
         progress.remainingReserve -= spawnCount
         let spawned = Array(
             repeating: GuardSnapshot(
                 lane: siegeProgress.selectedLane,
-                remainingHP: HighcrestGuardRules.maxHP
+                remainingHP: Country1GuardRules.maxHP
             ),
             count: spawnCount
         )
@@ -887,7 +887,7 @@ struct KingdomGameState: Codable, Equatable {
             return false
         }
         progress.unresolvedGuards = snapshots
-        let normalized = progress.normalizedForHighcrest()
+        let normalized = progress.normalizedForCountry1()
         guard normalized != siegeProgress.guardReinforcements else {
             return false
         }

@@ -31,10 +31,10 @@ struct DevJumpStateTests {
         // Plain state materialization through the standard init
         // normalization: fresh full-reserve Highcrest progress, living
         // Barracks and Keep, no checkpoint or migration residue.
-        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshHighcrest())
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshCountry1())
         #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
             waveElapsedSeconds: 0,
-            remainingReserve: HighcrestGuardRules.totalReserve,
+            remainingReserve: Country1GuardRules.totalReserve,
             unresolvedGuards: []
         ))
         #expect(state.siegeProgress.selectedLane == layout.defaultLane)

@@ -215,17 +215,20 @@ enum Country1CityCatalog {
     }
 }
 
-/// Highcrest-only Guard reinforcement tuning (HPA-469 pilot). These City 5
-/// values live beside the Highcrest authoring, not in generic siege state.
-enum HighcrestGuardRules {
+/// Country 1 Guard reinforcement rules (HPA-469). One fixed set of values
+/// shared by every Country 1 city that authors a Barracks; there is no
+/// per-city scaling. The values were first tuned on the City 5 (Highcrest)
+/// pilot and are a starting reference, not a guarantee for later cities.
+enum Country1GuardRules {
     static let guardsPerWave = 2
-    /// Tuned by the Highcrest route-balance pass (round 2): the Barracks
-    /// objective holds only 20 power (weights 20:1 with the Keep), so the
-    /// typical Barracks-first shutdown lands ~26s — before the first 30s
-    /// wave — and cancels the whole unspent reserve. Direct-route armies
-    /// keep the Barracks alive, so all six waves (12 Guards) deploy against
-    /// them; that asymmetry closes the route-dominance gap while honoring
-    /// the shutdown consequence.
+    /// City 5 (Highcrest) pilot rationale, a starting reference and not a
+    /// late-city guarantee. Tuned by the Highcrest route-balance pass (round 2):
+    /// the Barracks objective holds only 20 power (weights 20:1 with the Keep),
+    /// so the typical Barracks-first shutdown lands ~26s, before the first 30s
+    /// wave, and cancels the whole unspent reserve. Direct-route armies keep the
+    /// Barracks alive, so all six waves (12 Guards) deploy against them; that
+    /// asymmetry closes the route-dominance gap while honoring the shutdown
+    /// consequence.
     static let waveIntervalSeconds = 30.0
     static let totalReserve = 12
     static let maxHP = 12
@@ -236,31 +239,31 @@ enum HighcrestGuardRules {
 }
 
 extension GuardReinforcementProgress {
-    /// Fresh full-reserve progress for a newly entered Highcrest.
-    static func freshHighcrest() -> GuardReinforcementProgress {
+    /// Fresh full-reserve Guard progress for a newly entered Country 1 city with a Barracks.
+    static func freshCountry1() -> GuardReinforcementProgress {
         GuardReinforcementProgress(
             waveElapsedSeconds: 0,
-            remainingReserve: HighcrestGuardRules.totalReserve,
+            remainingReserve: Country1GuardRules.totalReserve,
             unresolvedGuards: []
         )
     }
 
-    /// Forgiving normalization for persisted Highcrest Guard state: elapsed
+    /// Forgiving normalization for persisted Country 1 Guard state: elapsed
     /// wraps into 0..<`waveIntervalSeconds`, reserve clamps into
     /// 0...`totalReserve` and to the total budget against retained Guards,
-    /// Guard HP clamps to 1...12, and at most the first `totalReserve`
+    /// Guard HP clamps to 1...`maxHP`, and at most the first `totalReserve`
     /// snapshots are retained in order (lanes preserved; no IDs or positions
     /// are persisted).
-    func normalizedForHighcrest() -> GuardReinforcementProgress {
+    func normalizedForCountry1() -> GuardReinforcementProgress {
         let elapsed = max(0, waveElapsedSeconds)
-            .truncatingRemainder(dividingBy: HighcrestGuardRules.waveIntervalSeconds)
-        let guards = unresolvedGuards.prefix(HighcrestGuardRules.totalReserve).map { snapshot in
+            .truncatingRemainder(dividingBy: Country1GuardRules.waveIntervalSeconds)
+        let guards = unresolvedGuards.prefix(Country1GuardRules.totalReserve).map { snapshot in
             GuardSnapshot(
                 lane: snapshot.lane,
-                remainingHP: min(max(1, snapshot.remainingHP), HighcrestGuardRules.maxHP)
+                remainingHP: min(max(1, snapshot.remainingHP), Country1GuardRules.maxHP)
             )
         }
-        let reserveCeiling = HighcrestGuardRules.totalReserve - guards.count
+        let reserveCeiling = Country1GuardRules.totalReserve - guards.count
         return GuardReinforcementProgress(
             waveElapsedSeconds: elapsed,
             remainingReserve: min(max(0, remainingReserve), reserveCeiling),

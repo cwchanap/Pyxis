@@ -237,8 +237,8 @@ struct ActiveSiegeLifecycleTests {
         let power = state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards == [
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP - power)
-        ] + Array(repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP), count: 7))
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP - power)
+        ] + Array(repeating: GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP), count: 7))
         #expect(progress.remainingReserve == 4)
         #expect(progress.waveElapsedSeconds == 0) // 120s wraps into the next phase
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower) // Guard damage is not city damage
@@ -263,7 +263,7 @@ struct ActiveSiegeLifecycleTests {
         // phase must still advance for the credited settlement window.
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards == Array(
-            repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            repeating: GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             count: 2
         ))
         #expect(progress.remainingReserve == 10)
@@ -289,7 +289,7 @@ struct ActiveSiegeLifecycleTests {
 
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards == Array(
-            repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            repeating: GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             count: 2
         ))
         #expect(progress.remainingReserve == 10)
@@ -316,7 +316,7 @@ struct ActiveSiegeLifecycleTests {
 
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards.isEmpty)
-        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+        #expect(progress.remainingReserve == Country1GuardRules.totalReserve)
         // The spawn's power spills straight down the direct .right route.
         let power = state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - power)
@@ -379,7 +379,7 @@ struct ActiveSiegeLifecycleTests {
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.waveElapsedSeconds == 4.5) // 4.5 + 30.0 wraps once to 4.5
         #expect(progress.unresolvedGuards == Array(
-            repeating: GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
+            repeating: GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
             count: 2
         ))
         #expect(progress.remainingReserve == 10)
@@ -396,7 +396,7 @@ struct ActiveSiegeLifecycleTests {
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.waveElapsedSeconds == 0)
         #expect(progress.unresolvedGuards.isEmpty)
-        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+        #expect(progress.remainingReserve == Country1GuardRules.totalReserve)
     }
 
     // MARK: Lifecycle reconstruction & non-pilot regressions (HPA-469 Task 5)
@@ -496,7 +496,7 @@ struct ActiveSiegeLifecycleTests {
         #expect(state.siegeProgress.guardReinforcements == nil)
         #expect(state.advanceActiveGuardReinforcements(deltaTime: 60).isEmpty)
         #expect(state.synchronizeLiveGuardSnapshots([
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP)
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP)
         ]) == false)
         #expect(state.siegeProgress.guardReinforcements == nil)
 

@@ -204,7 +204,7 @@ struct GameViewControllerTests {
         let layout = state.currentSiegeLayout
         #expect(state.cityNumberInCountry == 5)
         #expect(state.stageStatus == .battleActive)
-        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshHighcrest())
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshCountry1())
         #expect(state.siegeProgress.selectedLane == layout.defaultLane)
         let barracksID = try #require(SiegeTestSupport.objectiveID(for: .barracks, in: state))
         #expect(state.currentSiegeSnapshot.objectiveRemainingPower[barracksID]! > 0)

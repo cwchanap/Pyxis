@@ -1932,7 +1932,7 @@ struct KingdomGameStateTests {
 
         #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
             waveElapsedSeconds: 0,
-            remainingReserve: HighcrestGuardRules.totalReserve,
+            remainingReserve: Country1GuardRules.totalReserve,
             unresolvedGuards: []
         ))
     }
@@ -1954,7 +1954,7 @@ struct KingdomGameStateTests {
         let normalized = try #require(state.siegeProgress.guardReinforcements)
         #expect(normalized.unresolvedGuards.count == 10) // all retained, in order (cap 12)
         #expect(normalized.unresolvedGuards.map(\.lane) == [.left, .center, .right, .left, .center, .right, .left, .center, .right, .left])
-        #expect(normalized.unresolvedGuards.allSatisfy { (1...HighcrestGuardRules.maxHP).contains($0.remainingHP) })
+        #expect(normalized.unresolvedGuards.allSatisfy { (1...Country1GuardRules.maxHP).contains($0.remainingHP) })
         #expect(normalized.remainingReserve == 2) // 12 budget minus the 10 retained guards
         #expect(normalized.waveElapsedSeconds == 3.5) // 33.5 wraps into 0..<30
     }
@@ -2006,7 +2006,7 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.selectedLane == .right)
         #expect(state.siegeProgress.damageByObjectiveID["highcrest.barracks"] == 10)
         #expect(state.siegeProgress.damageByObjectiveID["highcrest.keep"] == 5)
-        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshHighcrest())
+        #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress.freshCountry1())
     }
 
     @Test func startCityFromMapSeedsFreshHighcrestGuardsAndNilForOtherCities() {
@@ -2019,7 +2019,7 @@ struct KingdomGameStateTests {
         #expect(state.startCityFromMap(5) == .entered(country: 1, city: 5))
         #expect(state.siegeProgress.guardReinforcements == GuardReinforcementProgress(
             waveElapsedSeconds: 0,
-            remainingReserve: HighcrestGuardRules.totalReserve,
+            remainingReserve: Country1GuardRules.totalReserve,
             unresolvedGuards: []
         ))
 
@@ -2041,14 +2041,14 @@ struct KingdomGameStateTests {
         let preWave = state.advanceActiveGuardReinforcements(deltaTime: 29.9)
         #expect(preWave.isEmpty)
         var progress = try #require(state.siegeProgress.guardReinforcements)
-        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+        #expect(progress.remainingReserve == Country1GuardRules.totalReserve)
         #expect(progress.waveElapsedSeconds == 29.9)
         #expect(progress.unresolvedGuards.isEmpty)
 
         let firstWave = state.advanceActiveGuardReinforcements(deltaTime: 0.1)
         #expect(firstWave == [
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP),
-            GuardSnapshot(lane: .right, remainingHP: HighcrestGuardRules.maxHP)
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP)
         ])
         progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.remainingReserve == 10)
@@ -2092,7 +2092,7 @@ struct KingdomGameStateTests {
         )
         state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
             waveElapsedSeconds: 19.9,
-            remainingReserve: HighcrestGuardRules.totalReserve,
+            remainingReserve: Country1GuardRules.totalReserve,
             unresolvedGuards: [GuardSnapshot(lane: .right, remainingHP: 4)]
         )
 
@@ -2100,7 +2100,7 @@ struct KingdomGameStateTests {
 
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards == [GuardSnapshot(lane: .right, remainingHP: 4)])
-        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+        #expect(progress.remainingReserve == Country1GuardRules.totalReserve)
     }
 
     @Test func deadKeepSpawnsNoNewGuards() throws {
@@ -2112,7 +2112,7 @@ struct KingdomGameStateTests {
 
         let progress = try #require(state.siegeProgress.guardReinforcements)
         #expect(progress.unresolvedGuards.isEmpty)
-        #expect(progress.remainingReserve == HighcrestGuardRules.totalReserve)
+        #expect(progress.remainingReserve == Country1GuardRules.totalReserve)
     }
 
     @Test func nonPilotCitiesNeverAdvanceGuardWaves() {
@@ -2145,7 +2145,7 @@ struct KingdomGameStateTests {
         #expect(state.synchronizeLiveGuardSnapshots(overflow) == true)
         let normalized = try #require(state.siegeProgress.guardReinforcements)
         #expect(normalized.unresolvedGuards.count == 10)
-        #expect(normalized.unresolvedGuards.allSatisfy { $0.remainingHP == HighcrestGuardRules.maxHP })
+        #expect(normalized.unresolvedGuards.allSatisfy { $0.remainingHP == Country1GuardRules.maxHP })
         #expect(normalized.remainingReserve == 2)
     }
 

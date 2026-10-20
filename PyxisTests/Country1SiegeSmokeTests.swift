@@ -104,7 +104,7 @@ enum Country1SiegeSmoke {
             reachedConquest: finalState.pendingBattleResult != nil,
             elapsedSeconds: Double(tick) / Double(ticksPerSecond),
             troopLosses: losses.reduce(0) { $0 + $1.count },
-            guardsSpawned: guards.map { HighcrestGuardRules.totalReserve - $0.remainingReserve },
+            guardsSpawned: guards.map { Country1GuardRules.totalReserve - $0.remainingReserve },
             guardReserveRemaining: guards?.remainingReserve,
             barracksShutdownSeconds: barracksShutdownTick.map { Double($0) / Double(ticksPerSecond) }
         )
@@ -114,7 +114,7 @@ enum Country1SiegeSmoke {
         let camp = result.camp.isEmpty
             ? "none"
             : result.camp.map { "\($0.type.rawValue):L\($0.level)" }.joined(separator: ",")
-        let waves = result.guardsSpawned.map { String($0 / HighcrestGuardRules.guardsPerWave) } ?? "n/a"
+        let waves = result.guardsSpawned.map { String($0 / Country1GuardRules.guardsPerWave) } ?? "n/a"
         let reserve = result.guardReserveRemaining.map(String.init) ?? "n/a"
         let shutdown = result.barracksShutdownSeconds.map { String(format: "%.1f", $0) } ?? "none"
         return [
@@ -156,7 +156,7 @@ enum Country1SiegeSmoke {
         state.siegeProgress = SiegeProgress(
             selectedLane: lane,
             damageByObjectiveID: [:],
-            guardReinforcements: layout.barracksObjective != nil ? .freshHighcrest() : nil,
+            guardReinforcements: layout.barracksObjective != nil ? .freshCountry1() : nil,
             captain: VanguardCaptainRules.isAvailable(cityNumber: city)
                 ? .freshCaptain(selectedLane: lane, upgradeLevel: soldierUpgradeLevel)
                 : nil

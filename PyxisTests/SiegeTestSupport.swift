@@ -86,7 +86,7 @@ enum SiegeTestSupport {
             selectedLane: selectedLane ?? layout.defaultLane,
             damageByObjectiveID: damageByObjectiveID,
             guardReinforcements: layout.barracksObjective != nil
-                ? GuardReinforcementProgress.freshHighcrest()
+                ? GuardReinforcementProgress.freshCountry1()
                 : nil,
             captain: VanguardCaptainRules.isAvailable(cityNumber: cityNumber)
                 ? .freshCaptain(
