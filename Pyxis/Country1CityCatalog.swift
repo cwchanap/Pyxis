@@ -442,7 +442,54 @@ enum Country1CityCatalog {
             conquestTitle: "Kingshield Keep Falls",
             defenseTrait: .reinforcedKeep,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 30:3:1:1 Keep:Tower:Gate:Barracks HP (36180 + 3618 + 1206 + 1206 of 42210):
+                    // the Keep is the conquest authority. The Tower is the single fire source,
+                    // covering every lane, and the left route's only stop. The centre Gate is the
+                    // centre route's only stop. The Barracks is the right route's only stop and the
+                    // Guard source that the default lane shuts down.
+                    .init(
+                        id: "kingshield-keep.keep",
+                        kind: .keep,
+                        durabilityWeight: 30,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "kingshield-keep.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 3,
+                        visualLane: .left,
+                        visualProgress: 0.80
+                    ),
+                    .init(
+                        id: "kingshield-keep.gate",
+                        kind: .gate,
+                        durabilityWeight: 1,
+                        visualLane: .center,
+                        visualProgress: 0.82
+                    ),
+                    .init(
+                        id: "kingshield-keep.barracks",
+                        kind: .barracks,
+                        durabilityWeight: 1,
+                        visualLane: .right,
+                        visualProgress: 0.72
+                    )
+                ],
+                routes: [
+                    .left: ["kingshield-keep.arrow-tower", "kingshield-keep.keep"],
+                    .center: ["kingshield-keep.gate", "kingshield-keep.keep"],
+                    .right: ["kingshield-keep.barracks", "kingshield-keep.keep"]
+                ],
+                defaultLane: .right,
+                defensiveFire: .init(
+                    sourceObjectiveID: "kingshield-keep.arrow-tower",
+                    coveredLanes: BattleLane.allCases
+                )
+            )
         ),
         CityDefinition(
             cityNumber: 12,

@@ -1465,13 +1465,15 @@ struct KingdomGameStateTests {
     }
 
     @Test func idleDamageUsesCurrentCityDefenseTraitCounters() {
+        // City 15 carries the reinforced-Keep trait with no Barracks. City 11's Barracks adds
+        // idle Guard absorption, which would change the damage this test pins.
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         let end = start.addingTimeInterval(1_000)
         var state = KingdomGameState(
             gold: 500,
             lastBackgroundedAt: start,
-            cityNumberInCountry: 11,
-            completedCityCount: 10
+            cityNumberInCountry: 15,
+            completedCityCount: 14
         )
 
         #expect(state.buildBuilding(.siegeWorkshop, inSlot: 1, at: start) == .built(cost: 55, remainingGold: 445))
@@ -1488,13 +1490,14 @@ struct KingdomGameStateTests {
     }
 
     @Test func idleDamagePenaltyStillDealsAtLeastOneWhenBaseDamageIsPositive() {
+        // City 15 (reinforced-Keep trait, no Barracks): see idleDamageUsesCurrentCityDefenseTraitCounters.
         let start = Date(timeIntervalSinceReferenceDate: 2_000)
         let end = start.addingTimeInterval(1_000)
         var state = KingdomGameState(
             gold: 500,
             lastBackgroundedAt: start,
-            cityNumberInCountry: 11,
-            completedCityCount: 10
+            cityNumberInCountry: 15,
+            completedCityCount: 14
         )
 
         #expect(state.buildBuilding(.archeryRange, inSlot: 1, at: start) == .built(cost: 18, remainingGold: 482))

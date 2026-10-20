@@ -263,6 +263,51 @@ struct Country1CityCatalogTests {
         )
     )
 
+    /// The authored Kingshield Keep three-route siege layout (HPA-477), shared by the
+    /// fixture entry. The Tower guards the left route, a Gate the centre, and the Barracks the right.
+    private static let kingshieldSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(
+                id: "kingshield-keep.keep",
+                kind: .keep,
+                durabilityWeight: 30,
+                visualLane: .center,
+                visualProgress: 1.0
+            ),
+            .init(
+                id: "kingshield-keep.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 3,
+                visualLane: .left,
+                visualProgress: 0.80
+            ),
+            .init(
+                id: "kingshield-keep.gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .center,
+                visualProgress: 0.82
+            ),
+            .init(
+                id: "kingshield-keep.barracks",
+                kind: .barracks,
+                durabilityWeight: 1,
+                visualLane: .right,
+                visualProgress: 0.72
+            )
+        ],
+        routes: [
+            .left: ["kingshield-keep.arrow-tower", "kingshield-keep.keep"],
+            .center: ["kingshield-keep.gate", "kingshield-keep.keep"],
+            .right: ["kingshield-keep.barracks", "kingshield-keep.keep"]
+        ],
+        defaultLane: .right,
+        defensiveFire: .init(
+            sourceObjectiveID: "kingshield-keep.arrow-tower",
+            coveredLanes: BattleLane.allCases
+        )
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -419,7 +464,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: ironthornSiegeLayout
         ),
-        .init(11, name: "Kingshield Keep", flavorText: "A reinforced fortress guards the royal road.", conquestTitle: "Kingshield Keep Falls", .reinforcedKeep, .center, .left, .frontier),
+        .init(
+            11,
+            name: "Kingshield Keep",
+            flavorText: "A reinforced fortress guards the royal road.",
+            conquestTitle: "Kingshield Keep Falls",
+            .reinforcedKeep,
+            .center,
+            .left,
+            .frontier,
+            siegeLayout: kingshieldSiegeLayout
+        ),
         .init(12, name: "Ashbridge", flavorText: "Fire cauldrons guard the last crossing.", conquestTitle: "Ashbridge Secured", .burningOil, .right, .center, .ember),
         .init(13, name: "Starveil Citadel", flavorText: "Arcane wards protect the capital heights.", conquestTitle: "Starveil Citadel Falls", .arcaneWard, .left, .right, .arcane),
         .init(14, name: "Stonecrown", flavorText: "Massive stone walls ring the royal seat.", conquestTitle: "Stonecrown Breached", .stoneWall, .center, .left, .frontier),
@@ -784,9 +839,40 @@ struct Country1CityCatalogTests {
         #expect(ironthornPower["ironthorn-gate.east-gate", default: 0] > 0)
         #expect(ironthornPower["ironthorn-gate.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 10))
 
-        // Cities 1 (Willowford) through 10 (Ironthorn Gate) author tactical layouts. The rest stay
+        // City 11 (Kingshield Keep) sends the Tower, a Gate and the Barracks down three routes
+        // (HPA-477): the Tower guards the left route, the Gate the centre, and the Barracks the
+        // right route, which is the default (standard) lane. The Tower is the only fire source
+        // and covers every lane.
+        let kingshield = Country1CityCatalog.definition(for: 11).siegeLayout
+        #expect(kingshield.objectives.map(\.id) == [
+            "kingshield-keep.keep", "kingshield-keep.arrow-tower", "kingshield-keep.gate", "kingshield-keep.barracks"
+        ])
+        #expect(kingshield.keepObjective.id == "kingshield-keep.keep")
+        #expect(kingshield.objective(id: "kingshield-keep.arrow-tower")?.kind == .arrowTower)
+        #expect(kingshield.objective(id: "kingshield-keep.arrow-tower")?.visualProgress == 0.80)
+        #expect(kingshield.objective(id: "kingshield-keep.arrow-tower")?.visualLane == .left)
+        #expect(kingshield.objective(id: "kingshield-keep.gate")?.kind == .gate)
+        #expect(kingshield.objective(id: "kingshield-keep.gate")?.visualProgress == 0.82)
+        #expect(kingshield.objective(id: "kingshield-keep.gate")?.visualLane == .center)
+        #expect(kingshield.objective(id: "kingshield-keep.barracks")?.kind == .barracks)
+        #expect(kingshield.objective(id: "kingshield-keep.barracks")?.visualProgress == 0.72)
+        #expect(kingshield.objective(id: "kingshield-keep.barracks")?.visualLane == .right)
+        #expect(kingshield.routes[.left] == ["kingshield-keep.arrow-tower", "kingshield-keep.keep"])
+        #expect(kingshield.routes[.center] == ["kingshield-keep.gate", "kingshield-keep.keep"])
+        #expect(kingshield.routes[.right] == ["kingshield-keep.barracks", "kingshield-keep.keep"])
+        #expect(kingshield.defensiveFire.sourceObjectiveID == "kingshield-keep.arrow-tower")
+        #expect(kingshield.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(kingshield.barracksObjective?.id == "kingshield-keep.barracks")
+        #expect(kingshield.defaultLane == .right)
+        let kingshieldPower = kingshield.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 11))
+        #expect(kingshieldPower["kingshield-keep.arrow-tower", default: 0] > 0)
+        #expect(kingshieldPower["kingshield-keep.gate", default: 0] > 0)
+        #expect(kingshieldPower["kingshield-keep.barracks", default: 0] > 0)
+        #expect(kingshieldPower["kingshield-keep.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 11))
+
+        // Cities 1 (Willowford) through 11 (Kingshield Keep) author tactical layouts. The rest stay
         // single-Keep on their standard lane until later tasks author them.
-        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
