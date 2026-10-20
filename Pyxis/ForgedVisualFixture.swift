@@ -69,11 +69,11 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             return Self.battleState(supportDamage: self == .battleFalconridgeRuined
                 ? [.gate: Int.max, .arrowTower: Int.max] : [:])
         case .battleDamaged, .battleBreached:
-            // City 1 Keep max = 20 (single-Keep share of the 20 total):
-            // 12 is the damaged threshold, 5 the breached one.
+            // City 1 Keep max = 15 (3:1 Keep share of the 20 budget; the Gate holds 5).
+            // Stage bands are fractions of that max: damaged 4...9, breached 1...3.
             return Self.battleState(
                 cityNumber: 1,
-                keepRemaining: self == .battleBreached ? 5 : 12
+                keepRemaining: self == .battleBreached ? 2 : 7
             )
         case .battleEmberford:
             return DevJumpState.make(city: 7)

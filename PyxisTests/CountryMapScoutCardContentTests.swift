@@ -79,6 +79,7 @@ struct CountryMapScoutCardContentTests {
                         exposedLane: .right,
                         goldReward: KingdomGameState.goldReward(for: 1),
                         flavorText: "A quiet crossing where the campaign begins.",
+                        tacticalFooter: "L/C Gate",
                         status: .current
                     )
                 )
@@ -266,6 +267,8 @@ private extension CountryMapScoutCardContentTests {
     /// and Highcrest's left-lane Barracks (HPA-469); single-Keep cities nil.
     static func expectedTacticalFooter(for cityNumber: Int) -> String? {
         switch cityNumber {
+        case 1:
+            return "L/C Gate"
         case 3:
             return "L Tower · C/R Gate"
         case 5:

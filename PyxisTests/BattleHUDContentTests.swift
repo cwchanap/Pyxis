@@ -83,7 +83,10 @@ struct BattleHUDContentTests {
         let content = BattleHUDContent.project(from: state, manualCount: 0)
 
         #expect(content.selectedLane == state.currentCityDefinition.siegeLayout.defaultLane)
-        #expect(content.keepMaxPower == KingdomGameState.cityMaxPower(for: 1))
+        // City 1 authors a Gate, so its Keep holds only its allocated share of the budget.
+        let layout = state.currentCityDefinition.siegeLayout
+        let expectedMax = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)[layout.keepObjective.id]
+        #expect(content.keepMaxPower == expectedMax)
         #expect(content.keepRemainingPower == content.keepMaxPower)
     }
 

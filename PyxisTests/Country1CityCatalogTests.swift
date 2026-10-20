@@ -59,6 +59,22 @@ struct Country1CityCatalogTests {
         }
     }
 
+    /// The authored Willowford tactical siege layout (HPA-477), shared by the
+    /// fixture entry. City 1 has no Barracks and no Captain.
+    private static let willowfordSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(id: "willowford.keep", kind: .keep, durabilityWeight: 3, visualLane: .center, visualProgress: 1.0),
+            .init(id: "willowford.gate", kind: .gate, durabilityWeight: 1, visualLane: .center, visualProgress: 0.76)
+        ],
+        routes: [
+            .left: ["willowford.gate", "willowford.keep"],
+            .center: ["willowford.gate", "willowford.keep"],
+            .right: ["willowford.keep"]
+        ],
+        defaultLane: .center,
+        defensiveFire: .init(sourceObjectiveID: "willowford.keep", coveredLanes: [.right])
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -105,7 +121,17 @@ struct Country1CityCatalogTests {
     )
 
     private static let expectedDefinitions: [ExpectedDefinition] = [
-        .init(1, name: "Willowford", flavorText: "A quiet crossing where the campaign begins.", conquestTitle: "Willowford Secured", .standardWatch, .left, .right, .frontier),
+        .init(
+            1,
+            name: "Willowford",
+            flavorText: "A quiet crossing where the campaign begins.",
+            conquestTitle: "Willowford Secured",
+            .standardWatch,
+            .left,
+            .right,
+            .frontier,
+            siegeLayout: willowfordSiegeLayout
+        ),
         .init(2, name: "Pinewatch", flavorText: "A hill watchtown guarding the old trade road.", conquestTitle: "Pinewatch Secured", .standardWatch, .center, .left, .frontier),
         .init(
             3,
@@ -303,9 +329,28 @@ struct Country1CityCatalogTests {
     }
 
     @Test func nonPilotCitiesUseSingleKeepDefaultedToTheirStandardLane() {
-        // Cities 3 (Falconridge) and 5 (Highcrest) author tactical layouts.
-        for definition in Country1CityCatalog.definitions
-        where definition.cityNumber != 3 && definition.cityNumber != 5 {
+        // City 1 (Willowford) authors a gate layout (HPA-477). Its features are
+        // asserted directly, not against a duplicated CityDefinition.
+        let layout = Country1CityCatalog.definition(for: 1).siegeLayout
+        #expect(layout.objectives.map(\.id) == ["willowford.keep", "willowford.gate"])
+        #expect(layout.keepObjective.id == "willowford.keep")
+        #expect(layout.objective(id: "willowford.gate")?.kind == .gate)
+        #expect(layout.objective(id: "willowford.gate")?.visualProgress == 0.76)
+        #expect(layout.routes[.left] == ["willowford.gate", "willowford.keep"])
+        #expect(layout.routes[.center] == ["willowford.gate", "willowford.keep"])
+        #expect(layout.routes[.right] == ["willowford.keep"])
+        #expect(layout.defensiveFire.sourceObjectiveID == "willowford.keep")
+        #expect(layout.defensiveFire.coveredLanes == [.right])
+        #expect(layout.barracksObjective == nil)
+        #expect(layout.defaultLane == .center)
+        // The Keep holds most of the city HP and stays the conquest authority.
+        let maxPower = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 1))
+        #expect(maxPower["willowford.gate", default: 0] > 0)
+        #expect(maxPower["willowford.keep", default: 0] > maxPower["willowford.gate", default: 0])
+
+        // Cities 3 (Falconridge), 5 (Highcrest) and 1 (Willowford) author tactical layouts.
+        // The rest stay single-Keep on their standard lane until later tasks author them.
+        for definition in Country1CityCatalog.definitions where ![1, 3, 5].contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
                 "City \(definition.cityNumber) must use the single-keep siege layout on its standard lane"

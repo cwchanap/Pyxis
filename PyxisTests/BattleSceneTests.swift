@@ -522,7 +522,7 @@ struct BattleSceneTests {
 
     @Test("Battle Settings pauses an active city-hit action until Settings closes")
     func battleSettingsPausesCityHitFeedbackUntilClose() async throws {
-        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 500))
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 500, selectedLane: .right))
         let size = CGSize(width: 390, height: 844)
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         let controller = UIViewController()
@@ -651,7 +651,7 @@ struct BattleSceneTests {
 
     @Test("Battle preserves feedback Settings, report, and reward-effect Z tiers")
     func battlePreservesSettingsAndConquestPresentationZOrder() throws {
-        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1))
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1, selectedLane: .right))
         let scene = makeScene(store: store)
         let gear = try #require(firstNode(of: SettingsGearNode.self, in: scene))
         let gearHitTarget = try #require(
@@ -742,7 +742,7 @@ struct BattleSceneTests {
     @Test("Fresh live Battle conquest emits reward before city outcome and never replays")
     func battleFreshLiveOutcomeEmitsRewardThenConquestOnce() throws {
         let feedback = BattleFeedbackRecorder()
-        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1))
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1, selectedLane: .right))
         let scene = makeScene(store: store, feedback: feedback)
         scene.spawnSoldierForTesting()
         feedback.reset()
@@ -764,7 +764,7 @@ struct BattleSceneTests {
         let feedback = BattleFeedbackRecorder()
         let initialGold = 100
         let store = try makeStore(
-            initialState: stateWithBarracks(gold: initialGold, keepRemaining: 1)
+            initialState: stateWithBarracks(gold: initialGold, keepRemaining: 1, selectedLane: .right)
         )
         let scene = makeScene(store: store, feedback: feedback)
         scene.spawnSoldierForTesting()
@@ -880,7 +880,7 @@ struct BattleSceneTests {
             }
         )
         let scene = makeScene(
-            store: try makeStore(initialState: stateWithBarracks(keepRemaining: 1)),
+            store: try makeStore(initialState: stateWithBarracks(keepRemaining: 1, selectedLane: .right)),
             size: size,
             feedbackSettingsAccessibilityAdapter: accessibilityAdapter
         )
@@ -904,8 +904,9 @@ struct BattleSceneTests {
         scene.spawnSoldierForTesting()
 
         #expect(scene.liveSoldierCountForTesting == 1)
-        #expect(scene.keepRemainingPowerForTesting == 20)
-        #expect(store.load().currentKeepRemainingPower == 20)
+        let keepMax = store.load().currentKeepMaxPower
+        #expect(scene.keepRemainingPowerForTesting == keepMax)
+        #expect(store.load().currentKeepRemainingPower == keepMax)
     }
 
     @Test func infantrySoldierVisualMatchesAssetName() throws {
@@ -1419,7 +1420,8 @@ struct BattleSceneTests {
                 gold: 100,
                 keepRemaining: 500,
                 cityNumberInCountry: 1,
-                completedCityCount: 0
+                completedCityCount: 0,
+                selectedLane: .right
             )
         )
         let scene = makeScene(store: store, combatSeed: 1)
@@ -1493,7 +1495,8 @@ struct BattleSceneTests {
                 gold: 100,
                 keepRemaining: 500,
                 cityNumberInCountry: 1,
-                completedCityCount: 0
+                completedCityCount: 0,
+                selectedLane: .right
             )
         )
         let scene = makeScene(store: store, combatSeed: 1)
@@ -1574,7 +1577,8 @@ struct BattleSceneTests {
                 gold: 100,
                 keepRemaining: 500,
                 cityNumberInCountry: 1,
-                completedCityCount: 0
+                completedCityCount: 0,
+                selectedLane: .right
             )
         )
         let scene = makeScene(store: store, combatSeed: 1)
@@ -2444,7 +2448,8 @@ struct BattleSceneTests {
         let store = try makeStore(
             initialState: stateWithBarracks(
                 keepRemaining: 50,
-                completedCityCount: 0
+                completedCityCount: 0,
+                selectedLane: .right
             )
         )
         let scene = makeScene(store: store)
@@ -2909,7 +2914,7 @@ struct BattleSceneTests {
     }
 
     @Test func liveConquestUsesFreshLiveEffectsOnce() throws {
-        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1))
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1, selectedLane: .right))
         let scene = makeScene(store: store)
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3)
@@ -2924,7 +2929,7 @@ struct BattleSceneTests {
     }
 
     @Test func battleForegroundIdleUsesFreshIdleGoldOnly() throws {
-        let store = try makeStore(initialState: idleConquestReadyState())
+        let store = try makeStore(initialState: idleConquestReadyState(selectedLane: .right))
         let scene = makeScene(store: store)
         scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
         scene.enterForegroundForTesting(at: Date(timeIntervalSince1970: 10_000))
@@ -3746,23 +3751,28 @@ struct BattleSceneTests {
         gold: Int = 100,
         keepRemaining: Int = 20,
         cityNumberInCountry: Int = 1,
-        completedCityCount: Int = 0
+        completedCityCount: Int = 0,
+        selectedLane: BattleLane? = nil
     ) -> KingdomGameState {
         stateWithBuildings(
             [.barracks],
             gold: gold,
             keepRemaining: keepRemaining,
             cityNumberInCountry: cityNumberInCountry,
-            completedCityCount: completedCityCount
+            completedCityCount: completedCityCount,
+            selectedLane: selectedLane
         )
     }
 
+    /// `selectedLane` pins the assault lane. City 1's default center route spends
+    /// damage on the Gate first, so Keep-direct and tower-covered tests pass `.right`.
     private func stateWithBuildings(
         _ buildingTypes: [BuildingType],
         gold: Int = 100,
         keepRemaining: Int = 20,
         cityNumberInCountry: Int = 1,
-        completedCityCount: Int = 0
+        completedCityCount: Int = 0,
+        selectedLane: BattleLane? = nil
     ) -> KingdomGameState {
         let cityKey = CityKey(countryNumber: 1, cityNumber: cityNumberInCountry)
         let slots = Dictionary(
@@ -3778,13 +3788,19 @@ struct BattleSceneTests {
             completedCityCount: completedCityCount,
             cityBattleStates: [cityKey.storageKey: CityBattleState(slots: slots)]
         )
+        if let selectedLane {
+            state.siegeProgress.selectedLane = selectedLane
+        }
         SiegeTestSupport.setKeepRemaining(keepRemaining, on: &state)
         return state
     }
 
-    private func idleConquestReadyState() -> KingdomGameState {
+    private func idleConquestReadyState(selectedLane: BattleLane? = nil) -> KingdomGameState {
         let backgroundAt = Date(timeIntervalSince1970: 1_000)
         var state = KingdomGameState(gold: 100)
+        if let selectedLane {
+            state.siegeProgress.selectedLane = selectedLane
+        }
         SiegeTestSupport.setKeepRemaining(1, on: &state)
         _ = state.buildBuilding(.barracks, inSlot: 1, at: backgroundAt)
         return state
@@ -4868,7 +4884,9 @@ struct BattleSceneTests {
     }
 
     @Test func touchesEndedContinueDisablesAndRoutes() throws {
-        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1, completedCityCount: 0))
+        let store = try makeStore(
+            initialState: stateWithBarracks(keepRemaining: 1, completedCityCount: 0, selectedLane: .right)
+        )
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         scene.spawnSoldierForTesting()
@@ -4944,7 +4962,9 @@ struct BattleSceneTests {
     }
 
     @Test func requestCountryMapBlocksWhenConquestPopupVisible() throws {
-        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 1, completedCityCount: 0))
+        let store = try makeStore(
+            initialState: stateWithBarracks(keepRemaining: 1, completedCityCount: 0, selectedLane: .right)
+        )
         let router = BattleRouterSpy()
         let scene = makeScene(store: store, router: router)
         scene.spawnSoldierForTesting()
@@ -5434,7 +5454,10 @@ struct BattleSceneTests {
 
     @Test("Non-pilot cities render no siege objective nodes or coverage")
     func nonPilotCityRendersNoSiegeObjectivesOrCoverage() throws {
-        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks()))
+        // City 2 is the single-Keep representative; City 1 authors a Gate.
+        let scene = makeScene(store: try makeStore(
+            initialState: stateWithBarracks(cityNumberInCountry: 2, completedCityCount: 1)
+        ))
 
         #expect(scene.siegeObjectiveNodeCountForTesting == 0)
         #expect(scene.siegeCoveredLanesForTesting.isEmpty)
@@ -5501,7 +5524,9 @@ struct BattleSceneTests {
 
     @Test("Non-pilot defensive fire keeps the per-lane gate origin")
     func nonPilotDefensiveFireKeepsLaneGateOrigin() throws {
-        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(keepRemaining: 100)))
+        let scene = makeScene(store: try makeStore(
+            initialState: stateWithBarracks(keepRemaining: 100, cityNumberInCountry: 2, completedCityCount: 1)
+        ))
         let lane = scene.gameStateForTesting.siegeProgress.selectedLane
 
         scene.spawnSoldierForTesting()
@@ -5632,13 +5657,16 @@ struct BattleSceneTests {
 
     @Test("A live hit inside the damaged stage requests no Living Kingdom transition")
     func liveHitWithinDamagedStageRequestsNoTransition() throws {
-        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks(keepRemaining: 12)))
+        // City 1's Keep max is 15 (Gate holds 5): 7 sits in the damaged band (4...9).
+        let scene = makeScene(store: try makeStore(
+            initialState: stateWithBarracks(keepRemaining: 7, selectedLane: .right)
+        ))
         #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-damaged")
 
         scene.spawnSoldierForTesting()
-        advanceCombatUntil(scene) { scene.keepRemainingPowerForTesting < 12 }
+        advanceCombatUntil(scene) { scene.keepRemainingPowerForTesting < 7 }
 
-        #expect(scene.keepRemainingPowerForTesting < 12)
+        #expect(scene.keepRemainingPowerForTesting < 7)
         #expect(scene.livingKingdomTransitionEffectsForTesting.isEmpty)
         #expect(scene.appliedLivingKingdomFortressAssetForTesting == "lk-city-frontier-damaged")
     }
@@ -5836,7 +5864,8 @@ struct BattleSceneTests {
         scene.handleTouchForTesting(at: CGPoint(x: layout.cityProgressFrame.midX, y: layout.cityProgressFrame.midY))
 
         let tooltip = try #require(scene.lastPresentedTooltipTextForTesting)
-        #expect(tooltip.contains("10/20"))
+        let keepMax = store.load().currentKeepMaxPower
+        #expect(tooltip.contains("10/\(keepMax)"))
     }
 
     @Test func keepSpriteHPBarReflectsTheKeepHPRatio() throws {
@@ -6147,7 +6176,9 @@ struct BattleSceneTests {
 
     @Test("Non-pilot city creates no Guard or Barracks nodes")
     func nonPilotCityCreatesNoGuardOrBarracksNodes() throws {
-        let scene = makeScene(store: try makeStore(initialState: stateWithBarracks()))
+        let scene = makeScene(store: try makeStore(
+            initialState: stateWithBarracks(cityNumberInCountry: 2, completedCityCount: 1)
+        ))
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 6.2)
 
