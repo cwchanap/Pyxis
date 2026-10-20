@@ -308,6 +308,51 @@ struct Country1CityCatalogTests {
         )
     )
 
+    /// The authored Ashbridge three-route siege layout (HPA-477), shared by the fixture entry.
+    /// The Gate guards the left route, the Barracks the centre, and the Tower the right.
+    private static let ashbridgeSiegeLayout = CitySiegeLayout(
+        objectives: [
+            .init(
+                id: "ashbridge.keep",
+                kind: .keep,
+                durabilityWeight: 30,
+                visualLane: .center,
+                visualProgress: 1.0
+            ),
+            .init(
+                id: "ashbridge.gate",
+                kind: .gate,
+                durabilityWeight: 1,
+                visualLane: .left,
+                visualProgress: 0.80
+            ),
+            .init(
+                id: "ashbridge.barracks",
+                kind: .barracks,
+                durabilityWeight: 1,
+                visualLane: .center,
+                visualProgress: 0.72
+            ),
+            .init(
+                id: "ashbridge.arrow-tower",
+                kind: .arrowTower,
+                durabilityWeight: 1,
+                visualLane: .right,
+                visualProgress: 0.83
+            )
+        ],
+        routes: [
+            .left: ["ashbridge.gate", "ashbridge.keep"],
+            .center: ["ashbridge.barracks", "ashbridge.keep"],
+            .right: ["ashbridge.arrow-tower", "ashbridge.keep"]
+        ],
+        defaultLane: .left,
+        defensiveFire: .init(
+            sourceObjectiveID: "ashbridge.arrow-tower",
+            coveredLanes: BattleLane.allCases
+        )
+    )
+
     /// The authored Falconridge tactical siege layout, shared by the
     /// fixture entry and the dedicated pin test.
     private static let falconridgeSiegeLayout = CitySiegeLayout(
@@ -475,7 +520,17 @@ struct Country1CityCatalogTests {
             .frontier,
             siegeLayout: kingshieldSiegeLayout
         ),
-        .init(12, name: "Ashbridge", flavorText: "Fire cauldrons guard the last crossing.", conquestTitle: "Ashbridge Secured", .burningOil, .right, .center, .ember),
+        .init(
+            12,
+            name: "Ashbridge",
+            flavorText: "Fire cauldrons guard the last crossing.",
+            conquestTitle: "Ashbridge Secured",
+            .burningOil,
+            .right,
+            .center,
+            .ember,
+            siegeLayout: ashbridgeSiegeLayout
+        ),
         .init(13, name: "Starveil Citadel", flavorText: "Arcane wards protect the capital heights.", conquestTitle: "Starveil Citadel Falls", .arcaneWard, .left, .right, .arcane),
         .init(14, name: "Stonecrown", flavorText: "Massive stone walls ring the royal seat.", conquestTitle: "Stonecrown Breached", .stoneWall, .center, .left, .frontier),
         .init(15, name: "Crownspire Keep", flavorText: "The final keep rises above the capital.", conquestTitle: "Crownspire Keep Falls", .reinforcedKeep, .right, .center, .royal)
@@ -870,9 +925,40 @@ struct Country1CityCatalogTests {
         #expect(kingshieldPower["kingshield-keep.barracks", default: 0] > 0)
         #expect(kingshieldPower["kingshield-keep.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 11))
 
-        // Cities 1 (Willowford) through 11 (Kingshield Keep) author tactical layouts. The rest stay
+        // City 12 (Ashbridge) puts the Gate, the Barracks and the Tower on three routes (HPA-477).
+        // The Gate guards the left route, the default (standard) lane; the Barracks guards the
+        // centre route; the Tower guards the right route. The Tower is the only fire source and
+        // covers every lane. The flame identity stays in the burning-oil defense trait.
+        let ashbridge = Country1CityCatalog.definition(for: 12).siegeLayout
+        #expect(ashbridge.objectives.map(\.id) == [
+            "ashbridge.keep", "ashbridge.gate", "ashbridge.barracks", "ashbridge.arrow-tower"
+        ])
+        #expect(ashbridge.keepObjective.id == "ashbridge.keep")
+        #expect(ashbridge.objective(id: "ashbridge.gate")?.kind == .gate)
+        #expect(ashbridge.objective(id: "ashbridge.gate")?.visualProgress == 0.80)
+        #expect(ashbridge.objective(id: "ashbridge.gate")?.visualLane == .left)
+        #expect(ashbridge.objective(id: "ashbridge.barracks")?.kind == .barracks)
+        #expect(ashbridge.objective(id: "ashbridge.barracks")?.visualProgress == 0.72)
+        #expect(ashbridge.objective(id: "ashbridge.barracks")?.visualLane == .center)
+        #expect(ashbridge.objective(id: "ashbridge.arrow-tower")?.kind == .arrowTower)
+        #expect(ashbridge.objective(id: "ashbridge.arrow-tower")?.visualProgress == 0.83)
+        #expect(ashbridge.objective(id: "ashbridge.arrow-tower")?.visualLane == .right)
+        #expect(ashbridge.routes[.left] == ["ashbridge.gate", "ashbridge.keep"])
+        #expect(ashbridge.routes[.center] == ["ashbridge.barracks", "ashbridge.keep"])
+        #expect(ashbridge.routes[.right] == ["ashbridge.arrow-tower", "ashbridge.keep"])
+        #expect(ashbridge.defensiveFire.sourceObjectiveID == "ashbridge.arrow-tower")
+        #expect(ashbridge.defensiveFire.coveredLanes == BattleLane.allCases)
+        #expect(ashbridge.barracksObjective?.id == "ashbridge.barracks")
+        #expect(ashbridge.defaultLane == .left)
+        let ashbridgePower = ashbridge.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 12))
+        #expect(ashbridgePower["ashbridge.gate", default: 0] > 0)
+        #expect(ashbridgePower["ashbridge.barracks", default: 0] > 0)
+        #expect(ashbridgePower["ashbridge.arrow-tower", default: 0] > 0)
+        #expect(ashbridgePower["ashbridge.keep", default: 0] * 2 > KingdomGameState.cityMaxPower(for: 12))
+
+        // Cities 1 (Willowford) through 12 (Ashbridge) author tactical layouts. The rest stay
         // single-Keep on their standard lane until later tasks author them.
-        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        let authoredCityNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         for definition in Country1CityCatalog.definitions where !authoredCityNumbers.contains(definition.cityNumber) {
             #expect(
                 definition.siegeLayout == .singleKeep(defaultLane: definition.laneDefenseProfile.standardLane),
