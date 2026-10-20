@@ -189,6 +189,18 @@ struct Country1SiegeSmokeTests {
         .init(type: .barracks, level: 1)
     ]
 
+    /// Watch-only camps for the authored Country 1 cities (HPA-477). Budget is
+    /// the production starting gold (15) plus the rewards earned through the
+    /// previous city (`goldReward` 8, 12, 17, ...). Only building types unlocked
+    /// by the city are used. Buildings are reset on conquest, so each camp is
+    /// bought fresh. Soldier upgrade stays at 1, so soldiers cost nothing extra.
+    ///
+    /// City 2: budget 23 (15 + 8); unlocked Barracks, Archery Range.
+    /// Barracks L1 = 15 (leftover 8).
+    private static let city2Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 1)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -247,6 +259,20 @@ struct Country1SiegeSmokeTests {
             city: 1,
             lane: .center,
             camp: Self.city1Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    @Test("City 2 default lane watch-only conquers inside the bounded simulated budget")
+    func city2WatchOnlyDefaultLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 2,
+            lane: .right,
+            camp: Self.city2Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
