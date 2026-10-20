@@ -59,6 +59,31 @@ struct Country1CityCatalogTests {
         }
     }
 
+    /// Compares a catalog definition with its authored expectation. A city whose siege
+    /// layout is pinned (Cities 1-12) compares the full definition. A city whose layout
+    /// is not authored yet (13-15) compares identity only, so these checks stay
+    /// independent of the single-Keep fallback that `CityDefinition` substitutes.
+    private static func matchesExpected(_ actual: CityDefinition?, _ expected: ExpectedDefinition) -> Bool {
+        guard let actual else { return false }
+        guard expected.siegeLayout == nil else { return actual == expected.definition }
+        return withoutAuthoredLayout(actual) == withoutAuthoredLayout(expected.definition)
+    }
+
+    /// Rebuilds a definition with a nil layout, so both sides of an identity-only
+    /// comparison carry the same fallback layout and only identity fields decide.
+    private static func withoutAuthoredLayout(_ definition: CityDefinition) -> CityDefinition {
+        CityDefinition(
+            cityNumber: definition.cityNumber,
+            name: definition.name,
+            flavorText: definition.flavorText,
+            conquestTitle: definition.conquestTitle,
+            defenseTrait: definition.defenseTrait,
+            laneDefenseProfile: definition.laneDefenseProfile,
+            visualFamily: definition.visualFamily,
+            siegeLayout: nil
+        )
+    }
+
     /// The authored Willowford tactical siege layout (HPA-477), shared by the
     /// fixture entry. City 1 has no Barracks and no Captain.
     private static let willowfordSiegeLayout = CitySiegeLayout(
@@ -545,19 +570,19 @@ struct Country1CityCatalogTests {
         #expect(actualDefinitions.count == Country1CityCatalog.cityRange.count)
         #expect(actualNumbers == expectedNumbers)
         #expect(Set(actualNumbers).count == actualNumbers.count)
-        #expect(actualDefinitions == Self.expectedDefinitions.map(\.definition))
+        #expect(zip(actualDefinitions, Self.expectedDefinitions).allSatisfy { Self.matchesExpected($0.0, $0.1) })
     }
 
     @Test func definitionLookupClampsToCountryOneBounds() {
-        let cityOne = Self.expectedDefinitions[0].definition
-        let cityFifteen = Self.expectedDefinitions[14].definition
+        let cityOne = Self.expectedDefinitions[0]
+        let cityFifteen = Self.expectedDefinitions[14]
 
-        #expect(Country1CityCatalog.definition(for: -4) == cityOne)
-        #expect(Country1CityCatalog.definition(for: 0) == cityOne)
-        #expect(Country1CityCatalog.definition(for: 1) == cityOne)
-        #expect(Country1CityCatalog.definition(for: 15) == cityFifteen)
-        #expect(Country1CityCatalog.definition(for: 16) == cityFifteen)
-        #expect(Country1CityCatalog.definition(for: 18) == cityFifteen)
+        #expect(Self.matchesExpected(Country1CityCatalog.definition(for: -4), cityOne))
+        #expect(Self.matchesExpected(Country1CityCatalog.definition(for: 0), cityOne))
+        #expect(Self.matchesExpected(Country1CityCatalog.definition(for: 1), cityOne))
+        #expect(Self.matchesExpected(Country1CityCatalog.definition(for: 15), cityFifteen))
+        #expect(Self.matchesExpected(Country1CityCatalog.definition(for: 16), cityFifteen))
+        #expect(Self.matchesExpected(Country1CityCatalog.definition(for: 18), cityFifteen))
     }
 
     @Test func everyAuthoredProfileHasExactlyOneLaneOfEachRole() {
@@ -583,7 +608,7 @@ struct Country1CityCatalogTests {
                 KingdomGameState.defenseTrait(forCityNumber: expected.cityNumber)
                     == expected.defenseTrait
             )
-            #expect(state.currentCityDefinition == expected.definition)
+            #expect(Self.matchesExpected(state.currentCityDefinition, expected))
             #expect(state.currentCityDefenseTrait == expected.defenseTrait)
             #expect(
                 state.currentCityLaneDefenseProfile
@@ -607,7 +632,7 @@ struct Country1CityCatalogTests {
         }
 
         let actualDefinitions = Country1CityCatalog.definitions
-        #expect(actualDefinitions == Self.expectedDefinitions.map(\.definition))
+        #expect(zip(actualDefinitions, Self.expectedDefinitions).allSatisfy { Self.matchesExpected($0.0, $0.1) })
     }
 
     @Test func authoredCityNamesAreUniqueCaseInsensitively() {
@@ -974,7 +999,7 @@ struct Country1CityCatalogTests {
         #expect(Country1CityCatalog.definitionIfPresent(for: 18) == nil)
 
         for expected in Self.expectedDefinitions {
-            #expect(Country1CityCatalog.definitionIfPresent(for: expected.cityNumber) == expected.definition)
+            #expect(Self.matchesExpected(Country1CityCatalog.definitionIfPresent(for: expected.cityNumber), expected))
         }
     }
 

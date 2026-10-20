@@ -489,9 +489,9 @@ struct ActiveSiegeLifecycleTests {
         #expect(state.completeCurrentCity(with: pending).awarded == false)
     }
 
-    @Test func singleKeepCityKeepsNilGuardStateAndUnchangedSiegeFlow() throws {
-        // The first derived single-Keep city (City 9 until its layout is authored).
-        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
+    @Test func keepOnlyLaneKeepsNilGuardStateAndUnchangedSiegeFlow() throws {
+        // City 1 (Willowford) has no Barracks, and its .right route is Keep-only.
+        let cityNumber = 1
         var state = SiegeTestSupport.makeBattleState(atCity: cityNumber, keepRemaining: 10, selectedLane: .right)
 
         // Fresh entry carries no Guard scheduler state, and both the wave
@@ -504,17 +504,17 @@ struct ActiveSiegeLifecycleTests {
         ]) == false)
         #expect(state.siegeProgress.guardReinforcements == nil)
 
-        // The snapshot feeding combat keeps the unchanged single-keep shape:
-        // one objective whose defensive fire still covers every lane.
+        // The snapshot feeding combat keeps the Keep-direct lane shape: the .right
+        // route is the Keep alone, and the Keep carries the entry HP.
         let snapshot = state.currentSiegeSnapshot
-        #expect(snapshot.objectiveRemainingPower.count == 1)
-        #expect(snapshot.layout.defensiveFire.coveredLanes == BattleLane.allCases)
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        #expect(snapshot.layout.routes[.right] == [keepID])
+        #expect(snapshot.objectiveRemainingPower[keepID] == 10)
 
         // HPA-468 selected-lane objective combat is unchanged: the .right
         // route spends straight into the Keep, and combat never creates
         // Guard state.
         state.recordSoldierDeployment(type: .infantry, source: .manual, lane: .right)
-        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
         let keepMax = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)[keepID] ?? 0
         let first = state.applyLiveSoldierAttacks([
             SoldierAttackEvent(

@@ -2146,30 +2146,31 @@ struct BattleSceneTests {
     }
 
     @Test func manualSpawnUsesHighestMatchingBuildingLevelAndTraitAdjustedDamage() throws {
-        // City 15 (reinforced-Keep trait, single-Keep) so every lane is Keep-direct. City 11's
-        // Barracks route would absorb this damage before the Keep.
-        let cityKey = CityKey(countryNumber: 1, cityNumber: 15)
+        // City 6 (Granite Pass, stoneWall) has no Barracks, so no Guard absorption applies. Siege is
+        // favorable against stone (1.25x). Every route meets a Gate or Tower before the Keep, so the
+        // damage is read from total objective HP rather than the Keep alone.
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 6)
         let cityState = CityBattleState(
             slots: [
                 1: CityBuilding(type: .siegeWorkshop, level: 1),
                 2: CityBuilding(type: .siegeWorkshop, level: 3)
             ]
         )
-        var state = KingdomGameState(
+        let state = KingdomGameState(
             gold: 200,
-            cityNumberInCountry: 15,
-            completedCityCount: 14,
+            cityNumberInCountry: 6,
+            completedCityCount: 5,
             cityBattleStates: [cityKey.storageKey: cityState]
         )
-        SiegeTestSupport.setKeepRemaining(100, on: &state)
+        #expect(state.currentCityDefenseTrait == .stoneWall)
+        let initialObjectivePower = SiegeTestSupport.totalObjectiveRemainingPower(of: state)
         let store = try makeStore(initialState: state)
         let scene = makeScene(store: store)
 
-        let initialKeepHP = 100
         let expectedAttackPower = KingdomGameState.traitAdjustedSoldierAttackPower(
             for: .siege,
             level: 3,
-            defenseTrait: .reinforcedKeep
+            defenseTrait: .stoneWall
         )
 
         scene.selectManualSoldierTypeForTesting(.siege)
@@ -2182,7 +2183,7 @@ struct BattleSceneTests {
 
         scene.advanceCombatForTesting(deltaTime: 4.0)
 
-        #expect(store.load().currentKeepRemainingPower < initialKeepHP)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: store.load()) < initialObjectivePower)
     }
 
     @Test func buildingSpawnUsesTraitAdjustedAttackPower() throws {
@@ -5454,15 +5455,15 @@ struct BattleSceneTests {
         #expect(scene.siegeObjectiveNodeForTesting(.keep) == nil)
     }
 
-    @Test("Single-Keep cities render no siege objective nodes or coverage")
-    func singleKeepCityRendersNoSiegeObjectivesOrCoverage() throws {
-        // The first derived single-Keep city (City 9 until its layout is authored).
-        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
+    @Test("A Keep-only lane renders the Gate but no Keep node or tower coverage")
+    func keepOnlyLaneRendersNoKeepNodeOrCoverage() throws {
+        // City 1 (Willowford): the Gate is its only non-Keep objective, and it has no arrow tower.
         let scene = makeScene(store: try makeStore(
-            initialState: stateWithBarracks(cityNumberInCountry: cityNumber, completedCityCount: cityNumber - 1)
+            initialState: stateWithBarracks(selectedLane: .right)
         ))
 
-        #expect(scene.siegeObjectiveNodeCountForTesting == 0)
+        #expect(scene.siegeObjectiveNodeForTesting(.keep) == nil)
+        #expect(scene.siegeObjectiveNodeCountForTesting == 1)
         #expect(scene.siegeCoveredLanesForTesting.isEmpty)
     }
 
@@ -5525,15 +5526,11 @@ struct BattleSceneTests {
         #expect(abs(origin.y - centerGate.y) > 1)
     }
 
-    @Test("Single-Keep defensive fire keeps the per-lane gate origin")
-    func singleKeepDefensiveFireKeepsLaneGateOrigin() throws {
-        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
+    @Test("Keep-sourced defensive fire keeps the per-lane gate origin")
+    func keepSourcedDefensiveFireKeepsLaneGateOrigin() throws {
+        // City 1 (Willowford): the Keep is the fire source and covers only the .right lane.
         let scene = makeScene(store: try makeStore(
-            initialState: stateWithBarracks(
-                keepRemaining: 100,
-                cityNumberInCountry: cityNumber,
-                completedCityCount: cityNumber - 1
-            )
+            initialState: stateWithBarracks(keepRemaining: 100, selectedLane: .right)
         ))
         let lane = scene.gameStateForTesting.siegeProgress.selectedLane
 
@@ -6187,17 +6184,17 @@ struct BattleSceneTests {
         #expect(persisted.remainingReserve == 12)
     }
 
-    @Test("Single-Keep city creates no Guard or Barracks nodes")
-    func singleKeepCityCreatesNoGuardOrBarracksNodes() throws {
-        let cityNumber = try #require(SiegeTestSupport.singleKeepCityNumbers.first)
+    @Test("A Keep-only lane creates no Guard or Barracks nodes")
+    func keepOnlyLaneCreatesNoGuardOrBarracksNodes() throws {
+        // City 1 (Willowford) authors no Barracks objective, so its Barracks building spawns no Guards.
         let scene = makeScene(store: try makeStore(
-            initialState: stateWithBarracks(cityNumberInCountry: cityNumber, completedCityCount: cityNumber - 1)
+            initialState: stateWithBarracks(selectedLane: .right)
         ))
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 6.2)
 
         #expect(scene.siegeObjectiveNodeForTesting(.barracks) == nil)
-        #expect(scene.siegeObjectiveNodeCountForTesting == 0)
+        #expect(scene.siegeObjectiveNodeCountForTesting == 1)
         #expect(scene.livingGuardsForTesting.isEmpty)
         #expect(scene.guardNodeCountForTesting == 0)
     }

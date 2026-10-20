@@ -15,15 +15,6 @@ import Foundation
 /// math intentionally lives here only — production exposes Keep HP as the
 /// sole conquest/liveness authority.
 enum SiegeTestSupport {
-    /// City numbers whose authored layout is the single-Keep shape on their
-    /// standard lane. Derived from the catalog, so single-Keep suites keep a
-    /// valid representative until every Country 1 city authors its own layout.
-    static var singleKeepCityNumbers: [Int] {
-        Country1CityCatalog.definitions
-            .filter { $0.siegeLayout == .singleKeep(defaultLane: $0.laneDefenseProfile.standardLane) }
-            .map(\.cityNumber)
-    }
-
     /// Resolves the first objective of `kind` in the current city's authored
     /// layout, or nil when the layout has no such objective.
     static func objectiveID(
@@ -45,6 +36,17 @@ enum SiegeTestSupport {
             )
             .values
             .reduce(0, +)
+    }
+
+    /// Destroys every non-Keep objective of the current city, so the Keep is the
+    /// only live objective on every route. Layout-independent Keep-direct setup:
+    /// unlike a lane choice, it holds for any authored shape.
+    static func destroySupportObjectives(of state: inout KingdomGameState) {
+        let layout = state.currentSiegeLayout
+        let maxPowers = layout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        for objective in layout.objectives where objective.kind != .keep {
+            state.siegeProgress.damageByObjectiveID[objective.id] = maxPowers[objective.id, default: 0]
+        }
     }
 
     /// Builds a battle-active current-city state whose Keep sits at
