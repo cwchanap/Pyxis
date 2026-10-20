@@ -1168,6 +1168,54 @@ struct GameViewControllerTests {
         #expect(durable.remainingReserve == 3)
     }
 
+    @Test("Emberford Battle-to-Camp-to-Battle round trip never heals, refills, or restarts Guards")
+    func emberfordBattleTabRoundTripReconstructsGuardsWithoutHealRefillOrRestart() throws {
+        let layout = Country1CityCatalog.definition(for: 7).siegeLayout
+        let barracksMax = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: 7))[
+            layout.barracksObjective?.id ?? ""
+        ] ?? 0
+        var initialState = SiegeTestSupport.makeBattleState(
+            atCity: 7,
+            gold: 100,
+            keepRemaining: 300,
+            supportDamage: [.barracks: barracksMax / 2],
+            selectedLane: .left
+        )
+        initialState.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 4.5,
+            remainingReserve: 3,
+            unresolvedGuards: [
+                GuardSnapshot(lane: .left, remainingHP: 5),
+                GuardSnapshot(lane: .right, remainingHP: 9)
+            ]
+        )
+        let store = try makeStore(initialState: initialState)
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let firstBattle = try #require(view.scene as? BattleScene)
+        #expect(firstBattle.livingGuardsForTesting.count == 2)
+
+        // Leave Battle for Camp.
+        controller.battleSceneDidRequestGameplayTab(firstBattle, tab: .camp)
+        let camp = try #require(view.scene as? BuildingViewScene)
+        let persistedAfterLeaving = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(persistedAfterLeaving == initialState.siegeProgress.guardReinforcements)
+
+        // Return to Battle: the reconstructed Guards keep their persisted lanes and unhealed HP,
+        // and the durable phase and reserve are untouched.
+        controller.buildingViewSceneDidRequestGameplayTab(camp, tab: .battle)
+        let secondBattle = try #require(view.scene as? BattleScene)
+        let guards = secondBattle.livingGuardsForTesting
+        #expect(guards.map(\.lane) == [.left, .right])
+        #expect(guards.map(\.currentHP) == [5, 9])
+        let keepProgress = layout.keepObjective.visualProgress
+        #expect(guards.map(\.position) == [keepProgress, keepProgress])
+        let durable = try #require(store.load().siegeProgress.guardReinforcements)
+        #expect(durable == initialState.siegeProgress.guardReinforcements)
+    }
+
     @Test func bindAccessibilityAdapterIsNoOpWhenAdapterAlreadyExists() throws {
         let context = GameViewControllerRuntimeTestContext()
         let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))

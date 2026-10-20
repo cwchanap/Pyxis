@@ -2881,6 +2881,52 @@ struct CountryMapSceneTests {
         #expect(router.requestedTabs == [.battle])
     }
 
+    @Test("Emberford current-city RETURN settlement absorbs through Guards without healing them")
+    func emberfordCurrentCityReturnSettlementAbsorbsThroughGuardsWithoutHealing() throws {
+        // The same armed window as the Highcrest case: one spawn and one due wave on the
+        // Barracks lane, absorbed by Guards before any city damage, routed to Battle.
+        let anchor = Date(timeIntervalSinceNow: -120)
+        // Keep HP above City 7's authored Keep maximum, so the Keep starts whole.
+        var initialState = SiegeTestSupport.makeBattleState(
+            atCity: 7,
+            gold: 100,
+            keepRemaining: 5_000,
+            selectedLane: .left
+        )
+        initialState.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 5.5,
+            remainingReserve: Country1GuardRules.totalReserve - 1,
+            unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 5)]
+        )
+        initialState.cityBattleStates[initialState.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks)],
+            lastBuildingProgressResolvedAt: anchor
+        )
+        initialState.markCurrentCityBuildingProgressInactive(at: anchor)
+
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let cityPoint = try #require(scene.cityNodePositionForTesting(7))
+
+        scene.handleTouchForTesting(at: cityPoint)
+        scene.handleTouchForTesting(at: try #require(scene.scoutCardAttackHitFrameForTesting).center)
+
+        let saved = store.load()
+        let progress = try #require(saved.siegeProgress.guardReinforcements)
+        let firstGuard = try #require(progress.unresolvedGuards.first)
+        let power = saved.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
+        #expect(progress.remainingReserve == 3)
+        #expect(progress.unresolvedGuards.count == 9)
+        #expect(progress.unresolvedGuards.reduce(0) { $0 + $1.remainingHP }
+            == 5 + Country1GuardRules.maxHP * 8 - power)
+        #expect(firstGuard.remainingHP < 5)
+        #expect(saved.currentKeepRemainingPower == saved.currentKeepMaxPower)
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.pendingBattleResult == nil)
+        #expect(router.requestedTabs == [.battle])
+    }
+
     private final class RouteSpy: CountryMapSceneRouting {
         var acceptsBattleRequest = true
         var onBattleRequest: ((Int) -> Void)?
