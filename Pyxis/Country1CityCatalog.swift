@@ -297,7 +297,43 @@ enum Country1CityCatalog {
             conquestTitle: "Greywall Falls",
             defenseTrait: .stoneWall,
             laneDefenseProfile: LaneDefenseProfile(fortifiedLane: .center, exposedLane: .left),
-            visualFamily: .frontier
+            visualFamily: .frontier,
+            siegeLayout: CitySiegeLayout(
+                objectives: [
+                    // 6:3:2 Keep:Tower:Gate HP (2317 + 1158 + 772 of 4247): the Keep is the
+                    // majority and the conquest authority. The Tower sits between the Gate and
+                    // the Keep share and is the only fire source, covering every lane. The
+                    // shared Gate sits on the centre lane (centre and right routes).
+                    .init(
+                        id: "greywall.keep",
+                        kind: .keep,
+                        durabilityWeight: 6,
+                        visualLane: .center,
+                        visualProgress: 1.0
+                    ),
+                    .init(
+                        id: "greywall.arrow-tower",
+                        kind: .arrowTower,
+                        durabilityWeight: 3,
+                        visualLane: .left,
+                        visualProgress: 0.80
+                    ),
+                    .init(
+                        id: "greywall.gate",
+                        kind: .gate,
+                        durabilityWeight: 2,
+                        visualLane: .center,
+                        visualProgress: 0.77
+                    )
+                ],
+                routes: [
+                    .left: ["greywall.arrow-tower", "greywall.keep"],
+                    .center: ["greywall.gate", "greywall.keep"],
+                    .right: ["greywall.gate", "greywall.keep"]
+                ],
+                defaultLane: .right,
+                defensiveFire: .init(sourceObjectiveID: "greywall.arrow-tower", coveredLanes: BattleLane.allCases)
+            )
         ),
         CityDefinition(
             cityNumber: 9,

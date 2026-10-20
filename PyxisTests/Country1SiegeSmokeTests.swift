@@ -225,6 +225,20 @@ struct Country1SiegeSmokeTests {
         .init(type: .stable, level: 2)
     ]
 
+    /// City 8 smoke camp, NOT progression-realistic (controller ruling R8). Budget is
+    /// 236 (15 + 221). Budget-fit camps stall at the 900 s bound with 145-283 losses:
+    /// Barracks L4 + Archery L3 + Stable L2 + Mage L1 (225) and similar mixes. Tower
+    /// fire (12 damage, 11 after defence, every 1.25 s, covering every lane) kills
+    /// early soldiers before they breach the Gate. This accelerated camp uses two
+    /// Barracks L5 + Archery Range L2 + Stable L2 = 350 (~1.5x budget) and conquers
+    /// at 156.7 s. It checks route plumbing and no-stall only, not balance.
+    private static let city8Camp: [Country1SiegeSmoke.Building] = [
+        .init(type: .barracks, level: 5),
+        .init(type: .barracks, level: 5),
+        .init(type: .archeryRange, level: 2),
+        .init(type: .stable, level: 2)
+    ]
+
     @Test("City 3 default lane conquers inside the bounded simulated budget")
     func city3DefaultLaneConquersWithinBound() {
         let result = Country1SiegeSmoke.run(
@@ -339,6 +353,20 @@ struct Country1SiegeSmokeTests {
             city: 7,
             lane: .center,
             camp: Self.city7Camp,
+            soldierUpgradeLevel: 1,
+            seed: Self.seed,
+            manualSpawnsEnabled: false
+        )
+        print(Country1SiegeSmoke.line(for: result))
+        #expect(result.reachedConquest)
+    }
+
+    @Test("City 8 default lane watch-only conquers inside the bounded simulated budget")
+    func city8WatchOnlyDefaultLaneConquersWithinBound() {
+        let result = Country1SiegeSmoke.run(
+            city: 8,
+            lane: .right,
+            camp: Self.city8Camp,
             soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
