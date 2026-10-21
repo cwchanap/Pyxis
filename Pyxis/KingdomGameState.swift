@@ -311,7 +311,10 @@ struct KingdomGameState: Codable, Equatable {
     /// Forgiving normalization of persisted siege progress (HPA-468):
     /// unknown objective IDs are discarded, damage clamps to authored
     /// maxima, and a missing progress falls back to the authored default
-    /// lane with zero damage. When `requiresLivingKeep` is set (`.battleActive`),
+    /// lane with zero damage. The one discarded-ID exception is the
+    /// pre-rollout `"keep"` key (HPA-477): it migrates onto the authored
+    /// Keep via `migratedLegacyKeepDamage` instead of resetting an
+    /// in-progress siege to full HP. When `requiresLivingKeep` is set (`.battleActive`),
     /// a fully-damaged Keep is clamped to leave 1 HP: no real flow persists
     /// that shape — conquest finalizes exactly once and moves the stage out
     /// of `.battleActive` — so a dead-Keep-active save is a crafted/corrupt
@@ -329,7 +332,12 @@ struct KingdomGameState: Codable, Equatable {
     ) -> SiegeProgress {
         let maxPowers = layout.maxPowerAllocation(totalBudget: totalBudget)
         var damageByObjectiveID: [String: Int] = [:]
-        for (objectiveID, rawDamage) in progress?.damageByObjectiveID ?? [:] {
+        for (objectiveID, rawDamage) in migratedLegacyKeepDamage(
+            progress?.damageByObjectiveID ?? [:],
+            layout: layout,
+            maxPowers: maxPowers,
+            totalBudget: totalBudget
+        ) {
             guard let maxPower = maxPowers[objectiveID] else { continue }
             damageByObjectiveID[objectiveID] = min(max(0, rawDamage), maxPower)
         }
@@ -349,6 +357,41 @@ struct KingdomGameState: Codable, Equatable {
                 : nil,
             captain: progress?.captain
         )
+    }
+
+    /// Maps the pre-rollout `"keep"` damage key onto the authored Keep for
+    /// `normalizedSiegeProgress` (HPA-477). Before the Country 1 tactical
+    /// rollout every city used the default `singleKeep` layout, so
+    /// persisted damage lived under that one objective ID while the
+    /// re-authored layouts use city-specific Keep IDs. The legacy Keep's
+    /// remaining-HP fraction carries over — copying absolute damage would
+    /// over-reward, since the authored Keep holds only its
+    /// durability-weight share of the same total budget. A fully-spent
+    /// legacy Keep migrates as fully damaged and the `requiresLivingKeep`
+    /// clamp recovers it as nearly-conquered, matching the existing
+    /// crafted-save policy. Maps without the legacy key, or a layout whose
+    /// authored Keep still uses the `singleKeep` ID (the test fixture
+    /// shape), pass through untouched.
+    private static func migratedLegacyKeepDamage(
+        _ damageByObjectiveID: [String: Int],
+        layout: CitySiegeLayout,
+        maxPowers: [String: Int],
+        totalBudget: Int
+    ) -> [String: Int] {
+        let keepID = layout.keepObjective.id
+        let legacyKeepID = CitySiegeLayout.singleKeepObjectiveID
+        guard keepID != legacyKeepID, let legacyDamage = damageByObjectiveID[legacyKeepID] else {
+            return damageByObjectiveID
+        }
+
+        var migrated = damageByObjectiveID
+        migrated.removeValue(forKey: legacyKeepID)
+        let legacyKeepMax = max(1, totalBudget) // the old single Keep held the whole budget
+        let remainingFraction = Double(max(0, legacyKeepMax - max(0, legacyDamage))) / Double(legacyKeepMax)
+        let keepMaxPower = maxPowers[keepID] ?? 0
+        let migratedDamage = keepMaxPower - Int((remainingFraction * Double(keepMaxPower)).rounded())
+        migrated[keepID] = max(migrated[keepID] ?? 0, migratedDamage)
+        return migrated
     }
 
     /// Applies the City 3+ Captain rules (HPA-475) after generic siege

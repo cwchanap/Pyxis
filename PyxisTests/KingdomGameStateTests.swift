@@ -1923,6 +1923,64 @@ struct KingdomGameStateTests {
         #expect((combat.soldiers.first?.position ?? 0) > 0)
     }
 
+    // MARK: Pre-rollout keep-damage migration (HPA-477)
+
+    @Test func decodingPreRolloutKeepDamageMigratesOntoAuthoredKeep() throws {
+        // Pre-rollout saves stored every city's siege damage under the
+        // default single-Keep "keep" ID. Re-authored layouts use
+        // city-specific Keep IDs, so the legacy value migrates by
+        // remaining-HP fraction: Stonecrown's old Keep (the whole 419498
+        // budget) with 100 HP left lands on the authored Keep (370146 max)
+        // with 88 HP left instead of healing to full.
+        let data = Data("""
+        {
+          "gold": 40,
+          "cityLevel": 14,
+          "cityNumberInCountry": 14,
+          "completedCityCount": 13,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 2,
+            "damageByObjectiveID": { "keep": 419398 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.siegeProgress.selectedLane == .right)
+        #expect(state.siegeProgress.damageByObjectiveID["keep"] == nil)
+        #expect(state.siegeProgress.damageByObjectiveID["stonecrown.keep"] == 370058)
+        #expect(state.currentKeepMaxPower == 370146)
+        #expect(state.currentKeepRemainingPower == 88)
+        #expect(state.gold == 40)
+    }
+
+    @Test func decodingPreRolloutFullyDamagedKeepRecoversAsNearlyConquered() throws {
+        // A legacy Keep already at zero remaining HP migrates as fully
+        // damaged, then the battleActive living-Keep clamp still recovers
+        // the save as nearly-conquered rather than dead-forever.
+        let data = Data("""
+        {
+          "cityLevel": 14,
+          "cityNumberInCountry": 14,
+          "completedCityCount": 13,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": { "keep": 419498 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.siegeProgress.damageByObjectiveID["stonecrown.keep"] == 370145)
+        #expect(state.currentKeepRemainingPower == 1)
+    }
+
     // MARK: Highcrest Guard reinforcement normalization (HPA-469)
 
     /// A Highcrest battle-active save payload with the given raw
