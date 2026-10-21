@@ -238,9 +238,13 @@ struct GameplaySoundOutputControllerTests {
 
         clock.setNow(51)
         controller.play(.deployment)
-        try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+        // `contains`, not `== [.deployment]`: if this play dequeues after the
+        // clock already reads 51, the earlier "suppressed" play may dequeue at
+        // 51 as well and also schedule — an exact-equality wait would then
+        // never succeed even though the cooldown demonstrably expired.
+        try await waitUntil { backend.scheduledSoundIDs.contains(.deployment) }
 
-        guard backend.scheduledSoundIDs != [.deployment] else {
+        guard !backend.scheduledSoundIDs.contains(.deployment) else {
             return
         }
         // Post-mortem for the CI-only timeout: prove whether the queue,
@@ -250,9 +254,11 @@ struct GameplaySoundOutputControllerTests {
         clock.setNow(1000)
         controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.contains(.attackMelee) }
-        Issue.record(
-            "DIAG calls=\(backend.callLog) scheduled=\(backend.scheduledSoundIDs) requests=\(backend.activeSessionRequests) clock=\(clock.now)"
-        )
+        let calls = backend.callLog
+        let scheduled = backend.scheduledSoundIDs
+        let requests = backend.activeSessionRequests
+        let now = clock.now
+        Issue.record("DIAG calls=\(calls) scheduled=\(scheduled) requests=\(requests) clock=\(now)")
     }
 
     @Test func lifecycleRecoveryClearsActivationCooldownForAnImmediateRetry() async throws {
