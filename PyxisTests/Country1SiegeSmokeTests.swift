@@ -606,11 +606,12 @@ struct Country1SiegeSmokeTests {
         #expect(result.reachedConquest)
     }
 
-    /// City 9 Barracks route is the default (standard) lane. The printed line carries the
-    /// Barracks shutdown time and the Guard waves/reserve; the shutdown lands before the first
-    /// 30 s Guard wave (27.4 s, reserve 12 unspent).
+    /// City 9 Barracks route is the default (standard) lane. Barracks-first shuts the Guards
+    /// down strictly before the first wave interval, so no Guards deploy and the reserve stays
+    /// full (observed 27.4 s, reserve 12 unspent); the assertions cover that behavior, not the
+    /// exact balance numbers.
     @Test("City 9 default Barracks lane watch-only conquers inside the bounded simulated budget")
-    func city9WatchOnlyBarracksLaneConquersWithinBound() {
+    func city9WatchOnlyBarracksLaneConquersWithinBound() throws {
         let result = Country1SiegeSmoke.run(
             city: 9,
             lane: .left,
@@ -621,6 +622,10 @@ struct Country1SiegeSmokeTests {
         )
         print(Country1SiegeSmoke.line(for: result))
         #expect(result.reachedConquest)
+        let barracksShutdownSeconds = try #require(result.barracksShutdownSeconds)
+        #expect(barracksShutdownSeconds < Country1GuardRules.waveIntervalSeconds)
+        #expect(result.guardsSpawned == 0)
+        #expect(result.guardReserveRemaining == Country1GuardRules.totalReserve)
     }
 
     /// City 10 default Gate lane is the standard lane (centre). The Tower route is the left lane.
