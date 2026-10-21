@@ -197,11 +197,12 @@ struct GameplaySoundOutputControllerTests {
 
         controller.play(.deployment)
         try await waitUntil { backend.activeSessionRequests.count == 1 }
+        controller.drainOutputQueueForTesting()
         #expect(backend.scheduledSoundIDs.isEmpty)
 
         clock.setNow(10.999)
         controller.play(.deployment)
-        try await settleOutput()
+        controller.drainOutputQueueForTesting()
         #expect(backend.activeSessionRequests.count == 1)
         #expect(backend.scheduledSoundIDs.isEmpty)
 
@@ -229,10 +230,11 @@ struct GameplaySoundOutputControllerTests {
 
         controller.play(.deployment)
         try await waitUntil { backend.activeSessionRequests.count == 1 }
+        controller.drainOutputQueueForTesting()
 
         clock.setNow(50.999)
         controller.play(.deployment)
-        try await settleOutput()
+        controller.drainOutputQueueForTesting()
         #expect(backend.activeSessionRequests.count == 1)
         #expect(backend.scheduledSoundIDs.isEmpty)
 
@@ -254,7 +256,7 @@ struct GameplaySoundOutputControllerTests {
         clock.setNow(1000)
         controller.play(.attackMelee)
         try await waitUntil { backend.scheduledSoundIDs.contains(.attackMelee) }
-        let calls = backend.callLog
+        let calls = backend.calls
         let scheduled = backend.scheduledSoundIDs
         let requests = backend.activeSessionRequests
         let now = clock.now
@@ -1009,9 +1011,6 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     private let beforeFailingActivation: (() -> Void)?
     private var remainingActivationFailures: Int
     private var recordedCalls: [Call] = []
-    var callLog: [Call] {
-        withLock { recordedCalls }
-    }
     private var recordedPreparedResourceIDs: [GameplaySoundID] = []
     private var recordedCreatedVoiceIndices: [Int] = []
     private var recordedVoiceOperations: [Int: [VoiceOperation]] = [:]
