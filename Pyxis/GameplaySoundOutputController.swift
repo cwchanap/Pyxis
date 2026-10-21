@@ -371,13 +371,23 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
         }
 
         var sessionActivated = false
+        var failureAt: TimeInterval?
         do {
             try backendQueue.sync {
-                try backend.setSessionActive(true, notifyOthers: false)
-                sessionActivated = true
-                try backend.startEngine()
-                guard backend.isEngineRunning else {
-                    throw ActivationError.engineNotRunningAfterStart
+                do {
+                    try backend.setSessionActive(true, notifyOthers: false)
+                    sessionActivated = true
+                    try backend.startEngine()
+                    guard backend.isEngineRunning else {
+                        throw ActivationError.engineNotRunningAfterStart
+                    }
+                } catch {
+                    // Latch the failure time on the backend thread so the retry
+                    // cooldown starts when the failure actually occurred, not
+                    // when the outputQueue thread wakes from this synchronous
+                    // call (that wakeup gap is unbounded under system load).
+                    failureAt = clock.now
+                    throw error
                 }
             }
             isOutputActive = true
@@ -394,7 +404,7 @@ final class GameplaySoundOutputController: GameplaySoundOutput {
                 }
             }
 
-            nextActivationAttemptAt = clock.now + 1.0
+            nextActivationAttemptAt = (failureAt ?? clock.now) + 1.0
             log("Gameplay sound activation failed: \(error)")
             return false
         }
