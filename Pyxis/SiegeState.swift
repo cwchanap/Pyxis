@@ -146,16 +146,22 @@ struct CitySiegeLayout: Equatable {
         self.defensiveFire = defensiveFire
     }
 
+    /// The objective ID the pre-rollout default layout persisted damage
+    /// under. Saves written before the Country 1 tactical rollout (HPA-477)
+    /// use it for every city, so the owning game state migrates it onto the
+    /// authored Keep on decode.
+    static let singleKeepObjectiveID = "keep"
+
     /// The single-Keep shape: one Keep at progress 1.0 that every lane
     /// attacks directly and that sources defensive fire over all lanes.
     static func singleKeep(defaultLane: BattleLane) -> CitySiegeLayout {
         CitySiegeLayout(
             objectives: [
-                Objective(id: "keep", kind: .keep, durabilityWeight: 1, visualLane: .center, visualProgress: 1.0)
+                Objective(id: singleKeepObjectiveID, kind: .keep, durabilityWeight: 1, visualLane: .center, visualProgress: 1.0)
             ],
-            routes: Dictionary(uniqueKeysWithValues: BattleLane.allCases.map { ($0, ["keep"]) }),
+            routes: Dictionary(uniqueKeysWithValues: BattleLane.allCases.map { ($0, [singleKeepObjectiveID]) }),
             defaultLane: defaultLane,
-            defensiveFire: DefensiveFire(sourceObjectiveID: "keep", coveredLanes: BattleLane.allCases)
+            defensiveFire: DefensiveFire(sourceObjectiveID: singleKeepObjectiveID, coveredLanes: BattleLane.allCases)
         )
     }
 
@@ -241,7 +247,8 @@ struct CitySiegeLayout: Equatable {
 
 /// Persisted per-city siege progress (HPA-468). The forgiving half of the
 /// siege model: owners clamp damage to authored maxima and discard unknown
-/// objective IDs; the authored layout is the fail-closed half.
+/// objective IDs (after the owning state's pre-rollout `"keep"` migration);
+/// the authored layout is the fail-closed half.
 struct SiegeProgress: Codable, Equatable {
     var selectedLane: BattleLane
     var damageByObjectiveID: [String: Int]

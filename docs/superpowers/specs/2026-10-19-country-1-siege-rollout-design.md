@@ -90,3 +90,5 @@ Visual evidence **must** include City 15's five structures on a compact supporte
 ## Explicit non-goals
 
 No new combat mechanics, extra defensive-fire sources, Guard classes, multi-Barracks, boss phases, hero progression, per-city art/SFX, save migrations, registry/framework/template/editor/procedural authoring, separate balance simulator, new currency/economy, or Country 2.
+
+**Amendment (2026-10-21):** the save-migration non-goal is narrowed to a single decode-time translation. Re-authored cities rename the Keep's objective ID off the legacy `"keep"` key, which would otherwise reset an in-progress siege to full HP on upgrade. `normalizedSiegeProgress` migrates legacy `keep` damage onto the authored Keep by remaining-HP fraction (`KingdomGameState.migratedLegacyKeepDamage`, covered by decode tests in `KingdomGameStateTests`). No other save field changes; no versioned schema or migration framework is added.
