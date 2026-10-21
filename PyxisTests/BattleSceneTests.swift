@@ -2163,12 +2163,12 @@ struct BattleSceneTests {
                 2: CityBuilding(type: .siegeWorkshop, level: 3)
             ]
         )
-        let state = KingdomGameState(
+        let state = captainless(KingdomGameState(
             gold: 200,
             cityNumberInCountry: 6,
             completedCityCount: 5,
             cityBattleStates: [cityKey.storageKey: cityState]
-        )
+        ))
         #expect(state.currentCityDefenseTrait == .stoneWall)
         let initialObjectivePower = SiegeTestSupport.totalObjectiveRemainingPower(of: state)
         let store = try makeStore(initialState: state)
