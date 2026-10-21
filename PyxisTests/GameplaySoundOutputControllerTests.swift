@@ -239,6 +239,20 @@ struct GameplaySoundOutputControllerTests {
         clock.setNow(51)
         controller.play(.deployment)
         try await waitUntil { backend.scheduledSoundIDs == [.deployment] }
+
+        guard backend.scheduledSoundIDs != [.deployment] else {
+            return
+        }
+        // Post-mortem for the CI-only timeout: prove whether the queue,
+        // eligibility, and preparation still work far past any cooldown, and
+        // dump every backend call so the failing interleaving is identifiable
+        // from the CI log. Runs only when the test has already failed.
+        clock.setNow(1000)
+        controller.play(.attackMelee)
+        try await waitUntil { backend.scheduledSoundIDs.contains(.attackMelee) }
+        Issue.record(
+            "DIAG calls=\(backend.callLog) scheduled=\(backend.scheduledSoundIDs) requests=\(backend.activeSessionRequests) clock=\(clock.now)"
+        )
     }
 
     @Test func lifecycleRecoveryClearsActivationCooldownForAnImmediateRetry() async throws {
@@ -989,6 +1003,9 @@ private final class RecordingAudioBackend: GameplayAudioBackend {
     private let beforeFailingActivation: (() -> Void)?
     private var remainingActivationFailures: Int
     private var recordedCalls: [Call] = []
+    var callLog: [Call] {
+        withLock { recordedCalls }
+    }
     private var recordedPreparedResourceIDs: [GameplaySoundID] = []
     private var recordedCreatedVoiceIndices: [Int] = []
     private var recordedVoiceOperations: [Int: [VoiceOperation]] = [:]
