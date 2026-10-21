@@ -856,7 +856,9 @@ struct GameplaySoundOutputControllerTests {
     }
 
     private func waitUntil(
-        timeout: TimeInterval = 1,
+        // 10s instead of 1s: a thrashed CI runner (observed 160ms+ log lag) can
+        // starve the default-QoS output queue past a 1-second budget.
+        timeout: TimeInterval = 10,
         condition: @escaping () -> Bool
     ) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
@@ -867,7 +869,9 @@ struct GameplaySoundOutputControllerTests {
     }
 
     private func settleOutput() async throws {
-        try await Task.sleep(for: .milliseconds(50))
+        // Generous so a suppressed (no-trace) play still drains from the serial
+        // queue before the clock advances past the cooldown boundary.
+        try await Task.sleep(for: .milliseconds(200))
     }
 
     private var testCatalog: [GameplaySoundID: GameplaySoundResource] {
