@@ -50,6 +50,21 @@ enum Country1SiegeSmoke {
     /// into the test process. Off by default to keep the always-on suite cheap.
     nonisolated static let routeComparisonsEnabled = ProcessInfo.processInfo.environment["COUNTRY1_SMOKE_ROUTES"] == "1"
 
+    /// Opt-in gate for the chained 15-city greedy campaign (HPA-582 Task 0).
+    /// Run with `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`. Off by default pending the
+    /// Task 0 wall-clock measurement (always-on only if comparable to the existing
+    /// default-route smoke coverage).
+    nonisolated static let campaignEnabled = ProcessInfo.processInfo.environment["COUNTRY1_SMOKE_CAMPAIGN"] == "1"
+
+    /// Fixed seed for the chained campaign run so every baseline/comparison run
+    /// plays the same player.
+    nonisolated static let campaignSeed: UInt64 = 582
+
+    /// Fixed purchase date for all campaign `buildBuilding`/`upgradeBuilding`
+    /// calls: no ambient wall-clock time may leak into idle building-credit
+    /// settlement between purchases.
+    nonisolated static let campaignPurchaseDate = Date(timeIntervalSinceReferenceDate: 0)
+
     /// `maxSimulatedSeconds` only exists so the stall check can use a short bound.
     /// `manualSpawnsEnabled: false` is the watch-only policy (controller R10): no
     /// manual spawns, so only building-spawned soldiers and automatic Captain/Rally act.
@@ -67,7 +82,62 @@ enum Country1SiegeSmoke {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = KingdomGameStore(defaults: defaults, key: "state")
-        store.save(initialState(city: city, lane: lane, camp: camp, soldierUpgradeLevel: soldierUpgradeLevel))
+        let initial = initialState(city: city, lane: lane, camp: camp, soldierUpgradeLevel: soldierUpgradeLevel)
+        let outcome = run(
+            initialState: initial,
+            store: store,
+            defaults: defaults,
+            seed: seed,
+            maxSimulatedSeconds: maxSimulatedSeconds,
+            manualSpawnsEnabled: manualSpawnsEnabled
+        )
+        return Result(
+            city: city,
+            lane: lane,
+            camp: camp,
+            soldierUpgradeLevel: soldierUpgradeLevel,
+            seed: seed,
+            reachedConquest: outcome.reachedConquest,
+            elapsedSeconds: outcome.elapsedSeconds,
+            troopLosses: outcome.troopLosses,
+            guardsSpawned: outcome.guardsSpawned,
+            guardReserveRemaining: outcome.guardReserveRemaining,
+            barracksShutdownSeconds: outcome.barracksShutdownSeconds,
+            manualSpawnsEnabled: manualSpawnsEnabled
+        )
+    }
+
+    /// Actual final-state output of a bounded siege run (HPA-582 Task 0 seam
+    /// split): everything the per-fixture `Result` needs plus the final
+    /// `KingdomGameState` so a chained campaign can carry real state, gold and
+    /// rewards into the next city instead of fabricating levels.
+    struct BattleOutcome {
+        let reachedConquest: Bool
+        let elapsedSeconds: Double
+        let troopLosses: Int
+        /// `nil` when the city has no Barracks and therefore no Guard reserve.
+        let guardsSpawned: Int?
+        let guardReserveRemaining: Int?
+        /// Simulated second at which the Barracks reached 0 HP, if it did.
+        let barracksShutdownSeconds: Double?
+        let finalState: KingdomGameState
+    }
+
+    /// Runs one bounded siege from an explicit initial state persisted through
+    /// `store`, and returns the summary plus the actual final state. A fresh
+    /// `BattleScene` is created per call; the loop is the same 10 Hz
+    /// `advanceCombatForTesting` rail the authored fixtures have always used.
+    /// `defaults` must be the same suite `store` persists into (scene feedback
+    /// preferences share the run's isolation).
+    static func run(
+        initialState: KingdomGameState,
+        store: KingdomGameStore,
+        defaults: UserDefaults,
+        seed: UInt64,
+        maxSimulatedSeconds: Double = maxSimulatedSeconds,
+        manualSpawnsEnabled: Bool = true
+    ) -> BattleOutcome {
+        store.save(initialState)
 
         let size = CGSize(width: 390, height: 844)
         let scene = BattleScene(
@@ -81,7 +151,8 @@ enum Country1SiegeSmoke {
         scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
 
         let spawnTypes = scene.manualSpawnableSoldierTypesForTesting
-        let barracksID = Country1CityCatalog.definition(for: city).siegeLayout.barracksObjective?.id
+        let barracksID = Country1CityCatalog
+            .definition(for: initialState.cityNumberInCountry).siegeLayout.barracksObjective?.id
         let maxTicks = Int((maxSimulatedSeconds * Double(ticksPerSecond)).rounded(.down))
         var tick = 0
         var spawnCount = 0
@@ -104,19 +175,14 @@ enum Country1SiegeSmoke {
         let finalState = scene.gameStateForTesting
         let guards = finalState.siegeProgress.guardReinforcements
         let losses = finalState.pendingBattleResult?.losses ?? finalState.activeSiegeSession?.losses ?? []
-        return Result(
-            city: city,
-            lane: lane,
-            camp: camp,
-            soldierUpgradeLevel: soldierUpgradeLevel,
-            seed: seed,
+        return BattleOutcome(
             reachedConquest: finalState.pendingBattleResult != nil,
             elapsedSeconds: Double(tick) / Double(ticksPerSecond),
             troopLosses: losses.reduce(0) { $0 + $1.count },
             guardsSpawned: guards.map { Country1GuardRules.totalReserve - $0.remainingReserve },
             guardReserveRemaining: guards?.remainingReserve,
             barracksShutdownSeconds: barracksShutdownTick.map { Double($0) / Double(ticksPerSecond) },
-            manualSpawnsEnabled: manualSpawnsEnabled
+            finalState: finalState
         )
     }
 
@@ -143,6 +209,113 @@ enum Country1SiegeSmoke {
             "guardReserve=\(reserve)",
             "barracksShutdown=\(shutdown)"
         ] + watchOnlyTokens).joined(separator: " ")
+    }
+
+    /// Diagnostic line for one chained-campaign city; never an exact-value
+    /// assertion, only stall/pacing evidence. Operates on the file-scope
+    /// `Country1CampaignCityRecord`. `nonisolated` so test-keypath/closure
+    /// access stays synchronous.
+    nonisolated static func campaignLine(for record: Country1CampaignCityRecord) -> String {
+        let camp = record.camp.isEmpty
+            ? "none"
+            : record.camp.map { "\($0.type.rawValue):L\($0.level)" }.joined(separator: ",")
+        return [
+            "COUNTRY1_SMOKE",
+            "campaign=1",
+            "city=\(record.city)",
+            "lane=\(record.lane.displayName.lowercased())",
+            "camp=\(camp)",
+            "startGold=\(record.startGold)",
+            "spentGold=\(record.spentGold)",
+            "endGold=\(record.endGold)",
+            "seed=\(campaignSeed)",
+            "outcome=\(record.reachedConquest ? "conquered" : "stalled")",
+            "elapsed=\(String(format: "%.1f", record.elapsedSeconds))",
+            "losses=\(record.troopLosses)"
+        ].joined(separator: " ")
+    }
+
+    /// Chained 15-city campaign from the production fresh state (HPA-582 Task
+    /// 0): per city, enter through the real transitions, buy the camp under the
+    /// deterministic test-only greedy buyer via the real purchase mutations at
+    /// a fixed date, run the bounded siege rail, and carry the actual final
+    /// state — gold, rewards, progression — into the next city. Stops at the
+    /// first stall so the evidence is preserved; conquests are never fabricated
+    /// and rewards are never double-counted.
+    static func runGreedyCampaign(seed: UInt64) -> [Country1CampaignCityRecord] {
+        let suiteName = "Country1SiegeSmokeCampaign.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+
+        var state = KingdomGameState()
+        var records: [Country1CampaignCityRecord] = []
+
+        for city in 1...KingdomGameState.firstCountryCityCount {
+            if city > 1 {
+                state.acknowledgePendingBattleResult()
+                guard case .entered = state.startCityFromMap(city) else {
+                    // Progression broke unexpectedly; keep the collected
+                    // evidence instead of fabricating a city entry.
+                    break
+                }
+            }
+
+            let startGold = state.gold
+            var spentGold = 0
+            while state.stageStatus == .battleActive,
+                  let action = GreedyCampBuyer.nextAction(for: state) {
+                let goldBefore = state.gold
+                let purchased: Bool
+                switch action.kind {
+                case .build:
+                    if case .built = state.buildBuilding(action.type, inSlot: action.slot, at: campaignPurchaseDate) {
+                        purchased = true
+                    } else {
+                        purchased = false
+                    }
+                case .upgrade:
+                    if case .upgraded = state.upgradeBuilding(inSlot: action.slot, at: campaignPurchaseDate) {
+                        purchased = true
+                    } else {
+                        purchased = false
+                    }
+                }
+                guard purchased else { break }
+                spentGold += goldBefore - state.gold
+            }
+
+            let camp = state.cityBattleStateForCurrentCity.slots
+                .sorted { $0.key < $1.key }
+                .map { Building(type: $0.value.type, level: $0.value.level) }
+            let lane = state.siegeProgress.selectedLane
+
+            let outcome = run(
+                initialState: state,
+                store: store,
+                defaults: defaults,
+                seed: seed
+            )
+            state = outcome.finalState
+            let record = Country1CampaignCityRecord(
+                city: city,
+                lane: lane,
+                camp: camp,
+                startGold: startGold,
+                spentGold: spentGold,
+                endGold: state.gold,
+                elapsedSeconds: outcome.elapsedSeconds,
+                troopLosses: outcome.troopLosses,
+                reachedConquest: outcome.reachedConquest
+            )
+            records.append(record)
+            print(campaignLine(for: record))
+
+            guard outcome.reachedConquest else { break }
+        }
+
+        return records
     }
 
     /// Mirrors `KingdomGameState.startCityFromMap` for a fresh entry, except the
@@ -175,6 +348,24 @@ enum Country1SiegeSmoke {
         )
         return state
     }
+}
+
+/// One chained-campaign city record (HPA-582 Task 0): the bought camp plus
+/// the real gold and outcome the chain carried through the city. File-scope
+/// (nonisolated) so test keypaths over records stay non-throwing.
+struct Country1CampaignCityRecord {
+    let city: Int
+    let lane: BattleLane
+    let camp: [Country1SiegeSmoke.Building]
+    /// Gold on arrival at the city, before purchases.
+    let startGold: Int
+    /// Gold paid for the bought camp.
+    let spentGold: Int
+    /// Gold after the battle (includes the conquest reward when conquered).
+    let endGold: Int
+    let elapsedSeconds: Double
+    let troopLosses: Int
+    let reachedConquest: Bool
 }
 
 /// One matched comparison (HPA-477 Task 8). Reuses a city's committed camp and spawn policy on one lane.
@@ -772,6 +963,26 @@ struct Country1SiegeSmokeTests {
     )
     func optInAlternateLaneConquersWithinBound(_ comparison: Country1RouteComparison) {
         Self.expectMatchedConquest(comparison)
+    }
+
+    /// Chained 15-city greedy campaign (HPA-582 Task 0), opt-in via
+    /// `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`. The per-city COUNTRY1_SMOKE
+    /// campaign=1 lines are the balance evidence; the assertion is the
+    /// eventual 15/15 gate (a stall is the baseline until Task 4 tunes).
+    @Test(
+        "Chained greedy campaign conquers every Country 1 city inside the bound",
+        .enabled(if: Country1SiegeSmoke.campaignEnabled)
+    )
+    func chainedGreedyCampaignConquersEveryCityInsideBound() {
+        let records = Country1SiegeSmoke.runGreedyCampaign(seed: Country1SiegeSmoke.campaignSeed)
+
+        #expect(records.count == KingdomGameState.firstCountryCityCount)
+        let stalledCities = records.filter { !$0.reachedConquest }
+        #expect(
+            stalledCities.isEmpty,
+            Comment(rawValue: "Campaign ended early: " + (records.last.map { Country1SiegeSmoke.campaignLine(for: $0) }
+                ?? "no cities reached"))
+        )
     }
 
     /// Runs one matched comparison (an alternate or default lane on a committed camp and policy) and

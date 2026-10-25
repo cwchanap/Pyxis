@@ -53,6 +53,8 @@ xcodebuild test \
   -parallel-testing-enabled NO
 ```
 
+**Balance-constant changes require the opt-in chained campaign run** (HPA-582 Task 0): `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1 xcodebuild … test -only-testing:PyxisTests/Country1SiegeSmokeTests` (same simulator + `-parallel-testing-enabled NO`), recording the per-city `COUNTRY1_SMOKE campaign=1` lines, any stall, and wall-clock — the deterministic greedy-buyer chain is the balance baseline rail.
+
 ## Project Structure Notes
 
 - The Xcode project uses `PBXFileSystemSynchronizedRootGroup`, so new files dropped into `Pyxis/`, `PyxisTests/`, or `PyxisUITests/` are picked up automatically — do **not** edit `project.pbxproj` to register them.
