@@ -713,15 +713,113 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 100))
         let scene = makeScene(store: store, feedback: feedback)
 
-        for _ in 0..<KingdomGameState.manualSoldierCap {
-            scene.spawnSoldierForTesting()
-        }
+        // Reaching the 10-live cap needs recharge time that would conquer
+        // the tiny authored camps, so the squad is filled directly; the tap
+        // below still exercises the production cap guard before any charge
+        // spend.
+        scene.spawnManualSoldiersDirectlyForTesting(KingdomGameState.manualSoldierCap)
         feedback.reset()
 
         scene.spawnSoldierForTesting()
 
         #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
+        #expect(scene.manualDeployChargesForTesting == 3)
+        #expect(scene.feedbackTextForTesting == "Manual squad is full.")
         #expect(feedback.calls == [.discrete(.invalidAction)])
+    }
+
+    @Test("Manual deploy drains transient charges and denies the fourth tap")
+    func manualDeployDrainsChargesAndDeniesWhenEmpty() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 100))
+        let scene = makeScene(store: store, feedback: feedback)
+
+        for _ in 0..<3 {
+            scene.spawnSoldierForTesting()
+        }
+        #expect(scene.manualDeployChargesForTesting == 0)
+        feedback.reset()
+
+        scene.spawnSoldierForTesting()
+
+        #expect(scene.manualLiveSoldierCountForTesting == 3)
+        #expect(
+            scene.gameStateForTesting.activeSiegeSession?.deployments.map(\.count).reduce(0, +) == 3
+        )
+        #expect(feedback.calls == [.discrete(.invalidAction)])
+    }
+
+    @Test("Unbuilt soldier type is rejected without spending a charge")
+    func typeGuardRefusesBeforeSpendingCharges() throws {
+        let feedback = BattleFeedbackRecorder()
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 100))
+        let scene = makeScene(store: store, feedback: feedback)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+
+        // The rejected selection emits invalid action, falls back to the
+        // spawnable starter type, and never touches the charge pool.
+        #expect(scene.selectedManualSoldierTypeForTesting == .infantry)
+        #expect(scene.manualDeployChargesForTesting == 3)
+        #expect(scene.manualLiveSoldierCountForTesting == 0)
+        #expect(feedback.calls == [.discrete(.invalidAction)])
+    }
+
+    @Test("Settings-modal pause time never recharges manual deploy charges")
+    func settingsModalTimeNeverRechargesCharges() throws {
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 100))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        #expect(scene.manualDeployChargesForTesting == 2)
+
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        scene.advanceCombatForTesting(deltaTime: 1.5)
+
+        #expect(scene.manualDeployChargesForTesting == 2)
+    }
+
+    @Test("Building-spawned soldiers never spend manual deploy charges")
+    func buildingSpawnsLeaveChargesUntouched() throws {
+        let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+        let cityState = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, spawnTimerElapsed: 9.95)]
+        )
+        let store = try makeStore(initialState: KingdomGameState(
+            cityBattleStates: [cityKey.storageKey: cityState]
+        ))
+        let scene = makeScene(store: store)
+
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+
+        #expect(scene.buildingLiveSoldierCountForTesting == 1)
+        #expect(scene.manualDeployChargesForTesting == 3)
+    }
+
+    @Test("A deployed Captain never spends manual deploy charges")
+    func captainDeploymentLeavesChargesUntouched() throws {
+        let (scene, _) = try makeCaptainScene(
+            state: makeCaptainState(cityNumber: 3, selectedLane: .right)
+        )
+
+        #expect(scene.livingCaptainForTesting != nil)
+        #expect(scene.manualDeployChargesForTesting == 3)
+    }
+
+    @Test("Deploy HUD follows the integer charge count, not fractional recharge")
+    func deployHUDFollowsIntegerChargeChanges() throws {
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 100))
+        let scene = makeScene(store: store)
+
+        #expect(scene.battleHUDCurrentContentForTesting?.manualDeployCharges == 3)
+
+        scene.spawnSoldierForTesting()
+        #expect(scene.battleHUDCurrentContentForTesting?.manualDeployCharges == 2)
+
+        scene.advanceCombatForTesting(deltaTime: 1.5)
+        #expect(scene.manualDeployChargesForTesting == 3)
+        #expect(scene.battleHUDCurrentContentForTesting?.manualDeployCharges == 3)
     }
 
     @Test("Battle submits one automatic feedback batch for every combat tick")
@@ -2044,9 +2142,7 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 100))
         let scene = makeScene(store: store)
 
-        for _ in 0..<KingdomGameState.manualSoldierCap {
-            scene.spawnSoldierForTesting()
-        }
+        scene.spawnManualSoldiersDirectlyForTesting(KingdomGameState.manualSoldierCap)
 
         #expect(scene.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
 
@@ -2069,9 +2165,7 @@ struct BattleSceneTests {
         )
         let scene = makeScene(store: store)
 
-        for _ in 0..<KingdomGameState.manualSoldierCap {
-            scene.spawnSoldierForTesting()
-        }
+        scene.spawnManualSoldiersDirectlyForTesting(KingdomGameState.manualSoldierCap)
 
         scene.advanceCombatForTesting(deltaTime: 0.1)
 
@@ -2181,9 +2275,13 @@ struct BattleSceneTests {
         )
 
         scene.selectManualSoldierTypeForTesting(.siege)
-        for _ in 0..<4 {
+        // Three charges drain instantly; the fourth tap needs one 1.5s
+        // recharge of valid combat time (city 6 objective pools absorb it).
+        for _ in 0..<3 {
             scene.spawnSoldierForTesting()
         }
+        scene.advanceCombatForTesting(deltaTime: 1.5)
+        scene.spawnSoldierForTesting()
 
         #expect(scene.liveSoldierLevelsForTesting == Array(repeating: 3, count: 4))
         #expect(scene.liveSoldierAttackPowersForTesting == Array(repeating: expectedAttackPower, count: 4))
@@ -3227,7 +3325,7 @@ struct BattleSceneTests {
         #expect(texts.contains("0/10"))
         #expect(texts.contains("1 / 15"))
         #expect(texts.contains("WILLOWFORD"))
-        #expect(texts.contains("DEPLOY"))
+        #expect(texts.contains("DEPLOY · 3"))
         #expect(SoldierType.allCases.reduce(0) { count, soldierType in
             count + visibleSpriteCount(
                 in: scene,
@@ -3591,9 +3689,10 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: stateWithBarracks(gold: 100, keepRemaining: 1_000))
         let scene = makeScene(store: store)
 
-        for _ in 0..<6 {
-            scene.spawnSoldierForTesting()
-        }
+        // Placement is the subject here; six soldiers are injected straight
+        // into the roster because the transient charge pool only allows
+        // three real taps.
+        scene.spawnManualSoldiersDirectlyForTesting(6)
 
         let placements = scene.soldierLanePlacementsForTesting
         #expect(placements.count == 6)
@@ -3610,9 +3709,10 @@ struct BattleSceneTests {
         let store = try makeStore(initialState: stateWithBarracks(gold: 100, keepRemaining: 1_000))
         let scene = makeScene(store: store)
 
-        for _ in 0..<6 {
-            scene.spawnSoldierForTesting()
-        }
+        // Sharing/lane separation is the subject here; six soldiers are
+        // injected straight into the roster because the transient charge
+        // pool only allows three real taps.
+        scene.spawnManualSoldiersDirectlyForTesting(6)
 
         let placementsByLane = Dictionary(grouping: scene.soldierLanePlacementsForTesting, by: \.lane)
         #expect(scene.soldierLanePlacementsForTesting.count == 6)
@@ -4458,9 +4558,7 @@ struct BattleSceneTests {
             == .built(cost: 15, remainingGold: 0))
         let store2 = try makeStore(initialState: state)
         let scene2 = makeScene(store: store2, router: router)
-        for _ in 0...KingdomGameState.manualSoldierCap {
-            scene2.spawnSoldierForTesting()
-        }
+        scene2.spawnManualSoldiersDirectlyForTesting(KingdomGameState.manualSoldierCap)
         #expect(scene2.manualLiveSoldierCountForTesting == KingdomGameState.manualSoldierCap)
         #expect(scene2.livingCaptainForTesting != nil)
         #expect(scene2.liveSoldierCountForTesting == KingdomGameState.manualSoldierCap)

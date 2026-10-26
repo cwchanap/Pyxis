@@ -119,6 +119,52 @@ struct BattleHUDNodeTests {
         #expect(dividerFrame.height == 22)
     }
 
+    @Test func deployLabelShowsIntegerChargesAndRetainsManualCount() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        let node = BattleHUDNode()
+        _ = node.apply(
+            content: .project(from: KingdomGameState(), manualCount: 6, manualDeployCharges: 2),
+            layout: layout
+        )
+
+        let label = try #require(node.childNode(withName: "battleDeployLabel") as? SKLabelNode)
+        let count = try #require(node.childNode(withName: "battleManualCountLabel") as? SKLabelNode)
+
+        #expect(label.text == "DEPLOY · 2")
+        #expect(count.text == "6/10")
+        // The charged label still fits the authored full Deploy frame.
+        #expect(layout.deployFrame.contains(label.frame))
+        #expect(layout.deployFrame.contains(count.frame))
+    }
+
+    @Test func compactCityThreeDeployClusterFitsInsideTheActionFrameWithCharges() throws {
+        let layout = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )))
+        // City 3+ activates the Captain strip, so Deploy renders inside the
+        // narrower action frame; the charge suffix must still fit.
+        let node = BattleHUDNode()
+        _ = node.apply(
+            content: .project(
+                from: KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2),
+                manualCount: 6,
+                manualDeployCharges: 1
+            ),
+            layout: layout
+        )
+
+        let label = try #require(node.childNode(withName: "battleDeployLabel") as? SKLabelNode)
+        let count = try #require(node.childNode(withName: "battleManualCountLabel") as? SKLabelNode)
+
+        #expect(label.text == "DEPLOY · 1")
+        #expect(layout.deployActionFrame.contains(label.frame))
+        #expect(layout.deployActionFrame.contains(count.frame))
+    }
+
     @Test func battleChromeUsesForgedMaterialAndHexCutUnitPlates() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),

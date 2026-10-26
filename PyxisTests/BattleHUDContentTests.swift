@@ -374,4 +374,19 @@ struct BattleHUDContentTests {
             rallyRemainingSeconds: 0
         ) != baseline)
     }
+
+    @Test func projectsIntegerManualDeployChargesWithFullDefault() {
+        let baseline = BattleHUDContent.project(
+            from: KingdomGameState(cityNumberInCountry: 1),
+            manualCount: 0
+        )
+        #expect(baseline.manualDeployCharges == BattleCombatState.ManualDeployRules.maxCharges)
+
+        let drained = BattleHUDContent.project(
+            from: KingdomGameState(cityNumberInCountry: 1),
+            manualCount: 0,
+            manualDeployCharges: 1
+        )
+        #expect(drained.manualDeployCharges == 1)
+    }
 }
