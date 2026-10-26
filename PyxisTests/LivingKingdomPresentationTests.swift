@@ -35,22 +35,26 @@ struct LivingKingdomPresentationTests {
         ).stage == expected)
     }
 
+    // City 3's budget under 1.85 growth is 68 (round(20 * 1.85^2)); its Keep's
+    // floored 3/8 share plus the allocation remainder gives a 26-HP Keep-max.
+    // Stage edges use the integer policy: intact while remaining*5 > max*3,
+    // damaged while remaining*4 > max.
     @Test(arguments: [
-        (35, LivingKingdomPresentation.FortressStage.intact),
-        (22, .intact),
-        (21, .damaged),
-        (9, .damaged),
-        (8, .breached),
+        (26, LivingKingdomPresentation.FortressStage.intact),
+        (16, .intact),
+        (15, .damaged),
+        (7, .damaged),
+        (6, .breached),
         (1, .breached),
         (0, .conquered)
     ])
-    func cityThreeUsesKeepMaxThirtyFiveBoundaries(
+    func cityThreeUsesKeepMaxTwentySixBoundaries(
         remaining: Int,
         expected: LivingKingdomPresentation.FortressStage
     ) {
-        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
         let maximum = state.currentKeepMaxPower
-        #expect(maximum == 35)
+        #expect(maximum == 26)
         #expect(LivingKingdomPresentation.battle(
             cityNumber: 3,
             remainingHP: remaining,
@@ -59,11 +63,11 @@ struct LivingKingdomPresentationTests {
         ).stage == expected)
     }
 
-    @Test func freshFalconridgeKeepProjectsIntactThirtyFiveOfThirtyFive() {
-        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+    @Test func freshFalconridgeKeepProjectsIntactTwentySixOfTwentySix() {
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
 
-        #expect(state.currentKeepMaxPower == 35)
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepMaxPower == 26)
+        #expect(state.currentKeepRemainingPower == 26)
         #expect(LivingKingdomPresentation.battle(
             cityNumber: 3,
             remainingHP: state.currentKeepRemainingPower,
@@ -73,14 +77,14 @@ struct LivingKingdomPresentationTests {
     }
 
     @Test func falconridgeSupportObjectiveDamageDoesNotChangeFortressStage() {
-        // Gate (11) and Tower (46) fully destroyed; the Keep stays untouched.
+        // Gate (8) and Tower (34) fully destroyed; the Keep stays untouched.
         let state = SiegeTestSupport.makeBattleState(
             atCity: 3,
-            keepRemaining: 35,
-            supportDamage: [.gate: 11, .arrowTower: 46]
+            keepRemaining: 26,
+            supportDamage: [.gate: 8, .arrowTower: 34]
         )
 
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepRemainingPower == 26)
         #expect(LivingKingdomPresentation.battle(
             cityNumber: 3,
             remainingHP: state.currentKeepRemainingPower,
