@@ -50,10 +50,13 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
 
     /// Fixed foreground timestamp for the return-damage fixture so the idle
     /// settlement result is deterministic across launches and captures.
+    /// 2_400s idle → 24 L1 infantry spawns → 24 damage: the Falconridge
+    /// Gate absorbs 8 and the Keep 16, leaving 10/26 (damaged, not conquest)
+    /// at the HPA-582 Task 4 curve.
     var foregroundReturnDate: Date? {
         switch self {
         case .returnDamage:
-            return Date(timeIntervalSince1970: 4_600)
+            return Date(timeIntervalSince1970: 3_400)
         default:
             return nil
         }
@@ -171,7 +174,11 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
                 12: CityBuilding(type: .barracks, level: 3)
             ])
         } else {
+            // DevJumpState.make seeds a real Barracks (HPA-582 Task 2); the
+            // empty-camp fixture clears it so the Camp tab renders a truly
+            // empty grid.
             state.gold = 1_000
+            state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState()
         }
         return state
     }

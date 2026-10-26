@@ -16,9 +16,9 @@ struct KingdomGameStateTests {
 
     @Test func formulasMatchMVPBalanceCurve() {
         #expect(KingdomGameState.cityMaxPower(for: 1) == 20)
-        #expect(KingdomGameState.cityMaxPower(for: 2) == 43)
-        #expect(KingdomGameState.cityMaxPower(for: 3) == 92)
-        #expect(KingdomGameState.cityMaxPower(for: 10) == 19633)
+        #expect(KingdomGameState.cityMaxPower(for: 2) == 37)
+        #expect(KingdomGameState.cityMaxPower(for: 3) == 68)
+        #expect(KingdomGameState.cityMaxPower(for: 10) == 5077)
 
         #expect(KingdomGameState.goldReward(for: 1) == 8)
         #expect(KingdomGameState.goldReward(for: 2) == 12)
@@ -1751,12 +1751,12 @@ struct KingdomGameStateTests {
         #expect(city1.siegeProgress.damageByObjectiveID.isEmpty)
         #expect(city1.currentKeepRemainingPower == city1.currentKeepMaxPower)
 
-        // Falconridge (City 3) pins the authored pilot split 35/46/11.
-        let falconridge = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        // Falconridge (City 3) pins the authored pilot split 26/34/8.
+        let falconridge = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
 
         #expect(falconridge.siegeProgress.selectedLane == BattleLane.center)
-        #expect(falconridge.currentKeepMaxPower == 35)
-        #expect(falconridge.currentKeepRemainingPower == 35)
+        #expect(falconridge.currentKeepMaxPower == 26)
+        #expect(falconridge.currentKeepRemainingPower == 26)
         #expect(falconridge.stageStatus == .battleActive)
     }
 
@@ -1801,7 +1801,7 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.selectedLane == .right)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
-        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 11) // clamped to authored max
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 8) // clamped to authored max
         #expect(state.siegeProgress.damageByObjectiveID[towerID] == 5)
         #expect(state.siegeProgress.damageByObjectiveID.count == 2) // unknown ID discarded
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
@@ -1835,8 +1835,8 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .battleActive)
         #expect(state.pendingBattleResult == nil)
         #expect(state.gold == 25) // no fabricated conquest reward
-        #expect(state.currentKeepMaxPower == 35)
-        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 34) // clamped to leave 1 HP
+        #expect(state.currentKeepMaxPower == 26)
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 25) // clamped to leave 1 HP
         #expect(state.currentKeepRemainingPower == 1)
         #expect(state.siegeProgress.damageByObjectiveID["falconridge.ridge-gate"] == 5)
     }
@@ -1881,8 +1881,8 @@ struct KingdomGameStateTests {
         // Pre-rollout saves stored every city's siege damage under the
         // default single-Keep "keep" ID. Re-authored layouts use
         // city-specific Keep IDs, so the legacy value migrates by
-        // remaining-HP fraction: Stonecrown's old Keep (the whole 419498
-        // budget) with 100 HP left lands on the authored Keep (370146 max)
+        // remaining-HP fraction: Stonecrown's old Keep (the whole 59465
+        // budget) with 100 HP left lands on the authored Keep (52472 max)
         // with 88 HP left instead of healing to full.
         let data = Data("""
         {
@@ -1893,7 +1893,7 @@ struct KingdomGameStateTests {
           "stageStatus": "battleActive",
           "siegeProgress": {
             "selectedLane": 2,
-            "damageByObjectiveID": { "keep": 419398 }
+            "damageByObjectiveID": { "keep": 59365 }
           }
         }
         """.utf8)
@@ -1903,8 +1903,8 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .battleActive)
         #expect(state.siegeProgress.selectedLane == .right)
         #expect(state.siegeProgress.damageByObjectiveID["keep"] == nil)
-        #expect(state.siegeProgress.damageByObjectiveID["stonecrown.keep"] == 370058)
-        #expect(state.currentKeepMaxPower == 370146)
+        #expect(state.siegeProgress.damageByObjectiveID["stonecrown.keep"] == 52384)
+        #expect(state.currentKeepMaxPower == 52472)
         #expect(state.currentKeepRemainingPower == 88)
         #expect(state.gold == 40)
     }
@@ -1921,7 +1921,7 @@ struct KingdomGameStateTests {
           "stageStatus": "battleActive",
           "siegeProgress": {
             "selectedLane": 0,
-            "damageByObjectiveID": { "keep": 419498 }
+            "damageByObjectiveID": { "keep": 59465 }
           }
         }
         """.utf8)
@@ -1929,7 +1929,7 @@ struct KingdomGameStateTests {
         let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
 
         #expect(state.stageStatus == .battleActive)
-        #expect(state.siegeProgress.damageByObjectiveID["stonecrown.keep"] == 370145)
+        #expect(state.siegeProgress.damageByObjectiveID["stonecrown.keep"] == 52471)
         #expect(state.currentKeepRemainingPower == 1)
     }
 
@@ -2190,9 +2190,9 @@ struct KingdomGameStateTests {
     @Test func decodingPendingResultSaveKeepsDestroyedKeepForTruthfulPresentation() throws {
         // Pending-result states legitimately carry a dead Keep (the conquest
         // record), so the battleActive recovery clamp must not touch them.
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
-        #expect(state.applyObjectiveDamage(35, toObjectiveID: keepID) == 35)
+        #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 26)
         #expect(state.stageStatus == .cityConqueredPendingMap)
 
         let data = try JSONEncoder().encode(state)
@@ -2200,44 +2200,44 @@ struct KingdomGameStateTests {
 
         #expect(decoded.stageStatus == .cityConqueredPendingMap)
         #expect(decoded.pendingBattleResult != nil)
-        #expect(decoded.siegeProgress.damageByObjectiveID[keepID] == 35)
+        #expect(decoded.siegeProgress.damageByObjectiveID[keepID] == 26)
         #expect(decoded.currentKeepRemainingPower == 0)
     }
 
     @Test func keepProjectionsTrackObjectiveDamage() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
 
         #expect(state.applyObjectiveDamage(10, toObjectiveID: keepID) == 10)
 
-        #expect(state.currentKeepMaxPower == 35)
-        #expect(state.currentKeepRemainingPower == 25)
-        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 82)
+        #expect(state.currentKeepMaxPower == 26)
+        #expect(state.currentKeepRemainingPower == 16)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 58)
         #expect(state.stageStatus == .battleActive)
     }
 
     @Test func gateAndTowerDamageNeverChangesKeepHP() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
 
-        #expect(state.applyObjectiveDamage(11, toObjectiveID: gateID) == 11)
-        #expect(state.applyObjectiveDamage(46, toObjectiveID: towerID) == 46)
+        #expect(state.applyObjectiveDamage(8, toObjectiveID: gateID) == 8)
+        #expect(state.applyObjectiveDamage(34, toObjectiveID: towerID) == 34)
 
-        #expect(state.currentKeepRemainingPower == 35)
-        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 35)
+        #expect(state.currentKeepRemainingPower == 26)
+        #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 26)
         #expect(state.stageStatus == .battleActive)
     }
 
     @Test func objectiveDamageRejectsUnknownIDsAndClampsToRemaining() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
 
         #expect(state.applyObjectiveDamage(0, toObjectiveID: gateID) == 0)
         #expect(state.applyObjectiveDamage(5, toObjectiveID: "not-an-objective") == 0)
-        #expect(state.applyObjectiveDamage(999, toObjectiveID: gateID) == 11) // clamped to remaining
+        #expect(state.applyObjectiveDamage(999, toObjectiveID: gateID) == 8) // clamped to remaining
         #expect(state.applyObjectiveDamage(999, toObjectiveID: gateID) == 0) // dead objective absorbs nothing
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepRemainingPower == 26)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2245,13 +2245,13 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 5,
-            keepRemaining: 35,
+            keepRemaining: 26,
             supportDamage: [.gate: 5]
         )
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
 
-        #expect(state.applyObjectiveDamage(35, toObjectiveID: keepID) == 35)
+        #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 26)
 
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
@@ -2262,19 +2262,19 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.damageByObjectiveID[gateID] == 5)
 
         // Exactly once: post-conquest objective damage applies nothing.
-        #expect(state.applyObjectiveDamage(35, toObjectiveID: keepID) == 0)
+        #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 0)
         #expect(state.spendRouteDamageBudget(10, lane: .center) == 0)
         #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
     }
 
     @Test func routeSpendingRespectsBlockersBeforeKeepSpillover() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35, selectedLane: .center)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26, selectedLane: .center)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
 
         // A live gate blocks all damage from reaching the Keep.
-        #expect(state.spendRouteDamageBudget(11, lane: .center) == 11)
-        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 11)
+        #expect(state.spendRouteDamageBudget(8, lane: .center) == 8)
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 8)
         #expect(state.siegeProgress.damageByObjectiveID[keepID] == nil)
         #expect(state.stageStatus == .battleActive)
 
@@ -2283,7 +2283,7 @@ struct KingdomGameStateTests {
         #expect(state.siegeProgress.damageByObjectiveID[keepID] == 1)
 
         // With the blocker dead, budgets flow straight to the Keep.
-        #expect(state.spendRouteDamageBudget(34, lane: .center) == 34)
+        #expect(state.spendRouteDamageBudget(25, lane: .center) == 25)
         #expect(state.currentKeepRemainingPower == 0)
         #expect(state.stageStatus == .cityConqueredPendingMap)
 
@@ -2293,7 +2293,7 @@ struct KingdomGameStateTests {
     }
 
     @Test func routeSpendingBlocksAtTowerOnLeftLane() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35, selectedLane: .left)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26, selectedLane: .left)
         let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
 
@@ -2301,7 +2301,7 @@ struct KingdomGameStateTests {
 
         #expect(state.siegeProgress.damageByObjectiveID[towerID] == 20)
         #expect(state.siegeProgress.damageByObjectiveID[keepID] == nil)
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepRemainingPower == 26)
     }
 
     @Test func keepOnlyRouteSpendingReachesKeepDirectly() {
@@ -2346,7 +2346,7 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 100,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .center
         )
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
@@ -2396,7 +2396,7 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             keepRemaining: 10,
-            supportDamage: [.gate: 11, .arrowTower: 46],
+            supportDamage: [.gate: 8, .arrowTower: 34],
             selectedLane: .left
         )
 
@@ -2419,14 +2419,14 @@ struct KingdomGameStateTests {
     @Test func pendingResultRetainsSiegeProgressForRestoredPresentation() throws {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
-            keepRemaining: 35,
+            keepRemaining: 26,
             supportDamage: [.gate: 5],
             selectedLane: .right
         )
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
 
-        #expect(state.applyObjectiveDamage(35, toObjectiveID: keepID) == 35)
+        #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 26)
 
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.siegeProgress.selectedLane == .right)
@@ -2437,17 +2437,17 @@ struct KingdomGameStateTests {
     // MARK: - Objective-aware live attacks (HPA-468 §3.2/§3.5)
 
     @Test func liveGateDamageNeverConquersWhileKeepStands() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
 
         let result = state.applyLiveSoldierAttacks([
-            liveAttackEvent(objectiveID: gateID, 11)
+            liveAttackEvent(objectiveID: gateID, 8)
         ])
 
         #expect(result.attackApplied)
-        #expect(result.damageDealt == 11)
+        #expect(result.damageDealt == 8)
         #expect(result.conqueredCities == 0)
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepRemainingPower == 26)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2456,25 +2456,25 @@ struct KingdomGameStateTests {
             atCity: 3,
             gold: 5,
             keepRemaining: 4,
-            supportDamage: [.arrowTower: 46]
+            supportDamage: [.arrowTower: 34]
         )
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
 
         let result = state.applyLiveSoldierAttacks([
-            liveAttackEvent(soldierID: 1, objectiveID: gateID, 11),
+            liveAttackEvent(soldierID: 1, objectiveID: gateID, 8),
             liveAttackEvent(soldierID: 2, objectiveID: keepID, 999)
         ])
 
         #expect(result.attackApplied)
-        #expect(result.damageDealt == 15) // gate absorbs 11, Keep clamps 999 → 4
+        #expect(result.damageDealt == 12) // gate absorbs 8, Keep clamps 999 → 4
         #expect(result.conqueredCities == 1)
         #expect(result.goldEarned == KingdomGameState.goldReward(for: 3))
         #expect(state.stageStatus == .cityConqueredPendingMap)
         // The already-dead Tower is not re-touched; support structures are
         // never fabricated destroyed.
-        #expect(state.siegeProgress.damageByObjectiveID[towerID] == 46)
+        #expect(state.siegeProgress.damageByObjectiveID[towerID] == 34)
 
         // Post-conquest batches are blocked outright.
         let blocked = state.applyLiveSoldierAttacks([
@@ -2487,8 +2487,8 @@ struct KingdomGameStateTests {
     @Test func deadTowerStopsFireButArrowTowerTraitStillAppliesToGateAndKeep() throws {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
-            keepRemaining: 35,
-            supportDamage: [.arrowTower: 46]
+            keepRemaining: 26,
+            supportDamage: [.arrowTower: 34]
         )
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
@@ -2511,7 +2511,7 @@ struct KingdomGameStateTests {
         #expect(result.attackApplied)
         #expect(result.damageDealt == infantryPower)
         #expect(state.siegeProgress.damageByObjectiveID[gateID] == infantryPower)
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepRemainingPower == 26)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2588,22 +2588,23 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 100,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .center
         )
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
-        // 1_000s idle → 100s effective → 10 infantry spawns. City 3's
-        // .arrowTower trait keeps level-1 infantry at 1 damage per spawn.
+        // 700s idle → 70s effective → 7 infantry spawns, all absorbed by the
+        // gate blocker. City 3's .arrowTower trait keeps level-1 infantry at
+        // 1 damage per spawn.
         state.enterBackground(at: start)
-        let result = state.returnFromBackground(at: start.addingTimeInterval(1_000))
+        let result = state.returnFromBackground(at: start.addingTimeInterval(700))
 
-        #expect(result.damageDealt == 10)
+        #expect(result.damageDealt == 7)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
-        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 10) // blocker absorbs first
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 7) // blocker absorbs first
         #expect(state.siegeProgress.damageByObjectiveID[keepID] == nil)
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepRemainingPower == 26)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2612,22 +2613,22 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 100,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .center
         )
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
         // 3_000s idle → 300s effective → 30 spawns → 30 damage: the gate
-        // absorbs 11 and only then does the Keep absorb the remainder.
+        // absorbs 8 and only then does the Keep absorb the remainder.
         state.enterBackground(at: start)
         let result = state.returnFromBackground(at: start.addingTimeInterval(3_000))
 
         #expect(result.damageDealt == 30)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
-        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 11)
-        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 19)
-        #expect(state.currentKeepRemainingPower == 16)
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == 8)
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 22)
+        #expect(state.currentKeepRemainingPower == 4)
         #expect(state.stageStatus == .battleActive)
 
         // The left route still routes through the untouched Tower.
@@ -2641,16 +2642,16 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 100,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .center
         )
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
 
-        // 4_600s idle → 460s effective → 46 spawns: exactly gate 11 + Keep 35.
+        // 3_400s idle → 340s effective → 34 spawns: exactly gate 8 + Keep 26.
         state.enterBackground(at: start)
-        let result = state.returnFromBackground(at: start.addingTimeInterval(4_600))
+        let result = state.returnFromBackground(at: start.addingTimeInterval(3_400))
 
-        #expect(result.damageDealt == 46)
+        #expect(result.damageDealt == 34)
         #expect(result.conqueredCities == 1)
         #expect(result.goldEarned == KingdomGameState.goldReward(for: 3))
         #expect(state.currentKeepRemainingPower == 0)
@@ -2658,7 +2659,7 @@ struct KingdomGameStateTests {
         #expect(state.completedCityCount == 3)
         let pending = try #require(state.pendingBattleResult)
         #expect(pending.conquestMode == .idle)
-        #expect(pending.totalIdleDamage == 46)
+        #expect(pending.totalIdleDamage == 34)
     }
 
     // MARK: - Idle role bonus on the first live objective (HPA-582)
@@ -2673,7 +2674,7 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 100,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .left
         )
         #expect(state.buildBuilding(.archeryRange, inSlot: 1, at: start) == .built(cost: 18, remainingGold: 82))
@@ -2691,7 +2692,7 @@ struct KingdomGameStateTests {
         #expect(result.damageDealt == 9)
         #expect(state.siegeProgress.damageByObjectiveID[towerID] == maxPowers[towerID])
         #expect(state.siegeProgress.damageByObjectiveID[keepID] == 8)
-        #expect(state.currentKeepRemainingPower == 27)
+        #expect(state.currentKeepRemainingPower == 18)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2704,7 +2705,7 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 11,
             gold: 200,
-            keepRemaining: 36_180,
+            keepRemaining: 8_051,
             selectedLane: .center
         )
         #expect(state.buildBuilding(.siegeWorkshop, inSlot: 1, at: start) == .built(cost: 55, remainingGold: 145))
@@ -2727,7 +2728,7 @@ struct KingdomGameStateTests {
         #expect(result.damageDealt == 10)
         #expect(state.siegeProgress.damageByObjectiveID[gateID] == maxPowers[gateID])
         #expect(state.siegeProgress.damageByObjectiveID[keepID] == 9)
-        #expect(state.currentKeepRemainingPower == 36_180 - 9)
+        #expect(state.currentKeepRemainingPower == 8_051 - 9)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2739,7 +2740,7 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 9,
             gold: 300,
-            keepRemaining: 8_561,
+            keepRemaining: 2_574,
             selectedLane: .left
         )
         #expect(state.buildBuilding(.mageTower, inSlot: 1, at: start) == .built(cost: 40, remainingGold: 260))
@@ -2763,7 +2764,7 @@ struct KingdomGameStateTests {
         #expect(result.damageDealt == 7)
         #expect(state.siegeProgress.damageByObjectiveID[barracksID] == maxPowers[barracksID])
         #expect(state.siegeProgress.damageByObjectiveID[keepID] == 6)
-        #expect(state.currentKeepRemainingPower == 8_561 - 6)
+        #expect(state.currentKeepRemainingPower == 2_574 - 6)
         #expect(state.stageStatus == .battleActive)
     }
 
@@ -2776,7 +2777,7 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 100,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .left
         )
         #expect(state.buildBuilding(.archeryRange, inSlot: 1, at: start) == .built(cost: 18, remainingGold: 82))
@@ -2790,7 +2791,7 @@ struct KingdomGameStateTests {
         let result = state.returnFromBackground(at: start.addingTimeInterval(1_000))
 
         // Spawn 1: power 1 → Guard absorbs 1, leftover 0. Spawns 2–8:
-        // round(1 × 1.5) = 2 each onto the 46-HP Tower.
+        // round(1 × 1.5) = 2 each onto the 34-HP Tower.
         #expect(result.damageDealt == 14)
         let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
         #expect(state.siegeProgress.damageByObjectiveID[towerID] == 14)
@@ -2806,7 +2807,7 @@ struct KingdomGameStateTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 3,
             gold: 100,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .center
         )
         #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))

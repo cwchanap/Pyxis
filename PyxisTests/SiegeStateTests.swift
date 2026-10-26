@@ -15,7 +15,7 @@ struct SiegeStateTests {
     }
 
     /// Minimal two-objective pilot layout (Keep + Gate) for allocation and
-    /// spillover math that Falconridge's exact 35/46/11 split cannot express.
+    /// spillover math that Falconridge's exact 26/34/8 split cannot express.
     private static func makeKeepAndGateLayout() -> CitySiegeLayout {
         CitySiegeLayout(
             objectives: [

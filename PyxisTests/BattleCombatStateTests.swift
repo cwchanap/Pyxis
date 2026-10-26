@@ -382,7 +382,7 @@ struct BattleCombatStateTests {
         )
         _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 8, lane: .center)
 
-        // The still-living Tower (46 HP) never blocks conquest: the route is
+        // The still-living Tower (34 HP) never blocks conquest: the route is
         // gate → keep, and the gate falls first.
         // One attack interval (1.0s) separates the gate-fall tick from the
         // keep-conquest tick.
@@ -2819,9 +2819,9 @@ private enum SiegeFixtures {
     }
 
     static func falconridgeSnapshot(
-        keepRemaining: Int = 35,
-        towerRemaining: Int = 46,
-        gateRemaining: Int = 11
+        keepRemaining: Int = 26,
+        towerRemaining: Int = 34,
+        gateRemaining: Int = 8
     ) -> BattleCombatState.SiegeSnapshot {
         BattleCombatState.SiegeSnapshot(
             layout: Country1CityCatalog.definition(for: 3).siegeLayout,

@@ -58,7 +58,7 @@ enum Country1CityCatalog {
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 3:1 Keep:Gate HP (33 + 10 of 43): the Keep is the majority and the
+                    // 3:1 Keep:Gate HP (28 + 9 of 37): the Keep is the majority and the
                     // conquest authority. The Gate is shared by the left and right detours,
                     // a tie that breaks to the left lane.
                     .init(
@@ -136,7 +136,7 @@ enum Country1CityCatalog {
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 3:1:1 Keep:Gate:East Gate HP (121 + 39 + 39 of 199): the Keep is the
+                    // 3:1:1 Keep:Gate:East Gate HP (77 + 25 + 25 of 127): the Keep is the
                     // majority and the conquest authority. The shared Gate sits on the centre
                     // lane (the left and centre routes both pass it); the East Gate is the
                     // right route's own chokepoint.
@@ -182,10 +182,10 @@ enum Country1CityCatalog {
             siegeLayout: CitySiegeLayout(
                 objectives: [
                     // Route-balance pass (round 2): 20:1 weights put the
-                    // Barracks at 20 power, so the Barracks-first shutdown
-                    // lands ~26s — before the first 30s Guard wave — and
+                    // Barracks at 11 power, so the Barracks-first shutdown
+                    // lands well before the first 30s Guard wave and
                     // cancels the whole remaining reserve, while direct
-                    // routes face every wave against a 407-power Keep.
+                    // routes face every wave against a 223-power Keep.
                     .init(id: "highcrest.keep", kind: .keep, durabilityWeight: 20,
                           visualLane: .center, visualProgress: 1.0),
                     .init(id: "highcrest.barracks", kind: .barracks, durabilityWeight: 1,
@@ -210,7 +210,7 @@ enum Country1CityCatalog {
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 6:2:3 Keep:Gate:Tower HP (502 + 167 + 250 of 919): the Keep is the
+                    // 6:2:3 Keep:Gate:Tower HP (237 + 78 + 118 of 433): the Keep is the
                     // majority and the conquest authority. The Tower sits between the Gate and
                     // the Keep share and is the only fire source, covering every lane. The
                     // shared Gate sits on the centre lane (left and centre routes).
@@ -255,7 +255,7 @@ enum Country1CityCatalog {
             visualFamily: .ember,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 20:4:1 Keep:Gate:Barracks HP (1580 + 316 + 79 of 1975): the Keep is 20:1
+                    // 20:4:1 Keep:Gate:Barracks HP (642 + 128 + 32 of 802): the Keep is 20:1
                     // over the Barracks, the Highcrest ratio. The Barracks sits on the left
                     // route, which the Keep's fire covers, so its chewers stay in reach. The
                     // Gate sits on the centre route, which takes no fire.
@@ -300,7 +300,7 @@ enum Country1CityCatalog {
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 6:3:2 Keep:Tower:Gate HP (2317 + 1158 + 772 of 4247): the Keep is the
+                    // 6:3:2 Keep:Tower:Gate HP (810 + 404 + 269 of 1483): the Keep is the
                     // majority and the conquest authority. The Tower sits between the Gate and
                     // the Keep share and is the only fire source, covering every lane. The
                     // shared Gate sits on the centre lane (centre and right routes). The default
@@ -347,7 +347,7 @@ enum Country1CityCatalog {
             visualFamily: .arcane,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 30:1:1 Keep:Barracks:Tower HP (8561 + 285 + 285 of 9131): the Keep is the
+                    // 30:1:1 Keep:Barracks:Tower HP (2574 + 85 + 85 of 2744): the Keep is the
                     // conquest authority. The small Barracks lets a Barracks-first attack shut the
                     // Guards down before the first 30 s wave. The Tower is the single fire source,
                     // covering every lane, and the right route's only stop.
@@ -392,7 +392,7 @@ enum Country1CityCatalog {
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 10:3:2:2 Keep:Tower:Gate:East Gate HP (11551 + 3464 + 2309 + 2309 of 19633):
+                    // 10:3:2:2 Keep:Tower:Gate:East Gate HP (2988 + 895 + 597 + 597 of 5077):
                     // the Keep is the conquest authority. The Tower is the single fire source,
                     // covering every lane. The left route runs through the Tower; the centre and
                     // right routes each have their own Gate.
@@ -447,7 +447,7 @@ enum Country1CityCatalog {
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 30:3:1:1 Keep:Tower:Gate:Barracks HP (36180 + 3618 + 1206 + 1206 of 42210):
+                    // 30:3:1:1 Keep:Tower:Gate:Barracks HP (8051 + 805 + 268 + 268 of 9392):
                     // the Keep is the conquest authority. The Tower is the single fire source,
                     // covering every lane, and the left route's only stop. The centre Gate is the
                     // centre route's only stop. The Barracks is the right route's only stop and the
@@ -503,7 +503,7 @@ enum Country1CityCatalog {
             visualFamily: .ember,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 30:1:1:1 Keep:Gate:Barracks:Tower HP (82501 + 2750 + 2750 + 2750 of 90751):
+                    // 30:1:1:1 Keep:Gate:Barracks:Tower HP (15797 + 526 + 526 + 526 of 17375):
                     // the Keep is the conquest authority. The Tower is the single fire source,
                     // covering every lane, and the right route's only stop. The Gate is the left
                     // route's only stop, and the Barracks is the centre route's only stop. The
@@ -559,7 +559,7 @@ enum Country1CityCatalog {
             visualFamily: .arcane,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 30:1:1:1 Keep:Gate:Barracks:East Gate HP (177379 + 5912 + 5912 + 5912 of 195115):
+                    // 30:1:1:1 Keep:Gate:Barracks:East Gate HP (29221 + 974 + 974 + 974 of 32143):
                     // the Keep is the conquest authority and the only fire source, covering every lane.
                     // The Barracks is the centre (standard) route's only stop; each Gate guards one
                     // flank route. The arcane ward stays in the defense trait.
@@ -614,7 +614,7 @@ enum Country1CityCatalog {
             visualFamily: .frontier,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 30:1:2:1 Keep:Gate:Tower:East Gate HP (370146 + 12338 + 24676 + 12338 of 419498):
+                    // 30:1:2:1 Keep:Gate:Tower:East Gate HP (52472 + 1748 + 3497 + 1748 of 59465):
                     // the Keep is the conquest authority. The Tower is the single fire source, covering
                     // every lane, and the centre route's only stop. The left and right Gates each guard
                     // one flank route; the right route is the standard lane and never reaches the Tower.
@@ -669,8 +669,8 @@ enum Country1CityCatalog {
             visualFamily: .royal,
             siegeLayout: CitySiegeLayout(
                 objectives: [
-                    // 30:2:1:1:1 Keep:Tower:Barracks:Gate:East Gate HP (773076 + 51538 + 25769 +
-                    // 25769 + 25769 of 901921): the Keep is the conquest authority. The Tower is the
+                    // 30:2:1:1:1 Keep:Tower:Barracks:Gate:East Gate HP (94296 + 6286 + 3143 +
+                    // 3143 + 3143 of 110011): the Keep is the conquest authority. The Tower is the
                     // single fire source, covering every lane, and the left route's first stop. The
                     // Barracks is the centre route's first stop. The Gate stands before the Keep on
                     // the left and centre routes, and the East Gate is the right route's only stop.
@@ -746,9 +746,9 @@ enum Country1GuardRules {
     static let guardsPerWave = 2
     /// City 5 (Highcrest) pilot rationale, a starting reference and not a
     /// late-city guarantee. Tuned by the Highcrest route-balance pass (round 2):
-    /// the Barracks objective holds only 20 power (weights 20:1 with the Keep),
-    /// so the typical Barracks-first shutdown lands ~26s, before the first 30s
-    /// wave, and cancels the whole unspent reserve. Direct-route armies keep the
+    /// the Barracks objective holds only 11 power (weights 20:1 with the Keep),
+    /// so the typical Barracks-first shutdown lands before the first 30s
+    /// wave and cancels the whole unspent reserve. Direct-route armies keep the
     /// Barracks alive, so all six waves (12 Guards) deploy against them; that
     /// asymmetry closes the route-dominance gap while honoring the shutdown
     /// consequence.

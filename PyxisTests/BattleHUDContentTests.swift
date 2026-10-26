@@ -143,7 +143,7 @@ struct BattleHUDContentTests {
         // Falconridge's left route opens at the Arrow Tower: the archer's
         // ×0.80 trait penalty stacks with the ×1.5 tower role into a net
         // ×1.20 advantage instead of the lying trait-only ×0.80 pill.
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35, selectedLane: .left)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26, selectedLane: .left)
         state.siegeProgress.selectedLane = .left
 
         let archer = multiplier(.archer, in: state)
@@ -158,7 +158,7 @@ struct BattleHUDContentTests {
         // Falconridge's center route opens at the Ridge Gate: the archer's
         // tower role no longer applies (×0.80), while siege doubles against
         // the gate (×2.0).
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26)
         state.siegeProgress.selectedLane = .center
 
         #expect(multiplier(.archer, in: state) == 0.80)
@@ -169,7 +169,7 @@ struct BattleHUDContentTests {
     @Test func targetDestructionMovesMedallionMultiplierToNextLiveObjective() {
         // With the tower destroyed, Falconridge's left route resolves to the
         // Keep: the archer's role disappears (×0.80) and siege doubles.
-        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35, selectedLane: .left)
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26, selectedLane: .left)
         let towerID = SiegeTestSupport.objectiveID(for: .arrowTower, in: state)
         let maxPowers = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)
         state.siegeProgress.damageByObjectiveID[towerID!] = maxPowers[towerID!]

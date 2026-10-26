@@ -190,7 +190,7 @@ enum Country1SiegeSmoke {
         let waves = result.guardsSpawned.map { String($0 / Country1GuardRules.guardsPerWave) } ?? "n/a"
         let reserve = result.guardReserveRemaining.map(String.init) ?? "n/a"
         let shutdown = result.barracksShutdownSeconds.map { String(format: "%.1f", $0) } ?? "none"
-        // Appended only for watch-only runs so the default pilot lines stay byte-identical.
+        // Appended only for watch-only runs; manual-spawn runs omit it.
         let watchOnlyTokens = result.manualSpawnsEnabled ? [] : ["manualSpawns=off"]
         return ([
             "COUNTRY1_SMOKE",
@@ -383,7 +383,7 @@ struct Country1SiegeSmokeTests {
 
     /// City 3 pilot camp (manual-spawn pilot, Falconridge): Barracks L2 (15 + 12 = 27) + Archery Range L1
     /// (18) = 45 gold. The cumulative budget through City 2 is 35 (15 + 8 + 12), so this shipped pilot camp
-    /// is 10 gold over that convention. It is kept as authored; the pilot lines stay byte-identical.
+    /// is 10 gold over that convention. It is kept as authored.
     private static let city3Camp: [Country1SiegeSmoke.Building] = [
         .init(type: .barracks, level: 2),
         .init(type: .archeryRange, level: 1)
@@ -401,9 +401,9 @@ struct Country1SiegeSmokeTests {
     ]
 
     /// City 5 watch-only camp: Barracks L3 (47) + Archery Range L1 (18) = 65 of the 76-gold cumulative budget
-    /// (leftover 11), within budget. Default right lane (exposed, 0.80x Tower fire) conquers in 367.6 s with 65
-    /// losses. Other lanes on the same camp: left conquers in 297.2 s (Barracks down at 18.2 s); centre
-    /// conquers in 834.0 s, close to the bound.
+    /// (leftover 11), within budget. Default right lane (exposed, 0.80x Tower fire) is the slowest route and
+    /// stays well inside the bound post-tuning (199.5 s, 35 losses at the HPA-582 Task 4 constants).
+    /// Elapsed values are observational, never assertions.
     private static let city5WatchOnlyCamp: [Country1SiegeSmoke.Building] = [
         .init(type: .barracks, level: 3),
         .init(type: .archeryRange, level: 1)
@@ -945,7 +945,8 @@ struct Country1SiegeSmokeTests {
     /// Chained 15-city greedy campaign (HPA-582 Task 0), opt-in via
     /// `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`. The per-city COUNTRY1_SMOKE
     /// campaign=1 lines are the balance evidence; the assertion is the
-    /// eventual 15/15 gate (a stall is the baseline until Task 4 tunes).
+    /// 15/15 conquest gate (green since Task 4 tuned `cityMaxPower` to a
+    /// 1.85 growth curve).
     @Test(
         "Chained greedy campaign conquers every Country 1 city inside the bound",
         .enabled(if: Country1SiegeSmoke.campaignEnabled)

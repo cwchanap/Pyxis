@@ -824,8 +824,8 @@ struct Country1CityCatalogTests {
         #expect(layout.routes[.center] == ["highcrest.keep"])
         #expect(layout.routes[.right] == ["highcrest.keep"])
         #expect(layout.barracksObjective?.id == "highcrest.barracks")
-        #expect(maxPower["highcrest.keep"] == 407)
-        #expect(maxPower["highcrest.barracks"] == 20)
+        #expect(maxPower["highcrest.keep"] == 223)
+        #expect(maxPower["highcrest.barracks"] == 11)
     }
 
     /// Pins the shared Guard constants to the City 5 (Highcrest) pilot baseline.

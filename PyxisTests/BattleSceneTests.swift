@@ -2472,7 +2472,7 @@ struct BattleSceneTests {
         let store = try makeStore(
             initialState: stateWithBuildings(
                 [.archeryRange],
-                keepRemaining: 35,
+                keepRemaining: 26,
                 cityNumberInCountry: 3,
                 completedCityCount: 2,
                 selectedLane: .left
@@ -2504,7 +2504,7 @@ struct BattleSceneTests {
         let store = try makeStore(
             initialState: stateWithBuildings(
                 [.archeryRange],
-                keepRemaining: 35,
+                keepRemaining: 26,
                 cityNumberInCountry: 3,
                 completedCityCount: 2,
                 selectedLane: .center
@@ -2537,7 +2537,7 @@ struct BattleSceneTests {
         // — the Keep displays stay untouched (HPA-468 review C2).
         let store = try makeStore(initialState: SiegeTestSupport.makeBattleState(
             atCity: 3,
-            keepRemaining: 35,
+            keepRemaining: 26,
             selectedLane: .center
         ))
         let scene = makeScene(store: store, combatSeed: 1)
@@ -2547,7 +2547,7 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 1.6)
 
         // The Keep took no damage in this window: every hit landed on the Gate.
-        #expect(store.load().currentKeepRemainingPower == 35)
+        #expect(store.load().currentKeepRemainingPower == 26)
         let gate = try #require(scene.siegeObjectiveNodeForTesting(.gate))
         #expect(gate.action(forKey: "cityHitFeedback") != nil)
         #expect(keep.action(forKey: "cityHitFeedback") == nil)
@@ -2570,8 +2570,8 @@ struct BattleSceneTests {
         // legitimately targets the Keep displays (HPA-468 review C2).
         let store = try makeStore(initialState: captainless(SiegeTestSupport.makeBattleState(
             atCity: 3,
-            keepRemaining: 35,
-            supportDamage: [.gate: 10, .arrowTower: 46],
+            keepRemaining: 26,
+            supportDamage: [.gate: 7, .arrowTower: 34],
             selectedLane: .center
         )))
         let scene = makeScene(store: store, combatSeed: 1)
@@ -2582,7 +2582,7 @@ struct BattleSceneTests {
 
         let gate = try #require(scene.siegeObjectiveNodeForTesting(.gate))
         #expect(keep.action(forKey: "cityHitFeedback") != nil) // the follow-up hits
-        #expect(store.load().currentKeepRemainingPower < 35)
+        #expect(store.load().currentKeepRemainingPower < 26)
         #expect(store.load().stageStatus == .battleActive) // damaged, not conquered
 
         // Both placements appear: a gate label centered on the Gate (its
@@ -5559,7 +5559,7 @@ struct BattleSceneTests {
 
     /// Falconridge (City 3) battle state with optional Keep/support damage.
     private func falconridgeState(
-        keepRemaining: Int = 35,
+        keepRemaining: Int = 26,
         supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:]
     ) -> KingdomGameState {
         SiegeTestSupport.makeBattleState(
@@ -5640,8 +5640,8 @@ struct BattleSceneTests {
     func destroyedObjectivesRenderRuinsSpanningSameApproaches() throws {
         let intact = makeScene(store: try makeStore(initialState: falconridgeState()))
         let destroyed = makeScene(store: try makeStore(initialState: falconridgeState(
-            keepRemaining: 35,
-            supportDamage: [.arrowTower: 46, .gate: 11]
+            keepRemaining: 26,
+            supportDamage: [.arrowTower: 34, .gate: 8]
         )))
 
         // The ruined gate spans exactly the intact gate's approaches.
@@ -5670,7 +5670,7 @@ struct BattleSceneTests {
         #expect(Set(live.siegeCoveredLanesForTesting) == Set(BattleLane.allCases))
 
         let deadTower = makeScene(store: try makeStore(initialState: falconridgeState(
-            supportDamage: [.arrowTower: 46]
+            supportDamage: [.arrowTower: 34]
         )))
         #expect(deadTower.siegeCoveredLanesForTesting.isEmpty)
 
@@ -5721,10 +5721,10 @@ struct BattleSceneTests {
 
         #expect(try stage(for: falconridgeState()) == .intact)
         #expect(try stage(for: falconridgeState(
-            supportDamage: [.gate: 11, .arrowTower: 46]
+            supportDamage: [.gate: 8, .arrowTower: 34]
         )) == .intact)
-        #expect(try stage(for: falconridgeState(keepRemaining: 20)) == .damaged)
-        #expect(try stage(for: falconridgeState(keepRemaining: 8)) == .breached)
+        #expect(try stage(for: falconridgeState(keepRemaining: 12)) == .damaged)
+        #expect(try stage(for: falconridgeState(keepRemaining: 6)) == .breached)
     }
 
     @Test("Tactical structures ship complete, distinct intact and ruined art")
@@ -5817,8 +5817,8 @@ struct BattleSceneTests {
 
     @Test("Ruin markers draw above their ruined structure art")
     func ruinMarkersDrawAboveStructureArt() throws {
-        for state in [falconridgeState(supportDamage: [.gate: 11, .arrowTower: 46]),
-                      highcrestState(supportDamage: [.barracks: 20])] {
+        for state in [falconridgeState(supportDamage: [.gate: 8, .arrowTower: 34]),
+                      highcrestState(supportDamage: [.barracks: 11])] {
             let scene = makeScene(store: try makeStore(initialState: state))
             for kind in [CitySiegeLayout.ObjectiveKind.gate, .arrowTower, .barracks] {
                 guard let objective = scene.siegeObjectiveNodeForTesting(kind) else { continue }
@@ -6393,9 +6393,22 @@ struct BattleSceneTests {
 
     @Test("Guard waves spawn into combat and the label tracks the living count")
     func wavesSpawnIntoCombatAndLabelTracksCount() throws {
-        let scene = makeScene(store: try makeStore(initialState: highcrestState()))
+        // The guard clock starts at 29.95s so the first wave is due after one
+        // 0.1s tick, and the window stays far below the City 3+ Captain's 12s
+        // revival: a full 30s run would deploy a Captain onto the guards'
+        // lane (fresh or revived), and any soldier there marches the wave off
+        // Keep progress — the Highcrest Barracks is only 11 HP now, so the
+        // old full-window shape also risked a Barracks shutdown.
+        var state = captainless(highcrestState(
+            guardProgress: GuardReinforcementProgress(
+                waveElapsedSeconds: 29.95,
+                remainingReserve: Country1GuardRules.totalReserve,
+                unresolvedGuards: []
+            )
+        ))
+        let scene = makeScene(store: try makeStore(initialState: state))
 
-        scene.advanceCombatForTesting(deltaTime: 30.1)
+        scene.advanceCombatForTesting(deltaTime: 0.5)
 
         // One due wave: 2 full-HP Guards restored at Keep progress with nodes.
         #expect(scene.livingGuardsForTesting.count == 2)

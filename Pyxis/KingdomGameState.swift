@@ -1252,8 +1252,12 @@ struct KingdomGameState: Codable, Equatable {
         siegeProgress.captain = captain
     }
 
+    // 1.85 (was 2.15, HPA-582 Task 4): keep late-campaign sieges inside the
+    // 900 s smoke bound with margin — HP growth must track the 1.45 gold-reward
+    // curve or elapsed time diverges geometrically (City 14/15 stalls at 2.15;
+    // 1.95 left City 15 at 859/900 s).
     static func cityMaxPower(for level: Int) -> Int {
-        roundedAtLeastOne(20 * pow(2.15, Double(clampedLevel(level) - 1)))
+        roundedAtLeastOne(20 * pow(1.85, Double(clampedLevel(level) - 1)))
     }
 
     static func goldReward(for level: Int) -> Int {
