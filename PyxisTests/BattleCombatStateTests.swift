@@ -2659,6 +2659,139 @@ struct BattleCombatStateTests {
     ) -> Bool {
         abs(lhs - rhs) <= tolerance
     }
+
+    // MARK: Manual deploy charges (HPA-582)
+
+    private func makeChargeState() -> BattleCombatState {
+        BattleCombatState(
+            configuration: BattleCombatState.Configuration(
+                soldierMaxHP: 100,
+                soldierDefense: 0,
+                soldierAttackSpeed: 1.0,
+                soldierAttackRange: 0.12,
+                soldierMovementSpeed: 0,
+                towerDamage: 0,
+                towerAttackSpeed: 1.0,
+                towerAttackRange: 0,
+                maxDeltaTime: 1.0
+            ),
+            seed: 1
+        )
+    }
+
+    @Test func newCombatStateStartsWithFullManualDeployCharges() {
+        let combat = makeChargeState()
+
+        #expect(combat.manualDeployCharges == BattleCombatState.ManualDeployRules.maxCharges)
+        #expect(combat.manualDeployCharges == 3)
+    }
+
+    @Test func spendManualDeployChargeSucceedsOnlyWhileChargesRemain() {
+        var combat = makeChargeState()
+
+        for _ in 0..<BattleCombatState.ManualDeployRules.maxCharges {
+            let spent = combat.spendManualDeployCharge()
+            #expect(spent)
+        }
+
+        #expect(combat.manualDeployCharges == 0)
+        let denied = combat.spendManualDeployCharge()
+        #expect(!denied)
+        #expect(combat.manualDeployCharges == 0)
+    }
+
+    @Test func validTickTimeRechargesOneChargePerOneAndAHalfSeconds() {
+        var combat = makeChargeState()
+        let snapshot = SiegeFixtures.singleKeepSnapshot(keepRemaining: 10_000)
+        for _ in 0..<3 {
+            _ = combat.spendManualDeployCharge()
+        }
+
+        // 15 × 0.1s ticks = 1.5s of valid combat time → one charge.
+        for _ in 0..<15 {
+            _ = combat.tick(deltaTime: 0.1, siege: snapshot)
+        }
+        #expect(combat.manualDeployCharges == 1)
+
+        // Another 1.5s of valid combat time → the second charge.
+        for _ in 0..<15 {
+            _ = combat.tick(deltaTime: 0.1, siege: snapshot)
+        }
+        #expect(combat.manualDeployCharges == 2)
+    }
+
+    @Test func fractionalTickTimeAccumulatesTowardNextCharge() {
+        var combat = makeChargeState()
+        let snapshot = SiegeFixtures.singleKeepSnapshot(keepRemaining: 10_000)
+        for _ in 0..<3 {
+            _ = combat.spendManualDeployCharge()
+        }
+
+        // 14 × 0.1s ticks = 1.4s — still short of the 1.5s recharge interval.
+        for _ in 0..<14 {
+            _ = combat.tick(deltaTime: 0.1, siege: snapshot)
+        }
+        #expect(combat.manualDeployCharges == 0)
+
+        // The 15th 0.1s tick crosses 1.5s of accumulated active combat time.
+        _ = combat.tick(deltaTime: 0.1, siege: snapshot)
+        #expect(combat.manualDeployCharges == 1)
+    }
+
+    @Test func rechargeCapsAtThreeChargesAndDiscardsExtraAccumulation() {
+        var combat = makeChargeState()
+        let snapshot = SiegeFixtures.singleKeepSnapshot(keepRemaining: 10_000)
+        for _ in 0..<3 {
+            _ = combat.spendManualDeployCharge()
+        }
+
+        // Far more than 3 × 1.5s of valid tick time, but the cap holds.
+        for _ in 0..<60 {
+            _ = combat.tick(deltaTime: 0.25, siege: snapshot)
+        }
+        #expect(combat.manualDeployCharges == 3)
+
+        // Time banked while full is discarded: the next spent charge must
+        // recharge from zero, not from leftover accumulation.
+        _ = combat.spendManualDeployCharge()
+        #expect(combat.manualDeployCharges == 2)
+        // 0.1 + 1.4 more seconds of valid combat time → the third charge.
+        for _ in 0..<15 {
+            _ = combat.tick(deltaTime: 0.1, siege: snapshot)
+        }
+        #expect(combat.manualDeployCharges == 3)
+    }
+
+    @Test func pausedOrCompletedSiegeTicksNeverRechargeCharges() {
+        var combat = makeChargeState()
+        for _ in 0..<3 {
+            _ = combat.spendManualDeployCharge()
+        }
+
+        // A conquered Keep fails the tick's early guard: no recharge.
+        let conquered = SiegeFixtures.singleKeepSnapshot(keepRemaining: 0)
+        _ = combat.tick(deltaTime: 10.0, siege: conquered)
+        #expect(combat.manualDeployCharges == 0)
+
+        // Zero/invalid deltas fail the delta guard: no recharge.
+        let live = SiegeFixtures.singleKeepSnapshot(keepRemaining: 10_000)
+        _ = combat.tick(deltaTime: 0, siege: live)
+        _ = combat.tick(deltaTime: -1.0, siege: live)
+        #expect(combat.manualDeployCharges == 0)
+    }
+
+    @Test func freshCombatStateRestartsFullAfterAnotherWasDrained() {
+        var drained = makeChargeState()
+        for _ in 0..<3 {
+            _ = drained.spendManualDeployCharge()
+        }
+        #expect(drained.manualDeployCharges == 0)
+
+        // A recreated combat state (new scene/battle) starts full again —
+        // charges are transient, never persisted.
+        let restarted = makeChargeState()
+        #expect(restarted.manualDeployCharges == 3)
+    }
 }
 
 /// Test fixtures for the ephemeral siege snapshot input (HPA-468).

@@ -909,7 +909,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             manualCount: combat.livingSoldierCount(source: .manual),
             selectedSoldierType: selectedManualSoldierType,
             captainIsDeployed: combat.captainSoldier != nil,
-            rallyRemainingSeconds: combat.rallyRemainingSeconds
+            rallyRemainingSeconds: combat.rallyRemainingSeconds,
+            manualDeployCharges: combat.manualDeployCharges
         )
         lastAppliedCaptainStatus = content.captainStatus
         switch battleHUD.apply(content: content, layout: layout) {
@@ -2210,11 +2211,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         decrementSoldierHitAnimationRemaining(deltaTime: deltaTime)
         decrementGuardAnimationRemaining(deltaTime: deltaTime)
 
+        let chargesBeforeTick = combat.manualDeployCharges
         let result = combat.tick(
             deltaTime: deltaTime,
             siege: state.currentSiegeSnapshot,
             rallyAutoTriggerAvailable: isRallyAutoTriggerAvailable
         )
+        // HPA-582: the Deploy label tracks the integer charge count only —
+        // fractional recharge progress never triggers a refresh.
+        let chargesChanged = combat.manualDeployCharges != chargesBeforeTick
         feedback.emitAutomaticCombat(result)
         // Named locals — not `||` chaining — so all three sinks always run;
         // a short-circuit would skip Captain/Guard sync whenever an earlier
@@ -2249,6 +2254,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // A spawn-driven refresh just ran — restart the Captain
             // cadence from this fresh apply.
             captainHUDRefreshAccumulator = 0
+            applyBattleHUD()
+        } else if chargesChanged {
             applyBattleHUD()
         } else {
             refreshCaptainHUDOnCadence(deltaTime: deltaTime)
@@ -2684,6 +2691,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guard combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap else {
             feedback.emit(.invalidAction)
             feedbackText = "Manual squad is full."
+            redraw()
+            return
+        }
+
+        // HPA-582: charges are spent only after the type/cap guards — a
+        // rejected deploy never consumes one.
+        guard combat.spendManualDeployCharge() else {
+            feedback.emit(.invalidAction)
+            feedbackText = "Deploy is recharging."
             redraw()
             return
         }
@@ -5064,6 +5080,14 @@ extension BattleScene {
         battleHUD.currentContentForTesting.map { "\($0.manualCount)" }
     }
 
+    var battleHUDCurrentContentForTesting: BattleHUDContent? {
+        battleHUD.currentContentForTesting
+    }
+
+    var manualDeployChargesForTesting: Int {
+        combat.manualDeployCharges
+    }
+
     var isConquestPopupVisibleForTesting: Bool {
         isConquestReportVisible && !isConquestReportFitFailed
     }
@@ -5125,6 +5149,37 @@ extension BattleScene {
 
     func spawnSoldierForTesting() {
         spawnSoldier()
+    }
+
+    /// Injects `count` manual soldiers straight into the combat roster —
+    /// bypasses the deploy-charge mechanic so tests can place more soldiers
+    /// than the transient 3-charge pool allows without driving real recharge
+    /// time (which would conquer the tiny authored smoke camps first).
+    /// Mirrors the successful-deploy postlude so nodes and HUD stay
+    /// consistent.
+    func spawnManualSoldiersDirectlyForTesting(_ count: Int) {
+        for _ in 0..<max(0, count) {
+            guard combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap,
+                  let level = state.manualSoldierLevel(for: selectedManualSoldierType) else {
+                break
+            }
+            let soldierID = combat.spawnSoldier(
+                type: selectedManualSoldierType,
+                source: .manual,
+                level: level,
+                attackPower: state.traitAdjustedSoldierAttackPower(
+                    for: selectedManualSoldierType,
+                    level: level
+                ),
+                lane: state.siegeProgress.selectedLane
+            )
+            if let soldier = combat.soldier(id: soldierID) {
+                state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
+            }
+            createSoldierNode(id: soldierID)
+        }
+        syncSoldierNodes()
+        applyBattleHUD()
     }
 
     func selectManualSoldierTypeForTesting(_ type: SoldierType) {

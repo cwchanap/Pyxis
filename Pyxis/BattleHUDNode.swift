@@ -59,6 +59,10 @@ struct BattleHUDContent: Equatable {
     let recommendationLevelText: String?
     let manualCount: Int
     let manualCapacity: Int
+    /// HPA-582: integer manual deploy charges (0...3) shown on the existing
+    /// Deploy label. Defaults to full for projections made without live
+    /// combat state (HUD strip previews, static fixtures).
+    var manualDeployCharges: Int = BattleCombatState.ManualDeployRules.maxCharges
     let selectedSoldierType: SoldierType
     let medallions: [Medallion]
     let enabledTabs: Set<GameplayTab>
@@ -80,7 +84,8 @@ struct BattleHUDContent: Equatable {
         manualCount: Int,
         selectedSoldierType: SoldierType = .infantry,
         captainIsDeployed: Bool = false,
-        rallyRemainingSeconds: Double = 0
+        rallyRemainingSeconds: Double = 0,
+        manualDeployCharges: Int = BattleCombatState.ManualDeployRules.maxCharges
     ) -> BattleHUDContent {
         let normalizedManualCount = min(
             max(0, manualCount),
@@ -145,6 +150,7 @@ struct BattleHUDContent: Equatable {
             recommendationLevelText: recommendationLevelText,
             manualCount: normalizedManualCount,
             manualCapacity: KingdomGameState.manualSoldierCap,
+            manualDeployCharges: min(max(0, manualDeployCharges), BattleCombatState.ManualDeployRules.maxCharges),
             selectedSoldierType: selectedSoldierType,
             medallions: medallions,
             enabledTabs: normalizedManualCount == 0
@@ -202,12 +208,14 @@ struct BattleHUDContent: Equatable {
     static func project(
         from state: KingdomGameState,
         manualLivingSoldierCount: Int,
-        selectedSoldierType: SoldierType = .infantry
+        selectedSoldierType: SoldierType = .infantry,
+        manualDeployCharges: Int = BattleCombatState.ManualDeployRules.maxCharges
     ) -> BattleHUDContent {
         project(
             from: state,
             manualCount: manualLivingSoldierCount,
-            selectedSoldierType: selectedSoldierType
+            selectedSoldierType: selectedSoldierType,
+            manualDeployCharges: manualDeployCharges
         )
     }
 
@@ -936,7 +944,10 @@ final class BattleHUDNode: SKNode {
         deployPanel.position = CGPoint(x: deployDisplayFrame.midX, y: deployDisplayFrame.midY)
         deployIcon.texture = Self.texture(for: content.selectedSoldierType)
         deployIcon.size = CGSize(width: 46, height: 46)
-        deployLabel.text = "DEPLOY"
+        // HPA-582: the Deploy label carries the integer manual charge count;
+        // the manual N/10 soldier count stays beside it.
+        let deployText = "DEPLOY · \(content.manualDeployCharges)"
+        deployLabel.text = deployText
         deployLabel.fontColor = SKColor(red: 1, green: 244 / 255, blue: 222 / 255, alpha: 1)
         manualCountLabel.text = "\(content.manualCount)/\(content.manualCapacity)"
         manualCountLabel.fontColor = SKColor(
@@ -952,18 +963,19 @@ final class BattleHUDNode: SKNode {
             + deployDividerWidth
             + manualCountLabel.frame.width
         // The City 3+ action frame is narrower than the authored cluster —
-        // shrink the gaps first, then fit "DEPLOY" into what remains, so the
-        // cluster never spills into the Captain strip gap (HPA-475).
+        // shrink the gaps first, then fit the actual Deploy text (including
+        // its charge count) into what remains, so the cluster never spills
+        // into the Captain strip gap (HPA-475).
         let deploySpacing = min(
             20,
             max(
                 8,
                 (deployAvailable - deployFixedWidth
-                    - Self.measureBoldTextWidth("DEPLOY", fontSize: 18)) / 3
+                    - Self.measureBoldTextWidth(deployText, fontSize: 18)) / 3
             )
         )
         deployLabel.fontSize = SingleLineTextFitter.fittedFontSize(
-            "DEPLOY",
+            deployText,
             startingAt: 18,
             minimum: 11,
             maximumWidth: max(24, deployAvailable - deployFixedWidth - deploySpacing * 3),

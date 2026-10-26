@@ -214,6 +214,15 @@ struct BattleCombatState: Equatable {
         var shouldAutoActivateRally = false
     }
 
+    /// Transient manual deploy charge policy (HPA-582). Lives on the combat
+    /// state because only valid active combat tick time refills charges —
+    /// never persisted, never caught up from wall-clock time.
+    enum ManualDeployRules {
+        static let maxCharges = 3
+        /// Active combat seconds required to refill one charge.
+        static let rechargeIntervalSeconds: Double = 1.5
+    }
+
     let configuration: Configuration
     private(set) var soldiers: [Soldier]
     private(set) var guards: [Guard]
@@ -225,6 +234,14 @@ struct BattleCombatState: Equatable {
     private var rallyLane: BattleLane?
     /// Read-only externally; advanced by `tick` and armed by `startRally`.
     private(set) var rallyRemainingSeconds: Double = 0
+    /// HPA-582: manual deploy charges — full at creation, spent by the
+    /// scene's manual Deploy action only, refilled by valid active combat
+    /// tick time. Exactly two transient fields (charges + accumulator);
+    /// never persisted and never recharged from wall-clock time.
+    private(set) var manualDeployCharges: Int = ManualDeployRules.maxCharges
+    /// Fractional active-combat time banked toward the next charge;
+    /// discarded while the charge pool is full.
+    private var manualDeployRechargeSeconds: Double = 0
     private var rng: SplitMix64
 
     init(configuration: Configuration, seed: UInt64) {
@@ -408,6 +425,37 @@ struct BattleCombatState: Equatable {
         }
     }
 
+    /// Spends one manual deploy charge (HPA-582); false when empty. The
+    /// scene calls this only after its own type and 10-live-manual-cap
+    /// guards — building-spawned soldiers and the Captain never spend
+    /// charges.
+    mutating func spendManualDeployCharge() -> Bool {
+        guard manualDeployCharges > 0 else {
+            return false
+        }
+        manualDeployCharges -= 1
+        return true
+    }
+
+    /// Banks valid active combat tick time toward the next manual deploy
+    /// charge (HPA-582). Runs only after `tick`'s delta/Keep guards, so
+    /// paused modal/Settings, backgrounded, and post-conquest time never
+    /// accrues. Extra accumulation is discarded while full.
+    private mutating func rechargeManualDeploy(deltaTime: Double) {
+        guard manualDeployCharges < ManualDeployRules.maxCharges else {
+            return
+        }
+        manualDeployRechargeSeconds += deltaTime
+        while manualDeployRechargeSeconds >= ManualDeployRules.rechargeIntervalSeconds,
+              manualDeployCharges < ManualDeployRules.maxCharges {
+            manualDeployRechargeSeconds -= ManualDeployRules.rechargeIntervalSeconds
+            manualDeployCharges += 1
+        }
+        if manualDeployCharges == ManualDeployRules.maxCharges {
+            manualDeployRechargeSeconds = 0
+        }
+    }
+
     /// Advances one combat tick against the ephemeral siege snapshot.
     /// Soldiers target the first living objective along their own route,
     /// stop at `target.visualProgress - attackRange`, and mutate a local
@@ -427,6 +475,10 @@ struct BattleCombatState: Equatable {
         guard deltaTime > 0, snapshot.objectiveRemainingPower[keepID, default: 0] > 0 else {
             return TickResult()
         }
+
+        // HPA-582: recharge runs only for valid active combat time — the
+        // guards above already rejected paused/conquered-siege deltas.
+        rechargeManualDeploy(deltaTime: deltaTime)
 
         var result = TickResult()
         var objectiveRemaining = snapshot.objectiveRemainingPower
