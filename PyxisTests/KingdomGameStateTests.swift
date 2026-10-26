@@ -26,9 +26,6 @@ struct KingdomGameStateTests {
         #expect(KingdomGameState.normalSoldierAttackPower(for: 1) == 1)
         #expect(KingdomGameState.normalSoldierAttackPower(for: 2) == 2)
         #expect(KingdomGameState.normalSoldierAttackPower(for: 4) == 3)
-
-        #expect(KingdomGameState.normalSoldierUpgradeCost(for: 1) == 10)
-        #expect(KingdomGameState.normalSoldierUpgradeCost(for: 2) == 17)
     }
 
     @Test func expandedSoldierCatalogHasDisplayNames() {
@@ -386,7 +383,6 @@ struct KingdomGameStateTests {
         #expect(KingdomGameState.cityMaxPower(for: 0) == 20)
         #expect(KingdomGameState.goldReward(for: 0) == 8)
         #expect(KingdomGameState.normalSoldierAttackPower(for: 0) == 1)
-        #expect(KingdomGameState.normalSoldierUpgradeCost(for: 0) == 10)
     }
 
     @Test func decodingInvalidPersistedStateClampsValues() throws {
@@ -394,7 +390,6 @@ struct KingdomGameStateTests {
         {
           "gold": -25,
           "cityLevel": 0,
-          "normalSoldierUpgradeLevel": 0,
           "lastBackgroundedAt": null,
           "countryNumber": 0,
           "cityNumberInCountry": 0,
@@ -407,7 +402,6 @@ struct KingdomGameStateTests {
 
         #expect(state.gold == 0)
         #expect(state.cityLevel == 1)
-        #expect(state.normalSoldierUpgradeLevel == 1)
         #expect(state.lastBackgroundedAt == nil)
         #expect(state.countryNumber == 1)
         #expect(state.cityNumberInCountry == 1)
@@ -420,7 +414,6 @@ struct KingdomGameStateTests {
         {
           "gold": 40,
           "cityLevel": 4,
-          "normalSoldierUpgradeLevel": 2
         }
         """.data(using: .utf8)!
 
@@ -438,7 +431,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 2,
-          "normalSoldierUpgradeLevel": 4,
           "countryNumber": 1,
           "cityNumberInCountry": 2,
           "completedCityCount": 1,
@@ -467,7 +459,6 @@ struct KingdomGameStateTests {
 
         #expect(state.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .barracks)
         #expect(state.cityBattleStateForCurrentCity.building(inSlot: 2)?.type == .archeryRange)
-        #expect(state.normalSoldierUpgradeLevel == 4)
         #expect(state.currentCityDefenseTrait == .standardWatch)
     }
 
@@ -476,7 +467,6 @@ struct KingdomGameStateTests {
         {
           "gold": 40,
           "cityLevel": 4,
-          "normalSoldierUpgradeLevel": 2,
           "countryNumber": 1,
           "cityNumberInCountry": 4,
           "completedCityCount": 3,
@@ -488,7 +478,6 @@ struct KingdomGameStateTests {
 
         #expect(state.gold == 40)
         #expect(state.cityLevel == 4)
-        #expect(state.normalSoldierUpgradeLevel == 2)
         #expect(state.countryNumber == 1)
         #expect(state.cityNumberInCountry == 4)
         #expect(state.completedCityCount == 3)
@@ -500,7 +489,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 1,
-          "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
           "completedCityCount": 0,
@@ -582,7 +570,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 1,
-          "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
           "completedCityCount": 0,
@@ -645,7 +632,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 1,
-          "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
           "completedCityCount": 0,
@@ -729,7 +715,6 @@ struct KingdomGameStateTests {
         {
           "gold": 100,
           "cityLevel": 3,
-          "normalSoldierUpgradeLevel": 1,
           "countryNumber": 1,
           "cityNumberInCountry": 3,
           "completedCityCount": 2,
@@ -1373,41 +1358,6 @@ struct KingdomGameStateTests {
         #expect(state.stageStatus == .countryComplete)
         #expect(state.mapStatus(for: 15) == .completed)
         #expect(state.startCityFromMap(15) == .countryComplete)
-    }
-
-    @Test func successfulUpgradeSpendsGoldAndRaisesAttackPower() {
-        var state = KingdomGameState(gold: 30)
-
-        let result = state.upgradeNormalSoldier()
-
-        #expect(result == .upgraded(cost: 10, newAttackPower: 2))
-        #expect(state.gold == 20)
-        #expect(state.normalSoldierUpgradeLevel == 2)
-        #expect(state.normalSoldierAttackPower == 2)
-    }
-
-    @Test func failedUpgradeDoesNotMutateState() {
-        let original = KingdomGameState(gold: 9)
-        var state = original
-
-        let result = state.upgradeNormalSoldier()
-
-        #expect(result == .insufficientGold(cost: 10, currentGold: 9))
-        #expect(state == original)
-    }
-
-    @Test func upgradeIsRejectedWhenBattleIsPausedForMap() {
-        let original = KingdomGameState(
-            gold: 30,
-            cityNumberInCountry: 1,
-            completedCityCount: 1,
-            stageStatus: .cityConqueredPendingMap
-        )
-        var state = original
-
-        _ = state.upgradeNormalSoldier()
-
-        #expect(state == original)
     }
 
     @Test func idleCatchUpDealsZeroDamageWithoutBuildings() {
@@ -2882,10 +2832,11 @@ struct KingdomGameStateTests {
     // MARK: Vanguard Captain persistence + rules (HPA-475)
 
     /// Re-enters a seeded siege progress through the top-level init — the
-    /// same forgiving-normalization path JSON decoding takes.
+    /// same forgiving-normalization path JSON decoding takes. `campLevel`
+    /// seeds one Barracks so the Captain derives its max from the camp.
     private func renormalizeCaptain(
         _ captain: VanguardCaptainProgress?,
-        upgradeLevel: Int = 1,
+        campLevel: Int = 1,
         cityNumber: Int = 3,
         selectedLane: BattleLane = .left
     ) -> KingdomGameState {
@@ -2897,9 +2848,13 @@ struct KingdomGameStateTests {
         progress.captain = captain
         return KingdomGameState(
             siegeProgress: progress,
-            normalSoldierUpgradeLevel: upgradeLevel,
             cityNumberInCountry: cityNumber,
-            completedCityCount: cityNumber - 1
+            completedCityCount: cityNumber - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: cityNumber).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: campLevel)]
+                )
+            ]
         )
     }
 
@@ -2945,11 +2900,15 @@ struct KingdomGameStateTests {
             rallyConsumed: false
         ))
 
-        // Fresh HP scales with the current soldier-upgrade level.
+        // Fresh HP scales with the current camp-derived captain level.
         let city5 = KingdomGameState(
-            normalSoldierUpgradeLevel: 2,
             cityNumberInCountry: 5,
-            completedCityCount: 4
+            completedCityCount: 4,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 5).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: 2)]
+                )
+            ]
         )
         #expect(city5.stageStatus == .battleActive)
         #expect(city5.siegeProgress.captain == VanguardCaptainProgress(
@@ -3047,7 +3006,7 @@ struct KingdomGameStateTests {
 
     @Test func initClampsCaptainHPToCurrentUpgradeDerivedMax() {
         // Persisted HP far above the authored curve clamps to the current
-        // upgrade-derived maximum (31 at level 3) without healing or
+        // camp-derived maximum (31 at camp level 3) without healing or
         // touching the generic siege normalizer.
         let state = renormalizeCaptain(
             VanguardCaptainProgress(
@@ -3056,7 +3015,7 @@ struct KingdomGameStateTests {
                 recoveryRemainingSeconds: 0,
                 rallyConsumed: false
             ),
-            upgradeLevel: 3
+            campLevel: 3
         )
         #expect(state.siegeProgress.captain == VanguardCaptainProgress(
             lane: .left,
@@ -3066,34 +3025,223 @@ struct KingdomGameStateTests {
         ))
     }
 
-    @Test func upgradeLevelIncreaseNeverHealsDamagedCaptain() {
-        var state = SiegeTestSupport.makeBattleState(
+    // MARK: Captain level derives from the camp (HPA-582 Task 2)
+
+    /// City 3 battle-active state whose camp holds one Barracks at `campLevel`
+    /// and whose Captain carries `captain` (clamped by init normalization).
+    private func makeCity3State(
+        campLevel: Int,
+        captain: VanguardCaptainProgress
+    ) -> KingdomGameState {
+        var progress = SiegeTestSupport.makeBattleState(
             atCity: 3,
-            gold: 1_000,
             keepRemaining: 20,
             selectedLane: .left
+        ).siegeProgress
+        progress.captain = captain
+        return KingdomGameState(
+            siegeProgress: progress,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 3).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: campLevel)]
+                )
+            ]
         )
-        let damaged = VanguardCaptainProgress(
-            lane: .left,
-            remainingHP: 5,
-            recoveryRemainingSeconds: 0,
-            rallyConsumed: false
+    }
+
+    @Test func captainLevelFallsBackToOneWithoutCamp() {
+        let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
+        #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
+        #expect(state.captainLevel == 1)
+    }
+
+    @Test func captainLevelIsHighestLevelAcrossAllBuildingTypes() {
+        let state = KingdomGameState(
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 5).storageKey: CityBattleState(slots: [
+                    1: CityBuilding(type: .barracks, level: 2),
+                    2: CityBuilding(type: .archeryRange, level: 4),
+                    3: CityBuilding(type: .stable, level: 1)
+                ])
+            ]
         )
-        state.siegeProgress.captain = damaged
+        #expect(state.captainLevel == 4)
+    }
 
-        #expect(state.normalSoldierUpgradeLevel == 1)
-        _ = state.upgradeNormalSoldier()
-        #expect(state.normalSoldierUpgradeLevel == 2)
-        #expect(state.siegeProgress.captain == damaged)
+    @Test func restoringCaptainClampsHPToCampDerivedMax() {
+        let state = makeCity3State(
+            campLevel: 3,
+            captain: VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: 999,
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            )
+        )
+        #expect(state.siegeProgress.captain?.remainingHP == VanguardCaptainRules.maxHP(for: 3))
+    }
 
-        // Reconstruction at the higher level keeps the damaged HP too.
+    @Test func recoveryRestoresCampDerivedMaxHP() {
+        var state = makeCity3State(
+            campLevel: 2,
+            captain: VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: 0,
+                recoveryRemainingSeconds: VanguardCaptainRules.recoverySeconds,
+                rallyConsumed: false
+            )
+        )
+
+        _ = state.advanceCaptainRecovery(deltaTime: VanguardCaptainRules.recoverySeconds)
+
+        #expect(state.siegeProgress.captain?.remainingHP == VanguardCaptainRules.maxHP(for: 2))
+    }
+
+    @Test func barracksUpgradeToLevelThreeKeepsFullCaptainFull() throws {
+        var state = makeCity3State(
+            campLevel: 1,
+            captain: VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: VanguardCaptainRules.maxHP(for: 1),
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            )
+        )
+        state.gold = 10_000
+
+        guard case .upgraded = state.upgradeBuilding(inSlot: 1) else {
+            Issue.record("first upgrade failed")
+            return
+        }
+        guard case .upgraded = state.upgradeBuilding(inSlot: 1) else {
+            Issue.record("second upgrade failed")
+            return
+        }
+
+        #expect(state.captainLevel == 3)
+        #expect(state.siegeProgress.captain?.remainingHP == VanguardCaptainRules.maxHP(for: 3))
+    }
+
+    @Test func buildingUpgradePreservesMissingFiveHP() throws {
+        var state = makeCity3State(
+            campLevel: 1,
+            captain: VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: VanguardCaptainRules.maxHP(for: 1) - 5,
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            )
+        )
+        state.gold = 10_000
+
+        guard case .upgraded = state.upgradeBuilding(inSlot: 1) else {
+            Issue.record("upgrade failed")
+            return
+        }
+
+        // Damage taken survives: still missing exactly 5 HP under the larger max.
+        #expect(state.captainLevel == 2)
+        #expect(state.siegeProgress.captain?.remainingHP == VanguardCaptainRules.maxHP(for: 2) - 5)
+    }
+
+    @Test func downCaptainStaysDownThroughPurchaseAndRecoversToThenCurrentMax() throws {
+        var state = makeCity3State(
+            campLevel: 1,
+            captain: VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: 0,
+                recoveryRemainingSeconds: VanguardCaptainRules.recoverySeconds,
+                rallyConsumed: false
+            )
+        )
+        state.gold = 10_000
+
+        guard case .upgraded = state.upgradeBuilding(inSlot: 1) else {
+            Issue.record("upgrade failed")
+            return
+        }
+
+        // The purchase never resurrects the down Captain.
+        #expect(state.siegeProgress.captain?.remainingHP == 0)
+        #expect(state.siegeProgress.captain?.recoveryRemainingSeconds == VanguardCaptainRules.recoverySeconds)
+
+        // The existing recovery flow restores the then-current max.
+        _ = state.advanceCaptainRecovery(deltaTime: VanguardCaptainRules.recoverySeconds)
+        #expect(state.siegeProgress.captain?.remainingHP == VanguardCaptainRules.maxHP(for: 2))
+    }
+
+    @Test func repeatedReconstructionNeverReAwardsCaptainHPDelta() throws {
+        var state = makeCity3State(
+            campLevel: 1,
+            captain: VanguardCaptainProgress(
+                lane: .left,
+                remainingHP: VanguardCaptainRules.maxHP(for: 1) - 5,
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            )
+        )
+        state.gold = 10_000
+
+        guard case .upgraded = state.upgradeBuilding(inSlot: 1) else {
+            Issue.record("upgrade failed")
+            return
+        }
+        let hpAfterPurchase = try #require(state.siegeProgress.captain?.remainingHP)
+
+        // Reconstruction (the init path JSON decoding takes) at the higher
+        // camp level never heals further.
         let reloaded = KingdomGameState(
             siegeProgress: state.siegeProgress,
-            normalSoldierUpgradeLevel: 2,
             cityNumberInCountry: 3,
-            completedCityCount: 2
+            completedCityCount: 2,
+            cityBattleStates: state.cityBattleStates
         )
-        #expect(reloaded.siegeProgress.captain?.remainingHP == 5)
+        let reloadedAgain = KingdomGameState(
+            siegeProgress: reloaded.siegeProgress,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            cityBattleStates: reloaded.cityBattleStates
+        )
+
+        #expect(reloaded.siegeProgress.captain?.remainingHP == hpAfterPurchase)
+        #expect(reloadedAgain.siegeProgress.captain?.remainingHP == hpAfterPurchase)
+    }
+
+    @Test func decodingDoesNotHealCaptainToCampDerivedMax() throws {
+        // A persisted save whose camp already holds a Barracks L2 (max 25)
+        // with a Captain missing 10 HP decodes without healing.
+        let data = """
+        {
+          "gold": 100,
+          "cityLevel": 3,
+          "countryNumber": 1,
+          "cityNumberInCountry": 3,
+          "completedCityCount": 2,
+          "stageStatus": "battleActive",
+          "cityBattleStates": {
+            "1-3": {
+              "slots": {
+                "1": {"type": "barracks", "level": 2, "spawnTimerElapsed": 0}
+              },
+              "lastBuildingProgressResolvedAt": null
+            }
+          },
+          "siegeProgress": {
+            "selectedLane": 1,
+            "damageByObjectiveID": {},
+            "captain": {"lane": 1, "remainingHP": 15, "recoveryRemainingSeconds": 0, "rallyConsumed": false}
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.captainLevel == 2)
+        #expect(state.siegeProgress.captain?.remainingHP == 15)
     }
 
     @Test func hpZeroWithZeroRecoveryRestoresFullHPOnCurrentSelectedLane() {

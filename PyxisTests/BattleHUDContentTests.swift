@@ -200,7 +200,7 @@ struct BattleHUDContentTests {
 
     @Test func freshCityThreeCaptainProjectsReadyWithRallyAvailable() {
         let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
-        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.captainLevel)
 
         let content = BattleHUDContent.project(
             from: state,
@@ -217,7 +217,7 @@ struct BattleHUDContentTests {
         // cannot fire — `rallyReady` carries the distinction so the HUD hit
         // target stays inert (HPA-475).
         let state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
-        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.captainLevel)
 
         let content = BattleHUDContent.project(
             from: state,
@@ -232,7 +232,7 @@ struct BattleHUDContentTests {
     @Test func deployedCaptainWithLiveTimerProjectsActiveEvenThoughRallyIsDurableConsumed() {
         var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
         state.siegeProgress.captain?.rallyConsumed = true
-        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.captainLevel)
 
         let content = BattleHUDContent.project(
             from: state,
@@ -249,7 +249,7 @@ struct BattleHUDContentTests {
         // protection rides the captured lane even between durable HP syncs.
         var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
         state.siegeProgress.captain?.rallyConsumed = true
-        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.captainLevel)
 
         let content = BattleHUDContent.project(
             from: state,
@@ -264,7 +264,7 @@ struct BattleHUDContentTests {
     @Test func durableConsumedRallyWithZeroTimerProjectsUsed() {
         var state = KingdomGameState(cityNumberInCountry: 3, completedCityCount: 2)
         state.siegeProgress.captain?.rallyConsumed = true
-        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.captainLevel)
 
         let content = BattleHUDContent.project(
             from: state,

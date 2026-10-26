@@ -64,12 +64,6 @@ struct KingdomGameState: Codable, Equatable {
         )
     }
 
-    enum UpgradeResult: Equatable {
-        case upgraded(cost: Int, newAttackPower: Int)
-        case insufficientGold(cost: Int, currentGold: Int)
-        case unavailable
-    }
-
     enum BuildBuildingResult: Equatable {
         case built(cost: Int, remainingGold: Int)
         case insufficientGold(cost: Int, currentGold: Int)
@@ -101,7 +95,6 @@ struct KingdomGameState: Codable, Equatable {
     var gold: Int
     var cityLevel: Int
     var siegeProgress: SiegeProgress
-    var normalSoldierUpgradeLevel: Int
     var lastBackgroundedAt: Date?
     var countryNumber: Int
     var cityNumberInCountry: Int
@@ -115,7 +108,6 @@ struct KingdomGameState: Codable, Equatable {
         case gold
         case cityLevel
         case siegeProgress
-        case normalSoldierUpgradeLevel
         case lastBackgroundedAt
         case countryNumber
         case cityNumberInCountry
@@ -145,7 +137,6 @@ struct KingdomGameState: Codable, Equatable {
         gold: Int = 15,
         cityLevel: Int = 1,
         siegeProgress: SiegeProgress? = nil,
-        normalSoldierUpgradeLevel: Int = 1,
         lastBackgroundedAt: Date? = nil,
         countryNumber: Int = 1,
         cityNumberInCountry: Int = 1,
@@ -196,7 +187,6 @@ struct KingdomGameState: Codable, Equatable {
 
         self.gold = max(0, gold)
         self.cityLevel = normalizedCityLevel
-        self.normalSoldierUpgradeLevel = max(1, normalSoldierUpgradeLevel)
         self.lastBackgroundedAt = lastBackgroundedAt
         self.countryNumber = clampedCountryNumber
         self.cityNumberInCountry = normalizedCityNumber
@@ -215,6 +205,14 @@ struct KingdomGameState: Codable, Equatable {
         }
         self.cityBattleStates = normalizedCityBattleStates
 
+        // Inline camp-derived Captain level (same rule as the `captainLevel`
+        // projection): self isn't fully initialized yet, so read the already
+        // normalized current-city battle state directly. Fallback 1 when the
+        // camp is empty or the city state is absent.
+        let captainLevel = normalizedCityBattleStates[
+            CityKey(countryNumber: clampedCountryNumber, cityNumber: normalizedCityNumber).storageKey
+        ]?.slots.values.map(\.level).max() ?? 1
+
         let normalizedSiege = Self.normalizedSiegeProgress(
             siegeProgress,
             layout: Country1CityCatalog.definition(for: normalizedCityNumber).siegeLayout,
@@ -224,7 +222,7 @@ struct KingdomGameState: Codable, Equatable {
         self.siegeProgress = Self.normalizedCaptainProgress(
             normalizedSiege,
             cityNumber: normalizedCityNumber,
-            upgradeLevel: self.normalSoldierUpgradeLevel,
+            captainLevel: captainLevel,
             stageIsActive: resolvedStatus == .battleActive
         )
 
@@ -267,7 +265,6 @@ struct KingdomGameState: Codable, Equatable {
             gold: try container.decodeIfPresent(Int.self, forKey: .gold) ?? 0,
             cityLevel: try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1,
             siegeProgress: (try? container.decodeIfPresent(SiegeProgress.self, forKey: .siegeProgress)) ?? nil,
-            normalSoldierUpgradeLevel: try container.decodeIfPresent(Int.self, forKey: .normalSoldierUpgradeLevel) ?? 1,
             lastBackgroundedAt: try container.decodeIfPresent(Date.self, forKey: .lastBackgroundedAt),
             countryNumber: try container.decodeIfPresent(Int.self, forKey: .countryNumber) ?? 1,
             cityNumberInCountry: try container.decodeIfPresent(Int.self, forKey: .cityNumberInCountry)
@@ -398,13 +395,13 @@ struct KingdomGameState: Codable, Equatable {
     /// normalization, so a constructed `KingdomGameState` carries honest
     /// Captain HP before any scene/HUD reads it. The Captain exists only in
     /// an active City 3+ siege; fresh entries seed full HP on the selected
-    /// lane; persisted HP clamps to the current upgrade-derived maximum; and
+    /// lane; persisted HP clamps to the camp-derived maximum; and
     /// HP 0 + recovery 0 means recovery already completed — restore full HP
     /// on the current selected lane.
     private static func normalizedCaptainProgress(
         _ progress: SiegeProgress,
         cityNumber: Int,
-        upgradeLevel: Int,
+        captainLevel: Int,
         stageIsActive: Bool
     ) -> SiegeProgress {
         var progress = progress
@@ -412,7 +409,7 @@ struct KingdomGameState: Codable, Equatable {
             progress.captain = nil
             return progress
         }
-        let currentMaxHP = VanguardCaptainRules.maxHP(for: upgradeLevel)
+        let currentMaxHP = VanguardCaptainRules.maxHP(for: captainLevel)
         if var captain = progress.captain {
             captain = captain.normalizedForCaptain()
             captain.remainingHP = min(captain.remainingHP, currentMaxHP)
@@ -424,7 +421,7 @@ struct KingdomGameState: Codable, Equatable {
         } else {
             progress.captain = .freshCaptain(
                 selectedLane: progress.selectedLane,
-                upgradeLevel: upgradeLevel
+                upgradeLevel: captainLevel
             )
         }
         return progress
@@ -434,20 +431,19 @@ struct KingdomGameState: Codable, Equatable {
         Self.goldReward(for: cityLevel)
     }
 
-    var normalSoldierAttackPower: Int {
-        Self.normalSoldierAttackPower(for: normalSoldierUpgradeLevel)
-    }
-
-    var normalSoldierUpgradeCost: Int {
-        Self.normalSoldierUpgradeCost(for: normalSoldierUpgradeLevel)
-    }
-
     var currentCityKey: CityKey {
         CityKey(countryNumber: countryNumber, cityNumber: cityNumberInCountry)
     }
 
     var cityBattleStateForCurrentCity: CityBattleState {
         cityBattleState(for: currentCityKey)
+    }
+
+    /// Captain level derives from the current camp on every read (HPA-582):
+    /// the highest level across ALL buildings of any type, falling back to 1
+    /// for an empty camp. No storage field — never persisted, never migrated.
+    var captainLevel: Int {
+        cityBattleStateForCurrentCity.slots.values.map(\.level).max() ?? 1
     }
 
     func cityBattleState(for key: CityKey) -> CityBattleState {
@@ -537,7 +533,7 @@ struct KingdomGameState: Codable, Equatable {
             captain: VanguardCaptainRules.isAvailable(cityNumber: cityNumber)
                 ? .freshCaptain(
                     selectedLane: entryLayout.defaultLane,
-                    upgradeLevel: normalSoldierUpgradeLevel
+                    upgradeLevel: captainLevel
                 )
                 : nil
         )
@@ -620,7 +616,7 @@ struct KingdomGameState: Codable, Equatable {
             siegeProgress.captain = captain
             return false
         }
-        captain.remainingHP = VanguardCaptainRules.maxHP(for: normalSoldierUpgradeLevel)
+        captain.remainingHP = VanguardCaptainRules.maxHP(for: captainLevel)
         captain.lane = siegeProgress.selectedLane
         siegeProgress.captain = captain
         return true
@@ -653,7 +649,7 @@ struct KingdomGameState: Codable, Equatable {
               remainingHP > 0 else {
             return false
         }
-        let clampedHP = min(remainingHP, VanguardCaptainRules.maxHP(for: normalSoldierUpgradeLevel))
+        let clampedHP = min(remainingHP, VanguardCaptainRules.maxHP(for: captainLevel))
         guard captain.lane != lane || captain.remainingHP != clampedHP else {
             return false
         }
@@ -784,10 +780,12 @@ struct KingdomGameState: Codable, Equatable {
         }
         cityState = cityBattleState(for: key)
 
+        let captainMaxHPBefore = VanguardCaptainRules.maxHP(for: captainLevel)
         gold -= cost
         cityState.setBuilding(CityBuilding(type: type), inSlot: slot)
         cityState.lastBuildingProgressResolvedAt = resolvedDate
         cityBattleStates[key.storageKey] = cityState
+        preserveLivingCaptainHPThroughCampGrowth(previousMaxHP: captainMaxHPBefore)
 
         return .built(cost: cost, remainingGold: gold)
     }
@@ -829,10 +827,12 @@ struct KingdomGameState: Codable, Equatable {
             return .missingBuilding
         }
 
+        let captainMaxHPBefore = VanguardCaptainRules.maxHP(for: captainLevel)
         gold -= cost
         updatedBuilding.level += 1
         cityState.setBuilding(updatedBuilding, inSlot: slot)
         cityBattleStates[key.storageKey] = cityState
+        preserveLivingCaptainHPThroughCampGrowth(previousMaxHP: captainMaxHPBefore)
 
         return .upgraded(cost: cost, newLevel: updatedBuilding.level, remainingGold: gold)
     }
@@ -1235,22 +1235,21 @@ struct KingdomGameState: Codable, Equatable {
         return completeCurrentCity(with: result)
     }
 
-    @discardableResult
-    mutating func upgradeNormalSoldier() -> UpgradeResult {
-        guard stageStatus == .battleActive else {
-            return .unavailable
+    /// HPA-582: after a successful camp purchase may have raised the derived
+    /// Captain max HP, hand a LIVING Captain the max delta (clamped to the new
+    /// max) so damage taken — not absolute HP — survives the purchase. A down
+    /// Captain waits for the recovery flow; reads/decodes/reconstruction never
+    /// call this, so repeated scene reconstruction never re-awards the delta.
+    private mutating func preserveLivingCaptainHPThroughCampGrowth(previousMaxHP: Int) {
+        let newMaxHP = VanguardCaptainRules.maxHP(for: captainLevel)
+        let delta = newMaxHP - previousMaxHP
+        guard delta > 0,
+              var captain = siegeProgress.captain,
+              captain.remainingHP > 0 else {
+            return
         }
-
-        let cost = normalSoldierUpgradeCost
-
-        guard gold >= cost else {
-            return .insufficientGold(cost: cost, currentGold: gold)
-        }
-
-        gold -= cost
-        normalSoldierUpgradeLevel += 1
-
-        return .upgraded(cost: cost, newAttackPower: normalSoldierAttackPower)
+        captain.remainingHP = min(captain.remainingHP + delta, newMaxHP)
+        siegeProgress.captain = captain
     }
 
     static func cityMaxPower(for level: Int) -> Int {
@@ -1263,10 +1262,6 @@ struct KingdomGameState: Codable, Equatable {
 
     static func normalSoldierAttackPower(for upgradeLevel: Int) -> Int {
         max(1, Int(ceil(pow(1.38, Double(clampedLevel(upgradeLevel) - 1)))))
-    }
-
-    static func normalSoldierUpgradeCost(for upgradeLevel: Int) -> Int {
-        roundedAtLeastOne(10 * pow(1.7, Double(clampedLevel(upgradeLevel) - 1)))
     }
 
     static func unlockedBuildingTypes(forCityNumber cityNumber: Int) -> [BuildingType] {

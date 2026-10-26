@@ -177,8 +177,8 @@ struct GameViewControllerTests {
         #expect(state.cityLevel == 10)
         #expect(state.stageStatus == .battleActive)
         #expect(state.gold == DevJumpState.gold)
-        #expect(state.normalSoldierUpgradeLevel == DevJumpState.soldierLevel)
-        #expect(state.cityBattleStates.isEmpty)
+        #expect(state.captainLevel == DevJumpState.campLevel)
+        #expect(state.cityBattleStates.count == 1)
 
         let battle = try #require(view.scene as? BattleScene)
         #expect(battle.cityLevelForTesting == 10)

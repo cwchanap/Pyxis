@@ -3364,7 +3364,6 @@ struct BattleSceneTests {
         let size = CGSize(width: 393, height: 700)
         let state = KingdomGameState(
             gold: 123_456_789,
-            normalSoldierUpgradeLevel: 15,
             cityNumberInCountry: 15,
             completedCityCount: 14
         )
