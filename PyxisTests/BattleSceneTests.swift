@@ -6741,6 +6741,239 @@ struct BattleSceneTests {
         #expect(scene.livingGuardsForTesting.count == 1)
         #expect(scene.guardNodeCountForTesting == 1)
     }
+
+    // MARK: Non-Keep structure-fall feedback (HPA-582 Task 5)
+
+    /// Battle state whose `kind` objective sits at exactly 1 HP, so the next
+    /// live hit is a fresh destruction while the Keep stays comfortably
+    /// alive. `selectedLane` pins the assault lane.
+    private func stateWithObjectiveAtOneHP(
+        cityNumber: Int,
+        kind: CitySiegeLayout.ObjectiveKind,
+        keepRemaining: Int,
+        selectedLane: BattleLane? = nil
+    ) throws -> KingdomGameState {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: cityNumber,
+            keepRemaining: keepRemaining,
+            selectedLane: selectedLane
+        )
+        let objectiveID = try #require(SiegeTestSupport.objectiveID(for: kind, in: state))
+        let maxPower = try #require(
+            state.currentCityDefinition.siegeLayout
+                .maxPowerAllocation(totalBudget: state.cityMaxPower)[objectiveID]
+        )
+        state.siegeProgress.damageByObjectiveID[objectiveID] = maxPower - 1
+        return state
+    }
+
+    @Test("A fresh Gate kill requests exactly one structure fall")
+    func freshGateKillRequestsExactlyOneFallEvent() throws {
+        // City 1's default center route opens with the Gate; its Keep holds
+        // 15 HP, so the kill is the Gate alone and the siege continues.
+        let state = try stateWithObjectiveAtOneHP(
+            cityNumber: 1,
+            kind: .gate,
+            keepRemaining: 15
+        )
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+        // Keep marching past the kill: the dead Gate must never fall twice.
+        scene.advanceCombatForTesting(deltaTime: 2.0)
+
+        #expect(scene.structureFallRequestsForTesting == [gateID])
+        #expect(scene.gameStateForTesting.stageStatus == .battleActive)
+    }
+
+    @Test("A fresh Arrow Tower kill requests exactly one structure fall")
+    func freshArrowTowerKillRequestsExactlyOneFallEvent() throws {
+        // Falconridge's left route opens with the Arrow Tower; captainless so
+        // the ordinary-soldier path is the only trigger.
+        let state = captainless(try stateWithObjectiveAtOneHP(
+            cityNumber: 3,
+            kind: .arrowTower,
+            keepRemaining: 26,
+            selectedLane: .left
+        ))
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+        scene.advanceCombatForTesting(deltaTime: 2.0)
+
+        #expect(scene.structureFallRequestsForTesting == [towerID])
+        #expect(scene.gameStateForTesting.stageStatus == .battleActive)
+    }
+
+    @Test("A fresh Barracks kill requests exactly one structure fall")
+    func freshBarracksKillRequestsExactlyOneFallEvent() throws {
+        // Highcrest's left route opens with the Barracks.
+        let state = captainless(try stateWithObjectiveAtOneHP(
+            cityNumber: 5,
+            kind: .barracks,
+            keepRemaining: 1_000,
+            selectedLane: .left
+        ))
+        let barracksID = try #require(SiegeTestSupport.objectiveID(for: .barracks, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+        scene.advanceCombatForTesting(deltaTime: 2.0)
+
+        #expect(scene.structureFallRequestsForTesting == [barracksID])
+        #expect(scene.gameStateForTesting.stageStatus == .battleActive)
+    }
+
+    @Test("Same-tick hits that destroy an objective coalesce into one fall")
+    func sameTickKillingHitsCoalesceIntoOneFallEvent() throws {
+        // The Gate holds 2 HP and three lockstep infantry each deal exactly
+        // 1, so the first in-range tick carries multiple killing-batch hits
+        // on the same objective — grouped aggregation must emit one fall.
+        var state = try stateWithObjectiveAtOneHP(
+            cityNumber: 1,
+            kind: .gate,
+            keepRemaining: 15
+        )
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        state.siegeProgress.damageByObjectiveID[gateID, default: 0] -= 1
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.spawnManualSoldiersDirectlyForTesting(3)
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+        scene.advanceCombatForTesting(deltaTime: 2.0)
+
+        #expect(scene.structureFallRequestsForTesting == [gateID])
+        // Both 1-damage hits landed: the 2-HP Gate absorbed its full budget.
+        let gateMax = try #require(
+            state.currentCityDefinition.siegeLayout
+                .maxPowerAllocation(totalBudget: state.cityMaxPower)[gateID]
+        )
+        #expect(scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID] == gateMax)
+    }
+
+    @Test("A Keep kill stays conquest-only and requests no structure fall")
+    func keepKillRequestsNoStructureFall() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 1)
+        SiegeTestSupport.destroySupportObjectives(of: &state)
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.gameStateForTesting.pendingBattleResult != nil }
+
+        #expect(scene.structureFallRequestsForTesting.isEmpty)
+        #expect(scene.livingKingdomTransitionEffectsForTesting == [.collapse])
+    }
+
+    @Test("Restore, resize, and pre-existing ruins request no structure falls")
+    func restoreResizeAndOldRuinsRequestNoFalls() throws {
+        // Restored pending-conquest scene: no live tick, no fall.
+        let restored = makeScene(store: try makeStore(initialState: pendingConqueredState(city: 3)))
+        restored.redrawForTesting(shouldLayout: true)
+        restored.repeatDidMoveForTesting()
+        #expect(restored.structureFallRequestsForTesting.isEmpty)
+
+        // Mid-siege restore: ruins persisted from a previous session. Live
+        // ticks after restore march past the ruins without re-killing them.
+        let midSiegeState = captainless(SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 26,
+            supportDamage: [.gate: 8, .arrowTower: 34],
+            selectedLane: .center
+        ))
+        let scene = makeScene(store: try makeStore(initialState: midSiegeState))
+        scene.redrawForTesting(shouldLayout: true)
+        scene.repeatDidMoveForTesting()
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.keepRemainingPowerForTesting < 26 }
+
+        #expect(scene.structureFallRequestsForTesting.isEmpty)
+        #expect(scene.gameStateForTesting.stageStatus == .battleActive)
+    }
+
+    @Test("Layout refresh and didMove replay never repeat a fall request")
+    func layoutRefreshAndDidMoveNeverRepeatFallRequest() throws {
+        let state = try stateWithObjectiveAtOneHP(
+            cityNumber: 1,
+            kind: .gate,
+            keepRemaining: 15
+        )
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+        #expect(scene.structureFallRequestsForTesting == [gateID])
+
+        scene.refreshLayoutForCurrentEnvironment()
+        scene.redrawForTesting(shouldLayout: true)
+        scene.repeatDidMoveForTesting()
+
+        #expect(scene.structureFallRequestsForTesting == [gateID])
+    }
+
+    @Test("Idle settlement damage requests no structure fall")
+    func idleSettlementRequestsNoStructureFall() throws {
+        // A 1-HP Keep with a built Barracks: the foreground idle settlement
+        // deals enough offline damage to conquer without any live tick.
+        let state = idleConquestReadyState()
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        scene.enterForegroundForTesting(at: Date(timeIntervalSince1970: 10_000))
+
+        #expect(scene.gameStateForTesting.pendingBattleResult != nil)
+        #expect(scene.structureFallRequestsForTesting.isEmpty)
+    }
+
+    @Test("A Captain kill requests exactly one structure fall")
+    func captainKillRequestsExactlyOneFallEvent() throws {
+        // City 3 seeds a fresh Captain on the entry-selected lane and no
+        // manual soldier is spawned, so the Captain's attack path is the
+        // only possible trigger of the fall.
+        let state = try stateWithObjectiveAtOneHP(
+            cityNumber: 3,
+            kind: .arrowTower,
+            keepRemaining: 26,
+            selectedLane: .left
+        )
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+        scene.advanceCombatForTesting(deltaTime: 2.0)
+
+        #expect(scene.structureFallRequestsForTesting == [towerID])
+        #expect(scene.gameStateForTesting.stageStatus == .battleActive)
+    }
+
+    @Test("A fresh fall lands its label on the destroyed objective's geometry")
+    func freshFallAnchorsAtObjectiveGeometry() throws {
+        let state = try stateWithObjectiveAtOneHP(
+            cityNumber: 1,
+            kind: .gate,
+            keepRemaining: 15
+        )
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+
+        // SKActions never advance without a render loop, so the just-added
+        // fall label still sits at its spawn point: the Gate's feedback
+        // geometry (its ruin frame), not the Keep's damage spot.
+        let gate = try #require(scene.siegeObjectiveNodeForTesting(.gate))
+        let gateFrame = gate.calculateAccumulatedFrame()
+        let labelPoints = scene.floatingFeedbackPositionsForTesting
+        #expect(labelPoints.contains {
+            abs($0.x - gateFrame.midX) < 1 && abs($0.y - (gateFrame.midY - 20)) < 1
+        })
+    }
 }
 
 private extension CGRect {

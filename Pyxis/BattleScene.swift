@@ -277,6 +277,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// before any playback guard (including Reduce Motion) so tests can assert
     /// requests regardless of the runner's accessibility settings.
     private var livingKingdomTransitionEffectsForTestingStorage: [LivingKingdomPresentation.TransitionEffect] = []
+    /// Requested non-Keep structure-fall events (HPA-582), in request order.
+    /// Recorded before any playback guard (including Reduce Motion) so tests
+    /// can assert requests regardless of the runner's accessibility settings.
+    private var structureFallRequestsForTestingStorage: [String] = []
     private var appliedLivingKingdomFortressAssetForTestingStorage: String?
     private var appliedLivingKingdomTreatmentAssetForTestingStorage: String?
     #endif
@@ -3507,6 +3511,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             let damage = damageByObjectiveID[objectiveID] ?? 0
             guard damage > 0 else { continue }
             let target = objectiveFeedbackTarget(for: objectiveID)
+            if let kind = state.currentSiegeLayout.objective(id: objectiveID)?.kind,
+               kind != .keep,
+               state.currentSiegeSnapshot.objectiveRemainingPower[objectiveID, default: 0] == 0 {
+                // HPA-582: an objective attacked this tick was alive at
+                // attack time, so remaining-HP 0 after the applied damage
+                // means a fresh kill by construction — the fall plays once
+                // per objective however many same-tick hits landed.
+                playStructureFallFeedback(
+                    objectiveID: objectiveID,
+                    kind: kind,
+                    on: target.node,
+                    impactPoint: target.impactPoint
+                )
+                continue
+            }
             playFloatingFeedback(
                 text: "-\(CompactNumberFormatter.string(from: damage))",
                 at: target.impactPoint,
@@ -3518,6 +3537,40 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 playCityHitFeedback(on: target.node, impactPoint: target.impactPoint)
             }
         }
+    }
+
+    /// Plays the one-shot fall response for a support objective destroyed by
+    /// the just-applied live damage (HPA-582): a kind-specific label, the
+    /// existing impact burst, and the short shake, all anchored at the
+    /// objective's feedback geometry — redraw has already rebuilt the
+    /// structure node as a ruin, so nothing here references the old node
+    /// beyond this call. Requests are recorded before the Reduce Motion
+    /// guard so tests can assert them regardless of the runner's
+    /// accessibility settings; playback itself is skipped under Reduce
+    /// Motion. Presentation only — reuses existing FX, no new sound,
+    /// haptic kind, or image.
+    private func playStructureFallFeedback(
+        objectiveID: String,
+        kind: CitySiegeLayout.ObjectiveKind,
+        on target: SKNode?,
+        impactPoint: CGPoint
+    ) {
+        #if DEBUG
+        structureFallRequestsForTestingStorage.append(objectiveID)
+        #endif
+
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+
+        let fallText: String
+        switch kind {
+        case .gate: fallText = "Gate down"
+        case .arrowTower: fallText = "Tower down"
+        case .barracks: fallText = "Barracks down"
+        case .keep: fallText = "Keep down" // unreachable: keep is conquest-only
+        }
+        playFloatingFeedback(text: fallText, at: impactPoint)
+        playImpactFlash(at: impactPoint)
+        target?.run(cityShakeAction(), withKey: "structureFallFeedback")
     }
 
     private func playCityHitFeedback(on target: SKNode?, impactPoint: CGPoint) {
@@ -4454,6 +4507,11 @@ extension BattleScene {
     /// Living Kingdom transition effects requested so far, in request order.
     var livingKingdomTransitionEffectsForTesting: [LivingKingdomPresentation.TransitionEffect] {
         livingKingdomTransitionEffectsForTestingStorage
+    }
+
+    /// Non-Keep structure-fall requests so far, in request order (HPA-582).
+    var structureFallRequestsForTesting: [String] {
+        structureFallRequestsForTestingStorage
     }
 
     /// Fortress asset the scene last projected onto the enemy-city sprite.
