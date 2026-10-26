@@ -25,7 +25,6 @@ struct KingdomGameStoreTests {
         let saved = KingdomGameState(
             gold: 42,
             cityLevel: 4,
-            normalSoldierUpgradeLevel: 3,
             lastBackgroundedAt: backgroundDate,
             countryNumber: 1,
             cityNumberInCountry: 4,
@@ -42,7 +41,6 @@ struct KingdomGameStoreTests {
         #expect(loaded.completedCityCount == 3)
         #expect(loaded.stageStatus == .battleActive)
         #expect(loaded.cityMaxPower == KingdomGameState.cityMaxPower(for: 4))
-        #expect(loaded.normalSoldierAttackPower == KingdomGameState.normalSoldierAttackPower(for: 3))
     }
 
     @Test func saveAndLoadRoundTripsSiegeProgress() throws {
@@ -201,7 +199,6 @@ struct KingdomGameStoreTests {
         let saved = KingdomGameState(
             gold: 8,
             cityLevel: 2,
-            normalSoldierUpgradeLevel: 2,
             countryNumber: 1,
             cityNumberInCountry: 2,
             completedCityCount: 2,
@@ -285,7 +282,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 64,
           "cityLevel": 1,
-          "normalSoldierUpgradeLevel": 3,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
@@ -320,7 +316,6 @@ struct KingdomGameStoreTests {
         let loaded = store.load()
 
         #expect(loaded.gold == 64)
-        #expect(loaded.normalSoldierUpgradeLevel == 3)
         #expect(loaded.cityBattleStateForCurrentCity.occupiedSlotCount == 1)
         #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 1)?.type == .barracks)
         #expect(loaded.cityBattleStateForCurrentCity.building(inSlot: 1)?.level == 2)
@@ -336,7 +331,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 64,
           "cityLevel": 1,
-          "normalSoldierUpgradeLevel": 3,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
@@ -384,7 +378,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 64,
           "cityLevel": 1,
-          "normalSoldierUpgradeLevel": 3,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
@@ -399,7 +392,6 @@ struct KingdomGameStoreTests {
         let loaded = store.load()
 
         #expect(loaded.gold == 64)
-        #expect(loaded.normalSoldierUpgradeLevel == 3)
         #expect(loaded.stageStatus == .battleActive)
         #expect(loaded.activeSiegeSession == nil)
     }
@@ -411,7 +403,6 @@ struct KingdomGameStoreTests {
         {
           "gold": 72,
           "cityLevel": 1,
-          "normalSoldierUpgradeLevel": 4,
           "lastBackgroundedAt": null,
           "countryNumber": 1,
           "cityNumberInCountry": 1,
@@ -426,7 +417,6 @@ struct KingdomGameStoreTests {
         let loaded = store.load()
 
         #expect(loaded.gold == 72)
-        #expect(loaded.normalSoldierUpgradeLevel == 4)
         #expect(loaded.stageStatus == .cityConqueredPendingMap)
         #expect(loaded.pendingBattleResult == nil)
     }

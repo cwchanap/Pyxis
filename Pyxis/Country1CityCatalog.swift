@@ -797,8 +797,8 @@ extension GuardReinforcementProgress {
 
 /// Vanguard Captain tuning (HPA-475): one automatic hero deploying from
 /// City 3 onward. These Country 1 values live beside the combat authoring,
-/// not in generic siege state. Captain attack/HP scale from the existing
-/// soldier-upgrade progression — these are starting values, not a new
+/// not in generic siege state. Captain attack/HP scale from the camp-derived
+/// captain level (HPA-582) — these are starting values, not a new
 /// progression axis.
 enum VanguardCaptainRules {
     static let unlockCity = 3

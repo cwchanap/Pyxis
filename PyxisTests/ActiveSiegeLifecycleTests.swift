@@ -12,7 +12,6 @@ struct ActiveSiegeLifecycleTests {
         let state = KingdomGameState(
             gold: 0,
             cityLevel: 1,
-            normalSoldierUpgradeLevel: 1
         )
 
         let data = try JSONEncoder().encode(state)
@@ -26,7 +25,6 @@ struct ActiveSiegeLifecycleTests {
         let state = KingdomGameState(
             gold: 0,
             cityLevel: 2,
-            normalSoldierUpgradeLevel: 1,
             cityNumberInCountry: 2,
             completedCityCount: 1,
             stageStatus: .battleActive,
@@ -42,7 +40,6 @@ struct ActiveSiegeLifecycleTests {
         let state = KingdomGameState(
             gold: 8,
             cityLevel: 1,
-            normalSoldierUpgradeLevel: 1,
             stageStatus: .battleActive,
             pendingBattleResult: battleResult(cityNumber: 1, goldEarned: 8)
         )
@@ -54,7 +51,6 @@ struct ActiveSiegeLifecycleTests {
         var state = KingdomGameState(
             gold: 10,
             cityLevel: 1,
-            normalSoldierUpgradeLevel: 1,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap,
@@ -77,7 +73,6 @@ struct ActiveSiegeLifecycleTests {
         var state = KingdomGameState(
             gold: 10,
             cityLevel: 1,
-            normalSoldierUpgradeLevel: 1,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap,
@@ -154,7 +149,6 @@ struct ActiveSiegeLifecycleTests {
         var state = KingdomGameState(
             gold: 0,
             cityLevel: 1,
-            normalSoldierUpgradeLevel: 1
         )
 
         state.recordSoldierLosses([

@@ -1,7 +1,9 @@
 #if DEBUG
 enum DevJumpState {
     static let gold = 1_000_000
-    static let soldierLevel = 15
+    /// Camp level seeded into the jumped city so the Captain derives a
+    /// strong level from a real building instead of a faked soldier upgrade.
+    static let campLevel = 5
 
     static func make(city: Int) -> KingdomGameState {
         precondition(
@@ -11,11 +13,14 @@ enum DevJumpState {
 
         return KingdomGameState(
             gold: gold,
-            normalSoldierUpgradeLevel: soldierLevel,
             countryNumber: 1,
             completedCityCount: city - 1,
             stageStatus: .battleActive,
-            cityBattleStates: [:]
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: campLevel)]
+                )
+            ]
         )
     }
 }

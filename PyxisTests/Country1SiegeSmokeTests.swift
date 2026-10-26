@@ -12,9 +12,9 @@ import Testing
 ///
 /// Drives the production `BattleScene` through its existing DEBUG seams
 /// (`advanceCombatForTesting`, `spawnSoldierForTesting`, ...) with a fixed
-/// RNG seed, a fixed camp, a fixed upgrade level, and a fixed manual-spawn
-/// cadence. It is a smoke rail, not a balance oracle: assertions cover
-/// conquest inside a simulated-time bound and never exact balance values.
+/// RNG seed, a fixed camp, and a fixed manual-spawn cadence. It is a smoke
+/// rail, not a balance oracle: assertions cover conquest inside a
+/// simulated-time bound and never exact balance values.
 @MainActor
 enum Country1SiegeSmoke {
     struct Building: Equatable {
@@ -26,7 +26,6 @@ enum Country1SiegeSmoke {
         let city: Int
         let lane: BattleLane
         let camp: [Building]
-        let soldierUpgradeLevel: Int
         let seed: UInt64
         let reachedConquest: Bool
         let elapsedSeconds: Double
@@ -72,7 +71,6 @@ enum Country1SiegeSmoke {
         city: Int,
         lane: BattleLane,
         camp: [Building],
-        soldierUpgradeLevel: Int,
         seed: UInt64,
         maxSimulatedSeconds: Double = maxSimulatedSeconds,
         manualSpawnsEnabled: Bool = true
@@ -82,7 +80,7 @@ enum Country1SiegeSmoke {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = KingdomGameStore(defaults: defaults, key: "state")
-        let initial = initialState(city: city, lane: lane, camp: camp, soldierUpgradeLevel: soldierUpgradeLevel)
+        let initial = initialState(city: city, lane: lane, camp: camp)
         let outcome = run(
             initialState: initial,
             store: store,
@@ -95,7 +93,6 @@ enum Country1SiegeSmoke {
             city: city,
             lane: lane,
             camp: camp,
-            soldierUpgradeLevel: soldierUpgradeLevel,
             seed: seed,
             reachedConquest: outcome.reachedConquest,
             elapsedSeconds: outcome.elapsedSeconds,
@@ -200,7 +197,6 @@ enum Country1SiegeSmoke {
             "city=\(result.city)",
             "lane=\(result.lane.displayName.lowercased())",
             "camp=\(camp)",
-            "soldierUpgrade=\(result.soldierUpgradeLevel)",
             "seed=\(result.seed)",
             "outcome=\(result.reachedConquest ? "conquered" : "stalled")",
             "elapsed=\(String(format: "%.1f", result.elapsedSeconds))",
@@ -319,12 +315,12 @@ enum Country1SiegeSmoke {
     }
 
     /// Mirrors `KingdomGameState.startCityFromMap` for a fresh entry, except the
-    /// lane and camp are fixed inputs. Buildings are placed in slots 1...n.
+    /// lane and camp are fixed inputs. Buildings are placed in slots 1...n; the
+    /// Captain derives its level from that camp.
     private static func initialState(
         city: Int,
         lane: BattleLane,
-        camp: [Building],
-        soldierUpgradeLevel: Int
+        camp: [Building]
     ) -> KingdomGameState {
         var slots: [Int: CityBuilding] = [:]
         for (index, building) in camp.enumerated() {
@@ -332,7 +328,6 @@ enum Country1SiegeSmoke {
         }
         var state = KingdomGameState(
             gold: 0,
-            normalSoldierUpgradeLevel: soldierUpgradeLevel,
             cityNumberInCountry: city,
             completedCityCount: city - 1,
             cityBattleStates: [CityKey(countryNumber: 1, cityNumber: city).storageKey: CityBattleState(slots: slots)]
@@ -343,7 +338,7 @@ enum Country1SiegeSmoke {
             damageByObjectiveID: [:],
             guardReinforcements: layout.barracksObjective != nil ? .freshCountry1() : nil,
             captain: VanguardCaptainRules.isAvailable(cityNumber: city)
-                ? .freshCaptain(selectedLane: lane, upgradeLevel: soldierUpgradeLevel)
+                ? .freshCaptain(selectedLane: lane, upgradeLevel: state.captainLevel)
                 : nil
         )
         return state
@@ -418,7 +413,8 @@ struct Country1SiegeSmokeTests {
     /// the production starting gold (15) plus the rewards earned through the
     /// previous city (`goldReward` 8, 12, 17, ...). Only building types unlocked
     /// by the city are used. Buildings are reset on conquest, so each camp is
-    /// bought fresh. Soldier upgrade stays at 1, so soldiers cost nothing extra.
+    /// bought fresh. The Captain derives its level from the camp's highest
+    /// building level.
     ///
     /// City 2: budget 23 (15 + 8); unlocked Barracks, Archery Range.
     /// Barracks L1 = 15 (leftover 8).
@@ -649,7 +645,6 @@ struct Country1SiegeSmokeTests {
             city: 3,
             lane: .center,
             camp: Self.city3Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed
         )
         print(Country1SiegeSmoke.line(for: result))
@@ -662,7 +657,6 @@ struct Country1SiegeSmokeTests {
             city: 3,
             lane: .left,
             camp: Self.city3Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed
         )
         print(Country1SiegeSmoke.line(for: result))
@@ -683,7 +677,6 @@ struct Country1SiegeSmokeTests {
             city: 5,
             lane: .right,
             camp: Self.city5Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed
         )
         print(Country1SiegeSmoke.line(for: result))
@@ -696,7 +689,6 @@ struct Country1SiegeSmokeTests {
             city: 5,
             lane: .left,
             camp: Self.city5Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed
         )
         print(Country1SiegeSmoke.line(for: result))
@@ -717,7 +709,6 @@ struct Country1SiegeSmokeTests {
             city: 1,
             lane: .center,
             camp: Self.city1Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -731,7 +722,6 @@ struct Country1SiegeSmokeTests {
             city: 2,
             lane: .right,
             camp: Self.city2Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -745,7 +735,6 @@ struct Country1SiegeSmokeTests {
             city: 4,
             lane: .center,
             camp: Self.city4Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -759,7 +748,6 @@ struct Country1SiegeSmokeTests {
             city: 6,
             lane: .left,
             camp: Self.city6Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -773,7 +761,6 @@ struct Country1SiegeSmokeTests {
             city: 7,
             lane: .center,
             camp: Self.city7Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -789,7 +776,6 @@ struct Country1SiegeSmokeTests {
             city: 8,
             lane: .left,
             camp: Self.city8Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -807,7 +793,6 @@ struct Country1SiegeSmokeTests {
             city: 9,
             lane: .left,
             camp: Self.city9Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -826,7 +811,6 @@ struct Country1SiegeSmokeTests {
             city: 10,
             lane: .center,
             camp: Self.city10Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -842,7 +826,6 @@ struct Country1SiegeSmokeTests {
             city: 11,
             lane: .right,
             camp: Self.city11Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -858,7 +841,6 @@ struct Country1SiegeSmokeTests {
             city: 12,
             lane: .left,
             camp: Self.city12Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -874,7 +856,6 @@ struct Country1SiegeSmokeTests {
             city: 13,
             lane: .center,
             camp: Self.city13Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -890,7 +871,6 @@ struct Country1SiegeSmokeTests {
             city: 14,
             lane: .right,
             camp: Self.city14Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -907,7 +887,6 @@ struct Country1SiegeSmokeTests {
             city: 15,
             lane: .left,
             camp: Self.city15Camp,
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             manualSpawnsEnabled: false
         )
@@ -924,7 +903,6 @@ struct Country1SiegeSmokeTests {
             city: 1,
             lane: .center,
             camp: [],
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             maxSimulatedSeconds: 30,
             manualSpawnsEnabled: false
@@ -939,7 +917,6 @@ struct Country1SiegeSmokeTests {
             city: 1,
             lane: .center,
             camp: [],
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             maxSimulatedSeconds: 30,
             manualSpawnsEnabled: true
@@ -992,7 +969,6 @@ struct Country1SiegeSmokeTests {
             city: comparison.city,
             lane: comparison.lane,
             camp: comparison.camp,
-            soldierUpgradeLevel: 1,
             seed: seed,
             manualSpawnsEnabled: comparison.manualSpawnsEnabled
         )
@@ -1006,7 +982,6 @@ struct Country1SiegeSmokeTests {
             city: 5,
             lane: .right,
             camp: [],
-            soldierUpgradeLevel: 1,
             seed: Self.seed,
             maxSimulatedSeconds: 3
         )

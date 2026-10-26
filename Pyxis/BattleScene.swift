@@ -399,7 +399,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
               let captain = state.siegeProgress.captain else {
             return
         }
-        combat.spawnCaptain(progress: captain, upgradeLevel: state.normalSoldierUpgradeLevel)
+        combat.spawnCaptain(progress: captain, upgradeLevel: state.captainLevel)
     }
 
     private static func makeCombat(for state: KingdomGameState, seed: UInt64?) -> BattleCombatState {
@@ -2390,7 +2390,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 durableStateChanged = true
                 needsHUDRefresh = true
                 if let captain = state.siegeProgress.captain {
-                    combat.spawnCaptain(progress: captain, upgradeLevel: state.normalSoldierUpgradeLevel)
+                    combat.spawnCaptain(progress: captain, upgradeLevel: state.captainLevel)
                 }
             }
         }

@@ -177,7 +177,7 @@ struct BattleHUDContent: Equatable {
               VanguardCaptainRules.isAvailable(cityNumber: state.cityNumberInCountry) else {
             return .unavailable
         }
-        let maxHP = VanguardCaptainRules.maxHP(for: state.normalSoldierUpgradeLevel)
+        let maxHP = VanguardCaptainRules.maxHP(for: state.captainLevel)
         let rallyActive = rallyRemainingSeconds > 0
         if captain.remainingHP <= 0 {
             return .recovering(
