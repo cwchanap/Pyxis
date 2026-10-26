@@ -505,7 +505,14 @@ struct BattleCombatState: Equatable {
             soldiers[index].attackCooldownRemaining -= deltaTime
 
             if soldiers[index].attackCooldownRemaining <= 0 {
-                let appliedDamage = min(soldiers[index].attackPower, objectiveRemaining[targetID, default: 0])
+                // HPA-582: the role multiplier applies only here, on top of
+                // the already trait-adjusted cached power, rounded again and
+                // clamped positive before the remaining-HP cap. Cached
+                // `attackPower`, Captain damage and Guard combat stay flat.
+                let roleMultiplier = snapshot.layout.objective(id: targetID)
+                    .map { soldiers[index].type.objectiveDamageMultiplier(against: $0.kind) } ?? 1
+                let roleDamage = max(1, Int((Double(soldiers[index].attackPower) * roleMultiplier).rounded()))
+                let appliedDamage = min(roleDamage, objectiveRemaining[targetID, default: 0])
                 if appliedDamage > 0 {
                     objectiveRemaining[targetID, default: 0] -= appliedDamage
                     result.soldierAttacks.append(

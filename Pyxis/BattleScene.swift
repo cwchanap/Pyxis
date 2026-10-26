@@ -2440,9 +2440,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         conqueredCities: Int
     ) {
         let conqueredCity = conqueredCities > 0
+        // HPA-582: green means the per-event trait×role product beats 1 —
+        // each event's own objective kind, not a trait-only city-wide read.
+        let layout = state.currentSiegeLayout
         let damageColor = showsTraitAdvantageColor
-            && attacks.allSatisfy {
-                state.currentCityDefenseTrait.damageMultiplier(for: $0.type) > 1
+            && attacks.allSatisfy { attack in
+                let roleMultiplier = layout.objective(id: attack.objectiveID)
+                    .map { attack.type.objectiveDamageMultiplier(against: $0.kind) } ?? 1
+                return state.currentCityDefenseTrait.damageMultiplier(for: attack.type) * roleMultiplier > 1
             }
             ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
             : .white

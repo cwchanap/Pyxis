@@ -1467,6 +1467,8 @@ struct KingdomGameStateTests {
     @Test func idleDamageUsesCurrentCityDefenseTraitCounters() {
         // City 15 carries the reinforced-Keep trait. Every support objective is destroyed before the
         // idle settlement, so the Keep is the only live objective and no Barracks Guards absorb damage.
+        // L3 siege spawns carry trait power 3 (×1.25) and the Keep role (×2.0) doubles each budget,
+        // so 5 spawns land 30 damage (HPA-582 role multipliers; previously trait-only 15).
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         let end = start.addingTimeInterval(1_000)
         var state = KingdomGameState(
@@ -1486,8 +1488,8 @@ struct KingdomGameStateTests {
 
         #expect(state.currentCityDefenseTrait == .reinforcedKeep)
         #expect(result.elapsedSeconds == 1000)
-        #expect(result.damageDealt == 15)
-        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - 15)
+        #expect(result.damageDealt == 30)
+        #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower - 30)
     }
 
     @Test func idleDamagePenaltyStillDealsAtLeastOneWhenBaseDamageIsPositive() {
@@ -2707,6 +2709,174 @@ struct KingdomGameStateTests {
         let pending = try #require(state.pendingBattleResult)
         #expect(pending.conquestMode == .idle)
         #expect(pending.totalIdleDamage == 46)
+    }
+
+    // MARK: - Idle role bonus on the first live objective (HPA-582)
+
+    @Test func idleTowerRoleBonusSpillsToKeepAfterTowerFalls() throws {
+        // Falconridge left route: Tower → Keep. L1 archers carry the
+        // trait-rounded ×0.80 power of 1; the tower role (×1.5) rounds the
+        // single-spawn budget to 2. The tower pre-damaged to 1 HP absorbs 1
+        // and spills the raw remainder to the Keep; from the next spawn the
+        // Keep is the first live objective and the archer has no role there.
+        let start = Date(timeIntervalSinceReferenceDate: 8_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 100,
+            keepRemaining: 35,
+            selectedLane: .left
+        )
+        #expect(state.buildBuilding(.archeryRange, inSlot: 1, at: start) == .built(cost: 18, remainingGold: 82))
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        let maxPowers = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        state.siegeProgress.damageByObjectiveID[towerID] = maxPowers[towerID]! - 1
+        state.enterBackground(at: start)
+
+        // 1_000s idle → 100s effective → 8 archer spawns (12s interval).
+        let result = state.returnFromBackground(at: start.addingTimeInterval(1_000))
+
+        // Spawn 1: budget round(1 × 1.5) = 2 → tower absorbs 1, Keep spills 1.
+        // Spawns 2–8: Keep-first budget stays 1 (no archer role on Keeps).
+        #expect(result.damageDealt == 9)
+        #expect(state.siegeProgress.damageByObjectiveID[towerID] == maxPowers[towerID])
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 8)
+        #expect(state.currentKeepRemainingPower == 27)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func idleGateRoleBonusSpillsToKeepAfterGateFalls() throws {
+        // Kingshield center route: Gate → Keep, with the Barracks destroyed
+        // up front so no Guard waves absorb the budget. L1 siege carries the
+        // trait-rounded ×1.25 power of 1; the gate role (×2.0) doubles each
+        // spawn budget to 2.
+        let start = Date(timeIntervalSinceReferenceDate: 9_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 11,
+            gold: 200,
+            keepRemaining: 36_180,
+            selectedLane: .center
+        )
+        #expect(state.buildBuilding(.siegeWorkshop, inSlot: 1, at: start) == .built(cost: 55, remainingGold: 145))
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        let maxPowers = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        // Destroy the Barracks (silences Guard materialization) and leave the
+        // Gate 1 HP from death.
+        state.siegeProgress.damageByObjectiveID[gateID] = maxPowers[gateID]! - 1
+        if let barracksID = SiegeTestSupport.objectiveID(for: .barracks, in: state) {
+            state.siegeProgress.damageByObjectiveID[barracksID] = maxPowers[barracksID]
+        }
+        state.enterBackground(at: start)
+
+        // 1_000s idle → 100s effective → 5 siege spawns (20s interval).
+        let result = state.returnFromBackground(at: start.addingTimeInterval(1_000))
+
+        // Spawn 1: budget round(1 × 2.0) = 2 → Gate absorbs 1, Keep spills 1.
+        // Spawns 2–5: siege doubles the Keep-first budget to 2 each.
+        #expect(result.damageDealt == 10)
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == maxPowers[gateID])
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 9)
+        #expect(state.currentKeepRemainingPower == 36_180 - 9)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func idleBarracksRoleBonusSpillsToKeepAfterBarracksFalls() throws {
+        // Runewatch left route: Barracks → Keep, no reserve waves (nil Guard
+        // progress). L1 mages carry the trait-rounded ×0.80 power of 1; the
+        // barracks role (×1.5) rounds the budget to 2.
+        let start = Date(timeIntervalSinceReferenceDate: 10_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 9,
+            gold: 300,
+            keepRemaining: 8_561,
+            selectedLane: .left
+        )
+        #expect(state.buildBuilding(.mageTower, inSlot: 1, at: start) == .built(cost: 40, remainingGold: 260))
+        let barracksID = try #require(SiegeTestSupport.objectiveID(for: .barracks, in: state))
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        let maxPowers = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        state.siegeProgress.damageByObjectiveID[barracksID] = maxPowers[barracksID]! - 1
+        // No Guard reserve: the role/spill behavior is asserted in isolation.
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 0,
+            unresolvedGuards: []
+        )
+        state.enterBackground(at: start)
+
+        // 1_000s idle → 100s effective → 6 mage spawns (16s interval).
+        let result = state.returnFromBackground(at: start.addingTimeInterval(1_000))
+
+        // Spawn 1: budget round(1 × 1.5) = 2 → Barracks absorbs 1, Keep
+        // spills 1. Spawns 2–6: Keep-first budget stays 1 each.
+        #expect(result.damageDealt == 7)
+        #expect(state.siegeProgress.damageByObjectiveID[barracksID] == maxPowers[barracksID])
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == 6)
+        #expect(state.currentKeepRemainingPower == 8_561 - 6)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func idleGuardsAbsorbBeforeTheRoleBonusApplies() throws {
+        // Falconridge left route with one 1-HP Guard seeded on the lane and
+        // the reserve empty. Spawn 1's full trait power absorbs the Guard
+        // (unboosted); only the leftover reaches objectives. Spawns 2–8 then
+        // apply the tower role to the first live objective.
+        let start = Date(timeIntervalSinceReferenceDate: 11_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 100,
+            keepRemaining: 35,
+            selectedLane: .left
+        )
+        #expect(state.buildBuilding(.archeryRange, inSlot: 1, at: start) == .built(cost: 18, remainingGold: 82))
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 0,
+            unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 1)]
+        )
+        state.enterBackground(at: start)
+
+        let result = state.returnFromBackground(at: start.addingTimeInterval(1_000))
+
+        // Spawn 1: power 1 → Guard absorbs 1, leftover 0. Spawns 2–8:
+        // round(1 × 1.5) = 2 each onto the 46-HP Tower.
+        #expect(result.damageDealt == 14)
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+        #expect(state.siegeProgress.damageByObjectiveID[towerID] == 14)
+        #expect(state.siegeProgress.guardReinforcements?.unresolvedGuards.isEmpty == true)
+        #expect(state.stageStatus == .battleActive)
+    }
+
+    @Test func idleNeutralRoleMatchesUnchangedRouteBudgetSemanticsExactly() throws {
+        // Falconridge center route with plain infantry (no role anywhere):
+        // settlement must reproduce the unchanged `spendDamageBudget` result
+        // for the same total budget, objective for objective.
+        let start = Date(timeIntervalSinceReferenceDate: 12_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            gold: 100,
+            keepRemaining: 35,
+            selectedLane: .center
+        )
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: start.addingTimeInterval(3_000))
+
+        // 3_000s idle → 300s effective → 30 L1 infantry spawns (10s
+        // interval), each a neutral budget of 1.
+        #expect(result.damageDealt == 30)
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        let maxPowers = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        let expected = state.currentSiegeLayout.spendDamageBudget(
+            30,
+            along: .center,
+            maxPowers: maxPowers,
+            damageByObjectiveID: [:]
+        ).damageByObjectiveID
+        #expect(state.siegeProgress.damageByObjectiveID[gateID] == expected[gateID])
+        #expect(state.siegeProgress.damageByObjectiveID[keepID] == expected[keepID])
     }
 
     // MARK: Vanguard Captain persistence + rules (HPA-475)

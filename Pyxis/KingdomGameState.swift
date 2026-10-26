@@ -992,8 +992,24 @@ struct KingdomGameState: Codable, Equatable {
             let leftover = spendDamageOnSelectedLaneGuards(power)
             guard leftover > 0 else { continue }
 
+            // HPA-582: one role multiplier per spawn, keyed to the first live
+            // objective on the selected lane, before the unchanged route-budget
+            // helper. Bounded approximation: the boosted budget's spill past
+            // that objective stays raw. Neutral roles reproduce the old call.
+            var budget = leftover
+            if let firstLiveID = currentSiegeLayout.firstLiveObjectiveID(
+                for: siegeProgress.selectedLane,
+                maxPowers: currentSiegeMaxPowers,
+                damageByObjectiveID: damageByObjectiveID
+            ), let kind = currentSiegeLayout.objective(id: firstLiveID)?.kind {
+                budget = max(
+                    1,
+                    Int((Double(leftover) * spawn.soldierType.objectiveDamageMultiplier(against: kind)).rounded())
+                )
+            }
+
             let (spentDamage, appliedByObjectiveID) = currentSiegeLayout.spendDamageBudget(
-                leftover,
+                budget,
                 along: siegeProgress.selectedLane,
                 maxPowers: currentSiegeMaxPowers,
                 damageByObjectiveID: damageByObjectiveID

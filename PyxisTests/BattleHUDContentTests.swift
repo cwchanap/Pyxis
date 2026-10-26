@@ -129,6 +129,64 @@ struct BattleHUDContentTests {
         #expect(SiegeTestSupport.totalObjectiveRemainingPower(of: state) == 13 + supportRemaining)
     }
 
+    // MARK: - Trait×role medallion projection (HPA-582)
+
+    private func multiplier(
+        _ soldierType: SoldierType,
+        in state: KingdomGameState
+    ) -> Double {
+        let content = BattleHUDContent.project(from: state, manualCount: 0)
+        return content.medallions.first { $0.soldierType == soldierType }?.damageMultiplier ?? 0
+    }
+
+    @Test func medallionMultiplierCombinesTraitAndRoleForSelectedLaneTarget() {
+        // Falconridge's left route opens at the Arrow Tower: the archer's
+        // ×0.80 trait penalty stacks with the ×1.5 tower role into a net
+        // ×1.20 advantage instead of the lying trait-only ×0.80 pill.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35, selectedLane: .left)
+        state.siegeProgress.selectedLane = .left
+
+        let archer = multiplier(.archer, in: state)
+        #expect(abs(archer - 1.2) < 0.0001)
+        #expect(multiplier(.infantry, in: state) == 1.25)
+        #expect(multiplier(.cavalry, in: state) == 1.25)
+        #expect(multiplier(.mage, in: state) == 0.80)
+        #expect(multiplier(.siege, in: state) == 1.0)
+    }
+
+    @Test func laneSwitchingRetargetsMedallionMultipliers() {
+        // Falconridge's center route opens at the Ridge Gate: the archer's
+        // tower role no longer applies (×0.80), while siege doubles against
+        // the gate (×2.0).
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35)
+        state.siegeProgress.selectedLane = .center
+
+        #expect(multiplier(.archer, in: state) == 0.80)
+        #expect(multiplier(.siege, in: state) == 2.0)
+        #expect(multiplier(.infantry, in: state) == 1.25)
+    }
+
+    @Test func targetDestructionMovesMedallionMultiplierToNextLiveObjective() {
+        // With the tower destroyed, Falconridge's left route resolves to the
+        // Keep: the archer's role disappears (×0.80) and siege doubles.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 35, selectedLane: .left)
+        let towerID = SiegeTestSupport.objectiveID(for: .arrowTower, in: state)
+        let maxPowers = state.currentSiegeLayout.maxPowerAllocation(totalBudget: state.cityMaxPower)
+        state.siegeProgress.damageByObjectiveID[towerID!] = maxPowers[towerID!]
+
+        #expect(multiplier(.archer, in: state) == 0.80)
+        #expect(multiplier(.siege, in: state) == 2.0)
+    }
+
+    @Test func keepOnlyLaneKeepsTraitOnlyMultipliers() {
+        // City 1's right route attacks the Keep directly: infantry and
+        // cavalry are neutral everywhere, so the medallions stay trait-only.
+        let state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 15, selectedLane: .right)
+
+        #expect(multiplier(.infantry, in: state) == 1.0)
+        #expect(multiplier(.cavalry, in: state) == 1.0)
+    }
+
     // MARK: - HPA-475 Task 4: Captain/Rally projection
 
     @Test func captainIsUnavailableBelowCityThree() {
