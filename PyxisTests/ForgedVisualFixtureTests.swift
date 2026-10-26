@@ -78,9 +78,9 @@ struct ForgedVisualFixtureTests {
             1: CityBuilding(type: .barracks, level: 2),
             2: CityBuilding(type: .archeryRange, level: 1)
         ])
-        // Fresh Falconridge: intact Keep at its authored 35/35 share.
-        #expect(state.currentKeepMaxPower == 35)
-        #expect(state.currentKeepRemainingPower == 35)
+        // Fresh Falconridge: intact Keep at its authored 26/26 share.
+        #expect(state.currentKeepMaxPower == 26)
+        #expect(state.currentKeepRemainingPower == 26)
     }
 
     @Test("DEBUG ruined Falconridge fixture destroys support objectives and preserves the Keep")
@@ -91,7 +91,7 @@ struct ForgedVisualFixtureTests {
         let state = fixture.makeState()
         #expect(fixture.preferredTab == .battle)
         #expect(state.cityNumberInCountry == 3)
-        #expect(state.currentKeepRemainingPower == 35)
+        #expect(state.currentKeepRemainingPower == 26)
         #expect(state.stageStatus == .battleActive)
         #expect(state.pendingBattleResult == nil)
         let remaining = state.currentSiegeSnapshot.objectiveRemainingPower
@@ -289,15 +289,15 @@ struct ForgedVisualFixtureTests {
 
         #expect(
             ForgedVisualFixture.returnDamage.foregroundReturnDate
-                == Date(timeIntervalSince1970: 4_600)
+                == Date(timeIntervalSince1970: 3_400)
         )
         for fixture in ForgedVisualFixture.allCases where fixture != .returnDamage {
             #expect(fixture.foregroundReturnDate == nil)
         }
 
         var settled = state
-        let result = settled.returnFromBackground(at: Date(timeIntervalSince1970: 4_600))
-        #expect(result.damageDealt == 36)
+        let result = settled.returnFromBackground(at: Date(timeIntervalSince1970: 3_400))
+        #expect(result.damageDealt == 24)
         #expect(settled.currentKeepRemainingPower == 10)
         #expect(LivingKingdomPresentation.battle(
             cityNumber: 3, remainingHP: settled.currentKeepRemainingPower,
@@ -485,9 +485,9 @@ struct ForgedVisualFixtureTests {
             ]
         ))
         let battle = try #require(view.scene as? BattleScene)
-        #expect(battle.feedbackTextForTesting == "Buildings dealt 36 idle damage.")
-        // Objective-aware idle settlement (HPA-468): 36 damage spends down the
-        // selected center route — Gate absorbs 11, Keep absorbs 25 → 10/35.
+        #expect(battle.feedbackTextForTesting == "Buildings dealt 24 idle damage.")
+        // Objective-aware idle settlement (HPA-468): 24 damage spends down the
+        // selected center route — Gate absorbs 8, Keep absorbs 16 → 10/26.
         #expect(battle.keepRemainingPowerForTesting == 10)
         #expect(battle.gameStateForTesting.pendingBattleResult == nil)
         #expect(store.load().lastBackgroundedAt == nil)
@@ -495,7 +495,7 @@ struct ForgedVisualFixtureTests {
             view.accessibilityValue ==
                 "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
                 + "family=frontier;fortress=damaged;"
-                + "feedback=Buildings dealt 36 idle damage.;captain=deployed;rally=inactive;protected=0"
+                + "feedback=Buildings dealt 24 idle damage.;captain=deployed;rally=inactive;protected=0"
         )
     }
 
