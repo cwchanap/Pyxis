@@ -2367,6 +2367,71 @@ struct BattleSceneTests {
         #expect(alpha == 1)
     }
 
+    @Test func falconridgeArcherTowerDamageShowsGreenRoleAdvantageColor() throws {
+        // HPA-582: the damage color reads the per-event trait×role product.
+        // Falconridge archers are trait-disadvantaged (×0.80) but their tower
+        // role (×1.5) nets ×1.20 — green, not the old trait-only white.
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                [.archeryRange],
+                keepRemaining: 35,
+                cityNumberInCountry: 3,
+                completedCityCount: 2,
+                selectedLane: .left
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        let damageLabel = try #require(
+            scene.childNode(withName: "//floatingFeedback") as? SKLabelNode
+        )
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        let fontColor = try #require(damageLabel.fontColor)
+        fontColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #expect(abs(red - 142 / 255) < 0.01)
+        #expect(abs(green - 247 / 255) < 0.01)
+        #expect(abs(blue - 173 / 255) < 0.01)
+    }
+
+    @Test func falconridgeArcherGateDamageStaysWhiteWithoutARoleBonus() throws {
+        // Same disadvantaged archer on the gate-first center route: no tower,
+        // no role, so the ×0.80 product keeps the neutral white color.
+        let store = try makeStore(
+            initialState: stateWithBuildings(
+                [.archeryRange],
+                keepRemaining: 35,
+                cityNumberInCountry: 3,
+                completedCityCount: 2,
+                selectedLane: .center
+            )
+        )
+        let scene = makeScene(store: store, combatSeed: 1)
+
+        scene.selectManualSoldierTypeForTesting(.archer)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3.0)
+
+        let damageLabel = try #require(
+            scene.childNode(withName: "//floatingFeedback") as? SKLabelNode
+        )
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        let fontColor = try #require(damageLabel.fontColor)
+        fontColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #expect(abs(red - 1) < 0.01)
+        #expect(abs(green - 1) < 0.01)
+        #expect(abs(blue - 1) < 0.01)
+    }
+
     @Test func gateHitFeedbackLandsOnTheGateNodeAndSparesTheKeep() throws {
         // Falconridge center route: the shared Ridge Gate blocks before the
         // Keep, so a fresh soldier's first hits strike the Gate. Its hit

@@ -517,6 +517,182 @@ struct BattleCombatStateTests {
         #expect(result.didReachConquest)
     }
 
+    // MARK: - Soldier role multipliers at the structure-hit site (HPA-582)
+
+    private func roleCombatConfiguration() -> BattleCombatState.Configuration {
+        BattleCombatState.Configuration(
+            soldierMaxHP: 100,
+            soldierDefense: 0,
+            soldierAttackSpeed: 1.0,
+            soldierAttackRange: 1.0,
+            soldierMovementSpeed: 0,
+            towerDamage: 0,
+            towerAttackSpeed: 1.0,
+            towerAttackRange: 0,
+            maxDeltaTime: 1.0
+        )
+    }
+
+    @Test func siegeDealsDoubleRoleDamageToGateAndKeep() {
+        var combat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = combat.spawnSoldier(type: .siege, source: .manual, level: 1, attackPower: 3, lane: .center)
+
+        let gateTick = combat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.falconridgeSnapshot(towerRemaining: 0)
+        )
+        #expect(gateTick.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.gateID])
+        #expect(gateTick.soldierAttacks.map(\.appliedDamage) == [6])
+
+        var keepCombat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = keepCombat.spawnSoldier(type: .siege, source: .manual, level: 1, attackPower: 3, lane: .center)
+        let keepTick = keepCombat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 20)
+        )
+        #expect(keepTick.soldierAttacks.map(\.appliedDamage) == [6])
+    }
+
+    @Test func archerRoleDamageAppliesOnlyToTowers() {
+        var combat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 2, lane: .left)
+        let towerTick = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.falconridgeSnapshot())
+        #expect(towerTick.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.towerID])
+        #expect(towerTick.soldierAttacks.map(\.appliedDamage) == [3])
+
+        var gateCombat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = gateCombat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 2, lane: .center)
+        let gateTick = gateCombat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.falconridgeSnapshot(towerRemaining: 0)
+        )
+        #expect(gateTick.soldierAttacks.map(\.appliedDamage) == [2])
+
+        var keepCombat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = keepCombat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 2, lane: .center)
+        let keepTick = keepCombat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 20)
+        )
+        #expect(keepTick.soldierAttacks.map(\.appliedDamage) == [2])
+    }
+
+    @Test func mageRoleDamageAppliesOnlyToBarracks() {
+        var combat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = combat.spawnSoldier(type: .mage, source: .manual, level: 1, attackPower: 2, lane: .left)
+        let barracksTick = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.highcrestSnapshot())
+        #expect(barracksTick.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.highcrestID(.barracks)])
+        #expect(barracksTick.soldierAttacks.map(\.appliedDamage) == [3])
+
+        // Highcrest's left route continues to the Keep, where the mage has
+        // no role and hits stay flat.
+        var keepCombat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = keepCombat.spawnSoldier(type: .mage, source: .manual, level: 1, attackPower: 2, lane: .left)
+        let keepTick = keepCombat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.highcrestSnapshot(barracksRemaining: 0)
+        )
+        #expect(keepTick.soldierAttacks.map(\.objectiveID) == [SiegeFixtures.highcrestKeepID])
+        #expect(keepTick.soldierAttacks.map(\.appliedDamage) == [2])
+    }
+
+    @Test func roleDamageClampsToObjectiveRemainingHP() {
+        var combat = BattleCombatState(configuration: roleCombatConfiguration())
+        _ = combat.spawnSoldier(type: .siege, source: .manual, level: 1, attackPower: 8, lane: .center)
+
+        // 8 × 2.0 = 16, but the Gate holds only 5 HP.
+        let result = combat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.falconridgeSnapshot(towerRemaining: 0, gateRemaining: 5)
+        )
+        #expect(result.soldierAttacks.map(\.appliedDamage) == [5])
+        #expect(result.didReachConquest == false)
+    }
+
+    @Test func infantryAndCavalryStayFlatAgainstEveryStructure() {
+        var combat = BattleCombatState(configuration: roleCombatConfiguration())
+        let infantry = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 5, lane: .center)
+        let cavalry = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 4, lane: .left)
+
+        let result = combat.tick(deltaTime: 0.1, siege: SiegeFixtures.falconridgeSnapshot())
+
+        #expect(result.soldierAttacks == [
+            SoldierAttackEvent(
+                soldierID: infantry,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: SiegeFixtures.gateID,
+                appliedDamage: 5
+            ),
+            SoldierAttackEvent(
+                soldierID: cavalry,
+                type: .cavalry,
+                source: .manual,
+                lane: .left,
+                objectiveID: SiegeFixtures.towerID,
+                appliedDamage: 4
+            )
+        ])
+    }
+
+    @Test func captainStructureDamageIgnoresRoleMultipliers() {
+        var combat = BattleCombatState(configuration: roleCombatConfiguration())
+        let captainID = combat.spawnCaptain(
+            progress: VanguardCaptainProgress(
+                lane: .center,
+                remainingHP: VanguardCaptainRules.maxHP(for: 1),
+                recoveryRemainingSeconds: 0,
+                rallyConsumed: false
+            ),
+            upgradeLevel: 1
+        )
+        #expect(captainID != nil)
+
+        // The Captain is flagged Infantry, so its Gate hit stays flat at
+        // its own attack power (L1 = 2), never the siege ×2.0 role bonus.
+        let result = combat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.falconridgeSnapshot(towerRemaining: 0)
+        )
+        #expect(result.soldierAttacks.map(\.soldierID) == [captainID])
+        #expect(result.soldierAttacks.map(\.isCaptain) == [true])
+        #expect(result.soldierAttacks.map(\.appliedDamage) == [VanguardCaptainRules.attackPower(for: 1)])
+    }
+
+    @Test func siegeSoldierGuardHitsStayFlat() {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        _ = combat.spawnSoldier(type: .siege, source: .manual, level: 1, attackPower: 3, lane: .right)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        let result = combat.tick(deltaTime: 0.80, siege: SiegeFixtures.highcrestSnapshot())
+
+        // Guard combat never receives role multipliers: 3 attack power hits
+        // the Guard for exactly 3, not the ×2.0 structure bonus.
+        #expect(result.guardHits.map(\.type) == [.siege])
+        #expect(result.guardHits.map(\.appliedDamage) == [3])
+    }
+
+    @Test func roleMultiplierRoundsPerStructureHitAfterCachedTraitPower() {
+        var combat = BattleCombatState(configuration: roleCombatConfiguration())
+        // Production caches the trait-rounded integer (L1 favored siege = 1);
+        // the hit site rounds the role product again: round(1 × 2.0) = 2.
+        // Single rounding of base × trait × role would give round(2.5) = 3.
+        _ = combat.spawnSoldier(type: .siege, source: .manual, level: 1, attackPower: 1, lane: .center)
+
+        let result = combat.tick(
+            deltaTime: 0.1,
+            siege: SiegeFixtures.falconridgeSnapshot(towerRemaining: 0)
+        )
+        #expect(result.soldierAttacks.map(\.appliedDamage) == [2])
+    }
+
     // MARK: - Source-relative defensive fire (HPA-468 §3.3)
 
     @Test func towerDamagesLivingSoldierInRangeWithDefenseMinimumOne() throws {

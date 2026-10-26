@@ -86,7 +86,16 @@ struct BattleHUDContent: Equatable {
             max(0, manualCount),
             KingdomGameState.manualSoldierCap
         )
-        let medallions = SoldierType.allCases.map { soldierType in
+        // HPA-582: medallions show the pre-rounding trait×role product for
+        // the selected lane's current first surviving structure; neutral
+        // (no live objective) keeps the trait-only value.
+        let layout = state.currentSiegeLayout
+        let firstLiveKind = layout.firstLiveObjectiveID(
+            for: state.siegeProgress.selectedLane,
+            maxPowers: layout.maxPowerAllocation(totalBudget: state.cityMaxPower),
+            damageByObjectiveID: state.siegeProgress.damageByObjectiveID
+        ).flatMap { layout.objective(id: $0)?.kind }
+        let medallions = SoldierType.allCases.map { soldierType -> Medallion in
             let availability: Availability
             // Keep this call first: the starter Infantry fallback and the
             // highest existing building level are the same gameplay authority.
@@ -101,10 +110,13 @@ struct BattleHUDContent: Equatable {
                     : .locked(unlocksAtCity: KingdomGameState.unlockCity(for: buildingType))
             }
 
+            let roleMultiplier = firstLiveKind.map {
+                soldierType.objectiveDamageMultiplier(against: $0)
+            } ?? 1
             return Medallion(
                 soldierType: soldierType,
                 availability: availability,
-                damageMultiplier: state.currentCityDefenseTrait.damageMultiplier(for: soldierType)
+                damageMultiplier: state.currentCityDefenseTrait.damageMultiplier(for: soldierType) * roleMultiplier
             )
         }
         let recommendation = RecommendedCampRecommendation.make(for: state)
