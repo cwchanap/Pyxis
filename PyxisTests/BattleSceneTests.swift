@@ -822,6 +822,61 @@ struct BattleSceneTests {
         #expect(scene.battleHUDCurrentContentForTesting?.manualDeployCharges == 3)
     }
 
+    @Test("Background/foreground keeps banked charges and recharge progress")
+    func deployChargesSurviveCombatRebuildAcrossBackground() throws {
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 100))
+        let scene = makeScene(store: store)
+
+        scene.spawnSoldierForTesting()
+        #expect(scene.manualDeployChargesForTesting == 2)
+
+        // Bank 1.0s of fractional recharge, then rebuild combat through the
+        // real background/foreground handlers — the rebuild must not
+        // silently refill or wipe the pool.
+        scene.advanceCombatForTesting(deltaTime: 1.0)
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSinceReferenceDate: 1_000))
+        scene.enterForegroundForTesting(at: Date(timeIntervalSinceReferenceDate: 1_001))
+
+        #expect(scene.manualDeployChargesForTesting == 2)
+
+        // The banked fraction carries too: ~0.6 more tick seconds tops the
+        // 1.5s interval back up.
+        scene.advanceCombatForTesting(deltaTime: 0.6)
+        #expect(scene.manualDeployChargesForTesting == 3)
+    }
+
+    @Test("A charge refill retires the stale 'Deploy is recharging.' denial")
+    func chargeRefillClearsRechargingDenial() throws {
+        var state = captainless(stateWithBarracks(
+            keepRemaining: 1_000,
+            cityNumberInCountry: 5,
+            completedCityCount: 4,
+            selectedLane: .left
+        ))
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 0,
+            unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 12)]
+        )
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        // A live Guard holds the left lane, so the three deployed soldiers
+        // spend the whole window hitting it (trait-only) and never touch a
+        // structure — feedbackText would keep the stale denial without the
+        // refill clear.
+        for _ in 0..<3 {
+            scene.spawnSoldierForTesting()
+        }
+        scene.spawnSoldierForTesting()
+        #expect(scene.feedbackTextForTesting == "Deploy is recharging.")
+
+        scene.advanceCombatForTesting(deltaTime: 1.6)
+
+        #expect(scene.manualDeployChargesForTesting == 1)
+        #expect(scene.feedbackTextForTesting == "")
+    }
+
     @Test("Battle submits one automatic feedback batch for every combat tick")
     func battleSubmitsOneAutomaticFeedbackBatchPerTickResult() throws {
         let feedback = BattleFeedbackRecorder()
@@ -6826,6 +6881,29 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 2.0)
 
         #expect(scene.structureFallRequestsForTesting == [barracksID])
+        #expect(scene.gameStateForTesting.stageStatus == .battleActive)
+    }
+
+    @Test("Reduce Motion still announces a support-structure fall without motion")
+    func reduceMotionStillAnnouncesStructureFall() throws {
+        // The killing hit skips the shake/rise variant but keeps the label
+        // and flash — Reduce Motion must not silence the kill entirely.
+        let state = captainless(try stateWithObjectiveAtOneHP(
+            cityNumber: 3,
+            kind: .arrowTower,
+            keepRemaining: 26,
+            selectedLane: .left
+        ))
+        let towerID = try #require(SiegeTestSupport.objectiveID(for: .arrowTower, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state))
+        scene.isReduceMotionEnabled = { true }
+
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { !scene.structureFallRequestsForTesting.isEmpty }
+        scene.advanceCombatForTesting(deltaTime: 2.0)
+
+        #expect(scene.structureFallRequestsForTesting == [towerID])
+        #expect(scene.floatingFeedbackTextsForTesting.contains("Tower down"))
         #expect(scene.gameStateForTesting.stageStatus == .battleActive)
     }
 

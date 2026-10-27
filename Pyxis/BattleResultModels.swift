@@ -234,6 +234,32 @@ struct ActiveSiegeSession: Codable, Equatable {
         )
     }
 
+    /// HPA-582 decode path: returns a copy with every recorded damage total
+    /// scaled by the ratio of a persisted budget change
+    /// (`newBudget / persistedBudget`) so a pre-rebalance session's
+    /// attributions stay in the same units as post-migration siege damage.
+    /// Rows carry no objective identity, so the uniform budget ratio is the
+    /// best available scale; the ≥1 floor keeps recorded damage nonzero.
+    /// Deployments, losses, and flags are counts/booleans — untouched.
+    func damageRescaledForBudgetChange(from persistedBudget: Int, to newBudget: Int) -> ActiveSiegeSession {
+        guard persistedBudget > 0, persistedBudget != newBudget else {
+            return self
+        }
+        let scale = Double(newBudget) / Double(persistedBudget)
+        var copy = self
+        copy.appliedDamage = appliedDamage.map { row in
+            var row = row
+            row.damage = max(1, Int((Double(row.damage) * scale).rounded()))
+            return row
+        }
+        copy.idleDamageByType = idleDamageByType.map { row in
+            var row = row
+            row.damage = max(1, Int((Double(row.damage) * scale).rounded()))
+            return row
+        }
+        return copy
+    }
+
     /// Live/encode path: saturates on overflow. Decode uses throwing aggregation instead.
     private mutating func normalizeRowsSaturating() {
         deployments = saturatingNormalizedDeployments(deployments)

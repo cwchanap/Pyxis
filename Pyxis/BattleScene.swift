@@ -281,6 +281,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// Recorded before any playback guard (including Reduce Motion) so tests
     /// can assert requests regardless of the runner's accessibility settings.
     private var structureFallRequestsForTestingStorage: [String] = []
+    /// Floating-feedback label texts in presentation order, recorded before
+    /// playback so tests can assert the reduced-motion variants too.
+    private var floatingFeedbackTextsForTestingStorage: [String] = []
     private var appliedLivingKingdomFortressAssetForTestingStorage: String?
     private var appliedLivingKingdomTreatmentAssetForTestingStorage: String?
     #endif
@@ -317,6 +320,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// `applyBattleHUD` rebuild while it is unchanged.
     private var lastAppliedCaptainStatus: BattleHUDContent.CaptainStatus?
     private let combatSeed: UInt64?
+    /// Reduce Motion read as an injectable closure (the CountryMapScene
+    /// pattern) so tests can drive reduced-motion paths without touching
+    /// the runner's accessibility settings.
+    var isReduceMotionEnabled: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+    /// Deploy-denial messages the scene clears once their condition stops
+    /// being true — without this a stale message re-presents its tooltip on
+    /// the next non-attack redraw (HPA-582 review).
+    private static let deployRechargingMessage = "Deploy is recharging."
+    private static let manualSquadFullMessage = "Manual squad is full."
 
     init(
         size: CGSize,
@@ -403,7 +415,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
               let captain = state.siegeProgress.captain else {
             return
         }
-        combat.spawnCaptain(progress: captain, upgradeLevel: state.captainLevel)
+        combat.spawnCaptain(progress: captain, captainLevel: state.captainLevel)
     }
 
     private static func makeCombat(for state: KingdomGameState, seed: UInt64?) -> BattleCombatState {
@@ -1039,12 +1051,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         milestoneArrivalPanel.isHidden = false
         milestoneArrivalPanel.alpha = 0
-        milestoneArrivalPanel.setScale(UIAccessibility.isReduceMotionEnabled ? 1 : 0.97)
+        milestoneArrivalPanel.setScale(isReduceMotionEnabled() ? 1 : 0.97)
         #if DEBUG
         milestoneArrivalPresentationCountForTestingStorage += 1
         #endif
 
-        let appear = UIAccessibility.isReduceMotionEnabled
+        let appear = isReduceMotionEnabled()
             ? SKAction.fadeIn(withDuration: 0.15)
             : SKAction.group([
                 SKAction.fadeIn(withDuration: 0.15),
@@ -2224,6 +2236,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // HPA-582: the Deploy label tracks the integer charge count only —
         // fractional recharge progress never triggers a refresh.
         let chargesChanged = combat.manualDeployCharges != chargesBeforeTick
+        // A refill retires the recharge denial — otherwise the stale
+        // message re-presents its tooltip on the next non-attack redraw.
+        if combat.manualDeployCharges > chargesBeforeTick,
+           feedbackText == Self.deployRechargingMessage {
+            feedbackText = ""
+        }
         feedback.emitAutomaticCombat(result)
         // Named locals — not `||` chaining — so all three sinks always run;
         // a short-circuit would skip Captain/Guard sync whenever an earlier
@@ -2401,7 +2419,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 durableStateChanged = true
                 needsHUDRefresh = true
                 if let captain = state.siegeProgress.captain {
-                    combat.spawnCaptain(progress: captain, upgradeLevel: state.captainLevel)
+                    combat.spawnCaptain(progress: captain, captainLevel: state.captainLevel)
                 }
             }
         }
@@ -2456,9 +2474,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let layout = state.currentSiegeLayout
         let damageColor = showsTraitAdvantageColor
             && attacks.allSatisfy { attack in
-                let roleMultiplier = layout.objective(id: attack.objectiveID)
-                    .map { attack.type.objectiveDamageMultiplier(against: $0.kind) } ?? 1
-                return state.currentCityDefenseTrait.damageMultiplier(for: attack.type) * roleMultiplier > 1
+                state.currentCityDefenseTrait.damageMultiplier(for: attack.type)
+                    * attack.type.objectiveDamageMultiplier(
+                        against: layout.objective(id: attack.objectiveID)?.kind
+                    ) > 1
             }
             ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
             : .white
@@ -2579,6 +2598,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // above with schedulesRemoval=true. No separate killed-loop is needed.
 
         if !result.soldierLosses.isEmpty {
+            // Deaths can reopen the squad cap — retire the stale denial so
+            // a later redraw cannot re-present it.
+            if feedbackText == Self.manualSquadFullMessage {
+                feedbackText = ""
+            }
             applyBattleHUD()
         }
 
@@ -2694,7 +2718,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         guard combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap else {
             feedback.emit(.invalidAction)
-            feedbackText = "Manual squad is full."
+            feedbackText = Self.manualSquadFullMessage
             redraw()
             return
         }
@@ -2703,18 +2727,28 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // rejected deploy never consumes one.
         guard combat.spendManualDeployCharge() else {
             feedback.emit(.invalidAction)
-            feedbackText = "Deploy is recharging."
+            feedbackText = Self.deployRechargingMessage
             redraw()
             return
         }
 
+        // A successful deploy contradicts every earlier denial — clear it
+        // so a later non-attack redraw cannot re-present the stale tooltip.
+        feedbackText = ""
+        deployManualSoldier(type: selectedManualSoldierType, level: manualSoldierLevel)
+    }
+
+    /// The post-guard manual deploy pipeline shared by `spawnSoldier` and
+    /// the direct-injection test seam: combat spawn, session deployment
+    /// record, deploy feedback, node creation, roster sync, HUD apply.
+    private func deployManualSoldier(type: SoldierType, level: Int) {
         let soldierID = combat.spawnSoldier(
-            type: selectedManualSoldierType,
+            type: type,
             source: .manual,
-            level: manualSoldierLevel,
+            level: level,
             attackPower: state.traitAdjustedSoldierAttackPower(
-                for: selectedManualSoldierType,
-                level: manualSoldierLevel
+                for: type,
+                level: level
             ),
             lane: state.siegeProgress.selectedLane
         )
@@ -3255,7 +3289,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func clearLiveCombat() {
+        // Charges refill only from valid active-tick time (HPA-582): carry
+        // the banked counters across the combat rebuild so a
+        // background/foreground cycle can never silently refill the pool.
+        let deployCharges = combat.manualDeployCharges
+        let deployRechargeSeconds = combat.manualDeployRechargeSeconds
         combat = Self.makeCombat(for: state, seed: combatSeed)
+        combat.restoreManualDeployCharges(deployCharges, rechargeSeconds: deployRechargeSeconds)
         // Deliberately no Guard restoration here: clearLiveCombat runs on
         // conquest/idle-conquest (stage leaves .battleActive, so this combat
         // never ticks again and nothing can sync it) and on background —
@@ -3499,25 +3539,34 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     ) {
         var orderedObjectiveIDs = [String]()
         var damageByObjectiveID = [String: Int]()
+        var destroyedObjectiveIDs = Set<String>()
         for event in events {
             if damageByObjectiveID[event.objectiveID] == nil {
                 orderedObjectiveIDs.append(event.objectiveID)
             }
             damageByObjectiveID[event.objectiveID, default: 0] += event.appliedDamage
+            if event.depletedObjective {
+                destroyedObjectiveIDs.insert(event.objectiveID)
+            }
         }
 
-        let keepID = state.currentSiegeLayout.keepObjective.id
+        // The layout/catalog reads hoist out of the per-objective loop —
+        // they used to be re-resolved (and the remaining-power snapshot
+        // rebuilt) once per attacked objective.
+        let layout = state.currentSiegeLayout
+        let keepID = layout.keepObjective.id
         for objectiveID in orderedObjectiveIDs {
             let damage = damageByObjectiveID[objectiveID] ?? 0
             guard damage > 0 else { continue }
             let target = objectiveFeedbackTarget(for: objectiveID)
-            if let kind = state.currentSiegeLayout.objective(id: objectiveID)?.kind,
+            if let kind = layout.objective(id: objectiveID)?.kind,
                kind != .keep,
-               state.currentSiegeSnapshot.objectiveRemainingPower[objectiveID, default: 0] == 0 {
-                // HPA-582: an objective attacked this tick was alive at
-                // attack time, so remaining-HP 0 after the applied damage
-                // means a fresh kill by construction — the fall plays once
-                // per objective however many same-tick hits landed.
+               destroyedObjectiveIDs.contains(objectiveID) {
+                // HPA-582: the model flags the killing hit on the attack
+                // event itself (`depletedObjective`), so the fall is
+                // authoritative — not inferred from post-mutation HP — and
+                // it plays once per objective however many same-tick hits
+                // landed.
                 playStructureFallFeedback(
                     objectiveID: objectiveID,
                     kind: kind,
@@ -3559,8 +3608,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         structureFallRequestsForTestingStorage.append(objectiveID)
         #endif
 
-        guard !UIAccessibility.isReduceMotionEnabled else { return }
-
         let fallText: String
         switch kind {
         case .gate: fallText = "Gate down"
@@ -3568,9 +3615,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         case .barracks: fallText = "Barracks down"
         case .keep: fallText = "Keep down" // unreachable: keep is conquest-only
         }
-        playFloatingFeedback(text: fallText, at: impactPoint)
+
+        // Reduce Motion keeps the kill visible — the label fades in place
+        // and the burst is a fade — while only the shake drops.
+        let reduceMotion = isReduceMotionEnabled()
+        playFloatingFeedback(text: fallText, at: impactPoint, reduceMotion: reduceMotion)
         playImpactFlash(at: impactPoint)
-        target?.run(cityShakeAction(), withKey: "structureFallFeedback")
+        if !reduceMotion {
+            target?.run(cityShakeAction(), withKey: "structureFallFeedback")
+        }
     }
 
     private func playCityHitFeedback(on target: SKNode?, impactPoint: CGPoint) {
@@ -3645,7 +3698,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         #endif
 
         effectsLayer.childNode(withName: EffectName.livingKingdomTransitionFX)?.removeFromParent()
-        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        guard !isReduceMotionEnabled() else { return }
 
         let textures = effect.frameNames.map(SKTexture.init(imageNamed:))
         guard let first = textures.first else { return }
@@ -3699,7 +3752,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         flash.run(SKAction.sequence([fade, remove]))
     }
 
-    private func playFloatingFeedback(text: String, at position: CGPoint, color: SKColor = GameUITheme.Color.gold) {
+    private func playFloatingFeedback(
+        text: String,
+        at position: CGPoint,
+        color: SKColor = GameUITheme.Color.gold,
+        reduceMotion: Bool = false
+    ) {
+        #if DEBUG
+        floatingFeedbackTextsForTestingStorage.append(text)
+        #endif
+
         let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         let shadow = NSShadow()
         shadow.shadowColor = SKColor(white: 0, alpha: 0.85)
@@ -3723,20 +3785,26 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         label.position = CGPoint(x: position.x, y: position.y - 20)
         label.zPosition = EffectStyle.floatingFeedbackZ
         label.alpha = 0
-        label.setScale(0.7)
+        label.setScale(reduceMotion ? 1 : 0.7)
         effectsLayer.addChild(label)
 
-        let appear = SKAction.group([
-            SKAction.fadeIn(withDuration: 0.2),
-            SKAction.moveBy(x: 0, y: 14, duration: 0.2),
-            SKAction.scale(to: 1.12, duration: 0.2)
-        ])
+        // Reduce Motion keeps the text but drops the movement: fade in
+        // place, then fade out — no rise, no scale.
+        let appear = reduceMotion
+            ? SKAction.fadeIn(withDuration: 0.2)
+            : SKAction.group([
+                SKAction.fadeIn(withDuration: 0.2),
+                SKAction.moveBy(x: 0, y: 14, duration: 0.2),
+                SKAction.scale(to: 1.12, duration: 0.2)
+            ])
         appear.timingMode = .easeOut
-        let floatAway = SKAction.group([
-            SKAction.fadeOut(withDuration: 0.9),
-            SKAction.moveBy(x: 0, y: 50, duration: 0.9),
-            SKAction.scale(to: 0.94, duration: 0.9)
-        ])
+        let floatAway = reduceMotion
+            ? SKAction.fadeOut(withDuration: 0.9)
+            : SKAction.group([
+                SKAction.fadeOut(withDuration: 0.9),
+                SKAction.moveBy(x: 0, y: 50, duration: 0.9),
+                SKAction.scale(to: 0.94, duration: 0.9)
+            ])
         floatAway.timingMode = .easeOut
         let remove = SKAction.removeFromParent()
         label.run(
@@ -4360,9 +4428,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         milestoneConquestAccent.removeAllActions()
         milestoneConquestAccent.alpha = 0.45
-        milestoneConquestAccent.setScale(UIAccessibility.isReduceMotionEnabled ? 1 : 0.97)
+        milestoneConquestAccent.setScale(isReduceMotionEnabled() ? 1 : 0.97)
         let fade = SKAction.fadeAlpha(to: 1, duration: 0.24)
-        let emphasis = UIAccessibility.isReduceMotionEnabled
+        let emphasis = isReduceMotionEnabled()
             ? fade
             : SKAction.group([fade, SKAction.scale(to: 1, duration: 0.24)])
         milestoneConquestAccent.run(emphasis)
@@ -4512,6 +4580,12 @@ extension BattleScene {
     /// Non-Keep structure-fall requests so far, in request order (HPA-582).
     var structureFallRequestsForTesting: [String] {
         structureFallRequestsForTestingStorage
+    }
+
+    /// Floating-feedback label texts requested so far, in request order —
+    /// records the text, not the node, so reduced-motion variants count too.
+    var floatingFeedbackTextsForTesting: [String] {
+        floatingFeedbackTextsForTestingStorage
     }
 
     /// Fortress asset the scene last projected onto the enemy-city sprite.
@@ -5213,31 +5287,16 @@ extension BattleScene {
     /// bypasses the deploy-charge mechanic so tests can place more soldiers
     /// than the transient 3-charge pool allows without driving real recharge
     /// time (which would conquer the tiny authored smoke camps first).
-    /// Mirrors the successful-deploy postlude so nodes and HUD stay
-    /// consistent.
+    /// Runs the same post-guard deploy pipeline as `spawnSoldier` so nodes,
+    /// session records, and HUD stay consistent.
     func spawnManualSoldiersDirectlyForTesting(_ count: Int) {
         for _ in 0..<max(0, count) {
             guard combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap,
                   let level = state.manualSoldierLevel(for: selectedManualSoldierType) else {
                 break
             }
-            let soldierID = combat.spawnSoldier(
-                type: selectedManualSoldierType,
-                source: .manual,
-                level: level,
-                attackPower: state.traitAdjustedSoldierAttackPower(
-                    for: selectedManualSoldierType,
-                    level: level
-                ),
-                lane: state.siegeProgress.selectedLane
-            )
-            if let soldier = combat.soldier(id: soldierID) {
-                state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
-            }
-            createSoldierNode(id: soldierID)
+            deployManualSoldier(type: selectedManualSoldierType, level: level)
         }
-        syncSoldierNodes()
-        applyBattleHUD()
     }
 
     func selectManualSoldierTypeForTesting(_ type: SoldierType) {

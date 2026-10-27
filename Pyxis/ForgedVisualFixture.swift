@@ -147,7 +147,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         reserve: Int,
         supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:]
     ) -> KingdomGameState {
-        var state = DevJumpState.make(city: 5)
+        var state = DevJumpState.make(city: 5, campLevel: nil)
         seedSiegeProgress(
             keepRemaining: KingdomGameState.cityMaxPower(for: 5),
             supportDamage: supportDamage,
@@ -163,7 +163,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     }
 
     private static func campState(occupied: Bool) -> KingdomGameState {
-        var state = DevJumpState.make(city: 5)
+        var state = DevJumpState.make(city: 5, campLevel: nil)
         if occupied {
             state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: [
                 1: CityBuilding(type: .barracks, level: 2),
@@ -174,11 +174,8 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
                 12: CityBuilding(type: .barracks, level: 3)
             ])
         } else {
-            // DevJumpState.make seeds a real Barracks (HPA-582 Task 2); the
-            // empty-camp fixture clears it so the Camp tab renders a truly
-            // empty grid.
+            // campLevel: nil leaves the grid truly empty for the Camp tab.
             state.gold = 1_000
-            state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState()
         }
         return state
     }
@@ -186,16 +183,16 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     private static func mapFixtureState(for fixture: ForgedVisualFixture) -> KingdomGameState {
         switch fixture {
         case .map:
-            var state = DevJumpState.make(city: 3)
+            var state = DevJumpState.make(city: 3, campLevel: nil)
             state.completedCityCount = 3
             state.stageStatus = .cityConqueredPendingMap
             return state
         case .mapPartial:
-            var state = DevJumpState.make(city: 8)
+            var state = DevJumpState.make(city: 8, campLevel: nil)
             state.stageStatus = .cityConqueredPendingMap
             return state
         case .mapCountryComplete:
-            var state = DevJumpState.make(city: KingdomGameState.firstCountryCityCount)
+            var state = DevJumpState.make(city: KingdomGameState.firstCountryCityCount, campLevel: nil)
             state.completedCityCount = KingdomGameState.firstCountryCityCount
             state.stageStatus = .countryComplete
             return state
@@ -207,7 +204,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     /// City 15 ruin capture (five-structure layout): both Gates, the Arrow Tower
     /// (the sole fire source) and the Barracks are destroyed; the Keep is at 60% HP.
     private static func crownspireRuinedState() -> KingdomGameState {
-        var state = DevJumpState.make(city: 15)
+        var state = DevJumpState.make(city: 15, campLevel: nil)
         seedSiegeProgress(
             keepRemaining: state.currentKeepMaxPower * 3 / 5,
             supportDamage: [.gate: Int.max, .arrowTower: Int.max, .barracks: Int.max],
@@ -221,15 +218,15 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     private static func cityBattleState(for fixture: ForgedVisualFixture) -> KingdomGameState {
         switch fixture {
         case .battleEmberford:
-            return DevJumpState.make(city: 7)
+            return DevJumpState.make(city: 7, campLevel: nil)
         case .battleEmberfordGuards:
             return emberfordGuardState()
         case .battlePinewatch:
-            return DevJumpState.make(city: 2)
+            return DevJumpState.make(city: 2, campLevel: nil)
         case .battleRunewatch:
-            return DevJumpState.make(city: 9)
+            return DevJumpState.make(city: 9, campLevel: nil)
         case .battleCrownspire:
-            return DevJumpState.make(city: 15)
+            return DevJumpState.make(city: 15, campLevel: nil)
         case .battleCrownspireRuined:
             return crownspireRuinedState()
         default:
@@ -240,7 +237,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     /// City 7 Guard capture: two full-HP Guards on the Barracks (left) lane with
     /// 6 of the 12-Guard reserve left (4 spent); the Barracks and Keep are intact.
     private static func emberfordGuardState() -> KingdomGameState {
-        var state = DevJumpState.make(city: 7)
+        var state = DevJumpState.make(city: 7, campLevel: nil)
         state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
             waveElapsedSeconds: 0,
             remainingReserve: 6,
@@ -253,7 +250,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     }
 
     private static func returnDamageState() -> KingdomGameState {
-        var state = DevJumpState.make(city: 3)
+        var state = DevJumpState.make(city: 3, campLevel: nil)
         let backgroundAt = Date(timeIntervalSince1970: 1_000)
         state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
             slots: [1: CityBuilding(type: .barracks)],
@@ -301,7 +298,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
         keepRemaining: Int? = nil,
         supportDamage: [CitySiegeLayout.ObjectiveKind: Int] = [:]
     ) -> KingdomGameState {
-        var state = DevJumpState.make(city: cityNumber)
+        var state = DevJumpState.make(city: cityNumber, campLevel: nil)
         state.gold = 4_200
         if keepRemaining != nil || !supportDamage.isEmpty {
             seedSiegeProgress(
@@ -318,7 +315,7 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
     }
 
     private static func conquestState(mode: BattleConquestMode) -> KingdomGameState {
-        var state = DevJumpState.make(city: 3)
+        var state = DevJumpState.make(city: 3, campLevel: nil)
 
         guard mode == .live else {
             let backgroundAt = Date(timeIntervalSince1970: 1_000)

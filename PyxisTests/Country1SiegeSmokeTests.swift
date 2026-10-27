@@ -338,7 +338,7 @@ enum Country1SiegeSmoke {
             damageByObjectiveID: [:],
             guardReinforcements: layout.barracksObjective != nil ? .freshCountry1() : nil,
             captain: VanguardCaptainRules.isAvailable(cityNumber: city)
-                ? .freshCaptain(selectedLane: lane, upgradeLevel: state.captainLevel)
+                ? .freshCaptain(selectedLane: lane, captainLevel: state.captainLevel)
                 : nil
         )
         return state

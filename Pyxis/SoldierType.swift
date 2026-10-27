@@ -50,4 +50,19 @@ extension SoldierType {
             1.0
         }
     }
+
+    /// Optional-kind convenience for lookup sites: a missing objective
+    /// reads neutral, replacing the repeated `map { ... } ?? 1` plumbing.
+    func objectiveDamageMultiplier(against kind: CitySiegeLayout.ObjectiveKind?) -> Double {
+        kind.map { objectiveDamageMultiplier(against: $0) } ?? 1
+    }
+
+    /// The shared second rounding step (HPA-582): the role multiplier
+    /// applied on top of an already trait-adjusted `power`, rounded and
+    /// clamped positive — before the remaining-HP cap. Live ticks, idle
+    /// spawn budgets, and any future structure-damage path must all round
+    /// identically, so the formula lives here exactly once.
+    func roleAdjustedDamage(power: Int, against kind: CitySiegeLayout.ObjectiveKind?) -> Int {
+        max(1, Int((Double(power) * objectiveDamageMultiplier(against: kind)).rounded()))
+    }
 }

@@ -634,7 +634,7 @@ extension GameViewController {
     }
 
     func performDevJump(to city: Int, in view: SKView) {
-        store.save(DevJumpState.make(city: city))
+        store.save(DevJumpState.make(city: city, campLevel: DevJumpState.campLevel))
         presentBattleScene(in: view)
     }
 

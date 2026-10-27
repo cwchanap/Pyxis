@@ -15,6 +15,11 @@ struct SoldierAttackEvent: Equatable {
     let appliedDamage: Int
     /// HPA-475: transient only — partitioned before persistence.
     let isCaptain: Bool
+    /// HPA-582: set by `tick` when this attack reduced the objective to zero
+    /// — the model already knows the kill at application time, so structure
+    /// -fall presentation reads it here instead of re-deriving "fresh kill"
+    /// from post-mutation remaining HP. Transient; never persisted.
+    let depletedObjective: Bool
 
     init(
         soldierID: BattleCombatState.SoldierID,
@@ -23,7 +28,8 @@ struct SoldierAttackEvent: Equatable {
         lane: BattleLane,
         objectiveID: String,
         appliedDamage: Int,
-        isCaptain: Bool = false
+        isCaptain: Bool = false,
+        depletedObjective: Bool = false
     ) {
         self.soldierID = soldierID
         self.type = type
@@ -32,6 +38,7 @@ struct SoldierAttackEvent: Equatable {
         self.objectiveID = objectiveID
         self.appliedDamage = appliedDamage
         self.isCaptain = isCaptain
+        self.depletedObjective = depletedObjective
     }
 }
 
@@ -240,8 +247,10 @@ struct BattleCombatState: Equatable {
     /// never persisted and never recharged from wall-clock time.
     private(set) var manualDeployCharges: Int = ManualDeployRules.maxCharges
     /// Fractional active-combat time banked toward the next charge;
-    /// discarded while the charge pool is full.
-    private var manualDeployRechargeSeconds: Double = 0
+    /// discarded while the charge pool is full. Read-only externally — only
+    /// `tick` advances it and `restoreManualDeployCharges` carries it
+    /// across a combat rebuild.
+    private(set) var manualDeployRechargeSeconds: Double = 0
     private var rng: SplitMix64
 
     init(configuration: Configuration, seed: UInt64) {
@@ -322,12 +331,12 @@ struct BattleCombatState: Equatable {
     /// different persisted lane) never move the live Captain. A depleted
     /// (recovering, HP 0) Captain deploys nothing.
     @discardableResult
-    mutating func spawnCaptain(progress: VanguardCaptainProgress, upgradeLevel: Int) -> SoldierID? {
+    mutating func spawnCaptain(progress: VanguardCaptainProgress, captainLevel: Int) -> SoldierID? {
         if let existing = captainSoldier {
             return existing.id
         }
 
-        let captainMaxHP = VanguardCaptainRules.maxHP(for: upgradeLevel)
+        let captainMaxHP = VanguardCaptainRules.maxHP(for: captainLevel)
         let restoredHP = min(max(0, progress.remainingHP), captainMaxHP)
         guard restoredHP > 0 else {
             return nil
@@ -341,12 +350,12 @@ struct BattleCombatState: Equatable {
                 id: id,
                 type: .infantry,
                 source: .manual,
-                level: max(1, upgradeLevel),
+                level: max(1, captainLevel),
                 lane: progress.lane,
                 maxHP: captainMaxHP,
                 currentHP: restoredHP,
                 defense: max(0, configuration.soldierDefense),
-                attackPower: max(1, VanguardCaptainRules.attackPower(for: upgradeLevel)),
+                attackPower: max(1, VanguardCaptainRules.attackPower(for: captainLevel)),
                 attackSpeed: attackSpeed(for: .infantry),
                 attackRange: attackRange(for: .infantry),
                 movementSpeed: movementSpeed(for: .infantry),
@@ -456,6 +465,18 @@ struct BattleCombatState: Equatable {
         }
     }
 
+    /// Carries the transient charge counters across a combat rebuild
+    /// (HPA-582): backgrounding tears combat down, but charges refill only
+    /// from valid active-tick time — a rebuilt pool must not silently hand
+    /// back free deploys, so the scene restores what the old instance had
+    /// banked. Clamped into the same bounds the live rules maintain.
+    mutating func restoreManualDeployCharges(_ charges: Int, rechargeSeconds: Double) {
+        manualDeployCharges = min(max(0, charges), ManualDeployRules.maxCharges)
+        manualDeployRechargeSeconds = manualDeployCharges == ManualDeployRules.maxCharges
+            ? 0
+            : max(0, rechargeSeconds)
+    }
+
     /// Advances one combat tick against the ephemeral siege snapshot.
     /// Soldiers target the first living objective along their own route,
     /// stop at `target.visualProgress - attackRange`, and mutate a local
@@ -561,10 +582,12 @@ struct BattleCombatState: Equatable {
                 // the already trait-adjusted cached power, rounded again and
                 // clamped positive before the remaining-HP cap. Cached
                 // `attackPower`, Captain damage and Guard combat stay flat.
-                let roleMultiplier = snapshot.layout.objective(id: targetID)
-                    .map { soldiers[index].type.objectiveDamageMultiplier(against: $0.kind) } ?? 1
-                let roleDamage = max(1, Int((Double(soldiers[index].attackPower) * roleMultiplier).rounded()))
-                let appliedDamage = min(roleDamage, objectiveRemaining[targetID, default: 0])
+                let roleDamage = soldiers[index].type.roleAdjustedDamage(
+                    power: soldiers[index].attackPower,
+                    against: snapshot.layout.objective(id: targetID)?.kind
+                )
+                let objectiveRemainingBeforeHit = objectiveRemaining[targetID, default: 0]
+                let appliedDamage = min(roleDamage, objectiveRemainingBeforeHit)
                 if appliedDamage > 0 {
                     objectiveRemaining[targetID, default: 0] -= appliedDamage
                     result.soldierAttacks.append(
@@ -575,7 +598,8 @@ struct BattleCombatState: Equatable {
                             lane: soldiers[index].lane,
                             objectiveID: targetID,
                             appliedDamage: appliedDamage,
-                            isCaptain: soldiers[index].isCaptain
+                            isCaptain: soldiers[index].isCaptain,
+                            depletedObjective: appliedDamage == objectiveRemainingBeforeHit
                         )
                     )
                     soldiers[index].attackCooldownRemaining += attackInterval(forSoldier: soldiers[index])

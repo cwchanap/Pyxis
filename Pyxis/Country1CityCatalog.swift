@@ -811,12 +811,12 @@ enum VanguardCaptainRules {
     }
 
     /// One attack point above the ordinary soldier curve.
-    static func attackPower(for upgradeLevel: Int) -> Int {
-        KingdomGameState.normalSoldierAttackPower(for: upgradeLevel) + 1
+    static func attackPower(for captainLevel: Int) -> Int {
+        KingdomGameState.normalSoldierAttackPower(for: captainLevel) + 1
     }
 
-    static func maxHP(for upgradeLevel: Int) -> Int {
-        let level = max(1, upgradeLevel)
+    static func maxHP(for captainLevel: Int) -> Int {
+        let level = max(1, captainLevel)
         return max(1, Int((20 * pow(1.25, Double(level - 1))).rounded()))
     }
 }
@@ -824,10 +824,10 @@ enum VanguardCaptainRules {
 extension VanguardCaptainProgress {
     /// Fresh full-HP Captain for a newly entered City 3+ siege, seeded on
     /// the entry-selected lane.
-    static func freshCaptain(selectedLane: BattleLane, upgradeLevel: Int) -> VanguardCaptainProgress {
+    static func freshCaptain(selectedLane: BattleLane, captainLevel: Int) -> VanguardCaptainProgress {
         VanguardCaptainProgress(
             lane: selectedLane,
-            remainingHP: VanguardCaptainRules.maxHP(for: upgradeLevel),
+            remainingHP: VanguardCaptainRules.maxHP(for: captainLevel),
             recoveryRemainingSeconds: 0,
             rallyConsumed: false
         )

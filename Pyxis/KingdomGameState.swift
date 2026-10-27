@@ -154,8 +154,42 @@ struct KingdomGameState: Codable, Equatable {
         stageStatus: StageStatus = .battleActive,
         cityBattleStates: [String: CityBattleState] = [:],
         activeSiegeSession: ActiveSiegeSession? = nil,
+        pendingBattleResult: BattleResult? = nil
+    ) {
+        self.init(
+            gold: gold,
+            cityLevel: cityLevel,
+            siegeProgress: siegeProgress,
+            lastBackgroundedAt: lastBackgroundedAt,
+            countryNumber: countryNumber,
+            cityNumberInCountry: cityNumberInCountry,
+            completedCityCount: completedCityCount,
+            stageStatus: stageStatus,
+            cityBattleStates: cityBattleStates,
+            activeSiegeSession: activeSiegeSession,
+            pendingBattleResult: pendingBattleResult,
+            persistedSiegeDamageUnderLegacyCurve: false
+        )
+    }
+
+    /// Decode-only normalization entry point (HPA-582): the memberwise init
+    /// plus `persistedSiegeDamageUnderLegacyCurve`, the decode tombstone flag
+    /// that rescales siege progress written under the pre-rebalance 2.15
+    /// `cityMaxPower` curve. Kept off the public init so in-code
+    /// construction can never opt into a decode-era migration.
+    private init(
+        gold: Int = 15,
+        cityLevel: Int = 1,
+        siegeProgress: SiegeProgress? = nil,
+        lastBackgroundedAt: Date? = nil,
+        countryNumber: Int = 1,
+        cityNumberInCountry: Int = 1,
+        completedCityCount: Int = 0,
+        stageStatus: StageStatus = .battleActive,
+        cityBattleStates: [String: CityBattleState] = [:],
+        activeSiegeSession: ActiveSiegeSession? = nil,
         pendingBattleResult: BattleResult? = nil,
-        persistedSiegeDamageUnderLegacyCurve: Bool = false
+        persistedSiegeDamageUnderLegacyCurve: Bool
     ) {
         let clampedCountryNumber = max(1, countryNumber)
         let clampedCompletedCityCount = min(max(0, completedCityCount), Self.firstCountryCityCount)
@@ -216,13 +250,14 @@ struct KingdomGameState: Codable, Equatable {
         }
         self.cityBattleStates = normalizedCityBattleStates
 
-        // Inline camp-derived Captain level (same rule as the `captainLevel`
-        // projection): self isn't fully initialized yet, so read the already
-        // normalized current-city battle state directly. Fallback 1 when the
-        // camp is empty or the city state is absent.
-        let captainLevel = normalizedCityBattleStates[
-            CityKey(countryNumber: clampedCountryNumber, cityNumber: normalizedCityNumber).storageKey
-        ]?.slots.values.map(\.level).max() ?? 1
+        // Camp-derived Captain level: self isn't fully initialized yet, so
+        // the shared rule reads the already-normalized current-city battle
+        // state directly.
+        let captainLevel = Self.captainLevel(
+            for: normalizedCityBattleStates[
+                CityKey(countryNumber: clampedCountryNumber, cityNumber: normalizedCityNumber).storageKey
+            ]
+        )
 
         let totalBudget = Self.cityMaxPower(for: normalizedCityLevel)
         let normalizedSiege = Self.normalizedSiegeProgress(
@@ -247,7 +282,16 @@ struct KingdomGameState: Codable, Equatable {
         )
         if resolvedStatus == .battleActive,
            activeSiegeSession?.cityKey == normalizedCurrentCityKey {
-            self.activeSiegeSession = activeSiegeSession
+            // A legacy-curve save also left the live session's recorded
+            // damage in 2.15-curve units; rescale by the same budget ratio
+            // so report attributions stay consistent with the rescaled
+            // siege damage they are measured against (HPA-582).
+            self.activeSiegeSession = persistedSiegeDamageUnderLegacyCurve
+                ? activeSiegeSession?.damageRescaledForBudgetChange(
+                    from: Self.legacyCityMaxPower(for: normalizedCityLevel),
+                    to: totalBudget
+                )
+                : activeSiegeSession
         } else {
             self.activeSiegeSession = nil
         }
@@ -398,9 +442,12 @@ struct KingdomGameState: Codable, Equatable {
     /// Rescales absolute siege damage persisted under the pre-HPA-582
     /// `cityMaxPower` curve (growth 2.15) into current-curve units: each
     /// known objective keeps its damaged fraction (`damage ×
-    /// newMax / oldMax`, half-away rounding) so an older late-city save
-    /// stays proportionally besieged instead of clamping near-dead under
-    /// the much smaller 1.85 maxima. The legacy `"keep"` key is left raw
+    /// newMax / oldMax`) so an older late-city save stays proportionally
+    /// besieged instead of clamping near-dead under the much smaller 1.85
+    /// maxima, and `rescaledPersistedObjectiveDamage` additionally
+    /// preserves liveness — decode must never destroy a structure that was
+    /// alive when the save was written, nor erase recorded damage by
+    /// rounding it to zero. The legacy `"keep"` key is left raw
     /// when it is foreign to the layout — its units are the whole
     /// persisted budget, which `migratedLegacyKeepDamage` already carries
     /// over by remaining fraction. A current-curve save passes through
@@ -424,11 +471,33 @@ struct KingdomGameState: Codable, Equatable {
                   let maxPower = maxPowers[objectiveID] else {
                 continue
             }
-            rescaled[objectiveID] = Int(
-                (Double(damage) * Double(maxPower) / Double(persistedMax)).rounded()
+            rescaled[objectiveID] = rescaledPersistedObjectiveDamage(
+                damage,
+                persistedMax: persistedMax,
+                newMax: maxPower
             )
         }
         return rescaled
+    }
+
+    /// One objective's persisted damage carried across the curve change
+    /// with liveness preserved (HPA-582): an objective recorded as
+    /// destroyed (`damage >= persistedMax`) stays destroyed, and a living
+    /// one keeps at least 1 HP — the raw half-away rounding could round a
+    /// nearly-destroyed support objective up to its full new maximum and
+    /// kill it during decode without any attack. Recorded nonzero damage
+    /// likewise never rounds down to pristine. The proportional value is
+    /// then clamped inside the open interval (0, newMax), or to 0 when the
+    /// new maximum cannot represent a partial point.
+    private static func rescaledPersistedObjectiveDamage(
+        _ damage: Int,
+        persistedMax: Int,
+        newMax: Int
+    ) -> Int {
+        guard damage > 0 else { return damage }
+        guard damage < persistedMax else { return newMax }
+        let scaled = Int((Double(damage) * Double(newMax) / Double(persistedMax)).rounded())
+        return min(max(1, scaled), max(0, newMax - 1))
     }
 
     /// Maps the pre-rollout `"keep"` damage key onto the authored Keep for
@@ -499,7 +568,7 @@ struct KingdomGameState: Codable, Equatable {
         } else {
             progress.captain = .freshCaptain(
                 selectedLane: progress.selectedLane,
-                upgradeLevel: captainLevel
+                captainLevel: captainLevel
             )
         }
         return progress
@@ -521,7 +590,15 @@ struct KingdomGameState: Codable, Equatable {
     /// the highest level across ALL buildings of any type, falling back to 1
     /// for an empty camp. No storage field — never persisted, never migrated.
     var captainLevel: Int {
-        cityBattleStateForCurrentCity.slots.values.map(\.level).max() ?? 1
+        Self.captainLevel(for: cityBattleStateForCurrentCity)
+    }
+
+    /// The single camp-derived Captain-level rule (HPA-582): highest
+    /// building level in the camp, fallback 1 for an empty or absent camp —
+    /// shared by the `captainLevel` projection and init-time normalization,
+    /// which runs before self is usable.
+    private static func captainLevel(for cityState: CityBattleState?) -> Int {
+        cityState?.slots.values.map(\.level).max() ?? 1
     }
 
     func cityBattleState(for key: CityKey) -> CityBattleState {
@@ -611,7 +688,7 @@ struct KingdomGameState: Codable, Equatable {
             captain: VanguardCaptainRules.isAvailable(cityNumber: cityNumber)
                 ? .freshCaptain(
                     selectedLane: entryLayout.defaultLane,
-                    upgradeLevel: captainLevel
+                    captainLevel: captainLevel
                 )
                 : nil
         )
@@ -716,7 +793,7 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     /// Persists a living Captain's lane and HP, clamped to the current
-    /// upgrade-derived maximum. Never resurrects a retreating captain —
+    /// camp-derived maximum. Never resurrects a retreating captain —
     /// retreats flow through `recordCaptainRetreat`. Returns whether
     /// durable state changed.
     @discardableResult
@@ -858,12 +935,14 @@ struct KingdomGameState: Codable, Equatable {
         }
         cityState = cityBattleState(for: key)
 
-        let captainMaxHPBefore = VanguardCaptainRules.maxHP(for: captainLevel)
         gold -= cost
         cityState.setBuilding(CityBuilding(type: type), inSlot: slot)
         cityState.lastBuildingProgressResolvedAt = resolvedDate
         cityBattleStates[key.storageKey] = cityState
-        preserveLivingCaptainHPThroughCampGrowth(previousMaxHP: captainMaxHPBefore)
+        // No Captain HP preservation here: a fresh building is always level
+        // 1, so a build can never raise the camp-derived captainLevel and
+        // the max-HP delta is always zero. `upgradeBuilding` keeps the
+        // delta hand-off — it is the only mutation that can grow the max.
 
         return .built(cost: cost, remainingGold: gold)
     }
@@ -1063,6 +1142,11 @@ struct KingdomGameState: Codable, Equatable {
             _ = advanceActiveGuardReinforcements(deltaTime: elapsedSeconds)
         }
 
+        // Layout and max powers are invariant for the whole spawn batch —
+        // only the damage map advances between iterations.
+        let layout = currentSiegeLayout
+        let maxPowers = currentSiegeMaxPowers
+
         for spawn in spawns {
             let power = traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
             guard power > 0 else { continue }
@@ -1074,22 +1158,20 @@ struct KingdomGameState: Codable, Equatable {
             // objective on the selected lane, before the unchanged route-budget
             // helper. Bounded approximation: the boosted budget's spill past
             // that objective stays raw. Neutral roles reproduce the old call.
-            var budget = leftover
-            if let firstLiveID = currentSiegeLayout.firstLiveObjectiveID(
+            let firstLiveKind = layout.firstLiveObjectiveID(
                 for: siegeProgress.selectedLane,
-                maxPowers: currentSiegeMaxPowers,
+                maxPowers: maxPowers,
                 damageByObjectiveID: damageByObjectiveID
-            ), let kind = currentSiegeLayout.objective(id: firstLiveID)?.kind {
-                budget = max(
-                    1,
-                    Int((Double(leftover) * spawn.soldierType.objectiveDamageMultiplier(against: kind)).rounded())
-                )
-            }
+            ).flatMap { layout.objective(id: $0)?.kind }
+            let budget = spawn.soldierType.roleAdjustedDamage(
+                power: leftover,
+                against: firstLiveKind
+            )
 
-            let (spentDamage, appliedByObjectiveID) = currentSiegeLayout.spendDamageBudget(
+            let (spentDamage, appliedByObjectiveID) = layout.spendDamageBudget(
                 budget,
                 along: siegeProgress.selectedLane,
-                maxPowers: currentSiegeMaxPowers,
+                maxPowers: maxPowers,
                 damageByObjectiveID: damageByObjectiveID
             )
             damageByObjectiveID = spentDamage
@@ -1313,8 +1395,10 @@ struct KingdomGameState: Codable, Equatable {
         return completeCurrentCity(with: result)
     }
 
-    /// HPA-582: after a successful camp purchase may have raised the derived
-    /// Captain max HP, hand a LIVING Captain the max delta (clamped to the new
+    /// HPA-582: a successful camp upgrade may have raised the derived
+    /// Captain max HP — a build cannot (new buildings are always level 1,
+    /// so only `upgradeBuilding` calls this) — hand a LIVING Captain the
+    /// max delta (clamped to the new
     /// max) so damage taken — not absolute HP — survives the purchase. A down
     /// Captain waits for the recovery flow; reads/decodes/reconstruction never
     /// call this, so repeated scene reconstruction never re-awards the delta.
@@ -1350,8 +1434,8 @@ struct KingdomGameState: Codable, Equatable {
         roundedAtLeastOne(8 * pow(1.45, Double(clampedLevel(level) - 1)))
     }
 
-    static func normalSoldierAttackPower(for upgradeLevel: Int) -> Int {
-        max(1, Int(ceil(pow(1.38, Double(clampedLevel(upgradeLevel) - 1)))))
+    static func normalSoldierAttackPower(for level: Int) -> Int {
+        max(1, Int(ceil(pow(1.38, Double(clampedLevel(level) - 1)))))
     }
 
     static func unlockedBuildingTypes(forCityNumber cityNumber: Int) -> [BuildingType] {
@@ -1400,7 +1484,11 @@ struct KingdomGameState: Codable, Equatable {
         currentCityDefinition.siegeLayout
     }
 
-    private var currentSiegeMaxPowers: [String: Int] {
+    /// Per-objective HP maxima for the current city's authored layout,
+    /// split from `cityMaxPower` by durability weight. Rebuilt on read —
+    /// callers inside hot loops should hoist it (see
+    /// `applyAbstractBuildingSpawnDamage`).
+    var currentSiegeMaxPowers: [String: Int] {
         currentSiegeLayout.maxPowerAllocation(totalBudget: cityMaxPower)
     }
 
