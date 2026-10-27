@@ -300,7 +300,8 @@ struct BattleCombatStateTests {
         )
         let id = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 5, lane: .left)
 
-        // Tower has only 3 HP; one attack destroys it.
+        // Tower has only 3 HP; one attack destroys it — the event flags the
+        // depletion so presentation plays the fall without re-reading HP.
         let towerKill = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.falconridgeSnapshot(towerRemaining: 3))
         #expect(towerKill.soldierAttacks == [
             SoldierAttackEvent(
@@ -309,7 +310,8 @@ struct BattleCombatStateTests {
                 source: .manual,
                 lane: .left,
                 objectiveID: SiegeFixtures.towerID,
-                appliedDamage: 3
+                appliedDamage: 3,
+                depletedObjective: true
             )
         ])
 
@@ -351,7 +353,8 @@ struct BattleCombatStateTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: SiegeFixtures.gateID,
-                appliedDamage: 3
+                appliedDamage: 3,
+                depletedObjective: true
             ),
             SoldierAttackEvent(
                 soldierID: second,
@@ -511,7 +514,8 @@ struct BattleCombatStateTests {
                 source: .manual,
                 lane: .center,
                 objectiveID: SiegeFixtures.singleKeepID,
-                appliedDamage: 3
+                appliedDamage: 3,
+                depletedObjective: true
             )
         ])
         #expect(result.didReachConquest)
@@ -645,7 +649,7 @@ struct BattleCombatStateTests {
                 recoveryRemainingSeconds: 0,
                 rallyConsumed: false
             ),
-            upgradeLevel: 1
+            captainLevel: 1
         )
         #expect(captainID != nil)
 
@@ -1732,10 +1736,10 @@ struct BattleCombatStateTests {
 
     @Test func spawnCaptainCreatesExactlyOneFlaggedSoldierAndSecondCallIsNoOp() {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
-        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1)
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .left, captainLevel: 1)
 
-        let firstID = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
-        let secondID = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+        let firstID = combat.spawnCaptain(progress: progress, captainLevel: 1)
+        let secondID = combat.spawnCaptain(progress: progress, captainLevel: 1)
 
         #expect(firstID != nil)
         #expect(secondID == firstID)
@@ -1752,7 +1756,7 @@ struct BattleCombatStateTests {
             rallyConsumed: false
         )
 
-        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 2)
+        let spawned = combat.spawnCaptain(progress: progress, captainLevel: 2)
         let id = try #require(spawned)
         let captain = try #require(combat.soldier(id: id))
 
@@ -1770,7 +1774,7 @@ struct BattleCombatStateTests {
             rallyConsumed: false
         )
 
-        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 2)
+        let spawned = combat.spawnCaptain(progress: progress, captainLevel: 2)
         let id = try #require(spawned)
         let captain = try #require(combat.soldier(id: id))
 
@@ -1780,9 +1784,9 @@ struct BattleCombatStateTests {
 
     @Test func captainUsesInfantryRuntimeStatsButCaptainHPAndAttackFormulas() throws {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
-        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 2)
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 2)
 
-        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 2)
+        let spawned = combat.spawnCaptain(progress: progress, captainLevel: 2)
         let captainID = try #require(spawned)
         let infantryID = combat.spawnSoldier(
             type: .infantry,
@@ -1809,8 +1813,8 @@ struct BattleCombatStateTests {
 
     @Test func secondSpawnCaptainWithDifferentLaneDoesNotMoveLiveCaptain() throws {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
-        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1)
-        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .left, captainLevel: 1)
+        let spawned = combat.spawnCaptain(progress: progress, captainLevel: 1)
         let id = try #require(spawned)
 
         let relane = VanguardCaptainProgress(
@@ -1819,7 +1823,7 @@ struct BattleCombatStateTests {
             recoveryRemainingSeconds: 0,
             rallyConsumed: false
         )
-        let secondID = combat.spawnCaptain(progress: relane, upgradeLevel: 1)
+        let secondID = combat.spawnCaptain(progress: relane, captainLevel: 1)
 
         #expect(secondID == id)
         let captain = try #require(combat.soldier(id: id))
@@ -1836,7 +1840,7 @@ struct BattleCombatStateTests {
             rallyConsumed: false
         )
 
-        let id = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+        let id = combat.spawnCaptain(progress: progress, captainLevel: 1)
 
         #expect(id == nil)
         #expect(combat.captainSoldier == nil)
@@ -1844,8 +1848,8 @@ struct BattleCombatStateTests {
 
     @Test func captainMarchesRouteHitsGuardThenStructureThroughExistingLoop() throws {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
-        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .right, upgradeLevel: 1)
-        let spawned = combat.spawnCaptain(progress: progress, upgradeLevel: 1)
+        let progress = VanguardCaptainProgress.freshCaptain(selectedLane: .right, captainLevel: 1)
+        let spawned = combat.spawnCaptain(progress: progress, captainLevel: 1)
         let captainID = try #require(spawned)
         combat.restoreGuard(
             GuardSnapshot(lane: .right, remainingHP: 2),
@@ -1878,8 +1882,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
         let ordinary = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
         let spawned = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         let captainID = try #require(spawned)
         // One tick so both equal-speed infantry sit at the same position.
@@ -1939,8 +1943,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: config, seed: 1)
         let ordinary = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
         let spawned = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .left, captainLevel: 1),
+            captainLevel: 1
         )
         let captainID = try #require(spawned)
 
@@ -1968,8 +1972,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: config, seed: 1)
         _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .left)
         let spawned = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .left, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .left, captainLevel: 1),
+            captainLevel: 1
         )
         let captainID = try #require(spawned)
 
@@ -1986,8 +1990,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
         _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .center)
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
 
         #expect(combat.livingSoldierCount == 1)
@@ -2138,8 +2142,8 @@ struct BattleCombatStateTests {
     @Test func rallyNeverReducesCaptainTowerDamage() throws {
         var combat = BattleCombatState(configuration: towerRallyConfiguration(towerDamage: 5), seed: 1)
         let spawned = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         let captainID = try #require(spawned)
         combat.startRally(lane: .center)
@@ -2234,8 +2238,8 @@ struct BattleCombatStateTests {
     @Test func rallyNeverReducesGuardDamageToCaptain() throws {
         var combat = BattleCombatState(configuration: guardCombatConfiguration())
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         combat.restoreGuard(
             GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
@@ -2278,8 +2282,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: config, seed: 1)
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
 
         var requestCount = 0
@@ -2308,8 +2312,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 5))
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         combat.restoreGuard(
             GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
@@ -2352,8 +2356,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: config, seed: 1)
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
         let spawnedCaptainID = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         let captainID = try #require(spawnedCaptainID)
 
@@ -2406,8 +2410,8 @@ struct BattleCombatStateTests {
         // The Captain joins the lane after the crossing; the next hit
         // (2→1) starts below half while the trigger is armed.
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
 
         var belowHalfHitLanded = false
@@ -2448,8 +2452,8 @@ struct BattleCombatStateTests {
         )
         var combat = BattleCombatState(configuration: config, seed: 1)
         let spawnedCaptainID = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         let captainID = try #require(spawnedCaptainID)
 
@@ -2479,8 +2483,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .left)
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         combat.restoreGuard(
             GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP),
@@ -2535,8 +2539,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         combat.restoreGuard(
             GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
@@ -2565,8 +2569,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         combat.restoreGuard(
             GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
@@ -2604,8 +2608,8 @@ struct BattleCombatStateTests {
         var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 10))
         let cavalryID = combat.spawnSoldier(type: .cavalry, source: .manual, level: 1, attackPower: 1, lane: .center)
         _ = combat.spawnCaptain(
-            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, upgradeLevel: 1),
-            upgradeLevel: 1
+            progress: VanguardCaptainProgress.freshCaptain(selectedLane: .center, captainLevel: 1),
+            captainLevel: 1
         )
         combat.restoreGuard(
             GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),

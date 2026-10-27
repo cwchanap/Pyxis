@@ -6,7 +6,7 @@ struct DevJumpStateTests {
     @Test("Every Country 1 dev jump creates a fresh active battle")
     func everyCountry1CityCreatesFreshActiveBattle() {
         for city in 1...KingdomGameState.firstCountryCityCount {
-            let state = DevJumpState.make(city: city)
+            let state = DevJumpState.make(city: city, campLevel: DevJumpState.campLevel)
 
             #expect(state.countryNumber == 1)
             #expect(state.completedCityCount == city - 1)
@@ -27,9 +27,20 @@ struct DevJumpStateTests {
         }
     }
 
+    @Test("A nil camp level seeds no buildings and leaves the Captain at level 1")
+    func nilCampLevelSeedsNoBuildings() {
+        let state = DevJumpState.make(city: 5, campLevel: nil)
+
+        // Capture fixtures pass nil so nothing auto-spawns leveled infantry
+        // and the Captain stays at the empty-camp fallback level.
+        #expect(state.cityBattleStates.count == 1)
+        #expect(state.cityBattleStateForCurrentCity.slots.isEmpty)
+        #expect(state.captainLevel == 1)
+    }
+
     @Test("Fresh City 5 jump materializes normalized Guard progress with no special-casing")
     func highcrestJumpMaterializesNormalizedGuardProgress() throws {
-        let state = DevJumpState.make(city: 5)
+        let state = DevJumpState.make(city: 5, campLevel: DevJumpState.campLevel)
         let layout = state.currentSiegeLayout
 
         // Plain state materialization through the standard init
@@ -50,12 +61,12 @@ struct DevJumpStateTests {
         #expect(state.currentKeepRemainingPower == state.currentKeepMaxPower)
 
         // Repeated jumps are deterministic (no hidden migration state).
-        #expect(DevJumpState.make(city: 5) == state)
+        #expect(DevJumpState.make(city: 5, campLevel: DevJumpState.campLevel) == state)
     }
 
     @Test("Non-pilot city jumps carry no Guard state")
     func nonPilotCityJumpCarriesNoGuardState() {
-        let state = DevJumpState.make(city: 1)
+        let state = DevJumpState.make(city: 1, campLevel: DevJumpState.campLevel)
 
         #expect(state.siegeProgress.guardReinforcements == nil)
     }

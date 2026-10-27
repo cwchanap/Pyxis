@@ -93,11 +93,18 @@ struct BattleHUDContent: Equatable {
         )
         // HPA-582: medallions show the pre-rounding trait×role product for
         // the selected lane's current first surviving structure; neutral
-        // (no live objective) keeps the trait-only value.
+        // (no live objective) keeps the trait-only value. A live Guard on
+        // the selected lane blocks it entirely (HPA-469): soldiers then hit
+        // the Guard with their trait-adjusted power only, so showing the
+        // first structure's role bonus would overstate real damage.
         let layout = state.currentSiegeLayout
-        let firstLiveKind = layout.firstLiveObjectiveID(
+        let laneIsGuardBlocked = state.siegeProgress.guardReinforcements?
+            .unresolvedGuards
+            .contains { $0.lane == state.siegeProgress.selectedLane && $0.remainingHP > 0 }
+            ?? false
+        let firstLiveKind = laneIsGuardBlocked ? nil : layout.firstLiveObjectiveID(
             for: state.siegeProgress.selectedLane,
-            maxPowers: layout.maxPowerAllocation(totalBudget: state.cityMaxPower),
+            maxPowers: state.currentSiegeMaxPowers,
             damageByObjectiveID: state.siegeProgress.damageByObjectiveID
         ).flatMap { layout.objective(id: $0)?.kind }
         let medallions = SoldierType.allCases.map { soldierType -> Medallion in
@@ -115,9 +122,7 @@ struct BattleHUDContent: Equatable {
                     : .locked(unlocksAtCity: KingdomGameState.unlockCity(for: buildingType))
             }
 
-            let roleMultiplier = firstLiveKind.map {
-                soldierType.objectiveDamageMultiplier(against: $0)
-            } ?? 1
+            let roleMultiplier = soldierType.objectiveDamageMultiplier(against: firstLiveKind)
             return Medallion(
                 soldierType: soldierType,
                 availability: availability,

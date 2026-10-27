@@ -102,7 +102,7 @@ enum SiegeTestSupport {
             captain: VanguardCaptainRules.isAvailable(cityNumber: cityNumber)
                 ? .freshCaptain(
                     selectedLane: selectedLane ?? layout.defaultLane,
-                    upgradeLevel: state.captainLevel
+                    captainLevel: state.captainLevel
                 )
                 : nil
         )

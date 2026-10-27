@@ -2048,6 +2048,149 @@ struct KingdomGameStateTests {
         #expect(state.currentKeepRemainingPower == 82098)
     }
 
+    @Test func decodingLegacyCurveSaveNeverDestroysALivingSupportObjective() throws {
+        // The Arrow Tower's 51,538 legacy max rescales to 6,286. Damage of
+        // 51,534 (alive at 4 HP when saved) proportionally rounds to
+        // 6,286 — the full new maximum — which would kill the tower during
+        // decode without any attack. Liveness wins: it stays up at 1 HP.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "normalSoldierUpgradeLevel": 1,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": { "crownspire-keep.arrow-tower": 51534 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.arrow-tower"] == 6285)
+        #expect(
+            state.currentSiegeSnapshot.objectiveRemainingPower["crownspire-keep.arrow-tower"] == 1
+        )
+    }
+
+    @Test func decodingLegacyCurveSaveKeepsNonzeroDamageNonzero() throws {
+        // One recorded point of legacy Tower damage scales to ~0.12 under
+        // the new curve — rounding would erase it to pristine. The floor
+        // keeps it at 1 instead.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "normalSoldierUpgradeLevel": 1,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": { "crownspire-keep.arrow-tower": 1 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.arrow-tower"] == 1)
+    }
+
+    @Test func decodingLegacyCurveSaveRescalesActiveSessionAttributions() throws {
+        // A live mid-siege session from the same era recorded its damage
+        // in 2.15-curve units; it rescales by the same budget ratio
+        // (110,011/901,921 ≈ 0.122) so report rows stay consistent with
+        // the rescaled siege damage. Counts and flags pass through.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "normalSoldierUpgradeLevel": 1,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 1,
+            "damageByObjectiveID": {}
+          },
+          "activeSiegeSession": {
+            "cityKey": "1-15",
+            "activeBattleSeconds": 42.5,
+            "deployments": [
+              { "type": "infantry", "source": "manual", "lane": 1, "count": 3 }
+            ],
+            "appliedDamage": [
+              { "type": "infantry", "source": "manual", "lane": 1, "damage": 1000 }
+            ],
+            "losses": [
+              { "type": "archer", "source": "manual", "count": 2 }
+            ],
+            "idleDamageByType": [
+              { "type": "siege", "damage": 500 }
+            ],
+            "usedFavorableUnit": true,
+            "usedExposedLane": false
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        let session = try #require(state.activeSiegeSession)
+        #expect(session.appliedDamage == [
+            SiegeDamageAttribution(type: .infantry, source: .manual, lane: .center, damage: 122)
+        ])
+        #expect(session.idleDamageByType == [
+            SiegeIdleDamageByType(type: .siege, damage: 61)
+        ])
+        #expect(session.deployments == [
+            SiegeDeploymentCount(type: .infantry, source: .manual, lane: .center, count: 3)
+        ])
+        #expect(session.losses == [
+            SiegeLossCount(type: .archer, source: .manual, count: 2)
+        ])
+        #expect(session.activeBattleSeconds == 42.5)
+        #expect(session.usedFavorableUnit)
+        #expect(!session.usedExposedLane)
+    }
+
+    @Test func decodingSaveWithoutTombstoneKeepsSessionAtCurrentScale() throws {
+        // The same session without the tombstone is already in
+        // current-curve units — no second rescale.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 1,
+            "damageByObjectiveID": {}
+          },
+          "activeSiegeSession": {
+            "cityKey": "1-15",
+            "appliedDamage": [
+              { "type": "infantry", "source": "manual", "lane": 1, "damage": 1000 }
+            ],
+            "idleDamageByType": [
+              { "type": "siege", "damage": 500 }
+            ]
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        let session = try #require(state.activeSiegeSession)
+        #expect(session.appliedDamage == [
+            SiegeDamageAttribution(type: .infantry, source: .manual, lane: .center, damage: 1000)
+        ])
+        #expect(session.idleDamageByType == [
+            SiegeIdleDamageByType(type: .siege, damage: 500)
+        ])
+    }
+
     @Test func decodingSaveWithoutTombstoneStillClampsImpossibleDamage() throws {
         // A current-curve build can never persist damage above an
         // objective's maximum, so an over-max Keep without the tombstone

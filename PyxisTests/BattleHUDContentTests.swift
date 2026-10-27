@@ -178,6 +178,36 @@ struct BattleHUDContentTests {
         #expect(multiplier(.siege, in: state) == 2.0)
     }
 
+    @Test func guardBlockedLaneSuppressesRoleBonus() {
+        // Highcrest's left route opens at the Barracks, so an unblocked
+        // mage medallion shows trait ×1.5 role = ×1.20. With a live Guard
+        // holding that lane the soldiers hit the Guard for trait-only
+        // damage — the pill must drop to the ×0.80 truth.
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 223, selectedLane: .left)
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 10,
+            unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 12)]
+        )
+
+        #expect(abs(multiplier(.mage, in: state) - 0.80) < 0.0001)
+        #expect(multiplier(.infantry, in: state) == 1.25)
+        #expect(multiplier(.siege, in: state) == 1.0)
+    }
+
+    @Test func guardOnAnotherLaneLeavesSelectedLaneBonusAlone() {
+        // Guards are lane-local: one on the right never touches the left
+        // route's Barracks bonus.
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 223, selectedLane: .left)
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 10,
+            unresolvedGuards: [GuardSnapshot(lane: .right, remainingHP: 12)]
+        )
+
+        #expect(abs(multiplier(.mage, in: state) - 1.2) < 0.0001)
+    }
+
     @Test func keepOnlyLaneKeepsTraitOnlyMultipliers() {
         // City 1's right route attacks the Keep directly: infantry and
         // cavalry are neutral everywhere, so the medallions stay trait-only.
