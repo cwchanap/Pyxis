@@ -3215,7 +3215,7 @@ struct KingdomGameStateTests {
     @Test func decodingDoesNotHealCaptainToCampDerivedMax() throws {
         // A persisted save whose camp already holds a Barracks L2 (max 25)
         // with a Captain missing 10 HP decodes without healing.
-        let data = """
+        let json = """
         {
           "gold": 100,
           "cityLevel": 3,
@@ -3237,7 +3237,8 @@ struct KingdomGameStateTests {
             "captain": {"lane": 1, "remainingHP": 15, "recoveryRemainingSeconds": 0, "rallyConsumed": false}
           }
         }
-        """.data(using: .utf8)!
+        """
+        let data = Data(json.utf8)
 
         let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
 
