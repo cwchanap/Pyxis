@@ -11,7 +11,7 @@ struct ActiveSiegeLifecycleTests {
     @Test func missingSessionAndPendingDecodeAsNil() throws {
         let state = KingdomGameState(
             gold: 0,
-            cityLevel: 1,
+            cityLevel: 1
         )
 
         let data = try JSONEncoder().encode(state)
@@ -148,7 +148,7 @@ struct ActiveSiegeLifecycleTests {
     @Test func recordLossesDoNotRunOnEmptyAndMergeByTypeSource() {
         var state = KingdomGameState(
             gold: 0,
-            cityLevel: 1,
+            cityLevel: 1
         )
 
         state.recordSoldierLosses([
