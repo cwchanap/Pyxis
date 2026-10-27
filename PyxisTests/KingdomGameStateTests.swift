@@ -1933,6 +1933,145 @@ struct KingdomGameStateTests {
         #expect(state.currentKeepRemainingPower == 1)
     }
 
+    // MARK: Pre-rebalance siege damage rescale (HPA-582)
+
+    @Test func decodingLegacyCurveSaveRescalesInProgressDamageByFraction() throws {
+        // Saves written under the 2.15 cityMaxPower curve still carry the
+        // now-deleted `normalSoldierUpgradeLevel` key, which marks their
+        // absolute damage as legacy-scale. Crownspire's Keep held 773,076
+        // of the 901,921 old budget; under 1.85 it holds 94,296 of
+        // 110,011 — so a 100,000-damage Keep (~13%) must rescale to
+        // ~13% (12,198) instead of clamping to 1 HP from conquest, and the
+        // half-spent 51,538-max Tower lands at half of its new 6,286 max.
+        let data = Data("""
+        {
+          "gold": 40,
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "normalSoldierUpgradeLevel": 4,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 2,
+            "damageByObjectiveID": {
+              "crownspire-keep.keep": 100000,
+              "crownspire-keep.arrow-tower": 25769
+            }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.siegeProgress.selectedLane == .right)
+        #expect(state.currentKeepMaxPower == 94296)
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.keep"] == 12198)
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.arrow-tower"] == 3143)
+        #expect(state.currentKeepRemainingPower == 82098)
+        #expect(state.gold == 40)
+    }
+
+    @Test func decodingLegacyCurveFullyDamagedKeepRecoversAsNearlyConquered() throws {
+        // A Keep already at 0 HP under the old curve rescales to fully
+        // damaged, then the same battleActive living-Keep clamp recovers
+        // it as nearly-conquered rather than dead-forever or auto-conquered.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "normalSoldierUpgradeLevel": 1,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": { "crownspire-keep.keep": 773076 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.keep"] == 94295)
+        #expect(state.currentKeepRemainingPower == 1)
+    }
+
+    @Test func decodingPreRolloutKeepUnderLegacyCurveUsesPersistedBudget() throws {
+        // Pre-rollout saves are also pre-rebalance: their lone "keep"
+        // entry spanned the whole 2.15-curve budget (901,921 at City 15),
+        // not today's 110,011. A legacy Keep 90,192 into that budget
+        // (~90% remaining) must land on the authored Keep at the same
+        // fraction — 9,430 damage of 94,296 — not ~82% remaining off the
+        // wrong denominator.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "normalSoldierUpgradeLevel": 1,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": { "keep": 90192 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.damageByObjectiveID["keep"] == nil)
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.keep"] == 9430)
+        #expect(state.currentKeepRemainingPower == 84866)
+    }
+
+    @Test func decodingSaveWithoutTombstoneTreatsDamageAsCurrentCurve() throws {
+        // Without the marker the payload is post-delete/current-scale:
+        // in-range damage passes through unrescaled — 12,198 stays 12,198
+        // on the 94,296 Keep rather than scaling again.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 2,
+            "damageByObjectiveID": { "crownspire-keep.keep": 12198 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.keep"] == 12198)
+        #expect(state.currentKeepRemainingPower == 82098)
+    }
+
+    @Test func decodingSaveWithoutTombstoneStillClampsImpossibleDamage() throws {
+        // A current-curve build can never persist damage above an
+        // objective's maximum, so an over-max Keep without the tombstone
+        // is a crafted/corrupt payload — the existing nearly-conquered
+        // recovery still applies unchanged.
+        let data = Data("""
+        {
+          "cityLevel": 15,
+          "cityNumberInCountry": 15,
+          "completedCityCount": 14,
+          "stageStatus": "battleActive",
+          "siegeProgress": {
+            "selectedLane": 0,
+            "damageByObjectiveID": { "crownspire-keep.keep": 100000 }
+          }
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.siegeProgress.damageByObjectiveID["crownspire-keep.keep"] == 94295)
+        #expect(state.currentKeepRemainingPower == 1)
+    }
+
     // MARK: Highcrest Guard reinforcement normalization (HPA-469)
 
     /// A Highcrest battle-active save payload with the given raw
