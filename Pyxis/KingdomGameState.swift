@@ -118,6 +118,16 @@ struct KingdomGameState: Codable, Equatable {
         case pendingBattleResult
     }
 
+    /// Decode-only tombstone keys (HPA-582). `normalSoldierUpgradeLevel`
+    /// was a non-optional, always-encoded field until the rebalance
+    /// deleted it, so a payload still carrying it was necessarily written
+    /// under the 2.15 `cityMaxPower` curve — the epoch marker that tells
+    /// decode to rescale absolute siege damage into the 1.85 curve. Never
+    /// stored, never encoded.
+    private enum LegacyCurveCodingKeys: String, CodingKey {
+        case normalSoldierUpgradeLevel
+    }
+
     private struct CityBattleStateCodingKey: CodingKey {
         var stringValue: String
         var intValue: Int?
@@ -144,7 +154,8 @@ struct KingdomGameState: Codable, Equatable {
         stageStatus: StageStatus = .battleActive,
         cityBattleStates: [String: CityBattleState] = [:],
         activeSiegeSession: ActiveSiegeSession? = nil,
-        pendingBattleResult: BattleResult? = nil
+        pendingBattleResult: BattleResult? = nil,
+        persistedSiegeDamageUnderLegacyCurve: Bool = false
     ) {
         let clampedCountryNumber = max(1, countryNumber)
         let clampedCompletedCityCount = min(max(0, completedCityCount), Self.firstCountryCityCount)
@@ -213,10 +224,14 @@ struct KingdomGameState: Codable, Equatable {
             CityKey(countryNumber: clampedCountryNumber, cityNumber: normalizedCityNumber).storageKey
         ]?.slots.values.map(\.level).max() ?? 1
 
+        let totalBudget = Self.cityMaxPower(for: normalizedCityLevel)
         let normalizedSiege = Self.normalizedSiegeProgress(
             siegeProgress,
             layout: Country1CityCatalog.definition(for: normalizedCityNumber).siegeLayout,
-            totalBudget: Self.cityMaxPower(for: normalizedCityLevel),
+            totalBudget: totalBudget,
+            persistedBudget: persistedSiegeDamageUnderLegacyCurve
+                ? Self.legacyCityMaxPower(for: normalizedCityLevel)
+                : totalBudget,
             requiresLivingKeep: resolvedStatus == .battleActive
         )
         self.siegeProgress = Self.normalizedCaptainProgress(
@@ -261,6 +276,14 @@ struct KingdomGameState: Codable, Equatable {
             decodedStageStatus = .battleActive
         }
 
+        // HPA-582 epoch marker: a payload still carrying the deleted
+        // `normalSoldierUpgradeLevel` field predates the 1.85
+        // `cityMaxPower` curve, so its absolute siege damage is in legacy
+        // units and must be rescaled during normalization.
+        let persistedSiegeDamageUnderLegacyCurve = (
+            try? decoder.container(keyedBy: LegacyCurveCodingKeys.self)
+        )?.contains(.normalSoldierUpgradeLevel) ?? false
+
         self.init(
             gold: try container.decodeIfPresent(Int.self, forKey: .gold) ?? 0,
             cityLevel: try container.decodeIfPresent(Int.self, forKey: .cityLevel) ?? 1,
@@ -274,7 +297,8 @@ struct KingdomGameState: Codable, Equatable {
             stageStatus: decodedStageStatus,
             cityBattleStates: Self.decodeCityBattleStates(from: container),
             activeSiegeSession: decodedSession,
-            pendingBattleResult: decodedPending
+            pendingBattleResult: decodedPending,
+            persistedSiegeDamageUnderLegacyCurve: persistedSiegeDamageUnderLegacyCurve
         )
     }
 
@@ -311,7 +335,15 @@ struct KingdomGameState: Codable, Equatable {
     /// lane with zero damage. The one discarded-ID exception is the
     /// pre-rollout `"keep"` key (HPA-477): it migrates onto the authored
     /// Keep via `migratedLegacyKeepDamage` instead of resetting an
-    /// in-progress siege to full HP. When `requiresLivingKeep` is set (`.battleActive`),
+    /// in-progress siege to full HP. `persistedBudget` is the total HP
+    /// budget the damage was written under — `legacyCityMaxPower` for a
+    /// pre-rebalance save (see the `normalSoldierUpgradeLevel` decode
+    /// tombstone), `totalBudget` otherwise — and
+    /// `rescaledPersistedSiegeDamage` carries each objective's damaged
+    /// fraction across the 2.15→1.85 curve change so a late-city partial
+    /// siege from an older build keeps its proportion instead of
+    /// clamping to 1 HP under the much smaller new maxima (HPA-582).
+    /// When `requiresLivingKeep` is set (`.battleActive`),
     /// a fully-damaged Keep is clamped to leave 1 HP: no real flow persists
     /// that shape — conquest finalizes exactly once and moves the stage out
     /// of `.battleActive` — so a dead-Keep-active save is a crafted/corrupt
@@ -325,15 +357,22 @@ struct KingdomGameState: Codable, Equatable {
         _ progress: SiegeProgress?,
         layout: CitySiegeLayout,
         totalBudget: Int,
+        persistedBudget: Int,
         requiresLivingKeep: Bool
     ) -> SiegeProgress {
         let maxPowers = layout.maxPowerAllocation(totalBudget: totalBudget)
         var damageByObjectiveID: [String: Int] = [:]
         for (objectiveID, rawDamage) in migratedLegacyKeepDamage(
-            progress?.damageByObjectiveID ?? [:],
+            rescaledPersistedSiegeDamage(
+                progress?.damageByObjectiveID ?? [:],
+                layout: layout,
+                maxPowers: maxPowers,
+                persistedBudget: persistedBudget,
+                totalBudget: totalBudget
+            ),
             layout: layout,
             maxPowers: maxPowers,
-            totalBudget: totalBudget
+            persistedBudget: persistedBudget
         ) {
             guard let maxPower = maxPowers[objectiveID] else { continue }
             damageByObjectiveID[objectiveID] = min(max(0, rawDamage), maxPower)
@@ -356,6 +395,42 @@ struct KingdomGameState: Codable, Equatable {
         )
     }
 
+    /// Rescales absolute siege damage persisted under the pre-HPA-582
+    /// `cityMaxPower` curve (growth 2.15) into current-curve units: each
+    /// known objective keeps its damaged fraction (`damage ×
+    /// newMax / oldMax`, half-away rounding) so an older late-city save
+    /// stays proportionally besieged instead of clamping near-dead under
+    /// the much smaller 1.85 maxima. The legacy `"keep"` key is left raw
+    /// when it is foreign to the layout — its units are the whole
+    /// persisted budget, which `migratedLegacyKeepDamage` already carries
+    /// over by remaining fraction. A current-curve save passes through
+    /// untouched (`persistedBudget == totalBudget`).
+    private static func rescaledPersistedSiegeDamage(
+        _ damageByObjectiveID: [String: Int],
+        layout: CitySiegeLayout,
+        maxPowers: [String: Int],
+        persistedBudget: Int,
+        totalBudget: Int
+    ) -> [String: Int] {
+        guard persistedBudget != totalBudget else { return damageByObjectiveID }
+        let persistedMaxPowers = layout.maxPowerAllocation(totalBudget: persistedBudget)
+        let legacyKeyIsForeign = layout.keepObjective.id != CitySiegeLayout.singleKeepObjectiveID
+        var rescaled = damageByObjectiveID
+        for (objectiveID, damage) in damageByObjectiveID {
+            if legacyKeyIsForeign, objectiveID == CitySiegeLayout.singleKeepObjectiveID {
+                continue
+            }
+            guard let persistedMax = persistedMaxPowers[objectiveID], persistedMax > 0,
+                  let maxPower = maxPowers[objectiveID] else {
+                continue
+            }
+            rescaled[objectiveID] = Int(
+                (Double(damage) * Double(maxPower) / Double(persistedMax)).rounded()
+            )
+        }
+        return rescaled
+    }
+
     /// Maps the pre-rollout `"keep"` damage key onto the authored Keep for
     /// `normalizedSiegeProgress` (HPA-477). Before the Country 1 tactical
     /// rollout every city used the default `singleKeep` layout, so
@@ -363,7 +438,10 @@ struct KingdomGameState: Codable, Equatable {
     /// re-authored layouts use city-specific Keep IDs. The legacy Keep's
     /// remaining-HP fraction carries over — copying absolute damage would
     /// over-reward, since the authored Keep holds only its
-    /// durability-weight share of the same total budget. A fully-spent
+    /// durability-weight share of the same total budget. `persistedBudget`
+    /// is the budget the save was written under (HPA-582): a pre-rebalance
+    /// save's legacy Keep spanned the old 2.15-curve total, not today's,
+    /// so the fraction must be measured against it. A fully-spent
     /// legacy Keep migrates as fully damaged and the `requiresLivingKeep`
     /// clamp recovers it as nearly-conquered, matching the existing
     /// crafted-save policy. Maps without the legacy key, or a layout whose
@@ -373,7 +451,7 @@ struct KingdomGameState: Codable, Equatable {
         _ damageByObjectiveID: [String: Int],
         layout: CitySiegeLayout,
         maxPowers: [String: Int],
-        totalBudget: Int
+        persistedBudget: Int
     ) -> [String: Int] {
         let keepID = layout.keepObjective.id
         let legacyKeepID = CitySiegeLayout.singleKeepObjectiveID
@@ -383,7 +461,7 @@ struct KingdomGameState: Codable, Equatable {
 
         var migrated = damageByObjectiveID
         migrated.removeValue(forKey: legacyKeepID)
-        let legacyKeepMax = max(1, totalBudget) // the old single Keep held the whole budget
+        let legacyKeepMax = max(1, persistedBudget) // the old single Keep held the whole persisted-era budget
         let remainingFraction = Double(max(0, legacyKeepMax - max(0, legacyDamage))) / Double(legacyKeepMax)
         let keepMaxPower = maxPowers[keepID] ?? 0
         let migratedDamage = keepMaxPower - Int((remainingFraction * Double(keepMaxPower)).rounded())
@@ -1258,6 +1336,14 @@ struct KingdomGameState: Codable, Equatable {
     // 1.95 left City 15 at 859/900 s).
     static func cityMaxPower(for level: Int) -> Int {
         roundedAtLeastOne(20 * pow(1.85, Double(clampedLevel(level) - 1)))
+    }
+
+    /// The pre-HPA-582 `cityMaxPower` curve (growth 2.15), kept only to
+    /// rescale in-progress siege damage persisted by builds that still
+    /// encoded `normalSoldierUpgradeLevel` — see the decode tombstone and
+    /// `rescaledPersistedSiegeDamage`. Never used for live balance.
+    private static func legacyCityMaxPower(for level: Int) -> Int {
+        roundedAtLeastOne(20 * pow(2.15, Double(clampedLevel(level) - 1)))
     }
 
     static func goldReward(for level: Int) -> Int {
