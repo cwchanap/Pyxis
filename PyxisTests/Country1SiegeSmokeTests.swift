@@ -50,9 +50,9 @@ enum Country1SiegeSmoke {
     nonisolated static let routeComparisonsEnabled = ProcessInfo.processInfo.environment["COUNTRY1_SMOKE_ROUTES"] == "1"
 
     /// Opt-in gate for the chained 15-city greedy campaign (HPA-582 Task 0).
-    /// Run with `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`. Off by default pending the
-    /// Task 0 wall-clock measurement (always-on only if comparable to the existing
-    /// default-route smoke coverage).
+    /// Run with `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`. Kept off by default per the
+    /// settled Task 0 measurement (~18 s added to the ~90 s smoke suite); a
+    /// balance-constant change must still rerun it — see the Build & Test notes in CLAUDE.md.
     nonisolated static let campaignEnabled = ProcessInfo.processInfo.environment["COUNTRY1_SMOKE_CAMPAIGN"] == "1"
 
     /// Fixed seed for the chained campaign run so every baseline/comparison run
