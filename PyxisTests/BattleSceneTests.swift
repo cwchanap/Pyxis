@@ -6136,6 +6136,14 @@ struct BattleSceneTests {
         )
     }
 
+    /// The multiplier the HUD last applied for `type` — reads the node's
+    /// current content, i.e. what the player actually sees (HPA-582 review).
+    private func hudMultiplier(_ type: SoldierType, in scene: BattleScene) -> Double? {
+        scene.battleHUDForTesting.currentContentForTesting?
+            .medallions.first { $0.soldierType == type }?
+            .damageMultiplier
+    }
+
     /// Highcrest (City 5) battle state with durable Guard progress.
     private func highcrestState(
         keepRemaining: Int = BattleSceneTests.highcrestKeepMax,
@@ -6318,6 +6326,106 @@ struct BattleSceneTests {
         #expect(persisted.unresolvedGuards == [GuardSnapshot(lane: .left, remainingHP: 9)])
         #expect(store.load().siegeProgress.damageByObjectiveID[barracksID] == barracksMax - 2)
         #expect(scene.gameStateForTesting.currentKeepRemainingPower == BattleSceneTests.highcrestKeepMax)
+    }
+
+    @Test("Medallion tracks Guard-blocker engagement through the whole fight, not Guard presence")
+    func medallionTracksGuardBlockerEngagementAcrossFight() throws {
+        // Highcrest's left route opens at the Barracks: the mage pill reads
+        // ×1.20 unblocked and trait-only ×0.80 while diverted onto a Guard.
+        // Guard-only ticks produce no soldier attacks, so the engagement
+        // transition refresh is the only path that can flip the pill
+        // (HPA-582 review). Direct injection bypasses the deploy-charge
+        // pool so no charge refill can fire an unrelated mid-fight apply.
+        var state = highcrestState(
+            guardProgress: GuardReinforcementProgress(
+                waveElapsedSeconds: 0,
+                remainingReserve: Country1GuardRules.totalReserve - 1,
+                unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 2)]
+            )
+        )
+        state = captainless(state)
+        let scene = makeScene(store: try makeStore(initialState: state))
+
+        // A durable lane Guard restored at the Keep — and no soldier
+        // deployed at all — diverts nothing: the lane-level "any live
+        // Guard" check would already show ×0.80 here.
+        #expect(!scene.isSelectedLaneGuardBlockerEngagedForTesting)
+        #expect(abs(try #require(hudMultiplier(.mage, in: scene)) - 1.2) < 0.0001)
+
+        scene.spawnManualSoldiersDirectlyForTesting(1)
+
+        var sawEngagedBlocked = false
+        var sawRestored = false
+        for _ in 0..<80 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            let mage = try #require(hudMultiplier(.mage, in: scene))
+            if scene.livingGuardsForTesting.isEmpty {
+                // The last-Guard death emits only a guardLoss — no
+                // soldierAttacks apply — so this same-tick restoration
+                // can only come from the transition refresh.
+                sawRestored = sawRestored || abs(mage - 1.2) < 0.0001
+                break
+            }
+            if scene.isSelectedLaneGuardBlockerEngagedForTesting {
+                // Same-tick as the engagement flip: without the transition
+                // refresh the pill lags at ×1.20 until an unrelated apply.
+                sawEngagedBlocked = sawEngagedBlocked || abs(mage - 0.8) < 0.0001
+            } else {
+                // Still-approaching Guard: soldiers keep hitting the
+                // Barracks role-adjusted — the pill must not suppress.
+                #expect(abs(mage - 1.2) < 0.0001)
+            }
+        }
+
+        #expect(sawEngagedBlocked)
+        #expect(sawRestored)
+    }
+
+    @Test("Wave Guards parked past soldier reach keep the Barracks bonus while they attack")
+    func parkedWaveGuardsAttackingEntrenchedSoldierKeepRoleBonus() throws {
+        // The wave lands after the soldier digs in at the Barracks stall,
+        // so the Guards can only park at foremost-soldier + their own
+        // 0.28 range — just outside every soldier's own reach — and pelt
+        // it. Nothing is diverted: the pill must stay at ×1.20 through
+        // the whole standoff, including the wave-arrival tick and every
+        // structure-hit apply (HPA-582 review).
+        var state = highcrestState(
+            guardProgress: GuardReinforcementProgress(
+                waveElapsedSeconds: Country1GuardRules.waveIntervalSeconds - 2,
+                remainingReserve: Country1GuardRules.totalReserve,
+                unresolvedGuards: []
+            )
+        )
+        state = captainless(state)
+        let scene = makeScene(store: try makeStore(initialState: state))
+        scene.spawnManualSoldiersDirectlyForTesting(1)
+
+        let barracksID = try #require(
+            SiegeTestSupport.objectiveID(for: .barracks, in: scene.gameStateForTesting)
+        )
+
+        var barracksDamageAtWaveArrival = 0
+        var sawWaveGuards = false
+        for _ in 0..<40 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            #expect(!scene.isSelectedLaneGuardBlockerEngagedForTesting)
+            #expect(abs(try #require(hudMultiplier(.mage, in: scene)) - 1.2) < 0.0001)
+            if !sawWaveGuards, scene.livingGuardsForTesting.count >= 2 {
+                sawWaveGuards = true
+                barracksDamageAtWaveArrival = scene.gameStateForTesting
+                    .siegeProgress.damageByObjectiveID[barracksID] ?? 0
+            }
+        }
+
+        #expect(sawWaveGuards)
+        // The Guards are live on the lane (arrived, parked, attacking)
+        // while the soldier's Barracks damage kept accumulating the whole
+        // time — proof the unsuppressed bonus is the honest projection.
+        #expect(scene.livingGuardsForTesting.allSatisfy { $0.lane == .left })
+        #expect(
+            scene.gameStateForTesting.siegeProgress.damageByObjectiveID[barracksID] ?? 0
+                > barracksDamageAtWaveArrival
+        )
     }
 
     @Test("Guard wave elapsed persists through the two-second save cadence even with no player buildings")

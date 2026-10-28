@@ -85,7 +85,8 @@ struct BattleHUDContent: Equatable {
         selectedSoldierType: SoldierType = .infantry,
         captainIsDeployed: Bool = false,
         rallyRemainingSeconds: Double = 0,
-        manualDeployCharges: Int = BattleCombatState.ManualDeployRules.maxCharges
+        manualDeployCharges: Int = BattleCombatState.ManualDeployRules.maxCharges,
+        selectedLaneGuardBlockerEngaged: Bool? = nil
     ) -> BattleHUDContent {
         let normalizedManualCount = min(
             max(0, manualCount),
@@ -94,14 +95,21 @@ struct BattleHUDContent: Equatable {
         // HPA-582: medallions show the pre-rounding trait×role product for
         // the selected lane's current first surviving structure; neutral
         // (no live objective) keeps the trait-only value. A live Guard on
-        // the selected lane blocks it entirely (HPA-469): soldiers then hit
-        // the Guard with their trait-adjusted power only, so showing the
-        // first structure's role bonus would overstate real damage.
+        // the selected lane suppresses the role bonus only once it sits
+        // inside a lane soldier's own attackRange — combat diverts per
+        // soldier (`BattleCombatState.isGuardBlockerEngaged`), so a
+        // still-approaching or parked-out-of-reach Guard leaves structure
+        // hits role-adjusted and the displayed bonus stays honest.
+        // Live combat passes that flag; projections without it (previews,
+        // durable-only tests) fall back to the coarse lane-level check —
+        // `GuardSnapshot` deliberately stores no positions (HPA-469).
         let layout = state.currentSiegeLayout
-        let laneIsGuardBlocked = state.siegeProgress.guardReinforcements?
-            .unresolvedGuards
-            .contains { $0.lane == state.siegeProgress.selectedLane && $0.remainingHP > 0 }
-            ?? false
+        let laneIsGuardBlocked = selectedLaneGuardBlockerEngaged ?? (
+            state.siegeProgress.guardReinforcements?
+                .unresolvedGuards
+                .contains { $0.lane == state.siegeProgress.selectedLane && $0.remainingHP > 0 }
+                ?? false
+        )
         let firstLiveKind = laneIsGuardBlocked ? nil : layout.firstLiveObjectiveID(
             for: state.siegeProgress.selectedLane,
             maxPowers: state.currentSiegeMaxPowers,

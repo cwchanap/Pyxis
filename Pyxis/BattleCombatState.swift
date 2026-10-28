@@ -955,6 +955,25 @@ struct BattleCombatState: Equatable {
             .min { guards[$0].position < guards[$1].position }
     }
 
+    /// Whether the lane's blocking Guard is inside at least one living lane
+    /// soldier's own `attackRange` — the same predicate that swaps a
+    /// soldier's structure attack for the Guard (`attackGuardBlockerIfInRange`).
+    /// A live Guard still approaching, or parked just outside every soldier's
+    /// reach, leaves structure hits role-adjusted, so the HUD reads this
+    /// range-aware flag instead of the position-less `GuardSnapshot` list
+    /// (HPA-582 review). Lane-level like the medallion projection: one flag
+    /// for the whole lane, not per-soldier.
+    func isGuardBlockerEngaged(onLane lane: BattleLane) -> Bool {
+        guard let blockerIndex = nearestGuardBlockerIndex(forLane: lane) else {
+            return false
+        }
+        let blockerPosition = guards[blockerIndex].position
+        return soldiers.contains {
+            $0.isAlive && $0.lane == lane
+                && isInAttackRange($0, objectiveProgress: blockerPosition)
+        }
+    }
+
     /// Foremost ordering shared by the Guard and tower selections (HPA-475):
     /// highest position wins; equal positions prefer the flagged Captain so
     /// it tanks beside equal-speed infantry.

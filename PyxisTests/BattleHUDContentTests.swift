@@ -133,9 +133,14 @@ struct BattleHUDContentTests {
 
     private func multiplier(
         _ soldierType: SoldierType,
-        in state: KingdomGameState
+        in state: KingdomGameState,
+        selectedLaneGuardBlockerEngaged: Bool? = nil
     ) -> Double {
-        let content = BattleHUDContent.project(from: state, manualCount: 0)
+        let content = BattleHUDContent.project(
+            from: state,
+            manualCount: 0,
+            selectedLaneGuardBlockerEngaged: selectedLaneGuardBlockerEngaged
+        )
         return content.medallions.first { $0.soldierType == soldierType }?.damageMultiplier ?? 0
     }
 
@@ -206,6 +211,37 @@ struct BattleHUDContentTests {
         )
 
         #expect(abs(multiplier(.mage, in: state) - 1.2) < 0.0001)
+    }
+
+    @Test func liveDistantGuardKeepsRoleBonusWhenBlockerNotEngaged() {
+        // HPA-582 review: the same durable lane Guard as
+        // `guardBlockedLaneSuppressesRoleBonus`, but combat reports the
+        // blocker still outside every soldier's own range — nothing is
+        // diverted, so the Barracks role bonus must stay on the pill.
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 223, selectedLane: .left)
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 10,
+            unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 12)]
+        )
+
+        #expect(abs(multiplier(.mage, in: state, selectedLaneGuardBlockerEngaged: false) - 1.2) < 0.0001)
+        #expect(multiplier(.infantry, in: state, selectedLaneGuardBlockerEngaged: false) == 1.25)
+    }
+
+    @Test func liveEngagedGuardBlockerSuppressesRoleBonus() {
+        // The live flag is authoritative over the durable lane check:
+        // once combat reports the blocker inside a soldier's range,
+        // soldiers hit the Guard for trait-only damage and the pill drops.
+        var state = SiegeTestSupport.makeBattleState(atCity: 5, keepRemaining: 223, selectedLane: .left)
+        state.siegeProgress.guardReinforcements = GuardReinforcementProgress(
+            waveElapsedSeconds: 0,
+            remainingReserve: 10,
+            unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 12)]
+        )
+
+        #expect(abs(multiplier(.mage, in: state, selectedLaneGuardBlockerEngaged: true) - 0.80) < 0.0001)
+        #expect(multiplier(.infantry, in: state, selectedLaneGuardBlockerEngaged: true) == 1.25)
     }
 
     @Test func keepOnlyLaneKeepsTraitOnlyMultipliers() {
