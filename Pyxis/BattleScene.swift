@@ -319,6 +319,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// cadence re-projects this cheap strip-only value and skips the full
     /// `applyBattleHUD` rebuild while it is unchanged.
     private var lastAppliedCaptainStatus: BattleHUDContent.CaptainStatus?
+    /// Last range-aware Guard-blocker flag the HUD applied (HPA-582
+    /// review). Engagement flips without producing soldier attacks — a
+    /// Guard marching into range, falling, or its wave landing inside an
+    /// entrenched soldier's reach — so the tick compares the live flag
+    /// against this value and refreshes only on a transition, never on
+    /// Guard HP drift.
+    private var lastAppliedLaneGuardBlockerEngaged = false
     private let combatSeed: UInt64?
     /// Reduce Motion read as an injectable closure (the CountryMapScene
     /// pattern) so tests can drive reduced-motion paths without touching
@@ -920,15 +927,20 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
 
+        let laneGuardBlockerEngaged = combat.isGuardBlockerEngaged(
+            onLane: state.siegeProgress.selectedLane
+        )
         let content = BattleHUDContent.project(
             from: state,
             manualCount: combat.livingSoldierCount(source: .manual),
             selectedSoldierType: selectedManualSoldierType,
             captainIsDeployed: combat.captainSoldier != nil,
             rallyRemainingSeconds: combat.rallyRemainingSeconds,
-            manualDeployCharges: combat.manualDeployCharges
+            manualDeployCharges: combat.manualDeployCharges,
+            selectedLaneGuardBlockerEngaged: laneGuardBlockerEngaged
         )
         lastAppliedCaptainStatus = content.captainStatus
+        lastAppliedLaneGuardBlockerEngaged = laneGuardBlockerEngaged
         switch battleHUD.apply(content: content, layout: layout) {
         case .presented:
             setBattleChromeFitFailed(false)
@@ -2277,7 +2289,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // cadence from this fresh apply.
             captainHUDRefreshAccumulator = 0
             applyBattleHUD()
-        } else if chargesChanged {
+        } else if chargesChanged
+            || combat.isGuardBlockerEngaged(onLane: state.siegeProgress.selectedLane)
+                != lastAppliedLaneGuardBlockerEngaged {
+            // Guard-blocker engagement flips the lane's role-multiplier
+            // projection without producing soldier attacks — a wave
+            // landing in reach, the blocker falling — so it refreshes
+            // here on transition only (HPA-582 review). Mid-tick applies
+            // (losses, Captain) already stamped the current flag, so a
+            // same-tick flip plus their refresh costs no extra rebuild.
             applyBattleHUD()
         } else {
             refreshCaptainHUDOnCadence(deltaTime: deltaTime)
@@ -5393,6 +5413,13 @@ extension BattleScene {
                     position: $0.position
                 )
             }
+    }
+
+    /// The live range-aware Guard-blocker flag the medallion projection
+    /// reads (HPA-582 review). Exposed so tests can align the displayed
+    /// multiplier with combat's actual diversion state per tick.
+    var isSelectedLaneGuardBlockerEngagedForTesting: Bool {
+        combat.isGuardBlockerEngaged(onLane: state.siegeProgress.selectedLane)
     }
 
     func playGuardAttackFeedbackForTesting() {

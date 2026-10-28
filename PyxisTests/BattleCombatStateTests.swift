@@ -1724,6 +1724,104 @@ struct BattleCombatStateTests {
         #expect(killedByGuard)
     }
 
+    // MARK: - Guard-blocker engagement projection (HPA-582 review)
+
+    @Test func keepSpawnedGuardIsNotEngagedWhileDistantFromEverySoldier() {
+        // A Guard on the lane but still outside every soldier's own
+        // attackRange diverts nothing — the lane-level "any live Guard"
+        // check would call this blocked (HPA-582 review).
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        #expect(!combat.isGuardBlockerEngaged(onLane: .right))
+        // No Guard on the other lanes at all; a lane with no living
+        // soldier can never be engaged either.
+        #expect(!combat.isGuardBlockerEngaged(onLane: .left))
+        #expect(!combat.isGuardBlockerEngaged(onLane: .center))
+    }
+
+    @Test func guardBlockerEngagesOnceASoldierReachesItsOwnRange() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 100))
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 1, lane: .right)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+        #expect(!combat.isGuardBlockerEngaged(onLane: .right))
+
+        var engaged = false
+        for _ in 0..<40 {
+            _ = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            if combat.isGuardBlockerEngaged(onLane: .right) {
+                engaged = true
+                break
+            }
+        }
+
+        #expect(engaged)
+    }
+
+    @Test func guardBlockerEngagementClearsWhenTheBlockerDies() throws {
+        // The Guard must survive several hits once engaged: a one-hit
+        // kill dies inside the same tick that first satisfies range, so
+        // the engaged state would never be observable between ticks.
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 100))
+        _ = combat.spawnSoldier(type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .right)
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: 5),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var sawEngaged = false
+        var sawCleared = false
+        for _ in 0..<40 {
+            _ = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            let engaged = combat.isGuardBlockerEngaged(onLane: .right)
+            sawEngaged = sawEngaged || engaged
+            if sawEngaged, !engaged {
+                sawCleared = true
+                break
+            }
+        }
+
+        #expect(sawEngaged)
+        #expect(sawCleared)
+        #expect(combat.guards.isEmpty)
+    }
+
+    @Test func parkedGuardAttackingEntrenchedSoldierIsNotEngaged() {
+        // The Guard can only park at foremost-soldier + its own 0.28
+        // attack range — just outside every soldier's own reach — so an
+        // entrenched soldier keeps landing role-adjusted structure hits
+        // while the Guard pelts it. Attacking is not diverting: the flag
+        // must stay false for the whole standoff (HPA-582 review).
+        var combat = BattleCombatState(configuration: guardCombatConfiguration(soldierMaxHP: 100))
+        _ = combat.spawnSoldier(type: .archer, source: .manual, level: 1, attackPower: 1, lane: .left)
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .left, remainingHP: Country1GuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        var guardAttacks = 0
+        var structureAttacks = 0
+        for _ in 0..<16 {
+            let result = combat.tick(deltaTime: 0.25, siege: SiegeFixtures.highcrestSnapshot())
+            guardAttacks += result.guardAttacks.count
+            structureAttacks += result.soldierAttacks.count
+            #expect(!combat.isGuardBlockerEngaged(onLane: .left))
+        }
+
+        #expect(guardAttacks > 0)
+        #expect(structureAttacks > 0)
+    }
+
     // MARK: - Vanguard Captain (HPA-475)
 
     @Test func ordinarySpawnedSoldierIsNotCaptain() throws {
