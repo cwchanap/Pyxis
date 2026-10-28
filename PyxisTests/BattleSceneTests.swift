@@ -6336,19 +6336,25 @@ struct BattleSceneTests {
         // transition refresh is the only path that can flip the pill
         // (HPA-582 review). Direct injection bypasses the deploy-charge
         // pool so no charge refill can fire an unrelated mid-fight apply.
+        // The fresh Captain stays deployed: Highcrest's Keep fire (7 net
+        // per shot at city level 5) plus the Guard's 3 kills a lone
+        // level-1 infantry on the very tick it crosses tower range, and
+        // the equal-position tie-break makes the equal-speed Captain the
+        // tower/Guard target so the infantry survives to fight. The Guard
+        // carries 4 HP so the first combined hit (Captain 2 + infantry 1)
+        // leaves it alive — the ×0.80 window is observable — before the
+        // second infantry hit finishes it.
         var state = highcrestState(
             guardProgress: GuardReinforcementProgress(
                 waveElapsedSeconds: 0,
                 remainingReserve: Country1GuardRules.totalReserve - 1,
-                unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 2)]
+                unresolvedGuards: [GuardSnapshot(lane: .left, remainingHP: 4)]
             )
         )
-        state = captainless(state)
         let scene = makeScene(store: try makeStore(initialState: state))
 
-        // A durable lane Guard restored at the Keep — and no soldier
-        // deployed at all — diverts nothing: the lane-level "any live
-        // Guard" check would already show ×0.80 here.
+        // No one has closed to the lane Guard's reach yet — the lane-level
+        // "any live Guard" check would already show ×0.80 here.
         #expect(!scene.isSelectedLaneGuardBlockerEngagedForTesting)
         #expect(abs(try #require(hudMultiplier(.mage, in: scene)) - 1.2) < 0.0001)
 
@@ -6388,7 +6394,11 @@ struct BattleSceneTests {
         // 0.28 range — just outside every soldier's own reach — and pelt
         // it. Nothing is diverted: the pill must stay at ×1.20 through
         // the whole standoff, including the wave-arrival tick and every
-        // structure-hit apply (HPA-582 review).
+        // structure-hit apply (HPA-582 review). The fresh Captain stays
+        // deployed to absorb the Keep's fire: a lone level-1 infantry
+        // dies to the second tower shot right after the wave lands, so
+        // without the tank the Barracks damage could never keep
+        // accumulating through the standoff.
         var state = highcrestState(
             guardProgress: GuardReinforcementProgress(
                 waveElapsedSeconds: Country1GuardRules.waveIntervalSeconds - 2,
@@ -6396,7 +6406,6 @@ struct BattleSceneTests {
                 unresolvedGuards: []
             )
         )
-        state = captainless(state)
         let scene = makeScene(store: try makeStore(initialState: state))
         scene.spawnManualSoldiersDirectlyForTesting(1)
 
