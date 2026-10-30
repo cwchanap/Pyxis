@@ -15,7 +15,7 @@ Reviewed `cwchanap/Pyxis` `main` at `516f20d873d7c3da3cfe794c662cb6717ab66b61`.
 - `completeCurrentCity(with:)` already removes the conquered `CityBattleState`, stores `pendingBattleResult` and grants exactly the passed report reward. Do not change the completion contract.
 - `GameViewController.presentSceneForCurrentStage` routes pending reports first but currently always opens Map in `cityConqueredPendingMap` or `countryComplete`. The Map tab projection currently enables only Map when not in active battle.
 - `GameplayTabBarNode` and Battle/Camp/Map layouts already derive tab geometry from `GameplayTab.allCases.count`. Check every four-tab test assumption rather than adding a second tab implementation.
-- `CampSelectionContent.project`, `BuildingViewScene.canBuild`/`canUpgradeSelectedSlot` and `RecommendedCampRecommendation.make` explicitly invoke the static cost functions. They all need the same state-aware quote.
+- `CampSelectionContent.project`, `BuildingViewScene.canBuild`/`canUpgradeSelectedSlot`, `RecommendedCampRecommendation.make` **and test-only `PyxisTests/GreedyCampBuyer.swift`** explicitly invoke static cost functions. They all need the same state-aware quote; otherwise the 4/4/4 campaign buyer rejects some affordable discounted purchases.
 - `CLAUDE.md` calls for Swift Testing, nonparallel simulator testing, and an opt-in chained Country 1 smoke run for balance-affecting work.
 
 ## Work sequence (all within this PR)
@@ -34,11 +34,11 @@ Reviewed `cwchanap/Pyxis` `main` at `516f20d873d7c3da3cfe794c662cb6717ab66b61`.
 
 ### 2. Centralize the three effect seams — tests first
 
-**Modify** `KingdomGameState.swift`, `RecommendedCampRecommendation.swift`, `CampSelectionNode.swift`, `BuildingViewScene.swift` and focused existing tests.
+**Modify** `KingdomGameState.swift`, `RecommendedCampRecommendation.swift`, `CampSelectionNode.swift`, `BuildingViewScene.swift`, **`PyxisTests/GreedyCampBuyer.swift`**, and focused existing tests.
 
 1. **Gold:** modify `currentGoldReward` only, multiplying the existing base reward by the War Chest effect and rounding once. Keep `finalizeConquestWhenKeepDestroyed`, `BattleResult` and `completeCurrentCity` as reward consumers; do not multiply them again. Test live settlement, abstract idle settlement and an action in Camp that settles to conquest.
-2. **Attack:** update the instance `traitAdjustedSoldierAttackPower` calculation to fold trait × Drill Yard in a **single** round of the base attack. Preserve the static zero-Treasury helper if existing callers/tests need it, but do not create two divergent formulas. Verify a live spawn (including manual vs building-produced soldiers) and the abstract idle branch agree. Keep `BattleCombatState`'s cached soldier power and the existing role-damage second rounding unchanged. Captain remains excluded.
-3. **Cost:** make `state.buildingBuildCost(for:)` and `state.buildingUpgradeCost(for:currentLevel:)` the public quote APIs. Treat the current static formulas as private base pricing, apply Quartermaster discount once and round once, min 1. Replace **all** cost call sites in mutations, Camp selection/inspector, affordability and Recommended Camp. Search the repository for remaining `KingdomGameState.buildingBuildCost` / `buildingUpgradeCost` static usage. Tests must assert shown price, recommendation price, affordability and actual debited price are identical.
+2. **Attack:** extend the **static** `traitAdjustedSoldierAttackPower(for:level:defenseTrait:)` with a defaulted `upgradeMultiplier: Double = 1` parameter; calculate `max(1, Int((Double(baseDamage) * defenseTrait.damageMultiplier(for: soldierType) * upgradeMultiplier).rounded()))` in that helper. The **instance** method passes `1 + 0.05 * DrillYardLevel` and must not round an already trait-rounded static return value. Existing static callers keep their zero-Treasury semantics with the default `1` and there is still **one formula / one round** before the separately rounded role effect. Test the discriminating example base 9 × 0.80 × 1.05 = 7.56 → **8** (not 7 from two rounds); confirm live manual/building spawns and the abstract idle branch agree. Keep `BattleCombatState`'s cached soldier power and existing role-damage second rounding unchanged. Captain remains excluded.
+3. **Cost:** make `state.buildingBuildCost(for:)` and `state.buildingUpgradeCost(for:currentLevel:)` the public quote APIs. Treat the current static formulas as private base pricing, apply Quartermaster discount once and round once, min 1. Replace **all** cost call sites in mutations, Camp selection/inspector, affordability, Recommended Camp, **and the test-only `PyxisTests/GreedyCampBuyer.swift`**. Its candidate enumeration and `candidates.filter { $0.cost <= state.gold }` must use the **discounted** quotes so the 4/4/4 harness selects genuinely affordable actions. Search the entire repository, including tests, for remaining `KingdomGameState.buildingBuildCost` / `buildingUpgradeCost` static usage. Tests must assert UI price, recommendation price, buyer candidate price, affordability and actual debited price are identical.
 
 **Checkpoint:** unchanged zero-upgrade baseline tests still pass; nonzero tests exercise live/idle parity and quote/charge parity.
 
@@ -46,7 +46,7 @@ Reviewed `cwchanap/Pyxis` `main` at `516f20d873d7c3da3cfe794c662cb6717ab66b61`.
 
 **Modify** `Pyxis/GameplayTabBarNode.swift`, `Pyxis/GameViewController.swift`, `Pyxis/CountryMapScene.swift` and relevant `PyxisTests/GameplayTabBarNodeTests.swift` / `GameViewControllerTests.swift` / Map/Battle/Camp tests.
 
-- Add `GameplayTab.kingdom` and its title, name, icon asset lookup with vector fallback. Keep a single `GameplayTabBarNode`; its cell width and hit-frame math should remain driven by `allCases.count`.
+- Add `GameplayTab.kingdom` and its title, name, `tab-kingdom` icon asset lookup with vector fallback. The lookup is intentional despite existing tabs being vector-only: HPA-673 ships **assets without Swift changes**, so the new icon must activate when its image arrives. Do not refactor the three existing tabs. Keep a single `GameplayTabBarNode`; its cell width and hit-frame math should remain driven by `allCases.count`.
 - Add controller presentation of `KingdomScene` and a small `KingdomSceneRouting` callback to request a tab switch. Route Kingdom in any stage only **after** the pending-result gate. Do not alter existing routing for Battle/Camp/Map requests.
 - Ensure non-active Map enables `[.map, .kingdom]`; do not accidentally expose Battle/Camp in completed campaign. Battle/Camp can include Kingdom in their enabled tabs under the existing no-pending and active-squad guards. Do not bypass Battle's active-manual-squad guard when showing Kingdom.
 - Update tests that assume three tabs / hardcoded icon count. Check four-tab 44-point hit targets at compact phone width and portrait iPad. Verify entry to Kingdom from each of the three prior scenes and countryComplete; test that a pending result still opens Battle first and a rejected tab selection doesn't dismiss the report.
@@ -71,7 +71,7 @@ Reviewed `cwchanap/Pyxis` `main` at `516f20d873d7c3da3cfe794c662cb6717ab66b61`.
 **Modify only if necessary** `PyxisTests/Country1SiegeSmokeTests.swift` or its existing test-only helper. Do not make a second simulator.
 
 - Record the opt-in zero-Treasury chained 15-city campaign run using `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`; per-city log lines and City 15 completion should match the HPA-582 baseline within normal run variance.
-- Seed Treasury `4/4/4` in the existing harness/test fixture, without gameplay-only DEBUG switches; record City 15 completion and any stalled city for comparison. The plan proposes a speed-up; use observed evidence before claiming one.
+- Seed Treasury `4/4/4` in the existing harness/test fixture, without gameplay-only DEBUG switches; record City 15 completion and any stalled city for comparison. **Before timing the chain, assert `GreedyCampBuyer.nextAction` quotes the discounted price and its selected actions are actually affordable under Quartermaster**, otherwise the comparison is biased by skipped purchases. The plan proposes a speed-up; use observed evidence before claiming one.
 - Regression checks: old saves default levels 0; no new state owner survives an unintended city reset; a pending battle report is not lost; a purchase from Kingdom affects the next spawn/build/conquest; live soldiers retain cached stats; Quartermaster affects all build/upgrade paths; no accidental discount to Treasury prices.
 - Run build, lint, full `PyxisTests` and relevant UI tests in the simulator. Disable parallel testing per repo guidance. Record pass/fail and any unavailable simulator/platform constraints directly in the PR.
 
@@ -100,8 +100,8 @@ TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1 xcodebuild \
 | Risk | Focused check |
 | --- | --- |
 | Gold multiplied twice | Assert `BattleResult.goldEarned == creditedGold` in each conquest path |
-| Trait + upgrade rounded twice | Verify a small-power case and live vs abstract parity |
-| Static price call left behind | Search repo call sites; verify Camp + Recommended Camp quote equals purchase debit |
+| Trait + upgrade rounded twice | Static helper takes defaulted `upgradeMultiplier = 1`; assert base 9 × 0.80 × 1.05 yields 8 (not 7), plus live vs abstract parity |
+| Static price call left behind | Sweep production **and `GreedyCampBuyer`** call sites; assert Camp + Recommended Camp + harness quotes equal purchase debit |
 | Fourth tab steals home-indicator taps | Phone compact/iPad layout and enabled hit-frame containment |
 | Completed-map hard route masks Kingdom | Controller `countryComplete` + `cityConqueredPendingMap` integration cases |
 | Returning from Kingdom eats pending report | Foreground idle settlement and pending-first test |
