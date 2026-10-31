@@ -584,7 +584,17 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     var currentGoldReward: Int {
-        Self.goldReward(for: cityLevel)
+        goldReward(forCity: cityLevel)
+    }
+
+    /// The one War-Chest-adjusted conquest quote for any city (HPA-670):
+    /// base curve × (1 + 0.10 × warChestLevel), rounded once. The Map Scout
+    /// card, Battle HUD, live settlement and idle/Camp results all consume
+    /// this seam — no other multiplication site exists.
+    func goldReward(forCity level: Int) -> Int {
+        Self.roundedAtLeastOne(
+            Double(Self.baseGoldReward(for: level)) * (1.0 + 0.10 * Double(treasury.warChest))
+        )
     }
 
     var currentCityKey: CityKey {
@@ -926,7 +936,7 @@ struct KingdomGameState: Codable, Equatable {
             return .typeCapReached(maximum: CityBattleState.maxBuildingsPerType)
         }
 
-        let cost = Self.buildingBuildCost(for: type)
+        let cost = buildingBuildCost(for: type)
         guard gold >= cost else {
             return .insufficientGold(cost: cost, currentGold: gold)
         }
@@ -973,7 +983,7 @@ struct KingdomGameState: Codable, Equatable {
             return .missingBuilding
         }
 
-        let cost = Self.buildingUpgradeCost(for: building.type, currentLevel: building.level)
+        let cost = buildingUpgradeCost(for: building.type, currentLevel: building.level)
         guard gold >= cost else {
             return .insufficientGold(cost: cost, currentGold: gold)
         }
@@ -1461,7 +1471,9 @@ struct KingdomGameState: Codable, Equatable {
         roundedAtLeastOne(20 * pow(2.15, Double(clampedLevel(level) - 1)))
     }
 
-    static func goldReward(for level: Int) -> Int {
+    /// The zero-Treasury base curve (HPA-670 rename from `goldReward`).
+    /// Player-facing quotes must use `goldReward(forCity:)` instead.
+    static func baseGoldReward(for level: Int) -> Int {
         roundedAtLeastOne(8 * pow(1.45, Double(clampedLevel(level) - 1)))
     }
 
@@ -1575,7 +1587,11 @@ struct KingdomGameState: Codable, Equatable {
         SoldierType.allCases.filter { manualSoldierLevel(for: $0) != nil }
     }
 
-    static func buildingBuildCost(for type: BuildingType) -> Int {
+    /// The zero-Treasury base price curves (HPA-670 rename from
+    /// `buildingBuildCost`/`buildingUpgradeCost`). Quoting and charging must
+    /// go through the state-aware `buildingBuildCost`/`buildingUpgradeCost`
+    /// instance methods instead.
+    static func baseBuildingBuildCost(for type: BuildingType) -> Int {
         switch type {
         case .barracks:
             return 15
@@ -1590,7 +1606,7 @@ struct KingdomGameState: Codable, Equatable {
         }
     }
 
-    static func buildingUpgradeCost(for type: BuildingType, currentLevel: Int) -> Int {
+    static func baseBuildingUpgradeCost(for type: BuildingType, currentLevel: Int) -> Int {
         let base: Double
         switch type {
         case .barracks:
@@ -1606,6 +1622,25 @@ struct KingdomGameState: Codable, Equatable {
         }
 
         return roundedAtLeastOne(base * pow(1.65, Double(clampedLevel(currentLevel) - 1)))
+    }
+
+    /// The only quoted/charged camp prices (HPA-670): base × Quartermaster
+    /// discount (1 − 0.04 × quartermasterLevel), rounded once, min 1. Camp
+    /// display, affordability, the recommendation, the balance-harness buyer
+    /// and the actual debit all consume these — no other multiplication site
+    /// exists.
+    func buildingBuildCost(for type: BuildingType) -> Int {
+        Self.roundedAtLeastOne(Double(Self.baseBuildingBuildCost(for: type)) * quartermasterPriceFactor)
+    }
+
+    func buildingUpgradeCost(for type: BuildingType, currentLevel: Int) -> Int {
+        Self.roundedAtLeastOne(
+            Double(Self.baseBuildingUpgradeCost(for: type, currentLevel: currentLevel)) * quartermasterPriceFactor
+        )
+    }
+
+    private var quartermasterPriceFactor: Double {
+        1.0 - 0.04 * Double(treasury.quartermaster)
     }
 
     static func activeSpawnInterval(for type: BuildingType) -> Double {
@@ -1627,15 +1662,25 @@ struct KingdomGameState: Codable, Equatable {
         normalSoldierAttackPower(for: level)
     }
 
+    /// The shared live/abstract attack seam with the Drill Yard multiplier
+    /// folded into the single round (HPA-670): the default `upgradeMultiplier`
+    /// of 1 reproduces the pre-Treasury result exactly. Never round this
+    /// result again downstream — the separate role-multiplier hit round is
+    /// the only permitted second rounding.
     static func traitAdjustedSoldierAttackPower(
         for soldierType: SoldierType,
         level: Int,
-        defenseTrait: CityDefenseTrait
+        defenseTrait: CityDefenseTrait,
+        upgradeMultiplier: Double = 1
     ) -> Int {
         let baseDamage = soldierAttackPower(for: soldierType, level: level)
         guard baseDamage > 0 else { return 0 }
 
-        let adjustedDamage = Int((Double(baseDamage) * defenseTrait.damageMultiplier(for: soldierType)).rounded())
+        // One round for trait × upgrade together: an intermediate round loses
+        // damage (9 × 0.80 × 1.05 rounds to 8 once, to 7 if rounded twice).
+        let adjustedDamage = Int(
+            (Double(baseDamage) * defenseTrait.damageMultiplier(for: soldierType) * upgradeMultiplier).rounded()
+        )
         return max(1, adjustedDamage)
     }
 
@@ -1643,7 +1688,8 @@ struct KingdomGameState: Codable, Equatable {
         Self.traitAdjustedSoldierAttackPower(
             for: soldierType,
             level: level,
-            defenseTrait: currentCityDefenseTrait
+            defenseTrait: currentCityDefenseTrait,
+            upgradeMultiplier: 1.0 + 0.05 * Double(treasury.drillYard)
         )
     }
 

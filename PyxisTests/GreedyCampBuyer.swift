@@ -53,7 +53,7 @@ enum GreedyCampBuyer {
                         kind: .build,
                         type: type,
                         slot: slot,
-                        cost: KingdomGameState.buildingBuildCost(for: type)
+                        cost: state.buildingBuildCost(for: type)
                     )
                 )
             }
@@ -63,7 +63,7 @@ enum GreedyCampBuyer {
                         kind: .upgrade,
                         type: type,
                         slot: slot,
-                        cost: KingdomGameState.buildingUpgradeCost(for: type, currentLevel: building.level)
+                        cost: state.buildingUpgradeCost(for: type, currentLevel: building.level)
                     )
                 )
             }

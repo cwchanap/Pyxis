@@ -584,7 +584,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         guard cityState.buildingCount(for: type) < CityBattleState.maxBuildingsPerType else {
             return false
         }
-        return state.gold >= KingdomGameState.buildingBuildCost(for: type)
+        return state.gold >= state.buildingBuildCost(for: type)
     }
 
     private var canUpgradeSelectedSlot: Bool {
@@ -593,7 +593,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
               let building = state.cityBattleStateForCurrentCity.building(inSlot: selectedSlot) else {
             return false
         }
-        return state.gold >= KingdomGameState.buildingUpgradeCost(
+        return state.gold >= state.buildingUpgradeCost(
             for: building.type,
             currentLevel: building.level
         )

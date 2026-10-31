@@ -69,7 +69,7 @@ struct RecommendedCampRecommendationTests {
             4: CityBuilding(type: .barracks, level: 1)
         ])
         let state = makeState(city: 5, gold: 100, cityState: cityState)
-        let expectedCost = KingdomGameState.buildingUpgradeCost(for: .barracks, currentLevel: 1)
+        let expectedCost = state.buildingUpgradeCost(for: .barracks, currentLevel: 1)
 
         #expect(RecommendedCampRecommendation.make(for: state) == .ready(
             action: .init(kind: .upgrade, buildingType: .barracks, slot: 4, cost: expectedCost),
@@ -85,7 +85,7 @@ struct RecommendedCampRecommendationTests {
             5: CityBuilding(type: .barracks, level: 1)
         ])
         let state = makeState(city: 5, gold: 100, cityState: cityState)
-        let expectedCost = KingdomGameState.buildingUpgradeCost(for: .barracks, currentLevel: 1)
+        let expectedCost = state.buildingUpgradeCost(for: .barracks, currentLevel: 1)
 
         #expect(RecommendedCampRecommendation.make(for: state) == .ready(
             action: .init(kind: .upgrade, buildingType: .barracks, slot: 5, cost: expectedCost),
@@ -99,10 +99,10 @@ struct RecommendedCampRecommendationTests {
             1: CityBuilding(type: .barracks, level: 3)
         ])
         let state = makeState(city: 5, gold: 28, cityState: cityState)
-        let upgradeCost = KingdomGameState.buildingUpgradeCost(for: .barracks, currentLevel: 3)
+        let upgradeCost = state.buildingUpgradeCost(for: .barracks, currentLevel: 3)
 
         #expect(upgradeCost > state.gold)
-        #expect(KingdomGameState.buildingBuildCost(for: .stable) <= state.gold)
+        #expect(state.buildingBuildCost(for: .stable) <= state.gold)
         #expect(RecommendedCampRecommendation.make(for: state) == .saveFor(
             action: .init(kind: .upgrade, buildingType: .barracks, slot: 1, cost: upgradeCost),
             missingGold: upgradeCost - state.gold,
@@ -133,7 +133,7 @@ struct RecommendedCampRecommendationTests {
             5: CityBuilding(type: .barracks, level: 1)
         ])
         let state = makeState(city: 5, gold: 100, cityState: cityState)
-        let expectedCost = KingdomGameState.buildingUpgradeCost(for: .barracks, currentLevel: 1)
+        let expectedCost = state.buildingUpgradeCost(for: .barracks, currentLevel: 1)
 
         #expect(cityState.buildingCount(for: .barracks) == CityBattleState.maxBuildingsPerType)
         #expect(RecommendedCampRecommendation.make(for: state) == .ready(

@@ -970,7 +970,7 @@ struct CountryMapScoutCardNodeTests {
                     for lane in BattleLane.allCases {
                         seenLanes.insert(lane)
                         for cityNumber in Country1CityCatalog.cityRange {
-                            let reward = KingdomGameState.goldReward(for: cityNumber)
+                            let reward = KingdomGameState.baseGoldReward(for: cityNumber)
                             seenRewards.insert(reward)
                             let scout = CountryMapScoutCardContent.Scout(
                                 cityNumber: cityNumber,
@@ -995,7 +995,7 @@ struct CountryMapScoutCardNodeTests {
 
         #expect(seenTraits == Set(CityDefenseTrait.allCases))
         #expect(seenLanes == Set(BattleLane.allCases))
-        #expect(seenRewards == Set(Country1CityCatalog.cityRange.map(KingdomGameState.goldReward(for:))))
+        #expect(seenRewards == Set(Country1CityCatalog.cityRange.map(KingdomGameState.baseGoldReward(for:))))
         #expect(seenFixtures == Set(CountryMapLayoutTestFixtures.supported.map(\.name)))
         #expect(seenImageOutcomes == [true, false])
         #expect(presentationCount == 10 * 7 * 3 * 15 * 2)
