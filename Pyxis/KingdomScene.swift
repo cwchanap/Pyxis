@@ -171,6 +171,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             let effectLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
             configureLabel(effectLabel, fontSize: 10, color: GameUITheme.Color.textSecondary)
             effectLabel.horizontalAlignmentMode = .left
+            effectLabel.numberOfLines = 0
             effectLabel.zPosition = 1
             panel.addChild(effectLabel)
 
@@ -330,7 +331,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             y: layout.titleFrame.midY - layout.headerFrame.midY
         )
         goldLabel.position = CGPoint(
-            x: layout.goldFrame.minX - layout.headerFrame.minX + 2,
+            x: layout.goldFrame.minX - layout.headerFrame.midX + 2,
             y: layout.goldFrame.midY - layout.headerFrame.midY
         )
 
@@ -353,7 +354,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             )
 
             let textFrame = layout.textFrames[index]
-            let localX = textFrame.minX - rowFrame.minX
+            let localX = textFrame.minX - rowFrame.midX
             bundle.nameLabel.position = CGPoint(
                 x: localX,
                 y: rowFrame.height * 0.34
@@ -536,8 +537,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         }
         let next = attack(atUpgradeLevel: drillYardLevel + 1)
         let changeNote = current == next ? " (no damage change yet)" : ""
-        return "Infantry Lv \(infantryLevel) vs this city's trait:"
-            + " \(current) → \(next) attack\(changeNote)"
+        // Two lines: the wrapped pair fits every accepted layout's text frame
+        // (including 320pt phones) without dropping the no-change note.
+        return "Infantry Lv \(infantryLevel) vs this city's trait:\n"
+            + "\(current) → \(next) attack\(changeNote)"
     }
 
     // MARK: - Touch handling
@@ -645,8 +648,14 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     // MARK: - Lifecycle
 
     private func settleIdleProgressOnEntry() {
-        let result = state.returnFromBackground(at: Date())
+        let entryDate = Date()
+        let result = state.returnFromBackground(at: entryDate)
         lastIdleProgressResult = result
+        // Re-arm the anchor (Camp's entry semantics): time spent on Kingdom
+        // keeps accruing and a backgrounding from here stays credited.
+        if state.stageStatus == .battleActive {
+            state.markCurrentCityBuildingProgressInactive(at: entryDate)
+        }
         store.save(state)
         redraw()
         routePendingConquestIfNeeded()
@@ -869,6 +878,15 @@ extension KingdomScene {
     }
 
     var headerNodeForTesting: SKNode? { headerPanel }
+
+    var goldLabelNodeForTesting: SKLabelNode { goldLabel }
+
+    func treasuryRowLabelNodesForTesting(
+        _ upgrade: TreasuryUpgrade
+    ) -> [SKLabelNode]? {
+        guard let bundle = rowBundles[upgrade] else { return nil }
+        return [bundle.nameLabel, bundle.levelLabel, bundle.effectLabel, bundle.priceLabel]
+    }
 
     func treasuryRowNodeForTesting(_ upgrade: TreasuryUpgrade) -> SKNode? {
         rowBundles[upgrade]?.panel

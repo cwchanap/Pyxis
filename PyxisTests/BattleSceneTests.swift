@@ -5234,6 +5234,18 @@ struct BattleSceneTests {
         #expect(scene.feedbackTextForTesting == "Finish the current squad before building.")
     }
 
+    @Test func kingdomTabGuardNamesTheTreasuryNotBuilding() throws {
+        let store = try makeStore(initialState: stateWithBarracks(keepRemaining: 20))
+        let router = BattleRouterSpy()
+        let scene = makeScene(store: store, router: router)
+        scene.spawnSoldierForTesting()
+
+        scene.requestGameplayTabForTesting(.kingdom)
+
+        #expect(!router.requestedTabs.contains(.kingdom))
+        #expect(scene.feedbackTextForTesting == "Finish the current squad before opening the treasury.")
+    }
+
     // MARK: - Feedback Settings (HPA-389)
 
     @Test("init?(coder:) assigns default feedback providers")
