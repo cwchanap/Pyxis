@@ -98,6 +98,24 @@ struct BattleChromeLayoutTests {
         #expect(layout.battlefield.isVisible)
     }
 
+    @Test func fourTabHitTargetsStayAbove44PointsOnCompactPhoneAndPortraitIpad() throws {
+        let compact = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 375, height: 667),
+            safeAreaInsets: .zero
+        )))
+        #expect(compact.isCompact)
+
+        let ipad = try #require(BattleChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 834, height: 1194),
+            safeAreaInsets: .init(top: 24, left: 0, bottom: 20, right: 0)
+        )))
+
+        for layout in [compact, ipad] {
+            #expect(layout.tabHitFrames.count == GameplayTab.allCases.count)
+            #expect(layout.tabHitFrames.allSatisfy { $0.width >= 44 && $0.height >= 44 })
+        }
+    }
+
     @Test func iPadFixtureKeepsAllRequiredGeometryContained() throws {
         let layout = try #require(BattleChromeLayout.compute(.init(
             sceneSize: CGSize(width: 834, height: 1194),

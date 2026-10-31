@@ -231,9 +231,17 @@ final class GameViewController: UIViewController {
                 presentBuildingViewScene(in: view)
             case .map:
                 presentCountryMapScene(in: view)
+            case .kingdom:
+                presentKingdomScene(in: view)
             }
         case .cityConqueredPendingMap, .countryComplete:
-            presentCountryMapScene(in: view)
+            // Kingdom is the only non-Map scene available in conquered
+            // stages; Battle/Camp requests keep falling back to the Map.
+            if preferredTab == .kingdom {
+                presentKingdomScene(in: view)
+            } else {
+                presentCountryMapScene(in: view)
+            }
         }
         #if DEBUG
         republishForgedFixtureAccessibilityValue(in: view)
@@ -264,6 +272,18 @@ final class GameViewController: UIViewController {
             feedback: feedbackRuntime.feedback,
             feedbackPreferences: feedbackRuntime.preferences,
             feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
+        )
+        scene.scaleMode = .resizeFill
+        view.presentScene(scene)
+        refreshLayoutSupport()
+    }
+
+    private func presentKingdomScene(in view: SKView) {
+        requestedMapGateReason = nil
+        let scene = KingdomScene(
+            size: view.bounds.size,
+            store: store,
+            router: self
         )
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
@@ -412,6 +432,18 @@ extension GameViewController: BuildingViewSceneRouting {
         _ scene: BuildingViewScene,
         tab: GameplayTab
     ) -> Bool {
+        guard let view = self.view as? SKView else {
+            return false
+        }
+
+        presentSceneForCurrentStage(in: view, preferredTab: tab)
+        return true
+    }
+}
+
+extension GameViewController: KingdomSceneRouting {
+    @discardableResult
+    func kingdomSceneDidRequestGameplayTab(_ scene: KingdomScene, tab: GameplayTab) -> Bool {
         guard let view = self.view as? SKView else {
             return false
         }

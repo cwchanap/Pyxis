@@ -406,6 +406,39 @@ struct CountryMapSceneTests {
         #expect(store.load().stageStatus == .battleActive)
     }
 
+    @Test func mapEnablesKingdomTabInNonActiveStagesAndRoutesIt() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityNumberInCountry: 3,
+            completedCityCount: 3,
+            stageStatus: .cityConqueredPendingMap
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        #expect(scene.gameplayTabContentForTesting.enabledTabs == [.map, .kingdom])
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .map) != nil)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .kingdom) != nil)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .battle) == nil)
+        #expect(scene.gameplayTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
+
+        scene.requestGameplayTabForTesting(.kingdom)
+
+        #expect(router.requestedTabs == [.kingdom])
+    }
+
+    @Test func mapRoutesKingdomTabInActiveStageWithoutBattleSettlement() throws {
+        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        #expect(scene.gameplayTabContentForTesting.enabledTabs == Set(GameplayTab.allCases))
+
+        scene.requestGameplayTabForTesting(.kingdom)
+
+        #expect(router.requestedTabs == [.kingdom])
+        #expect(store.load().stageStatus == .battleActive)
+    }
+
     @Test("Battle-tab exit settles nonlethal idle progress before routing")
     func battleTabExitSettlesNonlethalIdleProgressBeforeRouting() throws {
         let start = Date(timeIntervalSinceNow: -1_000) // bounded window: nonlethal settlement for city 3

@@ -3510,7 +3510,7 @@ struct BattleSceneTests {
 
         let layout = try #require(scene.battleChromeLayoutForTesting)
         #expect(layout.deployFrame.width >= 340)
-        #expect(layout.tabHitFrames.count == 3)
+        #expect(layout.tabHitFrames.count == GameplayTab.allCases.count)
     }
 
     @Test func commanderHUDFitsLateGameNumbersInNarrowViewport() throws {
@@ -4654,6 +4654,8 @@ struct BattleSceneTests {
                 buildingRequestCount += 1
             case .battle:
                 break
+            case .kingdom:
+                break
             }
         }
 
@@ -5208,14 +5210,14 @@ struct BattleSceneTests {
         let scene = makeScene(store: store)
 
         #expect(scene.battleHUDContentForTesting.enabledTabs == Set(GameplayTab.allCases))
-        #expect(scene.battleHUDTabBarForTesting.visualCellCountForTesting == 3)
+        #expect(scene.battleHUDTabBarForTesting.visualCellCountForTesting == GameplayTab.allCases.count)
         #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .camp) != nil)
         #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .map) != nil)
 
         scene.spawnSoldierForTesting()
 
         #expect(scene.battleHUDContentForTesting.enabledTabs == [.battle])
-        #expect(scene.battleHUDTabBarForTesting.visualCellCountForTesting == 3)
+        #expect(scene.battleHUDTabBarForTesting.visualCellCountForTesting == GameplayTab.allCases.count)
         #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .camp) == nil)
         #expect(scene.battleHUDTabBarForTesting.hitFrameForTesting(for: .map) == nil)
     }
