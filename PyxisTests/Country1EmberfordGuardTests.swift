@@ -318,7 +318,7 @@ struct Country1EmberfordGuardTests {
         scene.spawnSoldierForTesting()
         scene.advanceCombatForTesting(deltaTime: 3.0)
 
-        let reward = KingdomGameState.goldReward(for: Self.cityNumber)
+        let reward = state.goldReward(forCity: Self.cityNumber)
         let pending = try #require(store.load().pendingBattleResult)
         #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: Self.cityNumber))
         #expect(pending.conquestMode == .live)

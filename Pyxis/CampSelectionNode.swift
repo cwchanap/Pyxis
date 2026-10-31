@@ -91,7 +91,7 @@ struct CampSelectionContent: Equatable {
             } else if cityState.buildingCount(for: type) >= CityBattleState.maxBuildingsPerType {
                 optionState = .capped(maximum: CityBattleState.maxBuildingsPerType)
             } else {
-                let cost = KingdomGameState.buildingBuildCost(for: type)
+                let cost = state.buildingBuildCost(for: type)
                 optionState = state.gold >= cost
                     ? .available(cost: cost)
                     : .unaffordable(cost: cost, currentGold: state.gold)
@@ -113,7 +113,7 @@ struct CampSelectionContent: Equatable {
         let inspector: Inspector?
         if let selectedSlot,
            let building = cityState.building(inSlot: selectedSlot) {
-            let upgradeCost = KingdomGameState.buildingUpgradeCost(
+            let upgradeCost = state.buildingUpgradeCost(
                 for: building.type,
                 currentLevel: building.level
             )

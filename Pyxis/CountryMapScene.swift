@@ -1097,7 +1097,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         let enabledTabs: Set<GameplayTab> = state.stageStatus == .battleActive
             && state.pendingBattleResult == nil
             ? Set(GameplayTab.allCases)
-            : [.map]
+            : [.map, .kingdom]
         let showsCampAttention: Bool
         switch RecommendedCampRecommendation.make(for: state) {
         case .ready, .saveFor:
@@ -1366,9 +1366,18 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func requestGameplayTab(_ tab: GameplayTab) {
         guard tab != .map,
               !isRoutingToBattle,
-              state.stageStatus == .battleActive,
+              // Kingdom is reachable in any stage; Battle/Camp exits stay
+              // gated to an active battle.
+              tab == .kingdom || state.stageStatus == .battleActive,
               countryMapLayout != nil,
               scoutCardLayout != nil else {
+            return
+        }
+
+        // Kingdom is a plain tab hand-off: the Kingdom scene owns its own
+        // idle settlement on entry, mirroring this scene's entry behavior.
+        if tab == .kingdom {
+            router?.countryMapSceneDidRequestGameplayTab(self, tab: tab)
             return
         }
 

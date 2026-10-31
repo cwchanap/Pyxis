@@ -842,6 +842,9 @@ struct GameViewControllerTests {
 
         controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .map)
         #expect(view.scene is CountryMapScene)
+
+        controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .kingdom)
+        #expect(view.scene is KingdomScene)
     }
 
     @Test func pendingResultWinsOverPreferredGameplayTab() throws {
@@ -867,8 +870,53 @@ struct GameViewControllerTests {
 
         for tab in GameplayTab.allCases {
             controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: tab)
-            #expect(view.scene is CountryMapScene)
+            // Kingdom is the only non-Map scene available post-campaign;
+            // Battle/Camp requests keep falling back to the Map.
+            if tab == .kingdom {
+                #expect(view.scene is KingdomScene)
+            } else {
+                #expect(view.scene is CountryMapScene)
+            }
         }
+    }
+
+    @Test func kingdomTabIsReachableFromEveryGameplayScene() throws {
+        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+
+        controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .battle)
+        let battle = try #require(view.scene as? BattleScene)
+        controller.battleSceneDidRequestGameplayTab(battle, tab: .kingdom)
+        #expect(view.scene is KingdomScene)
+
+        let kingdom = try #require(view.scene as? KingdomScene)
+        kingdom.requestGameplayTabForTesting(.map)
+        let map = try #require(view.scene as? CountryMapScene)
+        controller.countryMapSceneDidRequestGameplayTab(map, tab: .kingdom)
+        #expect(view.scene is KingdomScene)
+
+        let building = BuildingViewScene(size: view.bounds.size, store: store, router: controller)
+        controller.buildingViewSceneDidRequestGameplayTab(building, tab: .kingdom)
+        #expect(view.scene is KingdomScene)
+    }
+
+    @Test func pendingReportSurvivesRejectedKingdomTabRequest() throws {
+        let store = try makeStore(initialState: pendingConqueredState())
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+        let battle = try #require(view.scene as? BattleScene)
+        battle.didMove(to: view)
+        #expect(battle.isConquestPopupVisibleForTesting)
+
+        battle.requestGameplayTabForTesting(.kingdom)
+
+        #expect(view.scene is BattleScene)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(battle.isConquestPopupVisibleForTesting)
     }
 
     @Test func campMapExitSettlesBeforePendingFirstRouting() throws {

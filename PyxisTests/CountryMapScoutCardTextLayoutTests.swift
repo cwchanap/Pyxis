@@ -257,7 +257,7 @@ struct CountryMapScoutCardTextLayoutTests {
                     $0.trimmingCharacters(in: .whitespaces)
                 } ?? displayTitle
                 : displayTitle
-            let reward = KingdomGameState.goldReward(for: cityNumber)
+            let reward = KingdomGameState.baseGoldReward(for: cityNumber)
 
             #expect(CountryMapScoutCardTextLayout.fittedFontSize(
                 title,

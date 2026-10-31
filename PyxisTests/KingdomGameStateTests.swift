@@ -20,8 +20,8 @@ struct KingdomGameStateTests {
         #expect(KingdomGameState.cityMaxPower(for: 3) == 68)
         #expect(KingdomGameState.cityMaxPower(for: 10) == 5077)
 
-        #expect(KingdomGameState.goldReward(for: 1) == 8)
-        #expect(KingdomGameState.goldReward(for: 2) == 12)
+        #expect(KingdomGameState.baseGoldReward(for: 1) == 8)
+        #expect(KingdomGameState.baseGoldReward(for: 2) == 12)
 
         #expect(KingdomGameState.normalSoldierAttackPower(for: 1) == 1)
         #expect(KingdomGameState.normalSoldierAttackPower(for: 2) == 2)
@@ -198,15 +198,15 @@ struct KingdomGameStateTests {
     }
 
     @Test func buildingCostsCoverExpandedCatalog() {
-        #expect(KingdomGameState.buildingBuildCost(for: .barracks) == 15)
-        #expect(KingdomGameState.buildingBuildCost(for: .archeryRange) == 18)
-        #expect(KingdomGameState.buildingBuildCost(for: .stable) == 28)
-        #expect(KingdomGameState.buildingBuildCost(for: .mageTower) == 40)
-        #expect(KingdomGameState.buildingBuildCost(for: .siegeWorkshop) == 55)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .barracks) == 15)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .archeryRange) == 18)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .stable) == 28)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .mageTower) == 40)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .siegeWorkshop) == 55)
 
-        #expect(KingdomGameState.buildingUpgradeCost(for: .stable, currentLevel: 1) == 22)
-        #expect(KingdomGameState.buildingUpgradeCost(for: .mageTower, currentLevel: 1) == 30)
-        #expect(KingdomGameState.buildingUpgradeCost(for: .siegeWorkshop, currentLevel: 1) == 42)
+        #expect(KingdomGameState.baseBuildingUpgradeCost(for: .stable, currentLevel: 1) == 22)
+        #expect(KingdomGameState.baseBuildingUpgradeCost(for: .mageTower, currentLevel: 1) == 30)
+        #expect(KingdomGameState.baseBuildingUpgradeCost(for: .siegeWorkshop, currentLevel: 1) == 42)
     }
 
     @Test func activeSpawnIntervalsCoverExpandedCatalog() {
@@ -381,7 +381,7 @@ struct KingdomGameStateTests {
 
     @Test func formulasClampInvalidLevelsToOne() {
         #expect(KingdomGameState.cityMaxPower(for: 0) == 20)
-        #expect(KingdomGameState.goldReward(for: 0) == 8)
+        #expect(KingdomGameState.baseGoldReward(for: 0) == 8)
         #expect(KingdomGameState.normalSoldierAttackPower(for: 0) == 1)
     }
 
@@ -843,14 +843,14 @@ struct KingdomGameStateTests {
 
     @Test func firstLaunchCanAffordStarterBarracks() {
         let state = KingdomGameState()
-        let barracksCost = KingdomGameState.buildingBuildCost(for: .barracks)
+        let barracksCost = state.buildingBuildCost(for: .barracks)
 
         #expect(state.gold >= barracksCost)
     }
 
     @Test func firstLaunchCanBuildBarracksAndSpawnSoldiers() {
         var state = KingdomGameState()
-        let barracksCost = KingdomGameState.buildingBuildCost(for: .barracks)
+        let barracksCost = state.buildingBuildCost(for: .barracks)
 
         let result = state.buildBuilding(.barracks, inSlot: 1)
         guard case .built(let cost, let remainingGold) = result else {
@@ -1302,7 +1302,7 @@ struct KingdomGameStateTests {
         #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
 
         // Can't afford Barracks, but infantry is still spawnable
-        #expect(state.gold < KingdomGameState.buildingBuildCost(for: .barracks))
+        #expect(state.gold < state.buildingBuildCost(for: .barracks))
         #expect(state.manualSoldierLevel(for: .infantry) == 1)
         #expect(state.manualSpawnableSoldierTypes() == [.infantry])
     }
@@ -2536,7 +2536,7 @@ struct KingdomGameStateTests {
         #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 26)
 
         #expect(state.stageStatus == .cityConqueredPendingMap)
-        #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
+        #expect(state.gold == 5 + state.goldReward(forCity: 3))
         #expect(state.completedCityCount == 3)
         #expect(state.pendingBattleResult != nil)
 
@@ -2546,7 +2546,7 @@ struct KingdomGameStateTests {
         // Exactly once: post-conquest objective damage applies nothing.
         #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 0)
         #expect(state.spendRouteDamageBudget(10, lane: .center) == 0)
-        #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
+        #expect(state.gold == 5 + state.goldReward(forCity: 3))
     }
 
     @Test func routeSpendingRespectsBlockersBeforeKeepSpillover() throws {
@@ -2752,7 +2752,7 @@ struct KingdomGameStateTests {
         #expect(result.attackApplied)
         #expect(result.damageDealt == 12) // gate absorbs 8, Keep clamps 999 → 4
         #expect(result.conqueredCities == 1)
-        #expect(result.goldEarned == KingdomGameState.goldReward(for: 3))
+        #expect(result.goldEarned == state.goldReward(forCity: 3))
         #expect(state.stageStatus == .cityConqueredPendingMap)
         // The already-dead Tower is not re-touched; support structures are
         // never fabricated destroyed.
@@ -2935,7 +2935,7 @@ struct KingdomGameStateTests {
 
         #expect(result.damageDealt == 34)
         #expect(result.conqueredCities == 1)
-        #expect(result.goldEarned == KingdomGameState.goldReward(for: 3))
+        #expect(result.goldEarned == state.goldReward(forCity: 3))
         #expect(state.currentKeepRemainingPower == 0)
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.completedCityCount == 3)
@@ -3751,6 +3751,196 @@ struct KingdomGameStateTests {
 
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.siegeProgress.captain == nil)
+    }
+
+    // MARK: - HPA-670 Treasury
+
+    @Test func treasuryPurchasesUseBaseCostsThenOnePointEightProgression() {
+        var state = KingdomGameState(gold: 500)
+        #expect(state.treasury == TreasuryState())
+
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 12, newLevel: 1, remainingGold: 488))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 16, newLevel: 1, remainingGold: 472))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 14, newLevel: 1, remainingGold: 458))
+        #expect(state.treasury == TreasuryState(warChest: 1, drillYard: 1, quartermaster: 1))
+
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 22, newLevel: 2, remainingGold: 436))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 29, newLevel: 2, remainingGold: 407))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 25, newLevel: 2, remainingGold: 382))
+        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 2, quartermaster: 2))
+
+        // The tuned 4/4/4 ladder is exactly affordable from 500 gold: every
+        // rung buys down to the next price and the last level lands on one.
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 39, newLevel: 3, remainingGold: 343))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 52, newLevel: 3, remainingGold: 291))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 45, newLevel: 3, remainingGold: 246))
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 70, newLevel: 4, remainingGold: 176))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 93, newLevel: 4, remainingGold: 83))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 82, newLevel: 4, remainingGold: 1))
+        #expect(state.treasury == TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4))
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .maxLevel)
+    }
+
+    @Test func treasuryPurchaseRejectsInsufficientGoldWithoutMutation() {
+        var state = KingdomGameState(gold: 11)
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .insufficientGold)
+        #expect(state.gold == 11)
+        #expect(state.treasury == TreasuryState())
+
+        // One gold short of a mid-curve price (Drill Yard level 2 costs 29).
+        var midCurve = KingdomGameState(gold: 28, treasury: TreasuryState(drillYard: 1))
+        #expect(midCurve.purchaseTreasuryUpgrade(.drillYard) == .insufficientGold)
+        #expect(midCurve.gold == 28)
+        #expect(midCurve.treasury == TreasuryState(drillYard: 1))
+    }
+
+    @Test func treasuryPurchaseChecksMaxLevelBeforeAffordability() {
+        var state = KingdomGameState(
+            gold: 0,
+            treasury: TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4)
+        )
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .maxLevel)
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .maxLevel)
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .maxLevel)
+        #expect(state.gold == 0)
+        #expect(
+            state.treasury == TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4)
+        )
+    }
+
+    @Test func treasuryExactLastPurchaseSucceedsAndSpendsEverything() {
+        var state = KingdomGameState(gold: 93, treasury: TreasuryState(drillYard: 3))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard)
+            == .purchased(cost: 93, newLevel: 4, remainingGold: 0))
+        #expect(state.treasury.drillYard == 4)
+    }
+
+    @Test func treasuryPurchaseHasNoStageGate() {
+        var pendingMap = KingdomGameState(
+            gold: 12,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        #expect(pendingMap.purchaseTreasuryUpgrade(.warChest)
+            == .purchased(cost: 12, newLevel: 1, remainingGold: 0))
+        #expect(pendingMap.stageStatus == .cityConqueredPendingMap)
+
+        var countryComplete = KingdomGameState(
+            gold: 14,
+            cityNumberInCountry: 15,
+            completedCityCount: 15,
+            stageStatus: .countryComplete
+        )
+        #expect(countryComplete.purchaseTreasuryUpgrade(.quartermaster)
+            == .purchased(cost: 14, newLevel: 1, remainingGold: 0))
+        #expect(countryComplete.stageStatus == .countryComplete)
+    }
+
+    @Test func treasurySurvivesCityCompletionAndMapEntry() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, gold: 100, keepRemaining: 1)
+        state.treasury = TreasuryState(warChest: 2, drillYard: 4, quartermaster: 4)
+
+        _ = state.applyLiveSoldierAttacks([
+            liveAttackEvent(objectiveID: try keepObjectiveID(of: state), 1)
+        ])
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 4, quartermaster: 4))
+
+        #expect(state.startCityFromMap(4) == .entered(country: 1, city: 4))
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 4, quartermaster: 4))
+    }
+
+    @Test func decodingPreservesTreasuryLevels() throws {
+        let data = """
+        {
+          "gold": 500,
+          "cityLevel": 2,
+          "countryNumber": 1,
+          "cityNumberInCountry": 2,
+          "completedCityCount": 1,
+          "stageStatus": "battleActive",
+          "treasury": {"warChest": 2, "drillYard": 3, "quartermaster": 4}
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 3, quartermaster: 4))
+    }
+
+    @Test func decodingSaveWithoutTreasuryKeyFallsBackToZeroLevels() throws {
+        let data = """
+        {
+          "gold": 40,
+          "cityLevel": 4,
+          "countryNumber": 1,
+          "cityNumberInCountry": 4,
+          "completedCityCount": 3,
+          "stageStatus": "battleActive"
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.treasury == TreasuryState())
+    }
+
+    @Test func decodingClampsNegativeTreasuryLevelsToZero() throws {
+        let data = """
+        {
+          "gold": 40,
+          "stageStatus": "battleActive",
+          "treasury": {"warChest": -3, "drillYard": -1, "quartermaster": 2}
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.treasury == TreasuryState(warChest: 0, drillYard: 0, quartermaster: 2))
+    }
+
+    @Test func decodingClampsOverMaxTreasuryLevelsToMaxLevel() throws {
+        let data = """
+        {
+          "gold": 40,
+          "stageStatus": "battleActive",
+          "treasury": {"warChest": 99, "drillYard": 10, "quartermaster": 8}
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.treasury == TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4))
+    }
+
+    @Test func decodingMalformedTreasuryKeyFallsBackToZeroLevels() throws {
+        let data = """
+        {
+          "gold": 40,
+          "stageStatus": "battleActive",
+          "treasury": "junk"
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.treasury == TreasuryState())
+    }
+
+    @Test func decodingMalformedTreasuryFieldKeepsTheRestOfTheLevels() throws {
+        let data = """
+        {
+          "gold": 40,
+          "stageStatus": "battleActive",
+          "treasury": {"warChest": "many", "drillYard": 3, "quartermaster": 1}
+        }
+        """.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.treasury == TreasuryState(warChest: 0, drillYard: 3, quartermaster: 1))
     }
 
     // MARK: - HPA-468 objective-aware helpers

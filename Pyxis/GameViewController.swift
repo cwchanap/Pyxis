@@ -231,9 +231,17 @@ final class GameViewController: UIViewController {
                 presentBuildingViewScene(in: view)
             case .map:
                 presentCountryMapScene(in: view)
+            case .kingdom:
+                presentKingdomScene(in: view)
             }
         case .cityConqueredPendingMap, .countryComplete:
-            presentCountryMapScene(in: view)
+            // Kingdom is the only non-Map scene available in conquered
+            // stages; Battle/Camp requests keep falling back to the Map.
+            if preferredTab == .kingdom {
+                presentKingdomScene(in: view)
+            } else {
+                presentCountryMapScene(in: view)
+            }
         }
         #if DEBUG
         republishForgedFixtureAccessibilityValue(in: view)
@@ -262,6 +270,20 @@ final class GameViewController: UIViewController {
             store: store,
             router: self,
             feedback: feedbackRuntime.feedback,
+            feedbackPreferences: feedbackRuntime.preferences,
+            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
+        )
+        scene.scaleMode = .resizeFill
+        view.presentScene(scene)
+        refreshLayoutSupport()
+    }
+
+    private func presentKingdomScene(in view: SKView) {
+        requestedMapGateReason = nil
+        let scene = KingdomScene(
+            size: view.bounds.size,
+            store: store,
+            router: self,
             feedbackPreferences: feedbackRuntime.preferences,
             feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
         )
@@ -304,6 +326,9 @@ final class GameViewController: UIViewController {
         } else if let battle = skView.scene as? BattleScene,
                   battle.isBattleChromeFitFailed || battle.isConquestReportFitFailed {
             reason = .unsupportedGeometry
+        } else if let kingdom = skView.scene as? KingdomScene {
+            // Kingdom gates on its own Treasury fit, not the Map layout math.
+            reason = kingdom.isTreasuryFitFailed ? .unsupportedGeometry : nil
         } else {
             switch layoutResult {
             case .supported:
@@ -418,6 +443,23 @@ extension GameViewController: BuildingViewSceneRouting {
 
         presentSceneForCurrentStage(in: view, preferredTab: tab)
         return true
+    }
+}
+
+extension GameViewController: KingdomSceneRouting {
+    @discardableResult
+    func kingdomSceneDidRequestGameplayTab(_ scene: KingdomScene, tab: GameplayTab) -> Bool {
+        guard let view = self.view as? SKView else {
+            return false
+        }
+
+        presentSceneForCurrentStage(in: view, preferredTab: tab)
+        return true
+    }
+
+    func kingdomScene(_ scene: KingdomScene, didRequestLayoutGate reason: AppLayoutGateReason) {
+        requestedMapGateReason = reason
+        refreshLayoutSupport()
     }
 }
 
