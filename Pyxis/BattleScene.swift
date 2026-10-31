@@ -2818,9 +2818,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         guard combat.livingSoldierCount(source: .manual) == 0 else {
             feedback.emit(.invalidAction)
-            feedbackText = tab == .map
-                ? "Finish the current squad before viewing world."
-                : "Finish the current squad before building."
+            feedbackText = switch tab {
+            case .map: "Finish the current squad before viewing world."
+            case .camp: "Finish the current squad before building."
+            default: "Finish the current squad before opening the treasury."
+            }
             redraw()
             return
         }

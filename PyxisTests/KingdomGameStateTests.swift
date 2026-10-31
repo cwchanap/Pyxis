@@ -3839,17 +3839,17 @@ struct KingdomGameStateTests {
 
     @Test func treasurySurvivesCityCompletionAndMapEntry() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 3, gold: 100, keepRemaining: 1)
-        state.treasury = TreasuryState(warChest: 2, drillYard: 4, quartermaster: 5)
+        state.treasury = TreasuryState(warChest: 2, drillYard: 4, quartermaster: 4)
 
         _ = state.applyLiveSoldierAttacks([
             liveAttackEvent(objectiveID: try keepObjectiveID(of: state), 1)
         ])
         #expect(state.stageStatus == .cityConqueredPendingMap)
-        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 4, quartermaster: 5))
+        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 4, quartermaster: 4))
 
         #expect(state.startCityFromMap(4) == .entered(country: 1, city: 4))
         #expect(state.stageStatus == .battleActive)
-        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 4, quartermaster: 5))
+        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 4, quartermaster: 4))
     }
 
     @Test func decodingPreservesTreasuryLevels() throws {
@@ -3861,13 +3861,13 @@ struct KingdomGameStateTests {
           "cityNumberInCountry": 2,
           "completedCityCount": 1,
           "stageStatus": "battleActive",
-          "treasury": {"warChest": 2, "drillYard": 7, "quartermaster": 8}
+          "treasury": {"warChest": 2, "drillYard": 3, "quartermaster": 4}
         }
         """.data(using: .utf8)!
 
         let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
 
-        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 7, quartermaster: 8))
+        #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 3, quartermaster: 4))
     }
 
     @Test func decodingSaveWithoutTreasuryKeyFallsBackToZeroLevels() throws {
@@ -3912,7 +3912,7 @@ struct KingdomGameStateTests {
 
         let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
 
-        #expect(state.treasury == TreasuryState(warChest: 10, drillYard: 10, quartermaster: 8))
+        #expect(state.treasury == TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4))
     }
 
     @Test func decodingMalformedTreasuryKeyFallsBackToZeroLevels() throws {

@@ -81,7 +81,7 @@ struct KingdomSceneTests {
 
         let drillYard = try #require(scene.treasuryRowTextForTesting(.drillYard))
         #expect(drillYard.effect == KingdomScene.drillYardExampleText(for: state))
-        #expect(drillYard.effect == "Infantry Lv 1 vs this city's trait: 1 → 1 attack (no damage change yet)")
+        #expect(drillYard.effect == "Infantry Lv 1 vs this city's trait:\n1 → 1 attack (no damage change yet)")
     }
 
     @Test("Drill Yard example displays a real rounded gain when one exists")
@@ -102,7 +102,41 @@ struct KingdomSceneTests {
         state.treasury.setLevel(2, for: .drillYard)
 
         let text = KingdomScene.drillYardExampleText(for: state)
-        #expect(text == "Infantry Lv 5 vs this city's trait: 4 → 5 attack")
+        #expect(text == "Infantry Lv 5 vs this city's trait:\n4 → 5 attack")
+    }
+
+    @Test("Header and row text labels sit inside their KingdomLayout text frames")
+    func textLabelsSitInsideLayoutTextFrames() throws {
+        // Compact phones included: the Drill Yard example must fit its text
+        // frame (wrapped, fitted) on every size the layout accepts.
+        for sceneSize in [
+            CGSize(width: 393, height: 852),
+            CGSize(width: 375, height: 812),
+            CGSize(width: 320, height: 568)
+        ] {
+            let store = try makeStore(initialState: KingdomGameState(gold: 100))
+            let scene = makeScene(size: sceneSize, store: store)
+            let layout = try #require(scene.kingdomLayoutForTesting)
+
+            let goldLabel = scene.goldLabelNodeForTesting
+            let goldParent = try #require(goldLabel.parent)
+            #expect(
+                layout.goldFrame.contains(goldParent.convert(goldLabel.frame, to: scene)),
+                "gold label outside header gold frame at \(sceneSize)"
+            )
+
+            for (index, upgrade) in TreasuryUpgrade.allCases.enumerated() {
+                let labels = try #require(scene.treasuryRowLabelNodesForTesting(upgrade))
+                let textFrame = layout.textFrames[index]
+                for label in labels {
+                    let parent = try #require(label.parent)
+                    #expect(
+                        textFrame.contains(parent.convert(label.frame, to: scene)),
+                        "\(upgrade) label '\(label.text ?? "")' outside its text frame at \(sceneSize)"
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Purchase flow
@@ -221,8 +255,8 @@ struct KingdomSceneTests {
     // MARK: - Lifecycle: foreground settle and pending-report routing
 
     /// City 3 with a 1000s armed window: nonlethal at scene creation, so the
-    /// entry settle is a no-op that only clears the anchor; a foreground hook
-    /// then re-arms and a later settle can conquer.
+    /// entry settle is a no-op that clears and re-arms the anchor; a later
+    /// settle can conquer.
     private func makeNonlethalIdleState() -> KingdomGameState {
         let start = Date(timeIntervalSinceNow: -1_000)
         var state = KingdomGameState(
@@ -244,7 +278,7 @@ struct KingdomSceneTests {
         let t0 = Date()
 
         // The first foreground re-arms building progress (entry already
-        // settled the original anchor); the second foreground conquers.
+        // settled and re-armed the original anchor); the second conquers.
         scene.sceneWillEnterForegroundForTesting(at: t0)
         #expect(store.load().stageStatus == .battleActive)
 
@@ -280,6 +314,44 @@ struct KingdomSceneTests {
 
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
         #expect(router.requestedTabs == [.battle])
+    }
+
+    @Test("Kingdom entry re-arms the idle anchor so a backgrounded absence is credited")
+    func entryRearmsIdleAnchorForLaterForeground() throws {
+        // Armed 60s before entry: the entry settle is nonlethal and must
+        // re-arm the anchor, otherwise the one-hour absence below resolves
+        // nothing (the pre-fix bug lost the whole window). City 8's keep is
+        // far above one Barracks' hourly idle damage, so the settle is
+        // deterministically nonlethal.
+        let start = Date(timeIntervalSinceNow: -60)
+        var initialState = KingdomGameState(
+            gold: 100,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 8,
+            completedCityCount: 7,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let t0 = Date()
+        #expect(store.load().pendingBattleResult == nil)
+        #expect(store.load().lastBackgroundedAt != nil)
+
+        scene.sceneDidEnterBackgroundForTesting(at: t0)
+        scene.sceneWillEnterForegroundForTesting(at: t0.addingTimeInterval(3_600))
+
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 3_600)
+        // City 8 is nonlethal in an hour: no pending report is created, and a
+        // repeated foreground neither duplicates nor loses one.
+        #expect(store.load().pendingBattleResult == nil)
+        #expect(store.load().stageStatus == .battleActive)
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.sceneWillEnterForegroundForTesting(at: t0.addingTimeInterval(3_700))
+        #expect(store.load().pendingBattleResult == nil)
+        #expect(router.requestedTabs.isEmpty)
     }
 
     @Test("Kingdom gate pause conquest stays unrouted and routes once on resume")
@@ -347,8 +419,8 @@ struct KingdomSceneTests {
     @Test("Kingdom gate resume rearms building progress only in active battle")
     func gateResumeRearmsOnlyWhenBattleActive() throws {
         let origin = Date(timeIntervalSinceReferenceDate: 3_000)
-        // No persisted anchor: the entry settle is a no-op and the foreground
-        // hook arms the anchor at a deterministic date.
+        // No persisted anchor: entry arms the anchor on the test-run clock and
+        // the foreground hook re-arms it at a deterministic date.
         var activeState = KingdomGameState(gold: 100)
         activeState.cityBattleStates[activeState.currentCityKey.storageKey] = CityBattleState(
             slots: [1: CityBuilding(type: .barracks)],

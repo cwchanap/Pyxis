@@ -82,7 +82,9 @@ enum TreasuryUpgrade: String, Codable, CaseIterable, Equatable {
     /// from 40/50/45 with max levels 10/10/8 down to 12/16/14 with 4/4/4, so
     /// the paid ladder is purchasable from the early cities and exhausts
     /// before the thin-margin late-campaign cities; exponent, formula and
-    /// effects are unchanged. See task-5-report.md for the ledger.
+    /// effects are unchanged. Evidence ledger:
+    /// docs/superpowers/specs/2026-10-30-hpa-670-kingdom-treasury-design.md,
+    /// "Economy measurement and max-level expectation".
     func price(forCurrentLevel level: Int) -> Int {
         let current = min(max(0, level), maxLevel)
         return max(1, Int((Double(baseCost) * pow(Self.priceExponent, Double(current))).rounded()))

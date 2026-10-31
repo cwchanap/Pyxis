@@ -1,6 +1,6 @@
 # HPA-670 — Kingdom tab and Treasury: design
 
-Status: proposed for the single HPA-670 implementation PR.
+Status: implemented (single HPA-670 implementation branch); recorded evidence below.
 Backlog: https://linear.app/cwchanap/issue/HPA-670/gameplay-kingdom-tab-with-treasury-upgrades-that-persist-across-cities
 Code reviewed against `main` at `516f20d873d7c3da3cfe794c662cb6717ab66b61` (2026-10-28).
 
@@ -78,7 +78,7 @@ Do not add a global stat modifier registry, effects event bus, second currency, 
 - Assert discounted quote equals charged price in both build and upgrade, including Camp selections, recommended camp, and `GreedyCampBuyer` affordability/action selection.
 - `KingdomLayout` geometry, four tab hit frames, image-asset sprite sizing/tint/alpha and fallback testing across phone/iPad, plus controller tests from Battle, Camp and Map, post-City-15 access and pending-first behavior.
 - Run the existing opt-in chained 15-city smoke baseline with zero Treasury. Compare **three variants**: baseline, free seeded `4/4/4` (power ceiling), and a **bought** variant (real affordability) which buys the cheapest affordable Treasury level before each city's Camp purchases. Log each city's `treasury=a/b/c` levels, Treasury spend, camp spend and any stall. Record observed City 15 times; do not hard-code an assumed speed-up threshold.
-- Build, lint, Swift Testing and relevant UI tests with `-parallel-testing-enabled NO`, following `CLAUDE.md`. This planning-only PR makes no claim to have run them.
+- Build, lint, Swift Testing and relevant UI tests with `-parallel-testing-enabled NO`, following `CLAUDE.md`. **Recorded:** build and SwiftLint clean, full `PyxisTests` plus `PyxisUITests` green on the implementation branch, and the opt-in chained 15-city campaign green in all three variants (baseline, free seeded 4/4/4, bought) with per-city `treasury=`/spend lines logged.
 
 ## Scope guard
 
