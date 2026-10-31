@@ -316,6 +316,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// Applies precomputed frames to the stable node tree — recomputed on
     /// layout change, never rebuilt, so no duplicate nodes appear.
     private func apply(_ layout: KingdomLayout) {
+        // Unhide here so a fail→recover resize cycle restores the header
+        // (clearLayoutGeometry hides it; mirrors Map/Camp panel unhide).
+        headerPanel.isHidden = false
         headerPanel.apply(
             size: layout.headerFrame.size,
             style: .normal,
@@ -622,6 +625,18 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             }
             redraw()
             return
+        }
+        // Successful hand-off: the exit settle cleared the idle anchor.
+        // Re-arm it for an inactive destination (Map/Camp) so a backgrounding
+        // from there credits idle production — the declined branch above
+        // re-arms for the same reason. Battle drives buildings per-frame, so
+        // it must never inherit a stale anchor.
+        if tab != .battle,
+           idleResult.conqueredCities == 0,
+           state.stageStatus == .battleActive,
+           state.pendingBattleResult == nil {
+            state.markCurrentCityBuildingProgressInactive(at: exitDate)
+            store.save(state)
         }
     }
 

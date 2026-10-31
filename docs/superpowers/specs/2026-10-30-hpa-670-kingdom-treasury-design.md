@@ -80,6 +80,16 @@ Do not add a global stat modifier registry, effects event bus, second currency, 
 - Run the existing opt-in chained 15-city smoke baseline with zero Treasury. Compare **three variants**: baseline, free seeded `4/4/4` (power ceiling), and a **bought** variant (real affordability) which buys the cheapest affordable Treasury level before each city's Camp purchases. Log each city's `treasury=a/b/c` levels, Treasury spend, camp spend and any stall. Record observed City 15 times; do not hard-code an assumed speed-up threshold.
 - Build, lint, Swift Testing and relevant UI tests with `-parallel-testing-enabled NO`, following `CLAUDE.md`. **Recorded:** build and SwiftLint clean, full `PyxisTests` plus `PyxisUITests` green on the implementation branch, and the opt-in chained 15-city campaign green in all three variants (baseline, free seeded 4/4/4, bought) with per-city `treasury=`/spend lines logged.
 
+### Recorded evidence (2026-10-31)
+
+Observed values from the runs behind the tuning decision above, recorded verbatim:
+
+- **Baseline (zero Treasury):** 15/15 conquered, no stalls; City 15 elapsed 570.5 s (deterministic — identical across two runs, seed 582).
+- **Free seeded 4/4/4:** 15/15; City 15 @ 383.2 s (power ceiling only, no affordability constraint).
+- **Bought (real `purchaseTreasuryUpgrade`, cheapest-first before each city's Camp purchases):** 15/15, no stalls; first purchase at City 1; maxed 4/4/4 by City 10; total Treasury spend 499 gold; City 15 @ 383.2 s.
+- **Pre-tuning decision evidence:** the original 40/50/45 × max 10/10/8 values stalled the bought run at City 11 (outcome=stalled, 900 s bound) with the first paid upgrade not until City 7 — the basis for the 12/16/14 × max 4/4/4 re-tune.
+- **Suites:** `PyxisTests` 1446/1446 green (66 suites), `PyxisUITests` green, build + SwiftLint clean, all with `-parallel-testing-enabled NO`.
+
 ## Scope guard
 
 HPA-671: Equipment/Armory, drops and loadouts. HPA-672: Ascension, resets and Renown. HPA-673: final 20 icons. No features from these tickets should enter the HPA-670 implementation PR.
