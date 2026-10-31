@@ -36,9 +36,11 @@ Add `TreasuryUpgrade: String, Codable, CaseIterable` with exactly three choices,
 
 | Upgrade | Base cost | Max level | Effect at level L |
 | --- | ---: | ---: | --- |
-| War Chest | 40 | 10 | Conquest gold × (1 + 0.10 × L) |
-| Drill Yard | 50 | 10 | Soldier attack × (1 + 0.05 × L) |
-| Quartermaster | 45 | 8 | Building build/upgrade price × (1 − 0.04 × L) |
+| War Chest | 12 | 4 | Conquest gold × (1 + 0.10 × L) |
+| Drill Yard | 16 | 4 | Soldier attack × (1 + 0.05 × L) |
+| Quartermaster | 14 | 4 | Building build/upgrade price × (1 − 0.04 × L) |
+
+> **Tuned during HPA-670 implementation** (spec-authorized evidence rule below): the original values (40/50/45, max 10/10/8) stalled the bought campaign at City 11 with the first paid upgrade only at City 7. Re-tuned to 12/16/14 with max 4/4/4; exponent 1.8, effect multipliers, and the city economy are unchanged. Max levels are now reachable within one Country 1 run; HPA-672 (Ascension) may raise `maxLevel` when it lands.
 
 - The price to buy the *next* level from current level L is `max(1, round(baseCost × 1.8^L))`. Use the project's existing nearest-integer rounding convention; all calculations clamp to valid positive integer costs.
 - `KingdomGameState.purchaseTreasuryUpgrade(_:)` is the only purchase mutation and returns `TreasuryPurchaseResult`: `purchased(cost:newLevel:remainingGold:)`, `insufficientGold` or `maxLevel`. Check max level before affordability. On success subtract the computed price exactly once and increment exactly one level. No stage gate.
@@ -56,8 +58,8 @@ Do not add a global stat modifier registry, effects event bus, second currency, 
 
 ### Economy measurement and max-level expectation
 
-- The four levels in each track cost **1,603 gold in aggregate** at starting prices (War Chest 475, Drill Yard 594, Quartermaster 534). A free seeded 4/4/4 simulation measures potential speed-up, **not** affordability or ROI. Keep that comparison, but add a **bought** simulation which buys only affordable Treasury upgrades before buying Camp at each city entry, using real purchase mutations and recorded Treasury levels/spend.
-- The current 15-city reward curve may not fund max levels within one run. This is intentional as a **measurement question**, not a promise of reachability: HPA-672 resets Treasury upon Ascension but adds Renown-gold scaling. If the bought run shows no useful upgrade progression or stalls, revise values based on evidence **within HPA-670 before merging**, rather than adding a new economy system.
+- All four levels in each track cost **499 gold in aggregate** at tuned prices (War Chest 143, Drill Yard 190, Quartermaster 166; the pre-tune draft pinned 1,603 at 40/50/45 × max 10/10/8). A free seeded 4/4/4 simulation measures potential speed-up, **not** affordability or ROI. Keep that comparison, but add a **bought** simulation which buys only affordable Treasury upgrades before buying Camp at each city entry, using real purchase mutations and recorded Treasury levels/spend.
+- The 15-city reward curve funds max levels within one bought run at tuned prices (evidence: bought variant maxes 4/4/4 by City 10, no stalls; pre-tune values stalled at City 11 and were revised per the rule below). HPA-672 resets Treasury upon Ascension but adds Renown-gold scaling. If the bought run shows no useful upgrade progression or stalls, revise values based on evidence **within HPA-670 before merging**, rather than adding a new economy system.
 
 ## Edge decisions
 
