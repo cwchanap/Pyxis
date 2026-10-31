@@ -571,6 +571,275 @@ struct KingdomSceneTests {
         #expect(store.load().lastBackgroundedAt == nil)
     }
 
+    // MARK: - Coverage: coder init, icons, max-level rows and input edges
+
+    @Test("Kingdom init(coder:) restores a presentable scene through keyed archiving")
+    func kingdomCoderInitRoundTripsThroughKeyedArchiver() throws {
+        let archiveData: Data
+        do {
+            let scene = KingdomScene(
+                size: CGSize(width: 393, height: 852),
+                store: try makeStore(initialState: KingdomGameState(gold: 42)),
+                safeAreaInsetsOverride: .init(top: 59, left: 0, bottom: 34, right: 0)
+            )
+            archiveData = try NSKeyedArchiver.archivedData(
+                withRootObject: scene,
+                requiringSecureCoding: false
+            )
+        }
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiveData)
+        unarchiver.requiresSecureCoding = false
+        let decoded = unarchiver.decodeObject(
+            forKey: NSKeyedArchiveRootObjectKey
+        ) as? KingdomScene
+        unarchiver.finishDecoding()
+        let scene = try #require(decoded)
+        #expect(scene.size == CGSize(width: 393, height: 852))
+        #expect(scene.kingdomLayoutForTesting == nil)
+    }
+
+    @Test("Treasury rows use sprite icons when the upgrade art loads")
+    func treasuryRowsUseSpriteIconsWhenArtLoads() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store, imageLoader: { _ in
+            UIImage(systemName: "star.fill")
+        })
+
+        for upgrade in TreasuryUpgrade.allCases {
+            let icon = try #require(
+                scene.childNode(withName: "//kingdomTreasuryIcon-\(upgrade.rawValue)")
+                    as? SKSpriteNode
+            )
+            #expect(icon.size == CGSize(
+                width: KingdomLayout.rowIconSize,
+                height: KingdomLayout.rowIconSize
+            ))
+        }
+    }
+
+    @Test("Max-level Quartermaster and Drill Yard rows show their static effect text")
+    func maxLevelRowsShowStaticEffectText() {
+        var state = KingdomGameState(gold: 100)
+        state.treasury.setLevel(TreasuryUpgrade.quartermaster.maxLevel, for: .quartermaster)
+        state.treasury.setLevel(TreasuryUpgrade.drillYard.maxLevel, for: .drillYard)
+
+        #expect(KingdomScene.effectText(for: .quartermaster, state: state)
+            == TreasuryUpgrade.quartermaster.effectName)
+
+        // Drill Yard at max reports the current attack with no "→" projection.
+        let current = KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .infantry,
+            level: 1,
+            defenseTrait: state.currentCityDefenseTrait,
+            upgradeMultiplier: 1.0 + 0.05 * Double(TreasuryUpgrade.drillYard.maxLevel)
+        )
+        #expect(KingdomScene.effectText(for: .drillYard, state: state)
+            == "Infantry Lv 1 vs this city's trait: \(current) attack")
+    }
+
+    @Test("A failed Treasury layout ignores touches and still redraws the tab bar")
+    func failedLayoutIgnoresTouchesAndRedraws() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.size = CGSize(width: 320, height: 330)
+        #expect(scene.isTreasuryFitFailedForTesting)
+        #expect(scene.kingdomLayoutForTesting == nil)
+
+        // Touches return before tab routing or buying while layout is nil.
+        scene.handleTouchForTesting(at: .zero)
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().treasury == TreasuryState())
+
+        // The foreground settle still redraws; with no layout the tab bar
+        // re-applies at a zero frame instead of keeping stale geometry.
+        scene.sceneWillEnterForegroundForTesting(at: Date())
+        #expect(scene.kingdomLayoutForTesting == nil)
+    }
+
+    @Test("Touches in the future-section gap buy nothing and route nowhere")
+    func futureSectionTouchIsIgnored() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+
+        scene.handleTouchForTesting(at: CGPoint(
+            x: layout.futureSectionFrame.midX,
+            y: layout.futureSectionFrame.midY
+        ))
+
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().treasury == TreasuryState())
+    }
+
+    @Test("An empty touch set ends without routing or purchasing")
+    func touchesEndedWithEmptySetIsIgnored() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.touchesEnded([], with: nil)
+
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().treasury == TreasuryState())
+    }
+
+    @Test("Requesting the already-selected Kingdom tab is ignored")
+    func kingdomTabRequestIsIgnored() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestGameplayTabForTesting(.kingdom)
+
+        #expect(router.requestedTabs.isEmpty)
+    }
+
+    @Test("Tapping the Map tab hit target forwards the route request")
+    func mapTabHitTargetRoutesTabRequest() throws {
+        let store = try makeStore(initialState: makeNonlethalIdleState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+        let mapIndex = try #require(GameplayTab.allCases.firstIndex(of: .map))
+
+        scene.handleTouchForTesting(at: layout.tabHitFrames[mapIndex].center)
+
+        #expect(router.requestedTabs == [.map])
+    }
+
+    @Test("A declined Kingdom hand-off re-arms the idle anchor anyway")
+    func declinedHandoffRearmsIdleAnchor() throws {
+        let store = try makeStore(initialState: makeNonlethalIdleState())
+        let router = RouteSpy()
+        router.acceptsAllRequests = false
+        let scene = makeScene(store: store, router: router)
+        let armedAtEntry = try #require(store.load().lastBackgroundedAt)
+
+        scene.requestGameplayTabForTesting(.map)
+
+        #expect(router.requestedTabs == [.map])
+        #expect(!scene.isRoutingToBattleForTesting)
+        // The declined exit re-arms the anchor for the same reason the
+        // successful hand-off does: a backgrounding from the current scene
+        // still credits idle production.
+        let rearmed = try #require(store.load().lastBackgroundedAt)
+        #expect(rearmed > armedAtEntry)
+    }
+
+    @Test("Posted lifecycle notifications drive the background/foreground settles")
+    func lifecycleNotificationsDriveSettles() throws {
+        let store = try makeStore(initialState: makeNonlethalIdleState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        NotificationCenter.default.post(name: .pyxisSceneDidEnterBackground, object: scene)
+        #expect(store.load().stageStatus == .battleActive)
+
+        NotificationCenter.default.post(name: .pyxisSceneWillEnterForeground, object: scene)
+
+        // The foreground settle resolved against the re-armed anchor; City 3
+        // does not fall to under a second of idle building production.
+        #expect(store.load().stageStatus == .battleActive)
+        #expect(router.requestedTabs.isEmpty)
+    }
+
+    @Test("Gate pause while the app is backgrounded records the background entry")
+    func gatePauseWhileBackgroundedRecordsBackgroundEntry() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(store: store)
+        let t0 = Date()
+
+        scene.sceneDidEnterBackgroundForTesting(at: t0)
+        scene.layoutGateWillPause(at: t0.addingTimeInterval(60))
+
+        // enterBackground — not a settle — anchors the marker at pause time.
+        #expect(store.load().lastBackgroundedAt == t0.addingTimeInterval(60))
+    }
+
+    @Test("Buy hit frames are unavailable before the first layout")
+    func buyHitFrameIsNilBeforeLayout() throws {
+        let scene = KingdomScene(
+            size: CGSize(width: 393, height: 852),
+            store: try makeStore(initialState: KingdomGameState(gold: 100))
+        )
+        #expect(scene.buyHitFrameForTesting(.warChest) == nil)
+    }
+
+    @Test("Settings gear, modal actions and accessibility elements share one controller")
+    func settingsFlowDrivesModalAndAccessibilityActions() throws {
+        let preferences = RecordingFeedbackPreferencesManager()
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: store,
+            safeAreaInsetsOverride: .init(top: 59, left: 0, bottom: 34, right: 0),
+            feedbackPreferences: preferences
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        let window = UIWindow(frame: view.bounds)
+        window.addSubview(view)
+        defer { view.removeFromSuperview() }
+        view.presentScene(scene)
+        scene.didMove(to: view)
+
+        // The gear accessibility element routes through the scene-gated open.
+        let exposed = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let gearElement = try #require(exposed.first { $0.accessibilityLabel == "Settings" })
+        #expect(gearElement.accessibilityActivate())
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // While the modal is visible the scene forwards touches to it.
+        scene.handleTouchForTesting(at: .zero)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // A consumed accessibility action is ignored without dismissing.
+        scene.activateFeedbackSettingsForTesting(.consumed)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // Modal accessibility elements drive the scene-gated actions.
+        let modalElements = try #require(
+            view.accessibilityElements as? [UIAccessibilityElement]
+        )
+        let soundElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Sound Effects" }
+        )
+        #expect(soundElement.accessibilityActivate())
+        #expect(!preferences.current.soundEffectsEnabled)
+        let hapticsElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Haptics" }
+        )
+        #expect(hapticsElement.accessibilityActivate())
+        #expect(!preferences.current.hapticsEnabled)
+        let closeElement = try #require(
+            modalElements.first { $0.accessibilityLabel == "Close" }
+        )
+        #expect(closeElement.accessibilityActivate())
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        // An action while the modal is closed is dropped by the guard.
+        scene.activateFeedbackSettingsForTesting(.toggleSoundEffects)
+        #expect(!preferences.current.soundEffectsEnabled)
+
+        // The scene-space gear hit test opens the same modal.
+        let gearFrame = try #require(scene.feedbackSettingsGearFrameForTesting)
+        scene.handleTouchForTesting(at: gearFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        // A gear activation while the modal is already open is dropped too.
+        #expect(gearElement.accessibilityActivate())
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(closeElement.accessibilityActivate())
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        // Repeat entry keeps the single controller instead of rebuilding it.
+        scene.repeatDidMoveForTesting()
+        #expect(scene.children.filter { $0 is SettingsGearNode }.count == 1)
+    }
+
     // MARK: - Helpers
 
     private func makeIdleAccruingState(since date: Date) -> KingdomGameState {

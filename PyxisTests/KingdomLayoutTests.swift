@@ -120,6 +120,19 @@ struct KingdomLayoutTests {
         )
     }
 
+    @Test("Side insets that push tab hit targets out of the safe frame return nil")
+    func tabHitTargetsOutsideSafeAreaReturnNil() {
+        // The final guard fails only after every row-level check passes: the
+        // 100pt left inset still leaves room for the rows but pushes the tab
+        // bar's leftmost cells outside the safe frame.
+        #expect(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: BattleChromeLayout.SafeAreaInsets(
+                top: 59, left: 100, bottom: 34, right: 0
+            )
+        )) == nil)
+    }
+
     @Test("Degenerate scene sizes and insets return nil")
     func degenerateInputReturnsNil() {
         #expect(KingdomLayout.compute(.init(
