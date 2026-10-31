@@ -16,3 +16,9 @@ disabled_rules:
   - function_body_length
   - identifier_name
   - type_body_length
+
+# "quartermaster" is a normal military role name; it is also the persisted
+# TreasuryState key and TreasuryUpgrade raw value, so it cannot be renamed.
+inclusive_language:
+  override_allowed_terms:
+    - quartermaster

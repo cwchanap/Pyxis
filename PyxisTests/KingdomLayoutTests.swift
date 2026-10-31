@@ -47,10 +47,16 @@ struct KingdomLayoutTests {
             #expect(layout.rowFrames[index].contains(hit))
         }
 
-        // The four tab hit frames reuse the shared Battle chrome math.
+        // The four tab hit frames reuse the shared Battle chrome math,
+        // applied to the safe content column the rows span.
         #expect(layout.tabHitFrames.count == GameplayTab.allCases.count)
         #expect(layout.tabHitFrames == BattleChromeLayout.tabHitFramesInSafeArea(
-            for: layout.tabBarFrame,
+            for: CGRect(
+                x: layout.rowFrames[0].minX,
+                y: layout.tabBarFrame.minY,
+                width: layout.rowFrames[0].width,
+                height: layout.tabBarFrame.height
+            ),
             safeFrame: layout.safeFrame
         ))
         for hit in layout.tabHitFrames {
@@ -84,7 +90,12 @@ struct KingdomLayoutTests {
             #expect(hit.height >= 44)
         }
         #expect(layout.tabHitFrames == BattleChromeLayout.tabHitFramesInSafeArea(
-            for: layout.tabBarFrame,
+            for: CGRect(
+                x: layout.rowFrames[0].minX,
+                y: layout.tabBarFrame.minY,
+                width: layout.rowFrames[0].width,
+                height: layout.tabBarFrame.height
+            ),
             safeFrame: layout.safeFrame
         ))
     }
@@ -120,15 +131,28 @@ struct KingdomLayoutTests {
         )
     }
 
-    @Test("Side insets that push tab hit targets out of the safe frame return nil")
-    func tabHitTargetsOutsideSafeAreaReturnNil() {
-        // The final guard fails only after every row-level check passes: the
-        // 100pt left inset still leaves room for the rows but pushes the tab
-        // bar's leftmost cells outside the safe frame.
-        #expect(KingdomLayout.compute(.init(
+    @Test("Side insets keep tab hit targets inside the safe content column")
+    func sideInsetsKeepTabHitTargetsInsideContentColumn() throws {
+        // The visual bar stays full-bleed, but hit targets derive from the
+        // safe content column — a large side inset no longer fails the
+        // containment guard (and a starved content column still fails
+        // closed earlier).
+        let layout = try #require(KingdomLayout.compute(.init(
             sceneSize: CGSize(width: 393, height: 852),
             safeAreaInsets: BattleChromeLayout.SafeAreaInsets(
                 top: 59, left: 100, bottom: 34, right: 0
+            )
+        )))
+        #expect(layout.tabBarFrame == CGRect(x: 16, y: 0, width: 361, height: 82))
+        for hit in layout.tabHitFrames {
+            #expect(layout.safeFrame.contains(hit))
+            #expect(hit.minX >= layout.rowFrames[0].minX)
+        }
+
+        #expect(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: BattleChromeLayout.SafeAreaInsets(
+                top: 59, left: 280, bottom: 34, right: 0
             )
         )) == nil)
     }
