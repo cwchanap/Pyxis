@@ -62,7 +62,7 @@ struct CampSelectionContentTests {
         #expect(inspector?.level == 2)
         #expect(inspector?.lotNumber == 1)
         #expect(inspector?.producedSoldier == .infantry)
-        #expect(inspector?.upgradeCost == KingdomGameState.buildingUpgradeCost(
+        #expect(inspector?.upgradeCost == state.buildingUpgradeCost(
             for: .barracks,
             currentLevel: 2
         ))

@@ -54,7 +54,7 @@ enum RecommendedCampRecommendation: Equatable {
                     kind: .upgrade,
                     buildingType: buildingType,
                     slot: target.0,
-                    cost: KingdomGameState.buildingUpgradeCost(
+                    cost: state.buildingUpgradeCost(
                         for: buildingType,
                         currentLevel: target.1.level
                     )
@@ -67,7 +67,7 @@ enum RecommendedCampRecommendation: Equatable {
                     kind: .build,
                     buildingType: buildingType,
                     slot: emptySlot,
-                    cost: KingdomGameState.buildingBuildCost(for: buildingType)
+                    cost: state.buildingBuildCost(for: buildingType)
                 )
             } else {
                 action = nil

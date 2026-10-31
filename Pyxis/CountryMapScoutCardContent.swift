@@ -105,7 +105,7 @@ enum CountryMapScoutCardContent: Equatable {
                 displayTitle: definition.displayTitle,
                 defenseTrait: definition.defenseTrait,
                 exposedLane: definition.laneDefenseProfile.exposedLane,
-                goldReward: KingdomGameState.goldReward(for: cityNumber),
+                goldReward: state.goldReward(forCity: cityNumber),
                 flavorText: definition.flavorText,
                 tacticalFooter: tacticalFooter(for: definition.siegeLayout),
                 status: status

@@ -77,7 +77,7 @@ struct CountryMapScoutCardContentTests {
                         displayTitle: "City 1 · Willowford",
                         defenseTrait: .standardWatch,
                         exposedLane: .right,
-                        goldReward: KingdomGameState.goldReward(for: 1),
+                        goldReward: state.goldReward(forCity: 1),
                         flavorText: "A quiet crossing where the campaign begins.",
                         tacticalFooter: "L/C Gate",
                         status: .current
@@ -107,13 +107,13 @@ struct CountryMapScoutCardContentTests {
                     displayTitle: definition.displayTitle,
                     defenseTrait: definition.defenseTrait,
                     exposedLane: definition.laneDefenseProfile.exposedLane,
-                    goldReward: KingdomGameState.goldReward(for: 2),
+                    goldReward: state.goldReward(forCity: 2),
                     flavorText: definition.flavorText,
                     tacticalFooter: Self.expectedTacticalFooter(for: definition)
                 )
             )
         )
-        #expect(KingdomGameState.goldReward(for: 2) != KingdomGameState.goldReward(for: state.cityLevel))
+        #expect(KingdomGameState.baseGoldReward(for: 2) != KingdomGameState.baseGoldReward(for: state.cityLevel))
     }
 
     @Test
@@ -141,7 +141,7 @@ struct CountryMapScoutCardContentTests {
                             displayTitle: definition.displayTitle,
                             defenseTrait: definition.defenseTrait,
                             exposedLane: definition.laneDefenseProfile.exposedLane,
-                            goldReward: KingdomGameState.goldReward(for: nextCityNumber),
+                            goldReward: state.goldReward(forCity: nextCityNumber),
                             flavorText: definition.flavorText,
                             tacticalFooter: Self.expectedTacticalFooter(for: definition)
                         )
@@ -355,7 +355,7 @@ struct CountryMapScoutCardContentTests {
                             displayTitle: definition.displayTitle,
                             defenseTrait: item.trait,
                             exposedLane: item.exposedLane,
-                            goldReward: KingdomGameState.goldReward(for: item.cityNumber),
+                            goldReward: state.goldReward(forCity: item.cityNumber),
                             flavorText: definition.flavorText,
                             tacticalFooter: Self.expectedTacticalFooter(for: definition),
                             status: .current

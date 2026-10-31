@@ -370,7 +370,7 @@ struct ForgedVisualFixtureTests {
 
         let idle = ForgedVisualFixture.conquestIdle.makeState()
         let idleResult = try #require(idle.pendingBattleResult)
-        #expect(idleResult.goldEarned == KingdomGameState.goldReward(for: 3))
+        #expect(idleResult.goldEarned == idle.goldReward(forCity: 3))
         #expect(idleResult.mvpSoldierType == .infantry)
         #expect(idleResult.mvpDamageSharePercent == 100)
         #expect(idleResult.totalDeploymentCount == 0)

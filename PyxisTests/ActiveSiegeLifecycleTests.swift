@@ -118,7 +118,7 @@ struct ActiveSiegeLifecycleTests {
         #expect(pending.conquestMode == .live)
         #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: 1))
         #expect(pending.mvpSoldierType == .infantry)
-        #expect(pending.goldEarned == KingdomGameState.goldReward(for: 1))
+        #expect(pending.goldEarned == state.goldReward(forCity: 1))
         #expect(state.gold == pending.goldEarned)
         #expect(state.activeSiegeSession == nil)
         #expect(state.stageStatus == .cityConqueredPendingMap)
@@ -539,7 +539,7 @@ struct ActiveSiegeLifecycleTests {
         let pending = try #require(state.pendingBattleResult)
         #expect(pending.conquestMode == .live)
         #expect(pending.cityKey == CityKey(countryNumber: 1, cityNumber: cityNumber))
-        #expect(pending.goldEarned == KingdomGameState.goldReward(for: cityNumber))
+        #expect(pending.goldEarned == state.goldReward(forCity: cityNumber))
         #expect(state.gold == pending.goldEarned)
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.activeSiegeSession == nil)
@@ -590,7 +590,7 @@ struct ActiveSiegeLifecycleTests {
         }
 
         // The second build settles the 100 s window, conquers the Keep, and is not charged.
-        let reward = KingdomGameState.goldReward(for: 7)
+        let reward = state.goldReward(forCity: 7)
         let result = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(100))
         #expect(result == .cityConqueredDuringSettlement(goldEarned: reward, remainingGold: 85 + reward))
         let pending = try #require(state.pendingBattleResult)

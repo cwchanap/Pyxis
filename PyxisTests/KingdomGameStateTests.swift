@@ -20,8 +20,8 @@ struct KingdomGameStateTests {
         #expect(KingdomGameState.cityMaxPower(for: 3) == 68)
         #expect(KingdomGameState.cityMaxPower(for: 10) == 5077)
 
-        #expect(KingdomGameState.goldReward(for: 1) == 8)
-        #expect(KingdomGameState.goldReward(for: 2) == 12)
+        #expect(KingdomGameState.baseGoldReward(for: 1) == 8)
+        #expect(KingdomGameState.baseGoldReward(for: 2) == 12)
 
         #expect(KingdomGameState.normalSoldierAttackPower(for: 1) == 1)
         #expect(KingdomGameState.normalSoldierAttackPower(for: 2) == 2)
@@ -198,15 +198,15 @@ struct KingdomGameStateTests {
     }
 
     @Test func buildingCostsCoverExpandedCatalog() {
-        #expect(KingdomGameState.buildingBuildCost(for: .barracks) == 15)
-        #expect(KingdomGameState.buildingBuildCost(for: .archeryRange) == 18)
-        #expect(KingdomGameState.buildingBuildCost(for: .stable) == 28)
-        #expect(KingdomGameState.buildingBuildCost(for: .mageTower) == 40)
-        #expect(KingdomGameState.buildingBuildCost(for: .siegeWorkshop) == 55)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .barracks) == 15)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .archeryRange) == 18)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .stable) == 28)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .mageTower) == 40)
+        #expect(KingdomGameState.baseBuildingBuildCost(for: .siegeWorkshop) == 55)
 
-        #expect(KingdomGameState.buildingUpgradeCost(for: .stable, currentLevel: 1) == 22)
-        #expect(KingdomGameState.buildingUpgradeCost(for: .mageTower, currentLevel: 1) == 30)
-        #expect(KingdomGameState.buildingUpgradeCost(for: .siegeWorkshop, currentLevel: 1) == 42)
+        #expect(KingdomGameState.baseBuildingUpgradeCost(for: .stable, currentLevel: 1) == 22)
+        #expect(KingdomGameState.baseBuildingUpgradeCost(for: .mageTower, currentLevel: 1) == 30)
+        #expect(KingdomGameState.baseBuildingUpgradeCost(for: .siegeWorkshop, currentLevel: 1) == 42)
     }
 
     @Test func activeSpawnIntervalsCoverExpandedCatalog() {
@@ -381,7 +381,7 @@ struct KingdomGameStateTests {
 
     @Test func formulasClampInvalidLevelsToOne() {
         #expect(KingdomGameState.cityMaxPower(for: 0) == 20)
-        #expect(KingdomGameState.goldReward(for: 0) == 8)
+        #expect(KingdomGameState.baseGoldReward(for: 0) == 8)
         #expect(KingdomGameState.normalSoldierAttackPower(for: 0) == 1)
     }
 
@@ -843,14 +843,14 @@ struct KingdomGameStateTests {
 
     @Test func firstLaunchCanAffordStarterBarracks() {
         let state = KingdomGameState()
-        let barracksCost = KingdomGameState.buildingBuildCost(for: .barracks)
+        let barracksCost = state.buildingBuildCost(for: .barracks)
 
         #expect(state.gold >= barracksCost)
     }
 
     @Test func firstLaunchCanBuildBarracksAndSpawnSoldiers() {
         var state = KingdomGameState()
-        let barracksCost = KingdomGameState.buildingBuildCost(for: .barracks)
+        let barracksCost = state.buildingBuildCost(for: .barracks)
 
         let result = state.buildBuilding(.barracks, inSlot: 1)
         guard case .built(let cost, let remainingGold) = result else {
@@ -1302,7 +1302,7 @@ struct KingdomGameStateTests {
         #expect(state.cityBattleStateForCurrentCity.occupiedSlotCount == 0)
 
         // Can't afford Barracks, but infantry is still spawnable
-        #expect(state.gold < KingdomGameState.buildingBuildCost(for: .barracks))
+        #expect(state.gold < state.buildingBuildCost(for: .barracks))
         #expect(state.manualSoldierLevel(for: .infantry) == 1)
         #expect(state.manualSpawnableSoldierTypes() == [.infantry])
     }
@@ -2536,7 +2536,7 @@ struct KingdomGameStateTests {
         #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 26)
 
         #expect(state.stageStatus == .cityConqueredPendingMap)
-        #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
+        #expect(state.gold == 5 + state.goldReward(forCity: 3))
         #expect(state.completedCityCount == 3)
         #expect(state.pendingBattleResult != nil)
 
@@ -2546,7 +2546,7 @@ struct KingdomGameStateTests {
         // Exactly once: post-conquest objective damage applies nothing.
         #expect(state.applyObjectiveDamage(26, toObjectiveID: keepID) == 0)
         #expect(state.spendRouteDamageBudget(10, lane: .center) == 0)
-        #expect(state.gold == 5 + KingdomGameState.goldReward(for: 3))
+        #expect(state.gold == 5 + state.goldReward(forCity: 3))
     }
 
     @Test func routeSpendingRespectsBlockersBeforeKeepSpillover() throws {
@@ -2752,7 +2752,7 @@ struct KingdomGameStateTests {
         #expect(result.attackApplied)
         #expect(result.damageDealt == 12) // gate absorbs 8, Keep clamps 999 → 4
         #expect(result.conqueredCities == 1)
-        #expect(result.goldEarned == KingdomGameState.goldReward(for: 3))
+        #expect(result.goldEarned == state.goldReward(forCity: 3))
         #expect(state.stageStatus == .cityConqueredPendingMap)
         // The already-dead Tower is not re-touched; support structures are
         // never fabricated destroyed.
@@ -2935,7 +2935,7 @@ struct KingdomGameStateTests {
 
         #expect(result.damageDealt == 34)
         #expect(result.conqueredCities == 1)
-        #expect(result.goldEarned == KingdomGameState.goldReward(for: 3))
+        #expect(result.goldEarned == state.goldReward(forCity: 3))
         #expect(state.currentKeepRemainingPower == 0)
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.completedCityCount == 3)
