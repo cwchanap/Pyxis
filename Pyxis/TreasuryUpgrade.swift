@@ -43,22 +43,22 @@ enum TreasuryUpgrade: String, Codable, CaseIterable, Equatable {
     var baseCost: Int {
         switch self {
         case .warChest:
-            return 40
+            return 12
         case .drillYard:
-            return 50
+            return 16
         case .quartermaster:
-            return 45
+            return 14
         }
     }
 
     var maxLevel: Int {
         switch self {
         case .warChest:
-            return 10
+            return 4
         case .drillYard:
-            return 10
+            return 4
         case .quartermaster:
-            return 8
+            return 4
         }
     }
 
@@ -77,6 +77,12 @@ enum TreasuryUpgrade: String, Codable, CaseIterable, Equatable {
 
     /// Price of the next level from current level L:
     /// `max(1, round(baseCost × 1.8^L))`, clamped to a positive integer.
+    /// HPA-670 Task 5 campaign evidence (bought-variant stall at City 11,
+    /// first affordable upgrade not before City 7) tuned the starting values
+    /// from 40/50/45 with max levels 10/10/8 down to 12/16/14 with 4/4/4, so
+    /// the paid ladder is purchasable from the early cities and exhausts
+    /// before the thin-margin late-campaign cities; exponent, formula and
+    /// effects are unchanged. See task-5-report.md for the ledger.
     func price(forCurrentLevel level: Int) -> Int {
         let current = min(max(0, level), maxLevel)
         return max(1, Int((Double(baseCost) * pow(Self.priceExponent, Double(current))).rounded()))

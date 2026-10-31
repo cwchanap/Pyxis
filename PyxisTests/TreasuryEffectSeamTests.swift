@@ -220,7 +220,7 @@ struct TreasuryEffectSeamTests {
 
         var maxedState = KingdomGameState()
         maxedState.treasury.quartermaster = TreasuryUpgrade.quartermaster.maxLevel
-        #expect(maxedState.buildingUpgradeCost(for: .siegeWorkshop, currentLevel: 1) == 29) // 42 × 0.68
+        #expect(maxedState.buildingUpgradeCost(for: .siegeWorkshop, currentLevel: 1) == 35) // 42 × 0.84
 
         // Zero Quartermaster equals the base curves exactly.
         let fresh = KingdomGameState()
