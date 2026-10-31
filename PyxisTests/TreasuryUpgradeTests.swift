@@ -56,8 +56,8 @@ struct TreasuryUpgradeTests {
     /// Yard 190, Quartermaster 166). The bought chained campaign showed the
     /// original 40/50/45 ladder with 10/10/8 headroom priced the first
     /// upgrade out of reach until City 7 and starved camps into a City 11
-    /// stall; 12/16/14 with 4/4/4 exhausts by about City 10 (see
-    /// task-5-report.md). The greedy drain from 499 gold buys every rung and
+    /// stall; 12/16/14 with 4/4/4 exhausts by about City 10 (see the
+    /// design spec's economy-measurement section). The greedy drain from 499 gold buys every rung and
     /// lands exactly on zero.
     @Test func allFourLevelsMatchCampaignTunedAggregatePrices() {
         let aggregate = TreasuryUpgrade.allCases.map { upgrade in
