@@ -3759,70 +3759,81 @@ struct KingdomGameStateTests {
         var state = KingdomGameState(gold: 500)
         #expect(state.treasury == TreasuryState())
 
-        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 40, newLevel: 1, remainingGold: 460))
-        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 50, newLevel: 1, remainingGold: 410))
-        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 45, newLevel: 1, remainingGold: 365))
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 12, newLevel: 1, remainingGold: 488))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 16, newLevel: 1, remainingGold: 472))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 14, newLevel: 1, remainingGold: 458))
         #expect(state.treasury == TreasuryState(warChest: 1, drillYard: 1, quartermaster: 1))
 
-        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 72, newLevel: 2, remainingGold: 293))
-        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 90, newLevel: 2, remainingGold: 203))
-        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 81, newLevel: 2, remainingGold: 122))
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 22, newLevel: 2, remainingGold: 436))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 29, newLevel: 2, remainingGold: 407))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 25, newLevel: 2, remainingGold: 382))
         #expect(state.treasury == TreasuryState(warChest: 2, drillYard: 2, quartermaster: 2))
+
+        // The tuned 4/4/4 ladder is exactly affordable from 500 gold: every
+        // rung buys down to the next price and the last level lands on one.
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 39, newLevel: 3, remainingGold: 343))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 52, newLevel: 3, remainingGold: 291))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 45, newLevel: 3, remainingGold: 246))
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .purchased(cost: 70, newLevel: 4, remainingGold: 176))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard) == .purchased(cost: 93, newLevel: 4, remainingGold: 83))
+        #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .purchased(cost: 82, newLevel: 4, remainingGold: 1))
+        #expect(state.treasury == TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4))
+        #expect(state.purchaseTreasuryUpgrade(.warChest) == .maxLevel)
     }
 
     @Test func treasuryPurchaseRejectsInsufficientGoldWithoutMutation() {
-        var state = KingdomGameState(gold: 39)
+        var state = KingdomGameState(gold: 11)
         #expect(state.purchaseTreasuryUpgrade(.warChest) == .insufficientGold)
-        #expect(state.gold == 39)
+        #expect(state.gold == 11)
         #expect(state.treasury == TreasuryState())
 
-        // One gold short of a mid-curve price (Drill Yard level 2 costs 90).
-        var midCurve = KingdomGameState(gold: 89, treasury: TreasuryState(drillYard: 1))
+        // One gold short of a mid-curve price (Drill Yard level 2 costs 29).
+        var midCurve = KingdomGameState(gold: 28, treasury: TreasuryState(drillYard: 1))
         #expect(midCurve.purchaseTreasuryUpgrade(.drillYard) == .insufficientGold)
-        #expect(midCurve.gold == 89)
+        #expect(midCurve.gold == 28)
         #expect(midCurve.treasury == TreasuryState(drillYard: 1))
     }
 
     @Test func treasuryPurchaseChecksMaxLevelBeforeAffordability() {
         var state = KingdomGameState(
             gold: 0,
-            treasury: TreasuryState(warChest: 10, drillYard: 10, quartermaster: 8)
+            treasury: TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4)
         )
         #expect(state.purchaseTreasuryUpgrade(.warChest) == .maxLevel)
         #expect(state.purchaseTreasuryUpgrade(.drillYard) == .maxLevel)
         #expect(state.purchaseTreasuryUpgrade(.quartermaster) == .maxLevel)
         #expect(state.gold == 0)
         #expect(
-            state.treasury == TreasuryState(warChest: 10, drillYard: 10, quartermaster: 8)
+            state.treasury == TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4)
         )
     }
 
     @Test func treasuryExactLastPurchaseSucceedsAndSpendsEverything() {
-        var state = KingdomGameState(gold: 7934, treasury: TreasuryState(warChest: 9))
-        #expect(state.purchaseTreasuryUpgrade(.warChest)
-            == .purchased(cost: 7934, newLevel: 10, remainingGold: 0))
-        #expect(state.treasury.warChest == 10)
+        var state = KingdomGameState(gold: 93, treasury: TreasuryState(drillYard: 3))
+        #expect(state.purchaseTreasuryUpgrade(.drillYard)
+            == .purchased(cost: 93, newLevel: 4, remainingGold: 0))
+        #expect(state.treasury.drillYard == 4)
     }
 
     @Test func treasuryPurchaseHasNoStageGate() {
         var pendingMap = KingdomGameState(
-            gold: 40,
+            gold: 12,
             cityNumberInCountry: 1,
             completedCityCount: 1,
             stageStatus: .cityConqueredPendingMap
         )
         #expect(pendingMap.purchaseTreasuryUpgrade(.warChest)
-            == .purchased(cost: 40, newLevel: 1, remainingGold: 0))
+            == .purchased(cost: 12, newLevel: 1, remainingGold: 0))
         #expect(pendingMap.stageStatus == .cityConqueredPendingMap)
 
         var countryComplete = KingdomGameState(
-            gold: 45,
+            gold: 14,
             cityNumberInCountry: 15,
             completedCityCount: 15,
             stageStatus: .countryComplete
         )
         #expect(countryComplete.purchaseTreasuryUpgrade(.quartermaster)
-            == .purchased(cost: 45, newLevel: 1, remainingGold: 0))
+            == .purchased(cost: 14, newLevel: 1, remainingGold: 0))
         #expect(countryComplete.stageStatus == .countryComplete)
     }
 

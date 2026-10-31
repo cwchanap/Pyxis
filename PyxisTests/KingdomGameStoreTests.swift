@@ -48,16 +48,16 @@ struct KingdomGameStoreTests {
         let store = KingdomGameStore(defaults: defaults, key: "state")
         var saved = KingdomGameState(gold: 999)
         #expect(saved.purchaseTreasuryUpgrade(.warChest)
-            == .purchased(cost: 40, newLevel: 1, remainingGold: 959))
+            == .purchased(cost: 12, newLevel: 1, remainingGold: 987))
         #expect(saved.purchaseTreasuryUpgrade(.drillYard)
-            == .purchased(cost: 50, newLevel: 1, remainingGold: 909))
+            == .purchased(cost: 16, newLevel: 1, remainingGold: 971))
 
         store.save(saved)
         let loaded = store.load()
 
         #expect(loaded == saved)
         #expect(loaded.treasury == TreasuryState(warChest: 1, drillYard: 1, quartermaster: 0))
-        #expect(loaded.gold == 909)
+        #expect(loaded.gold == 971)
     }
 
     @Test func saveAndLoadRoundTripsSiegeProgress() throws {

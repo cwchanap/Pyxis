@@ -210,19 +210,23 @@ enum Country1SiegeSmoke {
     /// Diagnostic line for one chained-campaign city; never an exact-value
     /// assertion, only stall/pacing evidence. Operates on the file-scope
     /// `Country1CampaignCityRecord`. `nonisolated` so test-keypath/closure
-    /// access stays synchronous.
+    /// access stays synchronous. The `treasury`/`treasurySpend`/`campSpend`
+    /// tokens are the HPA-670 Task 5 balance evidence.
     nonisolated static func campaignLine(for record: Country1CampaignCityRecord) -> String {
         let camp = record.camp.isEmpty
             ? "none"
             : record.camp.map { "\($0.type.rawValue):L\($0.level)" }.joined(separator: ",")
+        let treasury = "\(record.treasury.warChest)/\(record.treasury.drillYard)/\(record.treasury.quartermaster)"
         return [
             "COUNTRY1_SMOKE",
             "campaign=1",
             "city=\(record.city)",
             "lane=\(record.lane.displayName.lowercased())",
             "camp=\(camp)",
+            "treasury=\(treasury)",
             "startGold=\(record.startGold)",
-            "spentGold=\(record.spentGold)",
+            "treasurySpend=\(record.treasurySpend)",
+            "campSpend=\(record.campSpend)",
             "endGold=\(record.endGold)",
             "seed=\(campaignSeed)",
             "outcome=\(record.reachedConquest ? "conquered" : "stalled")",
@@ -231,14 +235,67 @@ enum Country1SiegeSmoke {
         ].joined(separator: " ")
     }
 
+    /// Greedy Camp purchase drain shared by every campaign variant: buys the
+    /// deterministic buyer's next affordable action through the real state
+    /// mutations at the fixed campaign date, re-evaluating after every
+    /// purchase, and returns the gold spent.
+    static func buyGreedyCamp(for state: inout KingdomGameState) -> Int {
+        var spend = 0
+        while state.stageStatus == .battleActive,
+              let action = GreedyCampBuyer.nextAction(for: state) {
+            let goldBefore = state.gold
+            let purchased: Bool
+            switch action.kind {
+            case .build:
+                if case .built = state.buildBuilding(action.type, inSlot: action.slot, at: campaignPurchaseDate) {
+                    purchased = true
+                } else {
+                    purchased = false
+                }
+            case .upgrade:
+                if case .upgraded = state.upgradeBuilding(inSlot: action.slot, at: campaignPurchaseDate) {
+                    purchased = true
+                } else {
+                    purchased = false
+                }
+            }
+            guard purchased else { break }
+            spend += goldBefore - state.gold
+        }
+        return spend
+    }
+
+    /// Bought-variant city-entry routine (HPA-670 Task 5): repeatedly buy the
+    /// cheapest affordable Treasury level through the real
+    /// `purchaseTreasuryUpgrade` mutation, before the city's greedy Camp
+    /// purchases. Returns the gold spent. Deterministic via
+    /// `GreedyTreasuryBuyer`'s stable tie-break; re-evaluated after every
+    /// purchase, so it stops as soon as the next level is unaffordable.
+    static func buyTreasuryUpgradesBeforeCamp(for state: inout KingdomGameState) -> Int {
+        var spend = 0
+        while let upgrade = GreedyTreasuryBuyer.nextAffordableUpgrade(for: state) {
+            let goldBefore = state.gold
+            guard case .purchased = state.purchaseTreasuryUpgrade(upgrade) else {
+                break
+            }
+            spend += goldBefore - state.gold
+        }
+        return spend
+    }
+
     /// Chained 15-city campaign from the production fresh state (HPA-582 Task
-    /// 0): per city, enter through the real transitions, buy the camp under the
+    /// 0; HPA-670 Task 5 added the Treasury variants): per city, enter through
+    /// the real transitions, optionally buy Treasury levels first (bought
+    /// variant, via the real purchase mutation), buy the camp under the
     /// deterministic test-only greedy buyer via the real purchase mutations at
     /// a fixed date, run the bounded siege rail, and carry the actual final
     /// state — gold, rewards, progression — into the next city. Stops at the
     /// first stall so the evidence is preserved; conquests are never fabricated
     /// and rewards are never double-counted.
-    static func runGreedyCampaign(seed: UInt64) -> [Country1CampaignCityRecord] {
+    static func runGreedyCampaign(
+        seed: UInt64,
+        variant: CampaignTreasuryVariant
+    ) -> [Country1CampaignCityRecord] {
         let suiteName = "Country1SiegeSmokeCampaign.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -246,6 +303,11 @@ enum Country1SiegeSmoke {
         let store = KingdomGameStore(defaults: defaults, key: "state")
 
         var state = KingdomGameState()
+        if variant == .freeSeeded {
+            // Free comparison only: levels arrive without paying, so the run
+            // measures the power ceiling, never affordability.
+            state.treasury = TreasuryState(warChest: 4, drillYard: 4, quartermaster: 4)
+        }
         var records: [Country1CampaignCityRecord] = []
 
         for city in 1...KingdomGameState.firstCountryCityCount {
@@ -259,28 +321,12 @@ enum Country1SiegeSmoke {
             }
 
             let startGold = state.gold
-            var spentGold = 0
-            while state.stageStatus == .battleActive,
-                  let action = GreedyCampBuyer.nextAction(for: state) {
-                let goldBefore = state.gold
-                let purchased: Bool
-                switch action.kind {
-                case .build:
-                    if case .built = state.buildBuilding(action.type, inSlot: action.slot, at: campaignPurchaseDate) {
-                        purchased = true
-                    } else {
-                        purchased = false
-                    }
-                case .upgrade:
-                    if case .upgraded = state.upgradeBuilding(inSlot: action.slot, at: campaignPurchaseDate) {
-                        purchased = true
-                    } else {
-                        purchased = false
-                    }
-                }
-                guard purchased else { break }
-                spentGold += goldBefore - state.gold
-            }
+            let treasurySpend = variant == .bought
+                ? buyTreasuryUpgradesBeforeCamp(for: &state)
+                : 0
+            // Levels in force during this city's siege (after entry purchases).
+            let treasury = state.treasury
+            let campSpend = buyGreedyCamp(for: &state)
 
             let camp = state.cityBattleStateForCurrentCity.slots
                 .sorted { $0.key < $1.key }
@@ -299,14 +345,16 @@ enum Country1SiegeSmoke {
                 lane: lane,
                 camp: camp,
                 startGold: startGold,
-                spentGold: spentGold,
+                treasurySpend: treasurySpend,
+                treasury: treasury,
+                campSpend: campSpend,
                 endGold: state.gold,
                 elapsedSeconds: outcome.elapsedSeconds,
                 troopLosses: outcome.troopLosses,
                 reachedConquest: outcome.reachedConquest
             )
             records.append(record)
-            print(campaignLine(for: record))
+            print("[\(variant.rawValue)] \(campaignLine(for: record))")
 
             guard outcome.reachedConquest else { break }
         }
@@ -346,21 +394,39 @@ enum Country1SiegeSmoke {
 }
 
 /// One chained-campaign city record (HPA-582 Task 0): the bought camp plus
-/// the real gold and outcome the chain carried through the city. File-scope
-/// (nonisolated) so test keypaths over records stay non-throwing.
+/// the real gold and outcome the chain carried through the city. The HPA-670
+/// Task 5 extension adds the Treasury levels in force during the siege, the
+/// gold paid for them, and the Camp spend as its own token (the old
+/// `spentGold` was camp-only, so it renames rather than redefines).
+/// File-scope (nonisolated) so test keypaths over records stay non-throwing.
 struct Country1CampaignCityRecord {
     let city: Int
     let lane: BattleLane
     let camp: [Country1SiegeSmoke.Building]
     /// Gold on arrival at the city, before purchases.
     let startGold: Int
+    /// Gold paid for Treasury levels bought at this city's entry.
+    let treasurySpend: Int
+    /// Treasury levels in force during this city's siege.
+    let treasury: TreasuryState
     /// Gold paid for the bought camp.
-    let spentGold: Int
+    let campSpend: Int
     /// Gold after the battle (includes the conquest reward when conquered).
     let endGold: Int
     let elapsedSeconds: Double
     let troopLosses: Int
     let reachedConquest: Bool
+}
+
+/// Treasury policy of a chained-campaign variant (HPA-670 Task 5).
+enum CampaignTreasuryVariant: String, CaseIterable {
+    /// Zero Treasury, never purchased — the HPA-582 regression baseline.
+    case baseline
+    /// Starts seeded at 4/4/4 without paying — power-ceiling comparison only.
+    case freeSeeded
+    /// Buys the cheapest affordable Treasury level before each city's Camp
+    /// purchases, through the real purchase mutation.
+    case bought
 }
 
 /// One matched comparison (HPA-477 Task 8). Reuses a city's committed camp and spawn policy on one lane.
@@ -942,17 +1008,60 @@ struct Country1SiegeSmokeTests {
         Self.expectMatchedConquest(comparison)
     }
 
-    /// Chained 15-city greedy campaign (HPA-582 Task 0), opt-in via
-    /// `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`. The per-city COUNTRY1_SMOKE
-    /// campaign=1 lines are the balance evidence; the assertion is the
-    /// 15/15 conquest gate (green since Task 4 tuned `cityMaxPower` to a
-    /// 1.85 growth curve).
+    /// Chained 15-city greedy campaigns (HPA-582 Task 0; HPA-670 Task 5 added
+    /// the Treasury variants), opt-in via `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`.
+    /// The per-city COUNTRY1_SMOKE campaign=1 lines are the balance evidence;
+    /// the assertion is the 15/15 conquest gate (green since Task 4 tuned
+    /// `cityMaxPower` to a 1.85 growth curve). The baseline is the
+    /// zero-Treasury HPA-582 regression rail; free 4/4/4 measures the power
+    /// ceiling, never pricing; bought exercises real affordability.
     @Test(
-        "Chained greedy campaign conquers every Country 1 city inside the bound",
+        "Chained greedy campaign (zero-Treasury baseline) conquers every Country 1 city inside the bound",
         .enabled(if: Country1SiegeSmoke.campaignEnabled)
     )
-    func chainedGreedyCampaignConquersEveryCityInsideBound() {
-        let records = Country1SiegeSmoke.runGreedyCampaign(seed: Country1SiegeSmoke.campaignSeed)
+    func chainedBaselineCampaignConquersEveryCityInsideBound() {
+        let records = Country1SiegeSmoke.runGreedyCampaign(
+            seed: Country1SiegeSmoke.campaignSeed,
+            variant: .baseline
+        )
+
+        #expect(records.count == KingdomGameState.firstCountryCityCount)
+        let stalledCities = records.filter { !$0.reachedConquest }
+        #expect(
+            stalledCities.isEmpty,
+            Comment(rawValue: "Campaign ended early: " + (records.last.map { Country1SiegeSmoke.campaignLine(for: $0) }
+                ?? "no cities reached"))
+        )
+    }
+
+    @Test(
+        "Chained greedy campaign (free 4/4/4 Treasury) conquers every Country 1 city inside the bound",
+        .enabled(if: Country1SiegeSmoke.campaignEnabled)
+    )
+    func chainedFreeSeededCampaignConquersEveryCityInsideBound() {
+        let records = Country1SiegeSmoke.runGreedyCampaign(
+            seed: Country1SiegeSmoke.campaignSeed,
+            variant: .freeSeeded
+        )
+
+        #expect(records.count == KingdomGameState.firstCountryCityCount)
+        let stalledCities = records.filter { !$0.reachedConquest }
+        #expect(
+            stalledCities.isEmpty,
+            Comment(rawValue: "Campaign ended early: " + (records.last.map { Country1SiegeSmoke.campaignLine(for: $0) }
+                ?? "no cities reached"))
+        )
+    }
+
+    @Test(
+        "Chained greedy campaign (bought Treasury) conquers every Country 1 city inside the bound",
+        .enabled(if: Country1SiegeSmoke.campaignEnabled)
+    )
+    func chainedBoughtCampaignConquersEveryCityInsideBound() {
+        let records = Country1SiegeSmoke.runGreedyCampaign(
+            seed: Country1SiegeSmoke.campaignSeed,
+            variant: .bought
+        )
 
         #expect(records.count == KingdomGameState.firstCountryCityCount)
         let stalledCities = records.filter { !$0.reachedConquest }

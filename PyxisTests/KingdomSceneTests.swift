@@ -35,15 +35,15 @@ struct KingdomSceneTests {
 
         let warChest = try #require(scene.treasuryRowTextForTesting(.warChest))
         #expect(warChest.name == "War Chest")
-        #expect(warChest.level == "Lv 0/10")
-        #expect(warChest.price == "Cost 40 gold")
+        #expect(warChest.level == "Lv 0/4")
+        #expect(warChest.price == "Cost 12 gold")
         #expect(warChest.effect.contains("→"))
         #expect(scene.isBuyEnabledForTesting(.warChest))
 
         let quartermaster = try #require(scene.treasuryRowTextForTesting(.quartermaster))
         #expect(quartermaster.name == "Quartermaster")
-        #expect(quartermaster.level == "Lv 0/8")
-        #expect(quartermaster.price == "Cost 45 gold")
+        #expect(quartermaster.level == "Lv 0/4")
+        #expect(quartermaster.price == "Cost 14 gold")
         #expect(scene.isBuyEnabledForTesting(.quartermaster))
     }
 
@@ -66,7 +66,7 @@ struct KingdomSceneTests {
         let scene = makeScene(store: store)
 
         let warChest = try #require(scene.treasuryRowTextForTesting(.warChest))
-        #expect(warChest.price == "Cost 40 gold")
+        #expect(warChest.price == "Cost 12 gold")
         #expect(!scene.isBuyEnabledForTesting(.warChest))
     }
 
@@ -86,8 +86,9 @@ struct KingdomSceneTests {
 
     @Test("Drill Yard example displays a real rounded gain when one exists")
     func drillYardExampleShowsRealGain() {
-        // Infantry level 2 (base 2) at DY 4 -> 5 crosses the 2.5 rounding
-        // boundary: 2 x 1.25 -> 3, so P -> Q must show a visible gain.
+        // Infantry level 5 (base 4) at DY 2 -> 3 crosses the visible-gain
+        // boundary inside the tuned 0...4 range: 4 x 1.10 -> 4, 4 x 1.15 -> 5,
+        // so P -> Q must show a visible gain.
         var state = KingdomGameState(
             gold: 100,
             cityNumberInCountry: 1,
@@ -95,13 +96,13 @@ struct KingdomSceneTests {
                 countryNumber: 1,
                 cityNumber: 1
             ).storageKey: CityBattleState(
-                slots: [1: CityBuilding(type: .barracks, level: 2)]
+                slots: [1: CityBuilding(type: .barracks, level: 5)]
             )]
         )
-        state.treasury.setLevel(4, for: .drillYard)
+        state.treasury.setLevel(2, for: .drillYard)
 
         let text = KingdomScene.drillYardExampleText(for: state)
-        #expect(text == "Infantry Lv 2 vs this city's trait: 2 → 3 attack")
+        #expect(text == "Infantry Lv 5 vs this city's trait: 4 → 5 attack")
     }
 
     // MARK: - Purchase flow
@@ -124,12 +125,12 @@ struct KingdomSceneTests {
 
         let saved = store.load()
         #expect(saved.treasury.warChest == 1)
-        #expect(saved.gold == 60)
+        #expect(saved.gold == 88)
         #expect(defaults.stateSaveCount == 1)
-        #expect(scene.goldTextForTesting == "Gold " + CompactNumberFormatter.string(from: 60))
+        #expect(scene.goldTextForTesting == "Gold " + CompactNumberFormatter.string(from: 88))
         let warChest = try #require(scene.treasuryRowTextForTesting(.warChest))
-        #expect(warChest.level == "Lv 1/10")
-        #expect(warChest.price == "Cost 72 gold")
+        #expect(warChest.level == "Lv 1/4")
+        #expect(warChest.price == "Cost 22 gold")
     }
 
     @Test("Rejected purchase never spends gold or saves")

@@ -100,4 +100,29 @@ enum GreedyCampBuyer {
         BuildingType.allCases.first { $0.soldierType == soldierType }
     }
 }
+
+/// Deterministic test-only Treasury purchasing policy for the bought chained
+/// campaign variant (HPA-670 Task 5): the cheapest affordable next level,
+/// with `TreasuryUpgrade.allCases` order breaking the (practically
+/// unreachable) equal-price tie. Consumption always goes through the real
+/// `KingdomGameState.purchaseTreasuryUpgrade` mutation.
+enum GreedyTreasuryBuyer {
+    /// Cheapest next Treasury level `state` can afford, or nil when nothing is
+    /// affordable (or every track is maxed).
+    static func nextAffordableUpgrade(for state: KingdomGameState) -> TreasuryUpgrade? {
+        TreasuryUpgrade
+            .allCases
+            .filter { state.treasury.level(for: $0) < $0.maxLevel }
+            .filter { $0.price(forCurrentLevel: state.treasury.level(for: $0)) <= state.gold }
+            .min { lhs, rhs in
+                let lhsPrice = lhs.price(forCurrentLevel: state.treasury.level(for: lhs))
+                let rhsPrice = rhs.price(forCurrentLevel: state.treasury.level(for: rhs))
+                if lhsPrice != rhsPrice {
+                    return lhsPrice < rhsPrice
+                }
+                return (TreasuryUpgrade.allCases.firstIndex(of: lhs) ?? 0)
+                    < (TreasuryUpgrade.allCases.firstIndex(of: rhs) ?? 0)
+            }
+    }
+}
 // swiftlint:enable nesting
