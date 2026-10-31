@@ -54,7 +54,7 @@ struct BattleHUDContentTests {
         let empty = BattleHUDContent.project(from: state, manualCount: 0)
         let occupied = BattleHUDContent.project(from: state, manualCount: 1)
 
-        #expect(empty.enabledTabs == [.battle, .camp, .map])
+        #expect(empty.enabledTabs == [.battle, .camp, .map, .kingdom])
         #expect(occupied.enabledTabs == [.battle])
         #expect(empty.showsCampAttention)
         #expect(occupied.showsCampAttention)

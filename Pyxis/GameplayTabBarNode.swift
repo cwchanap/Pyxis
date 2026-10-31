@@ -5,11 +5,13 @@
 
 import CoreGraphics
 import SpriteKit
+import UIKit
 
 enum GameplayTab: CaseIterable, Hashable {
     case battle
     case camp
     case map
+    case kingdom
 }
 
 final class GameplayTabBarNode: SKNode {
@@ -76,6 +78,11 @@ final class GameplayTabBarNode: SKNode {
     private var hitFrames = [GameplayTab: CGRect]()
 
     private static func makeIcon(for tab: GameplayTab, appearance: Appearance) -> SKNode {
+        if tab == .kingdom,
+           let sprite = makeKingdomSpriteIcon(appearance: appearance) {
+            return sprite
+        }
+
         let path: CGPath
         switch tab {
         case .battle:
@@ -121,6 +128,22 @@ final class GameplayTabBarNode: SKNode {
             mapPath.move(to: CGPoint(x: 3, y: -6))
             mapPath.addLine(to: CGPoint(x: 3, y: 8))
             path = mapPath
+        case .kingdom:
+            // Vector crown fallback for the `tab-kingdom` asset while it has
+            // not shipped (HPA-673 is asset-only and changes no Swift).
+            let kingdomPath = CGMutablePath()
+            kingdomPath.move(to: CGPoint(x: -9, y: -1))
+            kingdomPath.addLine(to: CGPoint(x: -9, y: 6))
+            kingdomPath.addLine(to: CGPoint(x: -4.5, y: 2))
+            kingdomPath.addLine(to: CGPoint(x: 0, y: 6))
+            kingdomPath.addLine(to: CGPoint(x: 4.5, y: 2))
+            kingdomPath.addLine(to: CGPoint(x: 9, y: 6))
+            kingdomPath.addLine(to: CGPoint(x: 9, y: -1))
+            kingdomPath.addLine(to: CGPoint(x: -9, y: -1))
+            kingdomPath.closeSubpath()
+            kingdomPath.move(to: CGPoint(x: -9, y: -5))
+            kingdomPath.addLine(to: CGPoint(x: 9, y: -5))
+            path = kingdomPath
         }
 
         let iconPath: CGPath
@@ -128,7 +151,7 @@ final class GameplayTabBarNode: SKNode {
             let size: CGSize
             switch tab {
             case .battle: size = CGSize(width: 14, height: 14)
-            case .camp, .map: size = CGSize(width: 25, height: 25)
+            case .camp, .map, .kingdom: size = CGSize(width: 25, height: 25)
             }
             let bounds = path.boundingBox
             var transform = CGAffineTransform(
@@ -150,6 +173,31 @@ final class GameplayTabBarNode: SKNode {
         glyph.lineCap = .round
         glyph.lineJoin = .round
         return glyph
+    }
+
+    /// Asset-lookup seam for the Kingdom tab sprite. Production resolves
+    /// `tab-kingdom` from the asset catalog and returns nil when the image is
+    /// absent (vector fallback). Tests inject a texture to exercise the
+    /// sprite path before HPA-673 ships the real art.
+    static var tabIconTextureProvider: (String) -> SKTexture? = { name in
+        UIImage(named: name).map(SKTexture.init(image:))
+    }
+
+    private static func makeKingdomSpriteIcon(appearance: Appearance) -> SKSpriteNode? {
+        guard let texture = tabIconTextureProvider("tab-kingdom") else {
+            return nil
+        }
+        let sprite = SKSpriteNode(texture: texture)
+        // Fixed visual size in both appearances so HPA-673 art can land
+        // without shifting tab geometry.
+        sprite.size = appearance == .standard
+            ? CGSize(width: 25, height: 25)
+            : CGSize(width: 18, height: 18)
+        if appearance == .forged {
+            sprite.color = SKColor(red: 1, green: 232 / 255, blue: 196 / 255, alpha: 1)
+            sprite.colorBlendFactor = 0.2
+        }
+        return sprite
     }
 
     init(appearance: Appearance = .standard) {
@@ -275,6 +323,8 @@ final class GameplayTabBarNode: SKNode {
             : SKColor(red: 1, green: 225 / 255, blue: 180 / 255, alpha: 1)
         if let shape = bundle.icon as? SKShapeNode {
             shape.strokeColor = color
+        } else if let sprite = bundle.icon as? SKSpriteNode {
+            sprite.color = color
         }
         bundle.title.fontColor = color
         let iconAlpha: CGFloat = tab == content.selected ? 1 : 0.45
@@ -339,6 +389,7 @@ private extension GameplayTab {
         case .battle: return "battle"
         case .camp: return "camp"
         case .map: return "map"
+        case .kingdom: return "kingdom"
         }
     }
 
@@ -365,12 +416,22 @@ extension GameplayTabBarNode {
         return icon.path != nil
     }
 
+    func iconNodeForTesting(for tab: GameplayTab) -> SKNode? {
+        tabBundles[tab]?.icon
+    }
+
     func hitFrameForTesting(for tab: GameplayTab) -> CGRect? {
         hitFrames[tab]
     }
 
     func iconSizeForTesting(for tab: GameplayTab) -> CGSize {
-        (tabBundles[tab]?.icon as? SKShapeNode)?.path?.boundingBox.size ?? .zero
+        guard let icon = tabBundles[tab]?.icon else {
+            return .zero
+        }
+        if let shape = icon as? SKShapeNode {
+            return shape.path?.boundingBox.size ?? .zero
+        }
+        return (icon as? SKSpriteNode)?.size ?? .zero
     }
 
 }
