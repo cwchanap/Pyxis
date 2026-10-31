@@ -103,6 +103,7 @@ struct KingdomGameState: Codable, Equatable {
     var cityBattleStates: [String: CityBattleState]
     var activeSiegeSession: ActiveSiegeSession?
     var pendingBattleResult: BattleResult?
+    var treasury: TreasuryState
 
     private enum CodingKeys: String, CodingKey {
         case gold
@@ -116,6 +117,7 @@ struct KingdomGameState: Codable, Equatable {
         case cityBattleStates
         case activeSiegeSession
         case pendingBattleResult
+        case treasury
     }
 
     /// Decode-only tombstone keys (HPA-582). `normalSoldierUpgradeLevel`
@@ -154,7 +156,8 @@ struct KingdomGameState: Codable, Equatable {
         stageStatus: StageStatus = .battleActive,
         cityBattleStates: [String: CityBattleState] = [:],
         activeSiegeSession: ActiveSiegeSession? = nil,
-        pendingBattleResult: BattleResult? = nil
+        pendingBattleResult: BattleResult? = nil,
+        treasury: TreasuryState = TreasuryState()
     ) {
         self.init(
             gold: gold,
@@ -168,6 +171,7 @@ struct KingdomGameState: Codable, Equatable {
             cityBattleStates: cityBattleStates,
             activeSiegeSession: activeSiegeSession,
             pendingBattleResult: pendingBattleResult,
+            treasury: treasury,
             persistedSiegeDamageUnderLegacyCurve: false
         )
     }
@@ -189,6 +193,7 @@ struct KingdomGameState: Codable, Equatable {
         cityBattleStates: [String: CityBattleState] = [:],
         activeSiegeSession: ActiveSiegeSession? = nil,
         pendingBattleResult: BattleResult? = nil,
+        treasury: TreasuryState,
         persistedSiegeDamageUnderLegacyCurve: Bool
     ) {
         let clampedCountryNumber = max(1, countryNumber)
@@ -237,6 +242,7 @@ struct KingdomGameState: Codable, Equatable {
         self.cityNumberInCountry = normalizedCityNumber
         self.completedCityCount = normalizedCompletedCityCount
         self.stageStatus = resolvedStatus
+        self.treasury = treasury
 
         var normalizedCityBattleStates: [String: CityBattleState] = [:]
         for (key, value) in cityBattleStates {
@@ -342,6 +348,9 @@ struct KingdomGameState: Codable, Equatable {
             cityBattleStates: Self.decodeCityBattleStates(from: container),
             activeSiegeSession: decodedSession,
             pendingBattleResult: decodedPending,
+            treasury: (
+                try? container.decodeIfPresent(TreasuryState.self, forKey: .treasury)
+            ) ?? TreasuryState(),
             persistedSiegeDamageUnderLegacyCurve: persistedSiegeDamageUnderLegacyCurve
         )
     }
@@ -992,6 +1001,28 @@ struct KingdomGameState: Codable, Equatable {
         preserveLivingCaptainHPThroughCampGrowth(previousMaxHP: captainMaxHPBefore)
 
         return .upgraded(cost: cost, newLevel: updatedBuilding.level, remainingGold: gold)
+    }
+
+    /// The only Treasury purchase mutation (HPA-670): max level is checked
+    /// before affordability, the computed next price is subtracted exactly
+    /// once, and exactly one level increments. No stage gate — purchases are
+    /// valid in `battleActive`, `cityConqueredPendingMap` and
+    /// `countryComplete`; a rejection never mutates state.
+    @discardableResult
+    mutating func purchaseTreasuryUpgrade(_ upgrade: TreasuryUpgrade) -> TreasuryPurchaseResult {
+        let currentLevel = treasury.level(for: upgrade)
+        guard currentLevel < upgrade.maxLevel else {
+            return .maxLevel
+        }
+
+        let cost = upgrade.price(forCurrentLevel: currentLevel)
+        guard gold >= cost else {
+            return .insufficientGold
+        }
+
+        gold -= cost
+        treasury.setLevel(currentLevel + 1, for: upgrade)
+        return .purchased(cost: cost, newLevel: currentLevel + 1, remainingGold: gold)
     }
 
     @discardableResult
