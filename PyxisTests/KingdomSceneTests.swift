@@ -125,6 +125,20 @@ struct KingdomSceneTests {
                 "gold label outside header gold frame at \(sceneSize)"
             )
 
+            let titleLabel = scene.titleLabelNodeForTesting
+            let titleParent = try #require(titleLabel.parent)
+            let titleSceneFrame = titleParent.convert(titleLabel.frame, to: scene)
+            #expect(
+                layout.titleFrame.contains(titleSceneFrame),
+                "title label outside header title frame at \(sceneSize)"
+            )
+            // The title is center-aligned inside titleFrame — its midpoint
+            // must land on the frame's, not the header panel's center.
+            #expect(
+                abs(titleSceneFrame.midX - layout.titleFrame.midX) < 1,
+                "title label not centered in title frame at \(sceneSize)"
+            )
+
             for (index, upgrade) in TreasuryUpgrade.allCases.enumerated() {
                 let labels = try #require(scene.treasuryRowLabelNodesForTesting(upgrade))
                 let textFrame = layout.textFrames[index]
@@ -187,6 +201,79 @@ struct KingdomSceneTests {
         #expect(saved.gold == 10)
         #expect(saved.treasury == TreasuryState())
         #expect(defaults.stateSaveCount == 0)
+    }
+
+    @Test("A buy tap settles the armed interval before raising the Treasury level")
+    func buySettlesArmedIntervalBeforePurchase() throws {
+        // City 8 entry is nonlethal and re-arms the anchor; the buy settle
+        // must credit the armed window at the OLD level (Drill Yard raises
+        // attack only for intervals settled after the purchase).
+        let start = Date(timeIntervalSinceNow: -60)
+        var initialState = KingdomGameState(
+            gold: 100,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 8,
+            completedCityCount: 7,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let scene = makeScene(store: store, router: RouteSpy())
+        let entryAnchor = try #require(store.load().lastBackgroundedAt)
+
+        // Stretch the armed window to one hour as if the player idled on
+        // Kingdom before tapping Buy.
+        var armed = store.load()
+        let goldBeforeBuy = armed.gold
+        let windowStart = entryAnchor.addingTimeInterval(-3_600)
+        armed.lastBackgroundedAt = windowStart
+        armed.cityBattleStates[armed.currentCityKey.storageKey]?
+            .lastBuildingProgressResolvedAt = windowStart
+        store.save(armed)
+
+        let buyFrame = try #require(scene.buyHitFrameForTesting(.drillYard))
+        scene.handleTouchForTesting(at: buyFrame.center)
+
+        let saved = store.load()
+        #expect(saved.treasury.drillYard == 1)
+        #expect(saved.gold == goldBeforeBuy - TreasuryUpgrade.drillYard.price(forCurrentLevel: 0))
+        #expect(saved.pendingBattleResult == nil)
+        // The pre-buy window was settled at purchase time, not left armed
+        // to resolve later at the new level.
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds >= 3_600)
+        let postBuyAnchor = try #require(saved.lastBackgroundedAt)
+        #expect(postBuyAnchor > entryAnchor)
+
+        // A later foreground settle sees only the post-buy window.
+        scene.sceneWillEnterForegroundForTesting(at: postBuyAnchor.addingTimeInterval(60))
+        #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 60)
+    }
+
+    @Test("A buy-tap settlement conquest routes the report and abandons the purchase")
+    func buySettleConquestRoutesReportAndSkipsPurchase() throws {
+        // Entry is nonlethal; the store is then re-armed with a lethal
+        // window so the tap's own settle conquers — the pending report
+        // routes and the purchase is abandoned, mirroring Camp's
+        // settlement-conquest gate.
+        let store = try makeStore(initialState: makeNonlethalIdleState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        #expect(store.load().pendingBattleResult == nil)
+
+        var armed = store.load()
+        armed.lastBackgroundedAt = .distantPast
+        armed.cityBattleStates[armed.currentCityKey.storageKey]?
+            .lastBuildingProgressResolvedAt = .distantPast
+        store.save(armed)
+
+        let buyFrame = try #require(scene.buyHitFrameForTesting(.drillYard))
+        scene.handleTouchForTesting(at: buyFrame.center)
+
+        let saved = store.load()
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.pendingBattleResult?.conquestMode == .idle)
+        #expect(saved.treasury.drillYard == 0)
+        #expect(router.requestedTabs == [.battle])
     }
 
     @Test("Node tree stays stable across purchase and relayout")
@@ -536,16 +623,25 @@ struct KingdomSceneTests {
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
 
+        // GameViewController constructs the destination synchronously
+        // inside the routing call, so Map's didMove load sees whatever the
+        // store holds at that instant — building it inside the callback is
+        // what makes the save-before-route ordering observable.
+        var destinationMap: CountryMapScene?
+        router.onRequest = {
+            destinationMap = self.makeMapScene(store: store)
+        }
+
         scene.requestGameplayTabForTesting(.map)
         #expect(router.requestedTabs == [.map])
+        let mapScene = try #require(destinationMap)
 
-        // Without the success-path re-arm the anchor would stay cleared
-        // here, and the backgrounded absence below would resolve nothing.
+        // Without the pre-route re-arm, Map's didMove copy would carry a
+        // cleared anchor and its non-gate background save below would
+        // overwrite the armed one — the foreground settle would resolve
+        // nothing.
         let armedAt = try #require(store.load().lastBackgroundedAt)
 
-        // The Map scene's non-gate background path never re-arms, so the
-        // foreground settle runs against the anchor armed at the hand-off.
-        let mapScene = makeMapScene(store: store)
         mapScene.sceneDidEnterBackgroundForTesting(at: armedAt.addingTimeInterval(10))
         mapScene.sceneWillEnterForegroundForTesting(at: armedAt.addingTimeInterval(1_800))
 
@@ -900,11 +996,15 @@ struct KingdomSceneTests {
 
     private final class RouteSpy: KingdomSceneRouting {
         var acceptsAllRequests = true
+        /// Runs inside the routing call, mirroring the controller's
+        /// synchronous destination construction.
+        var onRequest: (() -> Void)?
         private(set) var requestedTabs: [GameplayTab] = []
         private(set) var requestedGateReason: AppLayoutGateReason?
 
         func kingdomSceneDidRequestGameplayTab(_ scene: KingdomScene, tab: GameplayTab) -> Bool {
             requestedTabs.append(tab)
+            onRequest?()
             return acceptsAllRequests
         }
 

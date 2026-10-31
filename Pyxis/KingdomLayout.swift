@@ -104,8 +104,10 @@ struct KingdomLayout: Equatable {
             height: minimumBuyHitSize
         )
 
-        // Tab bar is full-bleed at the bottom edge like the other scenes;
-        // hit targets are clamped into the safe frame by the shared function.
+        // Tab bar is full-bleed at the bottom edge like the other scenes,
+        // but its hit targets derive from the safe content column: under a
+        // horizontal safe-area inset the full-bleed cells would spill
+        // outside the safe frame and fail the containment guard below.
         let tabBarFrame = CGRect(
             x: horizontalMargin,
             y: 0,
@@ -113,7 +115,12 @@ struct KingdomLayout: Equatable {
             height: tabBarHeight
         )
         let tabHitFrames = BattleChromeLayout.tabHitFramesInSafeArea(
-            for: tabBarFrame,
+            for: CGRect(
+                x: contentX,
+                y: tabBarFrame.minY,
+                width: contentWidth,
+                height: tabBarFrame.height
+            ),
             safeFrame: safeFrame
         )
 

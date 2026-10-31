@@ -330,7 +330,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             y: layout.headerFrame.midY
         )
         titleLabel.position = CGPoint(
-            x: layout.titleFrame.minX - layout.headerFrame.minX,
+            x: layout.titleFrame.midX - layout.headerFrame.midX,
             y: layout.titleFrame.midY - layout.headerFrame.midY
         )
         goldLabel.position = CGPoint(
@@ -430,6 +430,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             bundle.nameLabel.text = upgrade.displayName
             bundle.levelLabel.text = "Lv \(level)/\(upgrade.maxLevel)"
             bundle.effectLabel.text = Self.effectText(for: upgrade, state: state)
+            bundle.effectLabel.fontSize = 10
             if let layout = kingdomLayout,
                let index = TreasuryUpgrade.allCases.firstIndex(of: upgrade) {
                 fitEffectLabel(bundle.effectLabel, maxWidth: layout.textFrames[index].width)
@@ -583,15 +584,36 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     private func handleBuyTouch(_ upgrade: TreasuryUpgrade) {
         var latest = store.load()
-        let result = latest.purchaseTreasuryUpgrade(upgrade)
-        guard case .purchased = result else {
-            // Rejected purchase: never spends gold, never saves.
+        // Only a purchasable tap settles: like build/upgrade, a rejected
+        // tap never settles or saves.
+        let currentLevel = latest.treasury.level(for: upgrade)
+        guard currentLevel < upgrade.maxLevel,
+              latest.gold >= upgrade.price(forCurrentLevel: currentLevel) else {
             redraw()
             return
+        }
+
+        // Camp's build/upgrade settle parity: the armed interval is
+        // credited at the levels in effect during it BEFORE the purchase
+        // changes them, then re-armed so time on Kingdom keeps accruing.
+        let settleDate = Date()
+        let idleResult = latest.returnFromBackground(at: settleDate)
+        lastIdleProgressResult = idleResult
+        if idleResult.conqueredCities == 0,
+           latest.stageStatus == .battleActive {
+            latest.markCurrentCityBuildingProgressInactive(at: settleDate)
+        }
+
+        // A settle that conquered (or surfaced an earlier pending result)
+        // abandons the purchase and leaves the pending result for the
+        // router — Camp's settlement-conquest gate.
+        if latest.pendingBattleResult == nil {
+            _ = latest.purchaseTreasuryUpgrade(upgrade)
         }
         state = latest
         store.save(state)
         redraw()
+        routePendingConquestIfNeeded()
     }
 
     // MARK: - Tab routing
@@ -612,6 +634,19 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let exitDate = Date()
         let idleResult = state.returnFromBackground(at: exitDate)
         lastIdleProgressResult = idleResult
+        // The settle cleared the idle anchor; re-arm it for an inactive
+        // destination (Map/Camp) BEFORE routing — the router synchronously
+        // constructs the destination scene, which loads its own state copy
+        // during that call, so the armed anchor must already be saved for a
+        // backgrounding from there to credit idle production. The declined
+        // branch below re-arms for the same reason. Battle drives buildings
+        // per-frame, so it must never inherit a stale anchor.
+        if tab != .battle,
+           idleResult.conqueredCities == 0,
+           state.stageStatus == .battleActive,
+           state.pendingBattleResult == nil {
+            state.markCurrentCityBuildingProgressInactive(at: exitDate)
+        }
         store.save(state)
         redraw()
 
@@ -625,18 +660,6 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             }
             redraw()
             return
-        }
-        // Successful hand-off: the exit settle cleared the idle anchor.
-        // Re-arm it for an inactive destination (Map/Camp) so a backgrounding
-        // from there credits idle production — the declined branch above
-        // re-arms for the same reason. Battle drives buildings per-frame, so
-        // it must never inherit a stale anchor.
-        if tab != .battle,
-           idleResult.conqueredCities == 0,
-           state.stageStatus == .battleActive,
-           state.pendingBattleResult == nil {
-            state.markCurrentCityBuildingProgressInactive(at: exitDate)
-            store.save(state)
         }
     }
 
@@ -895,6 +918,8 @@ extension KingdomScene {
     var headerNodeForTesting: SKNode? { headerPanel }
 
     var goldLabelNodeForTesting: SKLabelNode { goldLabel }
+
+    var titleLabelNodeForTesting: SKLabelNode { titleLabel }
 
     func treasuryRowLabelNodesForTesting(
         _ upgrade: TreasuryUpgrade
