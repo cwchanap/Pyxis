@@ -283,7 +283,9 @@ final class GameViewController: UIViewController {
         let scene = KingdomScene(
             size: view.bounds.size,
             store: store,
-            router: self
+            router: self,
+            feedbackPreferences: feedbackRuntime.preferences,
+            feedbackSettingsAccessibilityAdapter: feedbackRuntime.accessibilityAdapter
         )
         scene.scaleMode = .resizeFill
         view.presentScene(scene)
@@ -324,6 +326,9 @@ final class GameViewController: UIViewController {
         } else if let battle = skView.scene as? BattleScene,
                   battle.isBattleChromeFitFailed || battle.isConquestReportFitFailed {
             reason = .unsupportedGeometry
+        } else if let kingdom = skView.scene as? KingdomScene {
+            // Kingdom gates on its own Treasury fit, not the Map layout math.
+            reason = kingdom.isTreasuryFitFailed ? .unsupportedGeometry : nil
         } else {
             switch layoutResult {
             case .supported:
@@ -450,6 +455,11 @@ extension GameViewController: KingdomSceneRouting {
 
         presentSceneForCurrentStage(in: view, preferredTab: tab)
         return true
+    }
+
+    func kingdomScene(_ scene: KingdomScene, didRequestLayoutGate reason: AppLayoutGateReason) {
+        requestedMapGateReason = reason
+        refreshLayoutSupport()
     }
 }
 

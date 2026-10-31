@@ -498,7 +498,10 @@ struct BattleChromeLayout: Equatable {
         })
     }
 
-    private static func tabHitFramesInSafeArea(
+    /// Shared four-tab hit-frame math (HPA-670): the Kingdom layout reuses
+    /// this function instead of a fifth hit algorithm. Internal so
+    /// `KingdomLayout` and tests consume the same computation.
+    static func tabHitFramesInSafeArea(
         for frame: CGRect,
         safeFrame: CGRect
     ) -> [CGRect] {
