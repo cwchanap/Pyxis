@@ -955,6 +955,10 @@ extension KingdomScene {
 
     var isFeedbackSettingsVisibleForTesting: Bool { isFeedbackSettingsVisible }
 
+    func activateFeedbackSettingsForTesting(_ action: FeedbackSettingsAction) {
+        activateFeedbackSettings(action)
+    }
+
     var feedbackSettingsGearFrameForTesting: CGRect? {
         feedbackSettingsController?.gear.hitFrameForTesting
     }

@@ -77,6 +77,33 @@ struct BuildingViewSceneTests {
         #expect(scene.feedbackTextForTesting.contains("selected"))
     }
 
+    @Test("Camp affordability predicates read the state-owned costs")
+    func campAffordabilityPredicatesReadStateCosts() throws {
+        let state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: 1,
+            cityBattleStates: [CityKey(
+                countryNumber: 1,
+                cityNumber: 1
+            ).storageKey: CityBattleState(
+                slots: [1: CityBuilding(type: .barracks)]
+            )]
+        )
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            router: RouteSpy()
+        )
+
+        // Empty slot: the stage/selection/vacancy/unlock/cap guards pass and
+        // gold is compared against the state's build cost.
+        scene.selectSlotForTesting(2)
+        #expect(scene.canBuildForTesting(.barracks))
+
+        // Occupied slot: gold is compared against the state's upgrade cost.
+        scene.selectSlotForTesting(1)
+        #expect(scene.canUpgradeSelectedSlotForTesting)
+    }
+
     @Test("Camp keeps successful build and upgrade on the existing mutation/save path")
     func successfulMutationsSaveBeforeFeedback() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))

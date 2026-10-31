@@ -174,6 +174,7 @@ struct GameplayTabBarNodeTests {
         let standardSprite = try #require(standard.iconNodeForTesting(for: .kingdom) as? SKSpriteNode)
         #expect(standardSprite.size == CGSize(width: 25, height: 25))
         #expect(standardSprite.colorBlendFactor == 0)
+        #expect(standard.iconSizeForTesting(for: .kingdom) == CGSize(width: 25, height: 25))
 
         let forged = GameplayTabBarNode(appearance: .forged)
         forged.apply(
@@ -188,6 +189,7 @@ struct GameplayTabBarNodeTests {
         #expect(selectedSprite.size == CGSize(width: 18, height: 18))
         #expect(abs(selectedSprite.alpha - 1) < 0.001)
         #expect(selectedSprite.colorBlendFactor > 0)
+        #expect(forged.iconSizeForTesting(for: .kingdom) == CGSize(width: 18, height: 18))
 
         let forgedUnselected = GameplayTabBarNode(appearance: .forged)
         forgedUnselected.apply(

@@ -728,6 +728,54 @@ struct GameViewControllerTests {
         #expect(view.scene?.isUserInteractionEnabled == true)
     }
 
+    @Test func kingdomRequestWithoutSKViewReturnsFalse() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let controller = makeGameViewController(store: store)
+        let kingdom = KingdomScene(
+            size: CGSize(width: 393, height: 852),
+            store: store,
+            router: controller
+        )
+
+        let accepted = controller.kingdomSceneDidRequestGameplayTab(kingdom, tab: .map)
+
+        #expect(!accepted)
+        #expect(!(controller.view is SKView))
+    }
+
+    @Test func kingdomTreasuryFitFailureGatesControllerViaCallback() throws {
+        let store = try makeStore(initialState: .init(stageStatus: .battleActive))
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .kingdom)
+        let kingdom = try #require(view.scene as? KingdomScene)
+        kingdom.didMove(to: view)
+        #expect(controller.layoutGateReasonForTesting == nil)
+
+        // A viewport too short for the three Treasury rows fires the scene's
+        // gate callback synchronously, mirroring the Battle fit-failure path.
+        kingdom.size = CGSize(width: 320, height: 330)
+
+        #expect(kingdom.isTreasuryFitFailedForTesting)
+        #expect(controller.layoutGateReasonForTesting == .unsupportedGeometry)
+        #expect(view.isPaused)
+        #expect(view.scene?.isUserInteractionEnabled == false)
+
+        // Recovering geometry plus the next layout refresh clears the gate.
+        kingdom.size = CGSize(width: 393, height: 852)
+        #expect(!kingdom.isTreasuryFitFailedForTesting)
+        controller.refreshLayoutSupportForTesting(environment: .init(
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        ))
+        #expect(controller.layoutGateReasonForTesting == nil)
+        #expect(!view.isPaused)
+        #expect(view.scene?.isUserInteractionEnabled == true)
+    }
+
     @Test func battleRequestWithoutSKViewReturnsFalse() throws {
         let store = try makeStore(initialState: .init(
             stageStatus: .cityConqueredPendingMap
