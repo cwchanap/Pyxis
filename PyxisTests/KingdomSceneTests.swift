@@ -463,7 +463,10 @@ struct KingdomSceneTests {
         scene.requestGameplayTabForTesting(.map)
 
         #expect(router.requestedTabs == [.map])
-        #expect(store.load().lastBackgroundedAt == nil)
+        // The settle cleared the anchor; the successful hand-off re-arms it
+        // for the inactive destination, so a later backgrounding from Map
+        // still credits idle production.
+        #expect(store.load().lastBackgroundedAt != nil)
     }
 
     @Test("Rejected routes never lose a settled pending conquest")
@@ -491,6 +494,81 @@ struct KingdomSceneTests {
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
         #expect(router.requestedTabs == [.battle, .map])
         #expect(!scene.isRoutingToBattleForTesting)
+    }
+
+    @Test("Header recovers after an unsupported-geometry resize")
+    func headerRecoversAfterLayoutFailure() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 123))
+        let scene = makeScene(store: store)
+        let header = try #require(scene.headerNodeForTesting)
+        #expect(!header.isHidden)
+
+        // A viewport too short for three real rows forces the fail path,
+        // which hides the header along with the rows and tab bar.
+        scene.size = CGSize(width: 320, height: 330)
+        #expect(scene.isTreasuryFitFailedForTesting)
+        #expect(scene.kingdomLayoutForTesting == nil)
+        #expect(header.isHidden)
+
+        // Recovering to a supported size must unhide the header again.
+        scene.size = CGSize(width: 393, height: 852)
+        #expect(!scene.isTreasuryFitFailedForTesting)
+        #expect(scene.kingdomLayoutForTesting != nil)
+        #expect(!header.isHidden)
+        #expect(scene.goldTextForTesting
+            == "Gold " + CompactNumberFormatter.string(from: 123))
+    }
+
+    @Test("Successful Kingdom→Map hand-off re-arms the idle anchor for the destination")
+    func successfulMapHandoffRearmsIdleAnchorForDestination() throws {
+        // City 8 with a short armed window: the entry settle is nonlethal
+        // and re-arms; the hand-off settle must re-arm again for Map.
+        let start = Date(timeIntervalSinceNow: -60)
+        var initialState = KingdomGameState(
+            gold: 100,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 8,
+            completedCityCount: 7,
+            stageStatus: .battleActive
+        )
+        _ = initialState.buildBuilding(.barracks, inSlot: 1, at: start)
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestGameplayTabForTesting(.map)
+        #expect(router.requestedTabs == [.map])
+
+        // Without the success-path re-arm the anchor would stay cleared
+        // here, and the backgrounded absence below would resolve nothing.
+        let armedAt = try #require(store.load().lastBackgroundedAt)
+
+        // The Map scene's non-gate background path never re-arms, so the
+        // foreground settle runs against the anchor armed at the hand-off.
+        let mapScene = makeMapScene(store: store)
+        mapScene.sceneDidEnterBackgroundForTesting(at: armedAt.addingTimeInterval(10))
+        mapScene.sceneWillEnterForegroundForTesting(at: armedAt.addingTimeInterval(1_800))
+
+        let result = mapScene.lastIdleProgressResultForTesting
+        #expect(result.elapsedSeconds == 1_800)
+        #expect(result.elapsedSeconds > 0)
+        // City 8's keep is far above one Barracks' half-hour idle damage.
+        #expect(result.conqueredCities == 0)
+        #expect(store.load().stageStatus == .battleActive)
+    }
+
+    @Test("Battle destination never inherits a stale idle anchor")
+    func battleDestinationGetsNoIdleAnchor() throws {
+        let store = try makeStore(initialState: makeNonlethalIdleState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+
+        scene.requestGameplayTabForTesting(.battle)
+
+        #expect(router.requestedTabs == [.battle])
+        // Battle drives buildings per-frame, so the hand-off must leave the
+        // anchor cleared rather than arming a stale one.
+        #expect(store.load().lastBackgroundedAt == nil)
     }
 
     // MARK: - Helpers
@@ -529,6 +607,22 @@ struct KingdomSceneTests {
             router: router,
             safeAreaInsetsOverride: safeAreaInsets,
             imageLoaderOverride: imageLoader
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+        return scene
+    }
+
+    private func makeMapScene(store: KingdomGameStore) -> CountryMapScene {
+        let size = CGSize(width: 393, height: 852)
+        let scene = CountryMapScene(
+            size: size,
+            store: store,
+            layoutEnvironmentOverride: CountryMapLayoutEnvironment(
+                safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            ),
+            feedbackPreferences: RecordingFeedbackPreferencesManager()
         )
         let view = SKView(frame: CGRect(origin: .zero, size: size))
         scene.didMove(to: view)

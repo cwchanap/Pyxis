@@ -65,6 +65,92 @@ struct TreasuryEffectSeamTests {
         #expect(state.gold == 5 + quote)
     }
 
+    @Test("War Chest >0 quote parity: Map scout card, HUD value and current reward")
+    func warChestQuoteParityAcrossMapAndHUD() {
+        var state = KingdomGameState(gold: 5, cityNumberInCountry: 6, completedCityCount: 5)
+        state.treasury.warChest = 2
+
+        let quote = state.goldReward(forCity: 6)
+        #expect(quote == 61) // base 51 × 1.20 = 61.2 → 61
+        // The Battle HUD's displayed reward reads the same instance seam.
+        #expect(state.currentGoldReward == quote)
+
+        // The Map scout card quotes the same adjusted reward for the city.
+        guard case .scout(let scout) = CountryMapScoutCardContent.project(from: state) else {
+            Issue.record("expected a scout card projection")
+            return
+        }
+        #expect(scout.cityNumber == 6)
+        #expect(scout.goldReward == quote)
+        #expect(scout.goldReward != KingdomGameState.baseGoldReward(for: 6))
+    }
+
+    @Test("Idle conquest awards the War Chest quote exactly once")
+    func idleConquestAwardsWarChestQuoteExactlyOnce() throws {
+        // A capped 8-hour armed window + one barracks conquers City 3 —
+        // the same shape as the scene-entry idle conquest.
+        let start = Date.distantPast
+        var state = KingdomGameState(
+            gold: 100,
+            lastBackgroundedAt: start,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        state.treasury.warChest = 2
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+
+        let quote = state.goldReward(forCity: 3)
+        let goldBefore = state.gold
+
+        let result = state.returnFromBackground(at: Date(timeIntervalSinceReferenceDate: 0))
+
+        #expect(result.conqueredCities == 1)
+        #expect(result.goldEarned == quote)
+        #expect(state.gold == goldBefore + quote)
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .idle)
+        #expect(pending.goldEarned == quote)
+
+        // Exactly once: nothing is credited again afterwards.
+        _ = state.returnFromBackground(at: Date(timeIntervalSinceReferenceDate: 60))
+        #expect(state.gold == goldBefore + quote)
+    }
+
+    @Test("Camp settlement conquest awards the War Chest quote exactly once")
+    func campSettlementConquestAwardsWarChestQuoteExactlyOnce() throws {
+        // A barracks armed with a capped 8-hour window conquers City 3
+        // during the pre-action settle of a deliberate Camp build.
+        let start = Date(timeIntervalSinceReferenceDate: -100_000)
+        var state = KingdomGameState(
+            gold: 200,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        )
+        state.treasury.warChest = 2
+        _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
+
+        let quote = state.goldReward(forCity: 3)
+        let goldBefore = state.gold
+
+        let result = state.buildBuilding(
+            .archeryRange,
+            inSlot: 2,
+            at: start.addingTimeInterval(100_000)
+        )
+        guard case .cityConqueredDuringSettlement(let goldEarned, let remainingGold) = result else {
+            Issue.record("expected a settlement conquest, got \(result)")
+            return
+        }
+
+        #expect(goldEarned == quote)
+        #expect(state.gold == goldBefore + quote)
+        #expect(remainingGold == state.gold)
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.goldEarned == quote)
+    }
+
     // MARK: - Drill Yard (attack seam)
 
     @Test("Drill Yard folds the upgrade multiplier into the single round")
@@ -168,7 +254,7 @@ struct TreasuryEffectSeamTests {
         #expect(expected == 2)
     }
 
-    @Test("Idle settlement consumes the Drill Yard adjusted power")
+    @Test("Idle settlement consumes the Drill Yard adjusted power at a reachable level")
     func idleSettlementUsesDrillYardPower() {
         func singleSpawnIdleDamage(drillYard: Int) -> KingdomGameState.IdleProgressResult {
             var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
@@ -178,7 +264,7 @@ struct TreasuryEffectSeamTests {
 
             let key = state.currentCityKey
             var cityState = state.cityBattleState(for: key)
-            cityState.setBuilding(CityBuilding(type: .barracks), inSlot: 1)
+            cityState.setBuilding(CityBuilding(type: .barracks, level: 5), inSlot: 1)
             state.cityBattleStates[key.storageKey] = cityState
 
             let start = Date(timeIntervalSinceReferenceDate: 0)
@@ -186,16 +272,90 @@ struct TreasuryEffectSeamTests {
             return state.returnFromBackground(at: start.addingTimeInterval(150))
         }
 
-        // One level-1 infantry spawn (150 s idle → 15 s active-equivalent →
+        // One level-5 infantry spawn (150 s idle → 15 s active-equivalent →
         // one 10 s barracks interval). City 1 is Standard Watch, so the only
-        // difference is the Drill Yard fold.
+        // difference is the Drill Yard fold. Both pins sit inside the tuned
+        // purchasable ranges (barracks level 5, DY 3 of 1...4) and the gain
+        // is visible: 4 × 1.15 = 4.6 → 5.
         let baseline = singleSpawnIdleDamage(drillYard: 0)
-        let drilled = singleSpawnIdleDamage(drillYard: 10)
+        let drilled = singleSpawnIdleDamage(drillYard: 3)
 
         #expect(baseline.conqueredCities == 0)
-        #expect(baseline.damageDealt == 1) // round(1 × 1.0) = 1
+        #expect(baseline.damageDealt == 4) // round(4 × 1.0) = 4
         #expect(drilled.conqueredCities == 0)
-        #expect(drilled.damageDealt == 2) // round(1 × 1.5) = 2
+        #expect(drilled.damageDealt == 5) // round(4 × 1.15) = 5
+    }
+
+    @Test("A new live spawn carries the single-round Drill Yard attack")
+    func liveSpawnAttackMatchesIdleSeam() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+        state.treasury.drillYard = 3
+
+        let key = state.currentCityKey
+        var cityState = state.cityBattleState(for: key)
+        cityState.setBuilding(CityBuilding(type: .barracks, level: 5), inSlot: 1)
+        state.cityBattleStates[key.storageKey] = cityState
+
+        // The live injection path (BattleScene's per-tick spawn) prices each
+        // BuildingSpawn through the instance seam exactly once.
+        let spawns = state.resolveActiveBuildingSpawns(deltaTime: 10)
+        let spawn = try #require(spawns.first)
+        #expect(spawn.soldierType == .infantry)
+        #expect(spawn.level == 5)
+
+        var combat = BattleCombatState(configuration: .live(cityLevel: state.cityLevel))
+        let id = combat.spawnSoldier(
+            type: spawn.soldierType,
+            source: .building,
+            level: spawn.level,
+            attackPower: state.traitAdjustedSoldierAttackPower(
+                for: spawn.soldierType,
+                level: spawn.level
+            ),
+            lane: state.siegeProgress.selectedLane
+        )
+        let soldier = try #require(combat.soldier(id: id))
+        // 4 × 1.15 = 4.6 → 5 in the single fold — the exact value the idle
+        // abstract path consumes for the same state, never a double round.
+        #expect(soldier.attackPower == 5)
+        #expect(
+            soldier.attackPower
+                == KingdomGameState.traitAdjustedSoldierAttackPower(
+                    for: .infantry,
+                    level: 5,
+                    defenseTrait: state.currentCityDefenseTrait,
+                    upgradeMultiplier: 1.15
+                )
+        )
+    }
+
+    @Test("Soldiers already on the field keep their cached attack after a Drill Yard purchase")
+    func deployedSoldiersKeepCachedAttackAfterDrillYardPurchase() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 100, keepRemaining: 100_000)
+        var combat = BattleCombatState(configuration: .live(cityLevel: state.cityLevel))
+        let deployedID = combat.spawnSoldier(
+            type: .infantry,
+            source: .building,
+            level: 5,
+            attackPower: state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5),
+            lane: state.siegeProgress.selectedLane
+        )
+        // DY 0: level-5 infantry vs Standard Watch → round(4 × 1.0) = 4.
+        #expect(combat.soldier(id: deployedID)?.attackPower == 4)
+
+        // 100 gold buys three Drill Yard levels (16 + 29 + 52 = 97).
+        for _ in 0..<3 {
+            guard case .purchased = state.purchaseTreasuryUpgrade(.drillYard) else {
+                Issue.record("expected the Drill Yard purchase to succeed")
+                return
+            }
+        }
+        #expect(state.treasury.drillYard == 3)
+
+        // The on-field soldier keeps its spawn-time cached attack; only NEW
+        // spawns pick up the upgraded single-round power (4 × 1.15 → 5).
+        #expect(combat.soldier(id: deployedID)?.attackPower == 4)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 5)
     }
 
     // MARK: - Quartermaster (cost seam)
