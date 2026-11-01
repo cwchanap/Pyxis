@@ -371,8 +371,8 @@ struct KingdomSceneTests {
         #expect(warChest.effect == expected)
     }
 
-    @Test("A finished country disables every Buy and drops the reward preview")
-    func countryCompleteDisablesBuyAndDropsRewardPreview() throws {
+    @Test("A finished country keeps every valid Buy and drops the reward preview")
+    func countryCompleteKeepsBuyAndDropsRewardPreview() throws {
         let state = KingdomGameState(
             gold: 10_000,
             completedCityCount: 15,
@@ -381,13 +381,21 @@ struct KingdomSceneTests {
         let store = try makeStore(initialState: state)
         let scene = makeScene(store: store)
 
-        // No future battle, camp or conquest means no level can still pay
-        // out — all three buys stay disabled even with gold to spend.
+        // Treasury has no stage gate: an affordable, non-maxed upgrade
+        // stays purchasable after the final city — saved gold can be
+        // spent at any point, including after City 15.
         for upgrade in TreasuryUpgrade.allCases {
-            #expect(!scene.isBuyEnabledForTesting(upgrade))
+            #expect(scene.isBuyEnabledForTesting(upgrade))
         }
         let warChest = try #require(scene.treasuryRowTextForTesting(.warChest))
         #expect(warChest.effect == TreasuryUpgrade.warChest.effectName)
+
+        let buyFrame = try #require(scene.buyHitFrameForTesting(.warChest))
+        scene.handleTouchForTesting(at: buyFrame.center)
+
+        let saved = store.load()
+        #expect(saved.treasury.warChest == 1)
+        #expect(saved.gold == 10_000 - TreasuryUpgrade.warChest.price(forCurrentLevel: 0))
     }
 
     @Test("Kingdom reuses the one shared Settings gear anchored at the layout frame")
@@ -1034,6 +1042,15 @@ struct KingdomSceneTests {
         )
         #expect(closeElement.accessibilityActivate())
         #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        // Closing Settings re-exposes the scene's own elements alongside
+        // the gear through the .openingGear dismiss path.
+        let restoredElements = try #require(
+            view.accessibilityElements as? [UIAccessibilityElement]
+        )
+        #expect(restoredElements.contains {
+            $0.accessibilityIdentifier == "kingdom-buy-warChest"
+        })
 
         // An action while the modal is closed is dropped by the guard.
         scene.activateFeedbackSettingsForTesting(.toggleSoundEffects)

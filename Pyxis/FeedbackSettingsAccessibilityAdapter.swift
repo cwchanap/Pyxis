@@ -208,7 +208,7 @@ final class FeedbackSettingsAccessibilityAdapter {
                 postScreenChange(target: nil)
                 return
             }
-            expose([gearElement])
+            exposeGearIfAvailable()
             postScreenChange(target: gearElement)
 
         case .systemDefault:
