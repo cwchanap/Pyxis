@@ -51,7 +51,14 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private let headerPanel = PanelNode(size: .zero)
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let goldLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
-    private let gameplayTabBar = GameplayTabBarNode(appearance: .forged)
+    /// The tab bar shares the scene's per-instance image loader (the same
+    /// injection style as the row icons) instead of a global lookup hook.
+    private lazy var gameplayTabBar = GameplayTabBarNode(
+        appearance: .forged,
+        iconTextureProvider: { [weak self] name in
+            self?.imageLoader(name).map(SKTexture.init(image:)) ?? nil
+        }
+    )
     private var gameplayTabContent = GameplayTabBarNode.Content(
         selected: .kingdom,
         enabledTabs: [],
@@ -63,6 +70,21 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private var isLayoutGatePaused = false
     private var isSystemBackgrounded = false
     private var isRoutingToBattle = false
+    /// Header/row/Buy elements the scene vends through the adapter's
+    /// supplementary-elements seam — created once the hosting view exists.
+    private var sceneAccessibilityElements: SceneAccessibilityElements?
+    private weak var activeAccessibilityAdapter: FeedbackSettingsAccessibilityAdapter?
+
+    private struct SceneAccessibilityElements {
+        let header: UIAccessibilityElement
+        let rows: [TreasuryUpgrade: UIAccessibilityElement]
+        let buys: [TreasuryUpgrade: ActionAccessibilityElement]
+    }
+    /// Entry-settle conquests route on the first update instead of inside
+    /// didMove: didMove runs within presentScene, so a synchronous route
+    /// would nest a second presentation in the first. Gate-resume and
+    /// foreground hooks drive `routePendingConquestIfNeeded` directly.
+    private var hasDeferredPendingConquestRoute = false
     private var lastIdleProgressResult = KingdomGameState.IdleProgressResult.none
     /// Non-latching: reset on every layout pass, so a resize that makes the
     /// three rows fit recovers automatically (mirrors the Map scout card).
@@ -122,6 +144,12 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         layoutInterface()
+    }
+
+    override func update(_ currentTime: TimeInterval) {
+        guard hasDeferredPendingConquestRoute else { return }
+        hasDeferredPendingConquestRoute = false
+        routePendingConquestIfNeeded()
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -356,33 +384,23 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 y: iconFrame.midY - rowFrame.midY
             )
 
-            let textFrame = layout.textFrames[index]
-            let localX = textFrame.minX - rowFrame.midX
-            bundle.nameLabel.position = CGPoint(
-                x: localX,
-                y: rowFrame.height * 0.34
-            )
-            bundle.levelLabel.position = CGPoint(
-                x: localX,
-                y: rowFrame.height * 0.12
-            )
-            bundle.effectLabel.position = CGPoint(
-                x: localX,
-                y: -rowFrame.height * 0.10
-            )
-            bundle.priceLabel.position = CGPoint(
-                x: localX,
-                y: -rowFrame.height * 0.32
-            )
+            let labelFrames = [
+                (layout.nameLabelFrames[index], bundle.nameLabel),
+                (layout.levelLabelFrames[index], bundle.levelLabel),
+                (layout.effectLabelFrames[index], bundle.effectLabel),
+                (layout.priceLabelFrames[index], bundle.priceLabel)
+            ]
+            for (frame, label) in labelFrames {
+                label.position = CGPoint(
+                    x: frame.minX - rowFrame.midX,
+                    y: frame.midY - rowFrame.midY
+                )
+            }
 
             let buyFrame = layout.buyHitFrames[index]
             bundle.buyPanel.isHidden = false
-            bundle.buyPanel.apply(
-                size: buyFrame.size,
-                style: .normal,
-                showsRivets: false,
-                appearance: .forged
-            )
+            // Geometry only here — `redraw()` applies the enabled/disabled
+            // style once, so each layout pass styles the panel exactly once.
             bundle.buyPanel.position = CGPoint(
                 x: buyFrame.midX - rowFrame.midX,
                 y: buyFrame.midY - rowFrame.midY
@@ -408,13 +426,6 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         feedbackSettingsController?.applyGearFrame(.zero)
     }
 
-    private func fitEffectLabel(_ label: SKLabelNode, maxWidth: CGFloat) {
-        guard maxWidth > 0 else { return }
-        while label.frame.width > maxWidth && label.fontSize > 8 {
-            label.fontSize -= 1
-        }
-    }
-
     // MARK: - Redraw
 
     private func redraw() {
@@ -428,17 +439,27 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             let isAffordable = state.gold >= price
 
             bundle.nameLabel.text = upgrade.displayName
+            bundle.nameLabel.fontSize = 15
             bundle.levelLabel.text = "Lv \(level)/\(upgrade.maxLevel)"
             bundle.effectLabel.text = Self.effectText(for: upgrade, state: state)
             bundle.effectLabel.fontSize = 10
             if let layout = kingdomLayout,
                let index = TreasuryUpgrade.allCases.firstIndex(of: upgrade) {
-                fitEffectLabel(bundle.effectLabel, maxWidth: layout.textFrames[index].width)
+                bundle.nameLabel.shrinkFontSize(
+                    toFitWidth: layout.nameLabelFrames[index].width,
+                    floor: 10
+                )
+                bundle.effectLabel.shrinkFontSize(
+                    toFitWidth: layout.effectLabelFrames[index].width,
+                    floor: 8
+                )
             }
             bundle.priceLabel.text = isMaxLevel
                 ? "MAX"
                 : "Cost \(CompactNumberFormatter.string(from: price)) gold"
-            let buyEnabled = !isMaxLevel && isAffordable
+            // A finished country offers no future battle, camp or conquest,
+            // so no upgrade level can still pay out — don't offer the buy.
+            let buyEnabled = isBuyEnabled(upgrade)
             if let layout = kingdomLayout,
                let index = TreasuryUpgrade.allCases.firstIndex(of: upgrade) {
                 bundle.buyPanel.apply(
@@ -453,25 +474,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         }
 
         applyGameplayTabBar()
+        // Keep the exposed elements' labels/values/traits current even when
+        // no re-expose happens between a purchase and the next VoiceOver read.
+        refreshSceneAccessibilityElements()
     }
 
     private func applyGameplayTabBar() {
-        let enabledTabs: Set<GameplayTab> = state.stageStatus == .battleActive
-            && state.pendingBattleResult == nil
-            ? Set(GameplayTab.allCases)
-            : [.map, .kingdom]
-        let showsCampAttention: Bool
-        switch RecommendedCampRecommendation.make(for: state) {
-        case .ready, .saveFor:
-            showsCampAttention = true
-        case .noAction:
-            showsCampAttention = false
-        }
-        gameplayTabContent = GameplayTabBarNode.Content(
-            selected: .kingdom,
-            enabledTabs: enabledTabs,
-            showsCampAttention: showsCampAttention
-        )
+        gameplayTabContent = .makeForNonBattleScene(selected: .kingdom, state: state)
         if let layout = kingdomLayout {
             gameplayTabBar.apply(
                 content: gameplayTabContent,
@@ -496,10 +505,16 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             guard state.treasury.warChest < upgrade.maxLevel else {
                 return upgrade.effectName
             }
-            let current = state.goldReward(forCity: state.cityLevel)
+            // Quote the city the player will conquer next, not `cityLevel`:
+            // after a conquest `cityLevel` still points at the already-paid
+            // city, and a finished country has no reward left to quote.
+            guard let nextCity = state.unlockedMapCityNumber else {
+                return upgrade.effectName
+            }
+            let current = state.goldReward(forCity: nextCity)
             var projected = state
             projected.treasury.setLevel(state.treasury.warChest + 1, for: .warChest)
-            let next = projected.goldReward(forCity: projected.cityLevel)
+            let next = projected.goldReward(forCity: nextCity)
             return "City reward \(CompactNumberFormatter.string(from: current))"
                 + " → \(CompactNumberFormatter.string(from: next)) gold"
         case .quartermaster:
@@ -517,21 +532,23 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     /// The Drill Yard row's labeled rounded example: the current state's
     /// Infantry level against the current city's defense trait, at the
-    /// current and next Drill Yard level, through the same static
-    /// single-round attack helper the live/abstract damage paths use. When
-    /// the rounded attack is unchanged the row says so instead of implying a
-    /// guaranteed gain.
+    /// current and next Drill Yard level, through the same
+    /// `traitAdjustedSoldierAttackPower(for:level:)` seam the live/abstract
+    /// damage paths use. When the rounded attack is unchanged the row says
+    /// so instead of implying a guaranteed gain.
     static func drillYardExampleText(for state: KingdomGameState) -> String {
         let infantryLevel = state.manualSoldierLevel(for: .infantry) ?? 1
-        let trait = state.currentCityDefenseTrait
         let drillYardLevel = state.treasury.drillYard
 
+        // Read the attack through the same instance seam live/abstract
+        // damage uses, on a copy whose Drill Yard level is moved — the
+        // multiplier formula stays owned by KingdomGameState.
         func attack(atUpgradeLevel level: Int) -> Int {
-            KingdomGameState.traitAdjustedSoldierAttackPower(
+            var projected = state
+            projected.treasury.setLevel(level, for: .drillYard)
+            return projected.traitAdjustedSoldierAttackPower(
                 for: .infantry,
-                level: infantryLevel,
-                defenseTrait: trait,
-                upgradeMultiplier: 1.0 + 0.05 * Double(level)
+                level: infantryLevel
             )
         }
 
@@ -585,10 +602,11 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private func handleBuyTouch(_ upgrade: TreasuryUpgrade) {
         var latest = store.load()
         // Only a purchasable tap settles: like build/upgrade, a rejected
-        // tap never settles or saves.
-        let currentLevel = latest.treasury.level(for: upgrade)
-        guard currentLevel < upgrade.maxLevel,
-              latest.gold >= upgrade.price(forCurrentLevel: currentLevel) else {
+        // tap never settles or saves. Same eligibility the row exposes —
+        // a disabled (unaffordable, maxed, or post-campaign) Buy does
+        // nothing when tapped or VoiceOver-activated.
+        guard latest.hasNextCityInCountry,
+              latest.canPurchaseTreasuryUpgrade(upgrade) else {
             redraw()
             return
         }
@@ -597,19 +615,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         // credited at the levels in effect during it BEFORE the purchase
         // changes them, then re-armed so time on Kingdom keeps accruing.
         let settleDate = Date()
-        let idleResult = latest.returnFromBackground(at: settleDate)
-        lastIdleProgressResult = idleResult
-        if idleResult.conqueredCities == 0,
-           latest.stageStatus == .battleActive {
-            latest.markCurrentCityBuildingProgressInactive(at: settleDate)
+        settleIdleProgress(in: &latest, at: settleDate) {
+            $0.conqueredCities == 0
         }
 
-        // A settle that conquered (or surfaced an earlier pending result)
-        // abandons the purchase and leaves the pending result for the
-        // router — Camp's settlement-conquest gate.
-        if latest.pendingBattleResult == nil {
-            _ = latest.purchaseTreasuryUpgrade(upgrade)
-        }
+        // Treasury has no stage gate — a completed or pending city does not
+        // block a valid purchase (spec), so a settle that conquered does NOT
+        // abandon the buy, unlike Camp's stage-gated build/upgrade. The
+        // pending result still routes pending-first below.
+        _ = latest.purchaseTreasuryUpgrade(upgrade)
         state = latest
         store.save(state)
         redraw()
@@ -632,8 +646,6 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         // settle that conquers leaves the pending result for the
         // controller's pending-first gate to surface.
         let exitDate = Date()
-        let idleResult = state.returnFromBackground(at: exitDate)
-        lastIdleProgressResult = idleResult
         // The settle cleared the idle anchor; re-arm it for an inactive
         // destination (Map/Camp) BEFORE routing — the router synchronously
         // constructs the destination scene, which loads its own state copy
@@ -641,11 +653,8 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         // backgrounding from there to credit idle production. The declined
         // branch below re-arms for the same reason. Battle drives buildings
         // per-frame, so it must never inherit a stale anchor.
-        if tab != .battle,
-           idleResult.conqueredCities == 0,
-           state.stageStatus == .battleActive,
-           state.pendingBattleResult == nil {
-            state.markCurrentCityBuildingProgressInactive(at: exitDate)
+        _ = settleIdleProgress(in: &state, at: exitDate) { result in
+            tab != .battle && result.conqueredCities == 0
         }
         store.save(state)
         redraw()
@@ -653,9 +662,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         isRoutingToBattle = true
         guard router?.kingdomSceneDidRequestGameplayTab(self, tab: tab) == true else {
             isRoutingToBattle = false
-            if idleResult.conqueredCities == 0,
-               state.stageStatus == .battleActive {
-                state.markCurrentCityBuildingProgressInactive(at: exitDate)
+            if rearmIdleProgressAnchor(in: &state, at: exitDate) {
                 store.save(state)
             }
             redraw()
@@ -685,18 +692,49 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     // MARK: - Lifecycle
 
-    private func settleIdleProgressOnEntry() {
-        let entryDate = Date()
-        let result = state.returnFromBackground(at: entryDate)
+    /// Settles the armed idle interval on `state` at `date`, then re-arms
+    /// the building-progress anchor when the stage is still an active
+    /// battle and `shouldRearm` allows it — the single place Kingdom
+    /// decides whether accrual continues after a settle (entry and
+    /// foreground: only while not gate-paused; buy and tab exits: only
+    /// when nothing conquered and the destination keeps accrual).
+    @discardableResult
+    private func settleIdleProgress(
+        in state: inout KingdomGameState,
+        at date: Date,
+        shouldRearm: (KingdomGameState.IdleProgressResult) -> Bool
+    ) -> KingdomGameState.IdleProgressResult {
+        let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result
-        // Re-arm the anchor (Camp's entry semantics): time spent on Kingdom
-        // keeps accruing and a backgrounding from here stays credited.
-        if state.stageStatus == .battleActive {
-            state.markCurrentCityBuildingProgressInactive(at: entryDate)
+        if state.stageStatus == .battleActive, shouldRearm(result) {
+            state.markCurrentCityBuildingProgressInactive(at: date)
         }
+        return result
+    }
+
+    /// Re-arms the building-progress anchor without settling again — used
+    /// when an already-settled hand-off is declined, so a backgrounding
+    /// from this scene still credits production.
+    @discardableResult
+    private func rearmIdleProgressAnchor(
+        in state: inout KingdomGameState,
+        at date: Date
+    ) -> Bool {
+        guard state.stageStatus == .battleActive else { return false }
+        state.markCurrentCityBuildingProgressInactive(at: date)
+        return true
+    }
+
+    private func settleIdleProgressOnEntry() {
+        // Same lifecycle rule as the foreground hook: a gate-paused scene
+        // never re-arms (its resume hook owns that), otherwise time stuck
+        // on the "can't fit" gate would later be credited as production.
+        settleIdleProgress(in: &state, at: Date()) { _ in !isLayoutGatePaused }
         store.save(state)
         redraw()
-        routePendingConquestIfNeeded()
+        // didMove is still inside presentScene, so routing here would nest
+        // a second presentation in the first — the first update drives it.
+        hasDeferredPendingConquestRoute = state.pendingBattleResult != nil
     }
 
     private func observeLifecycleNotificationsIfNeeded() {
@@ -734,11 +772,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     private func handleSceneWillEnterForeground(at date: Date) {
         isSystemBackgrounded = false
-        let result = state.returnFromBackground(at: date)
-        lastIdleProgressResult = result
-        if state.stageStatus == .battleActive && !isLayoutGatePaused {
-            state.markCurrentCityBuildingProgressInactive(at: date)
-        }
+        settleIdleProgress(in: &state, at: date) { _ in !isLayoutGatePaused }
         store.save(state)
         redraw()
         routePendingConquestIfNeeded()
@@ -761,8 +795,8 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         guard isLayoutGatePaused else { return }
         isLayoutGatePaused = false
 
-        if state.stageStatus == .battleActive && !isSystemBackgrounded {
-            state.markCurrentCityBuildingProgressInactive(at: date)
+        if !isSystemBackgrounded {
+            rearmIdleProgressAnchor(in: &state, at: date)
         }
         store.save(state)
         redraw()
@@ -776,9 +810,17 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     }
 
     private func configureFeedbackSettingsIfNeeded(in view: SKView) {
+        if sceneAccessibilityElements == nil {
+            sceneAccessibilityElements = makeSceneAccessibilityElements(container: view)
+        }
+
         if feedbackSettingsController == nil {
             let accessibilityAdapter = feedbackSettingsAccessibilityAdapter
-                ?? makeFeedbackSettingsAccessibilityAdapter(for: view)
+                ?? FeedbackSettingsAccessibilityAdapter.sceneAdapter(
+                    containerView: view,
+                    sceneHeight: { [weak self] in self?.size.height ?? 0 }
+                )
+            activeAccessibilityAdapter = accessibilityAdapter
             feedbackSettingsController = FeedbackSettingsController(
                 preferences: feedbackPreferences,
                 accessibilityAdapter: accessibilityAdapter
@@ -800,6 +842,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             feedbackSettingsController?.rebindAccessibilityForScene()
         }
 
+        // After ANY rebind (rebind clears the provider): this scene owns
+        // the supplementary exposure while mounted — reinstall on every
+        // mount, not just the one that created the controller.
+        activeAccessibilityAdapter?.sceneElementsProvider = { [weak self] in
+            self?.orderedSceneAccessibilityElements() ?? []
+        }
+
         guard let feedbackSettingsController else { return }
         if feedbackSettingsController.gear.parent !== self {
             addChild(feedbackSettingsController.gear)
@@ -809,50 +858,88 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         }
     }
 
-    private func makeFeedbackSettingsAccessibilityAdapter(
-        for view: SKView
-    ) -> FeedbackSettingsAccessibilityAdapter {
-        FeedbackSettingsAccessibilityAdapter(
-            containerView: view,
-            sceneToScreenFrame: { [weak self, weak view] sceneFrame in
-                guard let self else { return .zero }
+    private func makeSceneAccessibilityElements(
+        container: UIView
+    ) -> SceneAccessibilityElements {
+        let header = UIAccessibilityElement(accessibilityContainer: container)
+        header.accessibilityIdentifier = "kingdom-header"
+        header.accessibilityTraits = .header
 
-                let viewFrame = CGRect(
-                    x: sceneFrame.minX,
-                    y: (view?.bounds.height ?? self.size.height) - sceneFrame.maxY,
-                    width: sceneFrame.width,
-                    height: sceneFrame.height
-                )
+        var rows: [TreasuryUpgrade: UIAccessibilityElement] = [:]
+        var buys: [TreasuryUpgrade: ActionAccessibilityElement] = [:]
+        for upgrade in TreasuryUpgrade.allCases {
+            let row = UIAccessibilityElement(accessibilityContainer: container)
+            row.accessibilityIdentifier = "kingdom-row-\(upgrade.rawValue)"
+            row.accessibilityTraits = .staticText
+            rows[upgrade] = row
 
-                guard let view, view.window != nil else { return viewFrame }
-                let screenFrame = UIAccessibility.convertToScreenCoordinates(
-                    viewFrame,
-                    in: view
-                )
-                return Self.feedbackSettingsAccessibilityFrame(
-                    viewLocalFrame: viewFrame,
-                    screenFrame: screenFrame
-                )
-            },
-            postNotification: { notification, target in
-                UIAccessibility.post(notification: notification, argument: target)
+            let buy = ActionAccessibilityElement(accessibilityContainer: container) { [weak self] in
+                self?.handleBuyTouch(upgrade)
             }
-        )
+            buy.accessibilityIdentifier = "kingdom-buy-\(upgrade.rawValue)"
+            buy.accessibilityTraits = .button
+            buys[upgrade] = buy
+        }
+        return SceneAccessibilityElements(header: header, rows: rows, buys: buys)
     }
 
-    private static func feedbackSettingsAccessibilityFrame(
-        viewLocalFrame: CGRect,
-        screenFrame: CGRect
-    ) -> CGRect {
-        guard screenFrame.origin.x.isFinite,
-              screenFrame.origin.y.isFinite,
-              screenFrame.width.isFinite,
-              screenFrame.height.isFinite,
-              screenFrame.width > 0,
-              screenFrame.height > 0 else {
-            return viewLocalFrame
+    /// The supplementary elements the adapter exposes alongside the gear:
+    /// header, then each row's info element followed by its Buy action.
+    /// Frames and values are refreshed on every query so an expose after a
+    /// relayout or purchase always reads current geometry and prices.
+    private func orderedSceneAccessibilityElements() -> [UIAccessibilityElement] {
+        refreshSceneAccessibilityElements()
+        // A failed layout hid every control — expose nothing rather than
+        // seven elements parked at .zero.
+        guard let elements = sceneAccessibilityElements,
+              kingdomLayout != nil else { return [] }
+        var ordered: [UIAccessibilityElement] = [elements.header]
+        for upgrade in TreasuryUpgrade.allCases {
+            if let row = elements.rows[upgrade] { ordered.append(row) }
+            if let buy = elements.buys[upgrade] { ordered.append(buy) }
         }
-        return screenFrame
+        return ordered
+    }
+
+    private func refreshSceneAccessibilityElements() {
+        guard let elements = sceneAccessibilityElements,
+              let layout = kingdomLayout,
+              let adapter = activeAccessibilityAdapter else {
+            return
+        }
+
+        elements.header.accessibilityLabel = titleLabel.text
+        elements.header.accessibilityValue = goldLabel.text
+        elements.header.accessibilityFrame = adapter.screenAccessibilityFrame(
+            for: layout.headerFrame
+        ) ?? .zero
+
+        for (index, upgrade) in TreasuryUpgrade.allCases.enumerated() {
+            let level = state.treasury.level(for: upgrade)
+            let row = elements.rows[upgrade]
+            row?.accessibilityLabel = "\(upgrade.displayName), level \(level) of \(upgrade.maxLevel)"
+            row?.accessibilityValue = rowBundles[upgrade]?.effectLabel.text
+            row?.accessibilityFrame = adapter.screenAccessibilityFrame(
+                for: layout.rowFrames[index]
+            ) ?? .zero
+
+            let buy = elements.buys[upgrade]
+            buy?.accessibilityLabel = "Buy \(upgrade.displayName)"
+            buy?.accessibilityValue = rowBundles[upgrade]?.priceLabel.text
+            buy?.accessibilityTraits = isBuyEnabled(upgrade)
+                ? .button
+                : [.button, .notEnabled]
+            buy?.accessibilityFrame = adapter.screenAccessibilityFrame(
+                for: layout.buyHitFrames[index]
+            ) ?? .zero
+        }
+    }
+
+    /// One definition of the Buy affordance shared by the row redraw and
+    /// the accessibility traits: a purchase the state accepts, offered only
+    /// while a future payout exists.
+    private func isBuyEnabled(_ upgrade: TreasuryUpgrade) -> Bool {
+        state.hasNextCityInCountry && state.canPurchaseTreasuryUpgrade(upgrade)
     }
 
     private func openFeedbackSettings() {

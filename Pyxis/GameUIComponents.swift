@@ -536,6 +536,20 @@ final class ProgressBarNode: SKNode {
     }
 }
 
+extension SKLabelNode {
+    /// Shrinks `fontSize` one point at a time until the label's frame fits
+    /// `maxWidth` or the floor is reached. Multi-line labels measure their
+    /// widest line. The single width-fit rule shared by Map, Camp and
+    /// Kingdom row text (each caller resets `fontSize` first so redraws
+    /// can re-grow after a previous shrink).
+    func shrinkFontSize(toFitWidth maxWidth: CGFloat, floor: CGFloat) {
+        guard maxWidth > 0 else { return }
+        while frame.width > maxWidth && fontSize > floor {
+            fontSize -= 1
+        }
+    }
+}
+
 #if DEBUG
 extension PanelNode {
     var contentSizeForTesting: CGSize {

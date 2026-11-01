@@ -623,11 +623,11 @@ struct BuildingViewSceneTests {
         let valid = CGRect(x: 212, y: 334, width: 44, height: 44)
         let invalid = CGRect(x: CGFloat.nan, y: 334, width: 44, height: 44)
 
-        #expect(BuildingViewScene.feedbackSettingsAccessibilityFrame(
+        #expect(FeedbackSettingsAccessibilityAdapter.feedbackSettingsAccessibilityFrame(
             viewLocalFrame: local,
             screenFrame: invalid
         ) == local)
-        #expect(BuildingViewScene.feedbackSettingsAccessibilityFrame(
+        #expect(FeedbackSettingsAccessibilityAdapter.feedbackSettingsAccessibilityFrame(
             viewLocalFrame: local,
             screenFrame: valid
         ) == valid)

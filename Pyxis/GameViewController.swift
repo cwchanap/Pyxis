@@ -109,7 +109,7 @@ final class GameViewControllerFeedbackRuntime {
 final class GameViewController: UIViewController {
     private let store: KingdomGameStore
     private let layoutGateView = AppLayoutGateView()
-    private var requestedMapGateReason: AppLayoutGateReason?
+    private var requestedLayoutGateReason: AppLayoutGateReason?
     private var activeLayoutGateReason: AppLayoutGateReason?
     private let now: () -> Date
     private let feedbackRuntimeOverride: GameViewControllerFeedbackRuntime?
@@ -249,7 +249,7 @@ final class GameViewController: UIViewController {
     }
 
     private func presentBattleScene(in view: SKView) {
-        requestedMapGateReason = nil
+        requestedLayoutGateReason = nil
         let scene = BattleScene(
             size: view.bounds.size,
             store: store,
@@ -264,7 +264,7 @@ final class GameViewController: UIViewController {
     }
 
     private func presentCountryMapScene(in view: SKView) {
-        requestedMapGateReason = nil
+        requestedLayoutGateReason = nil
         let scene = CountryMapScene(
             size: view.bounds.size,
             store: store,
@@ -279,7 +279,7 @@ final class GameViewController: UIViewController {
     }
 
     private func presentKingdomScene(in view: SKView) {
-        requestedMapGateReason = nil
+        requestedLayoutGateReason = nil
         let scene = KingdomScene(
             size: view.bounds.size,
             store: store,
@@ -293,7 +293,7 @@ final class GameViewController: UIViewController {
     }
 
     private func presentBuildingViewScene(in view: SKView) {
-        requestedMapGateReason = nil
+        requestedLayoutGateReason = nil
         let scene = BuildingViewScene(
             size: view.bounds.size,
             store: store,
@@ -321,7 +321,7 @@ final class GameViewController: UIViewController {
         } ?? .unsupported(.unsupportedGeometry)
 
         let reason: AppLayoutGateReason?
-        if requestedMapGateReason == .mapUnavailable {
+        if requestedLayoutGateReason == .mapUnavailable {
             reason = .mapUnavailable
         } else if let battle = skView.scene as? BattleScene,
                   battle.isBattleChromeFitFailed || battle.isConquestReportFitFailed {
@@ -400,7 +400,7 @@ extension GameViewController: BattleSceneRouting {
     }
 
     func battleScene(_ scene: BattleScene, didRequestLayoutGate reason: AppLayoutGateReason) {
-        requestedMapGateReason = reason
+        requestedLayoutGateReason = reason
         refreshLayoutSupport()
     }
 }
@@ -426,7 +426,7 @@ extension GameViewController: CountryMapSceneRouting {
         _ scene: CountryMapScene,
         didRequestLayoutGate reason: AppLayoutGateReason
     ) {
-        requestedMapGateReason = reason
+        requestedLayoutGateReason = reason
         refreshLayoutSupport()
     }
 }
@@ -458,7 +458,7 @@ extension GameViewController: KingdomSceneRouting {
     }
 
     func kingdomScene(_ scene: KingdomScene, didRequestLayoutGate reason: AppLayoutGateReason) {
-        requestedMapGateReason = reason
+        requestedLayoutGateReason = reason
         refreshLayoutSupport()
     }
 }

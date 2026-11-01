@@ -24,6 +24,33 @@ final class GameplayTabBarNode: SKNode {
         let selected: GameplayTab
         let enabledTabs: Set<GameplayTab>
         let showsCampAttention: Bool
+
+        /// The shared projection for the scenes outside the live battle
+        /// (Map, Kingdom): every tab while a battle is active and clean,
+        /// Map+Kingdom only once the stage resolves, and the Camp attention
+        /// dot whenever the camp recommendation wants action. Battle and
+        /// Camp keep their own projections — their enabled-tab rules differ.
+        static func makeForNonBattleScene(
+            selected: GameplayTab,
+            state: KingdomGameState
+        ) -> GameplayTabBarNode.Content {
+            let enabledTabs: Set<GameplayTab> = state.stageStatus == .battleActive
+                && state.pendingBattleResult == nil
+                ? Set(GameplayTab.allCases)
+                : [.map, .kingdom]
+            let showsCampAttention: Bool
+            switch RecommendedCampRecommendation.make(for: state) {
+            case .ready, .saveFor:
+                showsCampAttention = true
+            case .noAction:
+                showsCampAttention = false
+            }
+            return GameplayTabBarNode.Content(
+                selected: selected,
+                enabledTabs: enabledTabs,
+                showsCampAttention: showsCampAttention
+            )
+        }
     }
 
     private struct TabBundle {
@@ -33,10 +60,18 @@ final class GameplayTabBarNode: SKNode {
         let title: SKLabelNode
         let attention: SKShapeNode
 
-        init(for tab: GameplayTab, appearance: Appearance) {
+        init(
+            for tab: GameplayTab,
+            appearance: Appearance,
+            iconTextureProvider: (String) -> SKTexture?
+        ) {
             root = SKNode()
             panel = PanelNode(size: .zero)
-            icon = GameplayTabBarNode.makeIcon(for: tab, appearance: appearance)
+            icon = GameplayTabBarNode.makeIcon(
+                for: tab,
+                appearance: appearance,
+                iconTextureProvider: iconTextureProvider
+            )
             title = SKLabelNode(fontNamed: GameUITheme.Font.bold)
             attention = SKShapeNode(circleOfRadius: 4)
 
@@ -77,9 +112,16 @@ final class GameplayTabBarNode: SKNode {
     )
     private var hitFrames = [GameplayTab: CGRect]()
 
-    private static func makeIcon(for tab: GameplayTab, appearance: Appearance) -> SKNode {
+    private static func makeIcon(
+        for tab: GameplayTab,
+        appearance: Appearance,
+        iconTextureProvider: (String) -> SKTexture?
+    ) -> SKNode {
         if tab == .kingdom,
-           let sprite = makeKingdomSpriteIcon(appearance: appearance) {
+           let sprite = makeKingdomSpriteIcon(
+               appearance: appearance,
+               iconTextureProvider: iconTextureProvider
+           ) {
             return sprite
         }
 
@@ -175,16 +217,20 @@ final class GameplayTabBarNode: SKNode {
         return glyph
     }
 
-    /// Asset-lookup seam for the Kingdom tab sprite. Production resolves
-    /// `tab-kingdom` from the asset catalog and returns nil when the image is
-    /// absent (vector fallback). Tests inject a texture to exercise the
-    /// sprite path before HPA-673 ships the real art.
-    static var tabIconTextureProvider: (String) -> SKTexture? = { name in
+    /// Production asset-lookup seam for the Kingdom tab sprite: resolves
+    /// `tab-kingdom` from the asset catalog and returns nil when the image
+    /// is absent (vector fallback). Scenes and tests inject their own
+    /// per-instance provider — the same style as the row `imageLoader` —
+    /// so the fallback never depends on what the catalog happens to hold.
+    static func defaultIconTextureProvider(_ name: String) -> SKTexture? {
         UIImage(named: name).map(SKTexture.init(image:))
     }
 
-    private static func makeKingdomSpriteIcon(appearance: Appearance) -> SKSpriteNode? {
-        guard let texture = tabIconTextureProvider("tab-kingdom") else {
+    private static func makeKingdomSpriteIcon(
+        appearance: Appearance,
+        iconTextureProvider: (String) -> SKTexture?
+    ) -> SKSpriteNode? {
+        guard let texture = iconTextureProvider("tab-kingdom") else {
             return nil
         }
         let sprite = SKSpriteNode(texture: texture)
@@ -200,10 +246,17 @@ final class GameplayTabBarNode: SKNode {
         return sprite
     }
 
-    init(appearance: Appearance = .standard) {
+    init(
+        appearance: Appearance = .standard,
+        iconTextureProvider: @escaping (String) -> SKTexture? = GameplayTabBarNode.defaultIconTextureProvider
+    ) {
         self.appearance = appearance
         tabBundles = Dictionary(uniqueKeysWithValues: GameplayTab.allCases.map { tab in
-            (tab, TabBundle(for: tab, appearance: appearance))
+            (tab, TabBundle(
+                for: tab,
+                appearance: appearance,
+                iconTextureProvider: iconTextureProvider
+            ))
         })
         super.init()
         name = "gameplayTabBar"

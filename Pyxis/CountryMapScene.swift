@@ -417,7 +417,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func configureFeedbackSettingsIfNeeded(in view: SKView) {
         if feedbackSettingsController == nil {
             let accessibilityAdapter = feedbackSettingsAccessibilityAdapter
-                ?? makeFeedbackSettingsAccessibilityAdapter(for: view)
+                ?? FeedbackSettingsAccessibilityAdapter.sceneAdapter(
+                    containerView: view,
+                    sceneHeight: { [weak self] in self?.size.height ?? 0 }
+                )
             feedbackSettingsController = FeedbackSettingsController(
                 preferences: feedbackPreferences,
                 accessibilityAdapter: accessibilityAdapter
@@ -449,56 +452,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         if feedbackSettingsController.modal.parent !== self {
             addChild(feedbackSettingsController.modal)
         }
-    }
-
-    private func makeFeedbackSettingsAccessibilityAdapter(
-        for view: SKView
-    ) -> FeedbackSettingsAccessibilityAdapter {
-        FeedbackSettingsAccessibilityAdapter(
-            containerView: view,
-            sceneToScreenFrame: { [weak self, weak view] sceneFrame in
-                guard let self else {
-                    return .zero
-                }
-
-                let viewFrame = CGRect(
-                    x: sceneFrame.minX,
-                    y: (view?.bounds.height ?? self.size.height) - sceneFrame.maxY,
-                    width: sceneFrame.width,
-                    height: sceneFrame.height
-                )
-
-                guard let view, view.window != nil else {
-                    return viewFrame
-                }
-                let screenFrame = UIAccessibility.convertToScreenCoordinates(
-                    viewFrame,
-                    in: view
-                )
-                return Self.feedbackSettingsAccessibilityFrame(
-                    viewLocalFrame: viewFrame,
-                    screenFrame: screenFrame
-                )
-            },
-            postNotification: { notification, target in
-                UIAccessibility.post(notification: notification, argument: target)
-            }
-        )
-    }
-
-    static func feedbackSettingsAccessibilityFrame(
-        viewLocalFrame: CGRect,
-        screenFrame: CGRect
-    ) -> CGRect {
-        guard screenFrame.origin.x.isFinite,
-              screenFrame.origin.y.isFinite,
-              screenFrame.width.isFinite,
-              screenFrame.height.isFinite,
-              screenFrame.width > 0,
-              screenFrame.height > 0 else {
-            return viewLocalFrame
-        }
-        return screenFrame
     }
 
     private func openFeedbackSettings() {
@@ -818,25 +771,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         )
     }
 
-    private func fitLabel(_ label: SKLabelNode, maxWidth: CGFloat) {
-        guard maxWidth > 0 else {
-            return
-        }
-
-        while label.frame.width > maxWidth && label.fontSize > 8 {
-            label.fontSize -= 1
-        }
-    }
-
     private func fitTitleLabel(_ label: SKLabelNode, maxWidth: CGFloat) -> Bool {
         guard maxWidth >= CountryMapLayout.minimumTitleTextWidth else {
             return false
         }
 
-        while label.frame.width > maxWidth,
-              label.fontSize > CountryMapLayout.minimumTitleFontSize {
-            label.fontSize -= 1
-        }
+        label.shrinkFontSize(
+            toFitWidth: maxWidth,
+            floor: CountryMapLayout.minimumTitleFontSize
+        )
         return label.frame.width <= maxWidth
     }
 
@@ -1094,23 +1037,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     }
 
     private func applyGameplayTabBar() {
-        let enabledTabs: Set<GameplayTab> = state.stageStatus == .battleActive
-            && state.pendingBattleResult == nil
-            ? Set(GameplayTab.allCases)
-            : [.map, .kingdom]
-        let showsCampAttention: Bool
-        switch RecommendedCampRecommendation.make(for: state) {
-        case .ready, .saveFor:
-            showsCampAttention = true
-        case .noAction:
-            showsCampAttention = false
-        }
-
-        gameplayTabContent = GameplayTabBarNode.Content(
-            selected: .map,
-            enabledTabs: enabledTabs,
-            showsCampAttention: showsCampAttention
-        )
+        gameplayTabContent = .makeForNonBattleScene(selected: .map, state: state)
         gameplayTabBar.apply(
             content: gameplayTabContent,
             frame: gameplayTabBarFrame,
@@ -1751,7 +1678,7 @@ extension CountryMapScene {
     }
 
     func fitLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) {
-        fitLabel(label, maxWidth: maxWidth)
+        label.shrinkFontSize(toFitWidth: maxWidth, floor: 8)
     }
 
     func fitTitleLabelForTesting(_ label: SKLabelNode, maxWidth: CGFloat) -> Bool {

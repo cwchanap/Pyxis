@@ -450,11 +450,11 @@ struct BattleSceneTests {
         let validScreenFrame = CGRect(x: 212, y: 334, width: 44, height: 44)
         let invalidScreenFrame = CGRect(x: CGFloat.nan, y: 334, width: 44, height: 44)
 
-        #expect(BattleScene.feedbackSettingsAccessibilityFrame(
+        #expect(FeedbackSettingsAccessibilityAdapter.feedbackSettingsAccessibilityFrame(
             viewLocalFrame: viewLocalFrame,
             screenFrame: invalidScreenFrame
         ) == viewLocalFrame)
-        #expect(BattleScene.feedbackSettingsAccessibilityFrame(
+        #expect(FeedbackSettingsAccessibilityAdapter.feedbackSettingsAccessibilityFrame(
             viewLocalFrame: viewLocalFrame,
             screenFrame: validScreenFrame
         ) == validScreenFrame)

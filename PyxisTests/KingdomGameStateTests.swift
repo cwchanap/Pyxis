@@ -3781,6 +3781,20 @@ struct KingdomGameStateTests {
         #expect(state.purchaseTreasuryUpgrade(.warChest) == .maxLevel)
     }
 
+    @Test func treasuryPurchaseEligibilityMirrorsMaxLevelAndAffordability() {
+        var state = KingdomGameState(gold: 13)
+        #expect(state.canPurchaseTreasuryUpgrade(.warChest))
+        #expect(!state.canPurchaseTreasuryUpgrade(.drillYard))
+        #expect(state.canPurchaseTreasuryUpgrade(.quartermaster) == false)
+
+        // The predicate follows the same price curve the mutation charges.
+        state.gold = 14
+        #expect(state.canPurchaseTreasuryUpgrade(.quartermaster))
+
+        state.treasury.setLevel(TreasuryUpgrade.warChest.maxLevel, for: .warChest)
+        #expect(!state.canPurchaseTreasuryUpgrade(.warChest))
+    }
+
     @Test func treasuryPurchaseRejectsInsufficientGoldWithoutMutation() {
         var state = KingdomGameState(gold: 11)
         #expect(state.purchaseTreasuryUpgrade(.warChest) == .insufficientGold)
