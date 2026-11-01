@@ -14,19 +14,30 @@ struct KingdomLayout: Equatable {
     static let sideMargin: CGFloat = 16
     static let tabBarHeight: CGFloat = 82
     static let headerHeight: CGFloat = 88
-    static let minimumRowHeight: CGFloat = 64
+    static let minimumRowHeight: CGFloat = 80
     static let maximumRowHeight: CGFloat = 104
     static let rowGap: CGFloat = 10
     static let rowIconSize: CGFloat = 44
     static let minimumBuyHitSize: CGFloat = 44
-    static let minimumTextWidth: CGFloat = 72
+    static let minimumTextWidth: CGFloat = 100
+    /// Reserved line boxes for the four row labels (name/level/effect/price).
+    /// The effect box always reserves two lines — the Drill Yard example
+    /// wraps — so a row is only as short as its tallest stacked content.
+    static let rowNameLineHeight: CGFloat = 18
+    static let rowLevelLineHeight: CGFloat = 13
+    static let rowEffectLineHeight: CGFloat = 24
+    static let rowPriceLineHeight: CGFloat = 15
+    static let rowLabelGap: CGFloat = 2
+    static var rowLabelStackHeight: CGFloat {
+        rowNameLineHeight + rowLevelLineHeight + rowEffectLineHeight
+            + rowPriceLineHeight + 3 * rowLabelGap
+    }
 
     struct Input: Equatable {
         let sceneSize: CGSize
         let safeAreaInsets: BattleChromeLayout.SafeAreaInsets
     }
 
-    let sceneFrame: CGRect
     let safeFrame: CGRect
     let headerFrame: CGRect
     let titleFrame: CGRect
@@ -36,6 +47,13 @@ struct KingdomLayout: Equatable {
     let rowFrames: [CGRect]
     let iconFrames: [CGRect]
     let textFrames: [CGRect]
+    /// Per-row label boxes stacked inside `textFrames` — name/level/effect/
+    /// price top-down — so the scene positions labels instead of spacing
+    /// them by row-height fractions that collide at short rows.
+    let nameLabelFrames: [CGRect]
+    let levelLabelFrames: [CGRect]
+    let effectLabelFrames: [CGRect]
+    let priceLabelFrames: [CGRect]
     let buyHitFrames: [CGRect]
     /// Noninteractive reservation between the last row and the tab bar for
     /// future Kingdom sections (HPA-671/672). Never hosts controls.
@@ -56,7 +74,6 @@ struct KingdomLayout: Equatable {
             return nil
         }
 
-        let sceneFrame = CGRect(origin: .zero, size: size)
         let safeWidth = size.width - insets.left - insets.right
         let safeHeight = size.height - insets.top - insets.bottom
         guard safeWidth > 0, safeHeight > 0 else { return nil }
@@ -125,8 +142,9 @@ struct KingdomLayout: Equatable {
         )
 
         // Three live rows between the header and the tab bar. Rows shrink
-        // together down to the 64pt minimum; when even that fails the whole
-        // layout fails closed — no row is sacrificed for future sections.
+        // together down to the 80pt minimum (the four-line label stack);
+        // when even that fails the whole layout fails closed — no row is
+        // sacrificed for future sections.
         let rowsTop = headerFrame.minY - 12
         let rowsBottom = tabBarFrame.maxY + 12
         let availableHeight = rowsTop - rowsBottom - 2 * rowGap
@@ -138,6 +156,10 @@ struct KingdomLayout: Equatable {
         var rowFrames: [CGRect] = []
         var iconFrames: [CGRect] = []
         var textFrames: [CGRect] = []
+        var nameLabelFrames: [CGRect] = []
+        var levelLabelFrames: [CGRect] = []
+        var effectLabelFrames: [CGRect] = []
+        var priceLabelFrames: [CGRect] = []
         var buyHitFrames: [CGRect] = []
         for index in 0..<TreasuryUpgrade.allCases.count {
             let rowFrame = CGRect(
@@ -166,9 +188,45 @@ struct KingdomLayout: Equatable {
                 width: rowTextWidth,
                 height: rowFrame.height
             )
+
+            // The label stack is vertically centered in the text column; the
+            // 80pt row minimum keeps the reserved boxes pairwise disjoint.
+            var stackTop = textFrame.midY + Self.rowLabelStackHeight / 2
+            let nameFrame = CGRect(
+                x: textFrame.minX,
+                y: stackTop - rowNameLineHeight,
+                width: textFrame.width,
+                height: rowNameLineHeight
+            )
+            stackTop = nameFrame.minY - rowLabelGap
+            let levelFrame = CGRect(
+                x: textFrame.minX,
+                y: stackTop - rowLevelLineHeight,
+                width: textFrame.width,
+                height: rowLevelLineHeight
+            )
+            stackTop = levelFrame.minY - rowLabelGap
+            let effectFrame = CGRect(
+                x: textFrame.minX,
+                y: stackTop - rowEffectLineHeight,
+                width: textFrame.width,
+                height: rowEffectLineHeight
+            )
+            stackTop = effectFrame.minY - rowLabelGap
+            let priceFrame = CGRect(
+                x: textFrame.minX,
+                y: stackTop - rowPriceLineHeight,
+                width: textFrame.width,
+                height: rowPriceLineHeight
+            )
+
             rowFrames.append(rowFrame)
             iconFrames.append(iconFrame)
             textFrames.append(textFrame)
+            nameLabelFrames.append(nameFrame)
+            levelLabelFrames.append(levelFrame)
+            effectLabelFrames.append(effectFrame)
+            priceLabelFrames.append(priceFrame)
             buyHitFrames.append(buyHitFrame)
         }
 
@@ -187,7 +245,6 @@ struct KingdomLayout: Equatable {
         }
 
         return KingdomLayout(
-            sceneFrame: sceneFrame,
             safeFrame: safeFrame,
             headerFrame: headerFrame,
             titleFrame: titleFrame,
@@ -196,6 +253,10 @@ struct KingdomLayout: Equatable {
             rowFrames: rowFrames,
             iconFrames: iconFrames,
             textFrames: textFrames,
+            nameLabelFrames: nameLabelFrames,
+            levelLabelFrames: levelLabelFrames,
+            effectLabelFrames: effectLabelFrames,
+            priceLabelFrames: priceLabelFrames,
             buyHitFrames: buyHitFrames,
             futureSectionFrame: futureSectionFrame,
             tabBarFrame: tabBarFrame,

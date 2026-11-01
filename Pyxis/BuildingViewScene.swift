@@ -173,7 +173,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private func configureFeedbackSettingsIfNeeded(in view: SKView) {
         if feedbackSettingsController == nil {
             let accessibilityAdapter = feedbackSettingsAccessibilityAdapter
-                ?? makeFeedbackSettingsAccessibilityAdapter(for: view)
+                ?? FeedbackSettingsAccessibilityAdapter.sceneAdapter(
+                    containerView: view,
+                    sceneHeight: { [weak self] in self?.size.height ?? 0 }
+                )
             feedbackSettingsController = FeedbackSettingsController(
                 preferences: feedbackPreferences,
                 accessibilityAdapter: accessibilityAdapter
@@ -202,52 +205,6 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         if feedbackSettingsController.modal.parent !== self {
             addChild(feedbackSettingsController.modal)
         }
-    }
-
-    private func makeFeedbackSettingsAccessibilityAdapter(
-        for view: SKView
-    ) -> FeedbackSettingsAccessibilityAdapter {
-        FeedbackSettingsAccessibilityAdapter(
-            containerView: view,
-            sceneToScreenFrame: { [weak self, weak view] sceneFrame in
-                guard let self else { return .zero }
-
-                let viewFrame = CGRect(
-                    x: sceneFrame.minX,
-                    y: (view?.bounds.height ?? self.size.height) - sceneFrame.maxY,
-                    width: sceneFrame.width,
-                    height: sceneFrame.height
-                )
-
-                guard let view, view.window != nil else { return viewFrame }
-                let screenFrame = UIAccessibility.convertToScreenCoordinates(
-                    viewFrame,
-                    in: view
-                )
-                return Self.feedbackSettingsAccessibilityFrame(
-                    viewLocalFrame: viewFrame,
-                    screenFrame: screenFrame
-                )
-            },
-            postNotification: { notification, target in
-                UIAccessibility.post(notification: notification, argument: target)
-            }
-        )
-    }
-
-    static func feedbackSettingsAccessibilityFrame(
-        viewLocalFrame: CGRect,
-        screenFrame: CGRect
-    ) -> CGRect {
-        guard screenFrame.origin.x.isFinite,
-              screenFrame.origin.y.isFinite,
-              screenFrame.width.isFinite,
-              screenFrame.height.isFinite,
-              screenFrame.width > 0,
-              screenFrame.height > 0 else {
-            return viewLocalFrame
-        }
-        return screenFrame
     }
 
     private func openFeedbackSettings() {
@@ -480,10 +437,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         feedbackLabel.text = feedbackText
         feedbackLabel.position = CGPoint(x: feedbackFrame.midX, y: feedbackFrame.midY)
         feedbackLabel.isHidden = feedbackText == "Select a city lot."
-        // fitLabel only ever shrinks the font; short messages must restart
-        // from the authored size instead of inheriting the previous fit.
+        // shrinkFontSize only ever shrinks the font; short messages must
+        // restart from the authored size instead of inheriting the previous fit.
         feedbackLabel.fontSize = 14
-        fitLabel(feedbackLabel, maxWidth: layout.safeFrame.width - 32)
+        feedbackLabel.shrinkFontSize(toFitWidth: layout.safeFrame.width - 32, floor: 8)
 
         for slot in CityBattleState.slotRange {
             guard let bundle = slotNodes[slot],
@@ -855,13 +812,6 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
             if path.contains(pointInHitArea) { return slot }
         }
         return nil
-    }
-
-    private func fitLabel(_ label: SKLabelNode?, maxWidth: CGFloat) {
-        guard let label, maxWidth > 0 else { return }
-        while label.frame.width > maxWidth && label.fontSize > 8 {
-            label.fontSize -= 1
-        }
     }
 
     private func aspectFitSize(for texture: SKTexture?, maximumSize: CGSize) -> CGSize {

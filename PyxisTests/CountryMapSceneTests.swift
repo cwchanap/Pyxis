@@ -3004,11 +3004,11 @@ struct CountryMapSceneTests {
         let validScreenFrame = CGRect(x: 212, y: 334, width: 44, height: 44)
         let invalidScreenFrame = CGRect(x: CGFloat.nan, y: 334, width: 44, height: 44)
 
-        #expect(CountryMapScene.feedbackSettingsAccessibilityFrame(
+        #expect(FeedbackSettingsAccessibilityAdapter.feedbackSettingsAccessibilityFrame(
             viewLocalFrame: viewLocalFrame,
             screenFrame: invalidScreenFrame
         ) == viewLocalFrame)
-        #expect(CountryMapScene.feedbackSettingsAccessibilityFrame(
+        #expect(FeedbackSettingsAccessibilityAdapter.feedbackSettingsAccessibilityFrame(
             viewLocalFrame: viewLocalFrame,
             screenFrame: validScreenFrame
         ) == validScreenFrame)

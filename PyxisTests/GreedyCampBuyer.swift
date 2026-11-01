@@ -112,8 +112,7 @@ enum GreedyTreasuryBuyer {
     static func nextAffordableUpgrade(for state: KingdomGameState) -> TreasuryUpgrade? {
         TreasuryUpgrade
             .allCases
-            .filter { state.treasury.level(for: $0) < $0.maxLevel }
-            .filter { $0.price(forCurrentLevel: state.treasury.level(for: $0)) <= state.gold }
+            .filter { state.canPurchaseTreasuryUpgrade($0) }
             .min { lhs, rhs in
                 let lhsPrice = lhs.price(forCurrentLevel: state.treasury.level(for: lhs))
                 let rhsPrice = rhs.price(forCurrentLevel: state.treasury.level(for: rhs))

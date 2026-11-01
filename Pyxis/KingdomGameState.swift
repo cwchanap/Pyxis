@@ -1013,6 +1013,15 @@ struct KingdomGameState: Codable, Equatable {
         return .upgraded(cost: cost, newLevel: updatedBuilding.level, remainingGold: gold)
     }
 
+    /// The one purchase-eligibility read (HPA-670): level below max and gold
+    /// covering the next price. Kingdom rows, the Buy affordance and the
+    /// campaign test buyer all quote this; `purchaseTreasuryUpgrade`
+    /// re-checks the same rule on mutation.
+    func canPurchaseTreasuryUpgrade(_ upgrade: TreasuryUpgrade) -> Bool {
+        treasury.level(for: upgrade) < upgrade.maxLevel
+            && gold >= upgrade.price(forCurrentLevel: treasury.level(for: upgrade))
+    }
+
     /// The only Treasury purchase mutation (HPA-670): max level is checked
     /// before affordability, the computed next price is subtracted exactly
     /// once, and exactly one level increments. No stage gate — purchases are

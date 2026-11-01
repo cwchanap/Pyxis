@@ -46,6 +46,15 @@ final class FeedbackSettingsAccessibilityAdapter {
     private var isGearAccessible = false
     private var isSceneGearActionable = true
 
+    /// Scene-owned accessibility content (headers, rows, action buttons)
+    /// that is reachable whenever the scene's own chrome is — exposed
+    /// alongside the gear, and never while the modal or a blocking outcome
+    /// owns the element list. The scene supplies fresh elements each call
+    /// and owns their labels, frames, and activation; the adapter only
+    /// merges them into its exposure. Cleared on `rebindScene` so a
+    /// dismounted scene cannot keep vending elements to its successor.
+    var sceneElementsProvider: (@MainActor () -> [UIAccessibilityElement])?
+
     convenience init(
         containerView: UIView,
         postNotification: @escaping NotificationPoster = { notification, target in
@@ -117,6 +126,7 @@ final class FeedbackSettingsAccessibilityAdapter {
         isModalVisible = false
         isGearAccessible = false
         isSceneGearActionable = isSettingsActionable
+        sceneElementsProvider = nil
         containerView?.accessibilityValue = "Gameplay"
         gearElement.accessibilityFrame = .zero
         soundEffectsElement.accessibilityFrame = .zero
@@ -152,7 +162,7 @@ final class FeedbackSettingsAccessibilityAdapter {
             isGearAccessible = false
             gearElement.accessibilityFrame = .zero
             if !isModalVisible && isSceneGearActionable {
-                expose([])
+                exposeGearIfAvailable()
             }
             return
         }
@@ -243,8 +253,18 @@ final class FeedbackSettingsAccessibilityAdapter {
             + "Haptics \(preferences.hapticsEnabled ? "On" : "Off")"
     }
 
+    /// Scene-coordinate frame → the adapter's screen-coordinate
+    /// accessibility frame (nil for degenerate geometry) — the same
+    /// conversion the gear and modal elements use, exposed for scene-owned
+    /// supplementary elements.
+    func screenAccessibilityFrame(for sceneFrame: CGRect) -> CGRect? {
+        convertedFrame(from: sceneFrame)
+    }
+
     private func exposeGearIfAvailable() {
-        expose(isGearAccessible ? [gearElement] : [])
+        var elements: [UIAccessibilityElement] = isGearAccessible ? [gearElement] : []
+        elements.append(contentsOf: sceneElementsProvider?() ?? [])
+        expose(elements)
     }
 
     private func expose(_ elements: [UIAccessibilityElement]) {
@@ -276,6 +296,59 @@ final class FeedbackSettingsAccessibilityAdapter {
             return nil
         }
         return converted
+    }
+
+    /// Shared factory for the gameplay scenes' identical Settings
+    /// accessibility plumbing: scene frame → view-local (flipped Y) →
+    /// screen, keeping the finite view-local frame when the view has no
+    /// window (unit-test scenes) or the conversion degenerates.
+    /// `sceneHeight` is only the Y-flip fallback while the container has no
+    /// bounds — pass the owning scene's size.
+    static func sceneAdapter(
+        containerView: UIView,
+        sceneHeight: @escaping @MainActor () -> CGFloat
+    ) -> FeedbackSettingsAccessibilityAdapter {
+        FeedbackSettingsAccessibilityAdapter(
+            containerView: containerView,
+            sceneToScreenFrame: { [weak containerView] sceneFrame in
+                let viewFrame = CGRect(
+                    x: sceneFrame.minX,
+                    y: (containerView?.bounds.height ?? sceneHeight()) - sceneFrame.maxY,
+                    width: sceneFrame.width,
+                    height: sceneFrame.height
+                )
+
+                guard let containerView, containerView.window != nil else {
+                    return viewFrame
+                }
+                let screenFrame = UIAccessibility.convertToScreenCoordinates(
+                    viewFrame,
+                    in: containerView
+                )
+                return feedbackSettingsAccessibilityFrame(
+                    viewLocalFrame: viewFrame,
+                    screenFrame: screenFrame
+                )
+            },
+            postNotification: { notification, target in
+                UIAccessibility.post(notification: notification, argument: target)
+            }
+        )
+    }
+
+    static func feedbackSettingsAccessibilityFrame(
+        viewLocalFrame: CGRect,
+        screenFrame: CGRect
+    ) -> CGRect {
+        guard screenFrame.origin.x.isFinite,
+              screenFrame.origin.y.isFinite,
+              screenFrame.width.isFinite,
+              screenFrame.height.isFinite,
+              screenFrame.width > 0,
+              screenFrame.height > 0 else {
+            return viewLocalFrame
+        }
+        return screenFrame
     }
 
     private static func defaultFrameConverter(for containerView: UIView) -> FrameConverter {

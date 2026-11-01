@@ -600,7 +600,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private func configureFeedbackSettingsIfNeeded(in view: SKView) {
         if feedbackSettingsController == nil {
             let accessibilityAdapter = feedbackSettingsAccessibilityAdapter
-                ?? makeFeedbackSettingsAccessibilityAdapter(for: view)
+                ?? FeedbackSettingsAccessibilityAdapter.sceneAdapter(
+                    containerView: view,
+                    sceneHeight: { [weak self] in self?.size.height ?? 0 }
+                )
             feedbackSettingsController = FeedbackSettingsController(
                 preferences: feedbackPreferences,
                 accessibilityAdapter: accessibilityAdapter
@@ -639,62 +642,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         if feedbackSettingsController.modal.parent !== self {
             addChild(feedbackSettingsController.modal)
         }
-    }
-
-    private func makeFeedbackSettingsAccessibilityAdapter(
-        for view: SKView
-    ) -> FeedbackSettingsAccessibilityAdapter {
-        FeedbackSettingsAccessibilityAdapter(
-            containerView: view,
-            sceneToScreenFrame: { [weak self, weak view] sceneFrame in
-                guard let self else {
-                    return .zero
-                }
-
-                let viewFrame = CGRect(
-                    x: sceneFrame.minX,
-                    y: (view?.bounds.height ?? self.size.height) - sceneFrame.maxY,
-                    width: sceneFrame.width,
-                    height: sceneFrame.height
-                )
-
-                // Unit-test scenes are deliberately detached from a UIWindow.
-                // Their local view coordinates are still finite and let the
-                // Settings controller exercise its real accessibility wiring;
-                // an attached production scene converts to screen coordinates
-                // via UIKit's canonical conversion (full view→window→screen
-                // transform chain, not a translation-only offset).
-                guard let view, view.window != nil else {
-                    return viewFrame
-                }
-                let screenFrame = UIAccessibility.convertToScreenCoordinates(
-                    viewFrame,
-                    in: view
-                )
-                return Self.feedbackSettingsAccessibilityFrame(
-                    viewLocalFrame: viewFrame,
-                    screenFrame: screenFrame
-                )
-            },
-            postNotification: { notification, target in
-                UIAccessibility.post(notification: notification, argument: target)
-            }
-        )
-    }
-
-    static func feedbackSettingsAccessibilityFrame(
-        viewLocalFrame: CGRect,
-        screenFrame: CGRect
-    ) -> CGRect {
-        guard screenFrame.origin.x.isFinite,
-              screenFrame.origin.y.isFinite,
-              screenFrame.width.isFinite,
-              screenFrame.height.isFinite,
-              screenFrame.width > 0,
-              screenFrame.height > 0 else {
-            return viewLocalFrame
-        }
-        return screenFrame
     }
 
     private func openFeedbackSettings() {

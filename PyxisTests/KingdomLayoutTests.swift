@@ -120,9 +120,38 @@ struct KingdomLayoutTests {
         #expect(layout.safeFrame.contains(layout.futureSectionFrame))
     }
 
+    @Test("Row label frames stack disjointly inside each row at the minimum height")
+    func labelFramesStayInsideRowsAtMinimumHeight() throws {
+        // 454pt viewport puts all three rows at the 80pt minimum: the
+        // four-line label stack (including the wrapped Drill Yard effect)
+        // must stay inside the text column without overlapping itself.
+        let layout = try #require(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 320, height: 454),
+            safeAreaInsets: .zero
+        )))
+
+        for index in layout.rowFrames.indices {
+            let row = layout.rowFrames[index]
+            #expect(row.height == KingdomLayout.minimumRowHeight)
+            let labels = [
+                layout.nameLabelFrames[index],
+                layout.levelLabelFrames[index],
+                layout.effectLabelFrames[index],
+                layout.priceLabelFrames[index]
+            ]
+            for frame in labels {
+                #expect(layout.textFrames[index].contains(frame))
+            }
+            for (upper, lower) in zip(labels, labels.dropFirst()) {
+                #expect(!upper.intersects(lower))
+            }
+            #expect(row.contains(layout.buyHitFrames[index]))
+        }
+    }
+
     @Test("Viewport too short for three real rows returns nil")
     func rowsDoNotFitReturnsNil() {
-        // 88 (header) + 3 rows of 64 + gaps + 82 tab bar cannot fit in 330pt.
+        // 88 (header) + 3 rows of 80 + gaps + 82 tab bar cannot fit in 330pt.
         #expect(
             KingdomLayout.compute(.init(
                 sceneSize: CGSize(width: 320, height: 330),

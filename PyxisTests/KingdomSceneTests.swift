@@ -249,12 +249,13 @@ struct KingdomSceneTests {
         #expect(scene.lastIdleProgressResultForTesting.elapsedSeconds == 60)
     }
 
-    @Test("A buy-tap settlement conquest routes the report and abandons the purchase")
-    func buySettleConquestRoutesReportAndSkipsPurchase() throws {
+    @Test("A buy-tap settlement conquest routes the report and still completes the purchase")
+    func buySettleConquestRoutesReportAndCompletesPurchase() throws {
         // Entry is nonlethal; the store is then re-armed with a lethal
         // window so the tap's own settle conquers — the pending report
-        // routes and the purchase is abandoned, mirroring Camp's
-        // settlement-conquest gate.
+        // still routes pending-first, but Treasury has no stage gate: a
+        // completed or pending city does not block a valid purchase, so
+        // the buy must land (unlike Camp's stage-gated build/upgrade).
         let store = try makeStore(initialState: makeNonlethalIdleState())
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
@@ -272,7 +273,14 @@ struct KingdomSceneTests {
         let saved = store.load()
         #expect(saved.stageStatus == .cityConqueredPendingMap)
         #expect(saved.pendingBattleResult?.conquestMode == .idle)
-        #expect(saved.treasury.drillYard == 0)
+        // The settle credited the conquest reward, then the purchase spent
+        // the level-0 Drill Yard price — gold is consistent with both.
+        // `armed.gold` already reflects the barracks build cost from
+        // makeNonlethalIdleState.
+        #expect(saved.treasury.drillYard == 1)
+        #expect(saved.gold == armed.gold
+            + KingdomGameState.baseGoldReward(for: 3)
+            - TreasuryUpgrade.drillYard.price(forCurrentLevel: 0))
         #expect(router.requestedTabs == [.battle])
     }
 
@@ -309,6 +317,77 @@ struct KingdomSceneTests {
             )
             #expect(buy.name == "kingdomTreasuryBuy-\(upgrade.rawValue)")
         }
+    }
+
+    @Test("VoiceOver exposes the header, rows and Buy actions that drive a purchase")
+    func accessibilityElementsExposeHeaderRowsAndBuy() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: store,
+            safeAreaInsetsOverride: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        let elements = try #require(view.accessibilityElements as? [UIAccessibilityElement])
+        let identifiers = elements.compactMap(\.accessibilityIdentifier)
+        #expect(identifiers.contains("kingdom-header"))
+        for upgrade in TreasuryUpgrade.allCases {
+            #expect(identifiers.contains("kingdom-row-\(upgrade.rawValue)"))
+            #expect(identifiers.contains("kingdom-buy-\(upgrade.rawValue)"))
+        }
+
+        // A VoiceOver activation drives the same purchase path as a Buy tap.
+        let buy = try #require(elements.first {
+            $0.accessibilityIdentifier == "kingdom-buy-warChest"
+        })
+        #expect(buy.accessibilityTraits.contains(.button))
+        #expect(!buy.accessibilityTraits.contains(.notEnabled))
+        #expect(buy.accessibilityActivate())
+        #expect(store.load().treasury.warChest == 1)
+    }
+
+    @Test("War Chest preview quotes the next unlocked city, not the already-paid one")
+    func warChestPreviewQuotesNextCityReward() throws {
+        // City 1 was just paid (pendingMap): the +10% boost applies to the
+        // NEXT conquest, so the preview must quote City 2's reward — not
+        // `cityLevel`, which still points at the already-paid city.
+        var state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: 1,
+            completedCityCount: 1,
+            stageStatus: .cityConqueredPendingMap
+        )
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        let warChest = try #require(scene.treasuryRowTextForTesting(.warChest))
+        var projected = state
+        projected.treasury.setLevel(1, for: .warChest)
+        let expected = "City reward \(CompactNumberFormatter.string(from: state.goldReward(forCity: 2)))"
+            + " → \(CompactNumberFormatter.string(from: projected.goldReward(forCity: 2))) gold"
+        #expect(warChest.effect == expected)
+    }
+
+    @Test("A finished country disables every Buy and drops the reward preview")
+    func countryCompleteDisablesBuyAndDropsRewardPreview() throws {
+        let state = KingdomGameState(
+            gold: 10_000,
+            completedCityCount: 15,
+            stageStatus: .countryComplete
+        )
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+
+        // No future battle, camp or conquest means no level can still pay
+        // out — all three buys stay disabled even with gold to spend.
+        for upgrade in TreasuryUpgrade.allCases {
+            #expect(!scene.isBuyEnabledForTesting(upgrade))
+        }
+        let warChest = try #require(scene.treasuryRowTextForTesting(.warChest))
+        #expect(warChest.effect == TreasuryUpgrade.warChest.effectName)
     }
 
     @Test("Kingdom reuses the one shared Settings gear anchored at the layout frame")
@@ -397,10 +476,48 @@ struct KingdomSceneTests {
         let store = try makeStore(initialState: initialState)
         let router = RouteSpy()
 
-        _ = makeScene(store: store, router: router)
+        let scene = makeScene(store: store, router: router)
 
+        // The entry settle conquered and recorded the report, but the route
+        // is deferred to the first update — didMove runs inside
+        // presentScene, so routing here would nest a second presentation.
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
+        #expect(router.requestedTabs.isEmpty)
+
+        scene.update(0)
         #expect(router.requestedTabs == [.battle])
+
+        // Exactly once: later updates do not re-route.
+        scene.update(0)
+        #expect(router.requestedTabs == [.battle])
+    }
+
+    @Test("Kingdom entry settle does not re-arm the idle anchor while the gate is paused")
+    func entrySettleDoesNotRearmWhileGatePaused() throws {
+        // The controller pauses the scene synchronously inside the gate
+        // request (refreshLayoutSupport → layoutGateWillPause); the entry
+        // settle that follows must NOT re-arm — otherwise time stuck on
+        // the "can't fit" gate would later be credited as idle production.
+        let router = RouteSpy()
+        router.pausesSceneOnGateRequest = true
+        let store = try makeStore(initialState: makeNonlethalIdleState())
+
+        // A viewport too short for three rows requests the gate mid-didMove.
+        let scene = makeScene(
+            size: CGSize(width: 320, height: 330),
+            store: store,
+            router: router
+        )
+
+        #expect(router.requestedGateReason == .unsupportedGeometry)
+        // The pause settle cleared the anchor and the entry settle did not
+        // re-arm it.
+        #expect(store.load().lastBackgroundedAt == nil)
+
+        // Resuming re-arms for the still-active battle — accrual starts
+        // from the resume, never from before the pause.
+        scene.layoutGateWillResume(at: Date())
+        #expect(store.load().lastBackgroundedAt != nil)
     }
 
     @Test("Kingdom entry re-arms the idle anchor so a backgrounded absence is credited")
@@ -572,8 +689,10 @@ struct KingdomSceneTests {
         router.acceptsAllRequests = false
         let scene = makeScene(store: store, router: router)
 
-        // The entry settle conquered and tried to route; the router declined.
+        // The entry settle conquered; the deferred route fires on the first
+        // update and the router declines it.
         #expect(store.load().pendingBattleResult?.conquestMode == .idle)
+        scene.update(0)
         #expect(router.requestedTabs == [.battle])
 
         scene.requestGameplayTabForTesting(.map)
@@ -999,6 +1118,10 @@ struct KingdomSceneTests {
         /// Runs inside the routing call, mirroring the controller's
         /// synchronous destination construction.
         var onRequest: (() -> Void)?
+        /// When true, the spy pauses the scene inside the gate request —
+        /// mirroring `GameViewController.refreshLayoutSupport`'s
+        /// synchronous `layoutGateWillPause` call.
+        var pausesSceneOnGateRequest = false
         private(set) var requestedTabs: [GameplayTab] = []
         private(set) var requestedGateReason: AppLayoutGateReason?
 
@@ -1010,6 +1133,9 @@ struct KingdomSceneTests {
 
         func kingdomScene(_ scene: KingdomScene, didRequestLayoutGate reason: AppLayoutGateReason) {
             requestedGateReason = reason
+            if pausesSceneOnGateRequest {
+                scene.layoutGateWillPause(at: Date())
+            }
         }
     }
 

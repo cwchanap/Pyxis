@@ -141,12 +141,16 @@ struct GameplayTabBarNodeTests {
     }
 
     @Test func kingdomTabFallsBackToVectorCrownWhenAssetIsMissing() {
-        let standard = GameplayTabBarNode()
-        let forged = GameplayTabBarNode(appearance: .forged)
+        // Injected-miss provider: the fallback is pinned independently of
+        // the asset catalog, so HPA-673 shipping `tab-kingdom` art cannot
+        // flip this test red.
+        let missing: (String) -> SKTexture? = { _ in nil }
+        let standard = GameplayTabBarNode(iconTextureProvider: missing)
+        let forged = GameplayTabBarNode(
+            appearance: .forged,
+            iconTextureProvider: missing
+        )
 
-        // The real `tab-kingdom` asset has not shipped yet (HPA-673 is
-        // asset-only), so the default catalog lookup misses and both
-        // appearances render the shared vector crown placeholder.
         #expect(standard.iconIsVectorGlyphForTesting(for: .kingdom))
         #expect(forged.iconIsVectorGlyphForTesting(for: .kingdom))
         #expect(standard.iconSizeForTesting(for: .kingdom) == CGSize(width: 25, height: 25))
@@ -154,15 +158,11 @@ struct GameplayTabBarNodeTests {
     }
 
     @Test func kingdomTabUsesFixedSpriteSizeWhenAssetIsPresent() throws {
-        let provider = GameplayTabBarNode.tabIconTextureProvider
-        GameplayTabBarNode.tabIconTextureProvider = { _ in
+        let present: (String) -> SKTexture? = { _ in
             PanelNode.gradientTexture(top: .red, bottom: .blue)
         }
-        defer {
-            GameplayTabBarNode.tabIconTextureProvider = provider
-        }
 
-        let standard = GameplayTabBarNode()
+        let standard = GameplayTabBarNode(iconTextureProvider: present)
         standard.apply(
             content: .init(
                 selected: .map,
@@ -176,7 +176,10 @@ struct GameplayTabBarNodeTests {
         #expect(standardSprite.colorBlendFactor == 0)
         #expect(standard.iconSizeForTesting(for: .kingdom) == CGSize(width: 25, height: 25))
 
-        let forged = GameplayTabBarNode(appearance: .forged)
+        let forged = GameplayTabBarNode(
+            appearance: .forged,
+            iconTextureProvider: present
+        )
         forged.apply(
             content: .init(
                 selected: .kingdom,
@@ -191,7 +194,10 @@ struct GameplayTabBarNodeTests {
         #expect(selectedSprite.colorBlendFactor > 0)
         #expect(forged.iconSizeForTesting(for: .kingdom) == CGSize(width: 18, height: 18))
 
-        let forgedUnselected = GameplayTabBarNode(appearance: .forged)
+        let forgedUnselected = GameplayTabBarNode(
+            appearance: .forged,
+            iconTextureProvider: present
+        )
         forgedUnselected.apply(
             content: .init(
                 selected: .battle,
@@ -209,15 +215,12 @@ struct GameplayTabBarNodeTests {
     }
 
     @Test func spriteIconDoesNotRegressTabHitFrames() throws {
-        let provider = GameplayTabBarNode.tabIconTextureProvider
-        GameplayTabBarNode.tabIconTextureProvider = { _ in
-            PanelNode.gradientTexture(top: .red, bottom: .blue)
-        }
-        defer {
-            GameplayTabBarNode.tabIconTextureProvider = provider
-        }
-
-        let node = GameplayTabBarNode(appearance: .forged)
+        let node = GameplayTabBarNode(
+            appearance: .forged,
+            iconTextureProvider: { _ in
+                PanelNode.gradientTexture(top: .red, bottom: .blue)
+            }
+        )
         node.apply(
             content: .init(
                 selected: .kingdom,
