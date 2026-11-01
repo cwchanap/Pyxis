@@ -457,8 +457,6 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             bundle.priceLabel.text = isMaxLevel
                 ? "MAX"
                 : "Cost \(CompactNumberFormatter.string(from: price)) gold"
-            // A finished country offers no future battle, camp or conquest,
-            // so no upgrade level can still pay out — don't offer the buy.
             let buyEnabled = isBuyEnabled(upgrade)
             if let layout = kingdomLayout,
                let index = TreasuryUpgrade.allCases.firstIndex(of: upgrade) {
@@ -603,10 +601,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         var latest = store.load()
         // Only a purchasable tap settles: like build/upgrade, a rejected
         // tap never settles or saves. Same eligibility the row exposes —
-        // a disabled (unaffordable, maxed, or post-campaign) Buy does
-        // nothing when tapped or VoiceOver-activated.
-        guard latest.hasNextCityInCountry,
-              latest.canPurchaseTreasuryUpgrade(upgrade) else {
+        // a disabled (unaffordable or maxed) Buy does nothing when tapped
+        // or VoiceOver-activated. Treasury has no stage gate: purchases
+        // stay valid after the final city.
+        guard latest.canPurchaseTreasuryUpgrade(upgrade) else {
             redraw()
             return
         }
@@ -936,10 +934,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     }
 
     /// One definition of the Buy affordance shared by the row redraw and
-    /// the accessibility traits: a purchase the state accepts, offered only
-    /// while a future payout exists.
+    /// the accessibility traits: a purchase the state accepts. Treasury has
+    /// no stage gate, so a finished country keeps offering valid buys.
     private func isBuyEnabled(_ upgrade: TreasuryUpgrade) -> Bool {
-        state.hasNextCityInCountry && state.canPurchaseTreasuryUpgrade(upgrade)
+        state.canPurchaseTreasuryUpgrade(upgrade)
     }
 
     private func openFeedbackSettings() {
