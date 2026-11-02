@@ -79,6 +79,12 @@ struct ConquestReportContent: Equatable {
 
     let title: String
     let rewardText: String
+    /// HPA-671 optional new-gear receipt line ("New gear: <authored name>").
+    /// Nil when the result carries no catalog-recognized newly acquired item.
+    /// Purely decorative: the report's success gate never depends on it.
+    /// `var` so the memberwise init exposes it as an optional parameter
+    /// (`let` with a default is omitted from the memberwise initializer).
+    var newGearLineText: String?
     let tiles: [StatTile]
     let achievements: [Achievement]
 
@@ -112,6 +118,9 @@ struct ConquestReportContent: Equatable {
         return Self(
             title: title,
             rewardText: "+\(CompactNumberFormatter.string(from: result.goldEarned))",
+            newGearLineText: result.newEquipmentItemID
+                .flatMap { EquipmentCatalog.byID($0)?.name }
+                .map { "New gear: \($0)" },
             tiles: tiles,
             achievements: achievements
         )

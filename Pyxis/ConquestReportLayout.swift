@@ -16,6 +16,7 @@ struct ConquestReportLayout: Equatable {
         let chipCount: Int
         let compactHeight: Bool
         let includesCountryCompletion: Bool
+        let includesGearLine: Bool
 
         init(
             sceneSize: CGSize,
@@ -24,7 +25,8 @@ struct ConquestReportLayout: Equatable {
             tileCount: Int,
             chipCount: Int,
             compactHeight: Bool,
-            includesCountryCompletion: Bool = false
+            includesCountryCompletion: Bool = false,
+            includesGearLine: Bool = false
         ) {
             self.sceneSize = sceneSize
             self.safeAreaInsets = safeAreaInsets
@@ -33,6 +35,7 @@ struct ConquestReportLayout: Equatable {
             self.chipCount = chipCount
             self.compactHeight = compactHeight
             self.includesCountryCompletion = includesCountryCompletion
+            self.includesGearLine = includesGearLine
         }
     }
 
@@ -69,6 +72,9 @@ struct ConquestReportLayout: Equatable {
         let countryCompletionGap: CGFloat
         let takenMedallionDiameter: CGFloat
         let takenMedallionOverlap: CGFloat
+        let gearLineHeight: CGFloat
+        let gearStartingFontSize: CGFloat
+        let gearMinimumFontSize: CGFloat
 
         init(compactHeight: Bool) {
             let compact = compactHeight
@@ -104,6 +110,11 @@ struct ConquestReportLayout: Equatable {
             countryCompletionGap = 8
             takenMedallionDiameter = compact ? 96 : 118
             takenMedallionOverlap = compact ? 28 : 39
+            // The gear line never renders on compact heights (HPA-671): 0
+            // height means the optional grown-panel variant is not attempted.
+            gearLineHeight = compact ? 0 : 18
+            gearStartingFontSize = 12
+            gearMinimumFontSize = 9
         }
     }
 
@@ -112,6 +123,10 @@ struct ConquestReportLayout: Equatable {
     let takenMedallionFrame: CGRect?
     let titleFrame: CGRect
     let rewardFrame: CGRect
+    /// Optional decorative new-gear label between reward and stat tiles
+    /// (HPA-671). Nil whenever the taller panel cannot fit — the rest of the
+    /// layout then equals the gearless result exactly.
+    let gearLabelFrame: CGRect?
     let tileFrames: [CGRect]
     let chipStripFrame: CGRect?
     let chipFrames: [CGRect]
@@ -130,8 +145,29 @@ struct ConquestReportLayout: Equatable {
     let chipMinimumFontSize: CGFloat
     let continueStartingFontSize: CGFloat
     let continueMinimumFontSize: CGFloat
+    let gearStartingFontSize: CGFloat
+    let gearMinimumFontSize: CGFloat
 
     static func compute(_ input: Input) -> ConquestReportLayout? {
+        guard let base = computeLayout(input, gearLineHeight: 0) else { return nil }
+        // The new-gear line is optional presentation (HPA-671): attempt a
+        // taller panel that inserts it between reward and stat tiles, but fall
+        // back to the exact gearless layout whenever the growth does not fit.
+        // A dropped item can therefore never regress the success gate.
+        let metrics = Metrics(compactHeight: input.compactHeight)
+        guard input.includesGearLine, metrics.gearLineHeight > 0 else { return base }
+        guard let grown = computeLayout(input, gearLineHeight: metrics.gearLineHeight),
+              let gearFrame = grown.gearLabelFrame,
+              grown.panelFrame.contains(gearFrame) else {
+            return base
+        }
+        return grown
+    }
+
+    private static func computeLayout(
+        _ input: Input,
+        gearLineHeight: CGFloat
+    ) -> ConquestReportLayout? {
         guard (2...3).contains(input.tileCount),
               (0...2).contains(input.chipCount) else { return nil }
 
@@ -173,6 +209,7 @@ struct ConquestReportLayout: Equatable {
             + metrics.titleRewardGap
             + metrics.rewardHeight
             + metrics.rewardTilesGap
+            + gearLineHeight
             + metrics.tileHeight
             + chipReservation
             + metrics.continueHeight
@@ -244,7 +281,7 @@ struct ConquestReportLayout: Equatable {
             && avoidsCountryCompletion
             ? medallionCandidateFrame
             : nil
-        cursorY -= metrics.rewardHeight + metrics.rewardTilesGap
+        cursorY -= metrics.rewardHeight + metrics.rewardTilesGap + gearLineHeight
 
         let tileY = cursorY - metrics.tileHeight
         let tileFrames = (0..<input.tileCount).map { index in
@@ -256,6 +293,14 @@ struct ConquestReportLayout: Equatable {
                 height: metrics.tileHeight
             )
         }
+        let gearLabelFrame: CGRect? = gearLineHeight > 0
+            ? CGRect(
+                x: panelX + metrics.horizontalPadding,
+                y: tileY + metrics.tileHeight + metrics.rewardTilesGap / 2,
+                width: innerWidth,
+                height: gearLineHeight
+            )
+            : nil
         cursorY -= metrics.tileHeight
 
         let chipStripFrame: CGRect?
@@ -315,6 +360,7 @@ struct ConquestReportLayout: Equatable {
             takenMedallionFrame: takenMedallionFrame,
             titleFrame: titleFrame,
             rewardFrame: rewardFrame,
+            gearLabelFrame: gearLabelFrame,
             tileFrames: tileFrames,
             chipStripFrame: chipStripFrame,
             chipFrames: chipFrames,
@@ -332,7 +378,9 @@ struct ConquestReportLayout: Equatable {
             chipStartingFontSize: metrics.chipStartingFontSize,
             chipMinimumFontSize: metrics.chipMinimumFontSize,
             continueStartingFontSize: metrics.continueStartingFontSize,
-            continueMinimumFontSize: metrics.continueMinimumFontSize
+            continueMinimumFontSize: metrics.continueMinimumFontSize,
+            gearStartingFontSize: metrics.gearStartingFontSize,
+            gearMinimumFontSize: metrics.gearMinimumFontSize
         )
     }
 

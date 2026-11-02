@@ -24,7 +24,8 @@ private func makeLayout(
     insets: ConquestReportSafeAreaInsets = ConquestReportSafeAreaInsets(top: 0, left: 0, bottom: 0, right: 0),
     tiles: Int,
     chips: Int,
-    includesCountryCompletion: Bool = false
+    includesCountryCompletion: Bool = false,
+    includesGearLine: Bool = false
 ) -> ConquestReportLayout? {
     let compactHeight = size.height < 500
     let horizontalMargin = max(8, min(compactHeight ? 16 : 18, size.width * 0.045))
@@ -36,7 +37,8 @@ private func makeLayout(
         tileCount: tiles,
         chipCount: chips,
         compactHeight: compactHeight,
-        includesCountryCompletion: includesCountryCompletion
+        includesCountryCompletion: includesCountryCompletion,
+        includesGearLine: includesGearLine
     ))
 }
 
@@ -186,5 +188,112 @@ struct ConquestReportLayoutTests {
             chips: 0,
             includesCountryCompletion: true
         ) == nil)
+    }
+
+    @Test("Gear line uses spare height between reward and stat tiles on roomy layouts")
+    func gearLineFitsBetweenRewardAndTilesOnRoomyLayout() throws {
+        let size = CGSize(width: 375, height: 667)
+        let base = try #require(makeLayout(size: size, tiles: 3, chips: 2))
+        #expect(base.gearLabelFrame == nil)
+
+        let layout = try #require(makeLayout(size: size, tiles: 3, chips: 2, includesGearLine: true))
+        let gear = try #require(layout.gearLabelFrame)
+        #expect(layout.panelFrame.height == base.panelFrame.height + 18)
+        #expect(layout.panelFrame.contains(gear))
+        #expect(gear.maxY <= layout.rewardFrame.minY)
+        #expect(gear.minY >= layout.tileFrames[0].maxY)
+        #expect(layout.tileFrames.count == base.tileFrames.count)
+        #expect(layout.chipFrames.count == base.chipFrames.count)
+        #expect(layout.continueFrame.size == base.continueFrame.size)
+        #expect(layout.gearStartingFontSize >= layout.gearMinimumFontSize)
+    }
+
+    @Test("Compact heights hide the gear line without failing the report")
+    func compactHeightHidesGearLineWithoutFailingReport() throws {
+        let compact = CGSize(width: 393, height: 499)
+        let base = try #require(makeLayout(size: compact, tiles: 3, chips: 2))
+        let layout = try #require(makeLayout(size: compact, tiles: 3, chips: 2, includesGearLine: true))
+        #expect(layout.gearLabelFrame == nil)
+        #expect(layout == base)
+    }
+
+    @Test("A roomy layout without spare height drops the gear line instead of failing")
+    func tightRoomyHeightDropsGearLineInsteadOfFailing() throws {
+        // Roomy (500pt+ scene) but only 11pt of spare safe height: the base
+        // group (419pt) fits while the grown panel (437pt) cannot, so the
+        // gear request must fall back to the exact gearless layout — a drop
+        // can never regress the report's success gate.
+        let size = CGSize(width: 480, height: 500)
+        let insets = ConquestReportSafeAreaInsets(top: 35, left: 0, bottom: 35, right: 0)
+        let base = try #require(makeLayout(size: size, insets: insets, tiles: 3, chips: 2))
+        let layout = try #require(makeLayout(
+            size: size,
+            insets: insets,
+            tiles: 3,
+            chips: 2,
+            includesGearLine: true
+        ))
+        #expect(layout.gearLabelFrame == nil)
+        #expect(layout == base)
+    }
+
+    @Test("Finale keeps its required completion geometry with an optional gear line")
+    func finaleKeepsRequiredGeometryWithOptionalGearLine() throws {
+        let size = CGSize(width: 375, height: 667)
+        let layout = try #require(makeLayout(
+            size: size,
+            tiles: 3,
+            chips: 2,
+            includesCountryCompletion: true,
+            includesGearLine: true
+        ))
+        let completion = try #require(layout.countryCompleteFrame)
+        let gear = try #require(layout.gearLabelFrame)
+        #expect(layout.safeFrame.contains(layout.panelFrame))
+        #expect(layout.panelFrame.contains(gear))
+        #expect(gear.maxY <= layout.rewardFrame.minY)
+        #expect(gear.minY >= layout.tileFrames[0].maxY)
+        #expect(!completion.intersects(layout.panelFrame))
+        #expect(layout.safeFrame.contains(completion))
+        if let medallion = layout.takenMedallionFrame {
+            #expect(!medallion.intersects(completion))
+            #expect(!medallion.intersects(layout.titleFrame))
+            #expect(!medallion.intersects(layout.rewardFrame))
+        }
+    }
+
+    @Test("Requesting a gear line never changes success across supported fixtures")
+    func gearLineNeverChangesSuccessAcrossSupportedFixtures() throws {
+        for fixture in supportedFixtures {
+            for includesCompletion in [false, true] {
+                let base = makeLayout(
+                    size: fixture.size,
+                    insets: fixture.insets,
+                    tiles: 3,
+                    chips: 2,
+                    includesCountryCompletion: includesCompletion
+                )
+                let withGear = makeLayout(
+                    size: fixture.size,
+                    insets: fixture.insets,
+                    tiles: 3,
+                    chips: 2,
+                    includesCountryCompletion: includesCompletion,
+                    includesGearLine: true
+                )
+                guard let base else {
+                    #expect(withGear == nil)
+                    continue
+                }
+                let layout = try #require(withGear)
+                if let gear = layout.gearLabelFrame {
+                    #expect(layout.panelFrame.contains(gear))
+                    #expect(gear.maxY <= layout.rewardFrame.minY)
+                    #expect(gear.minY >= layout.tileFrames[0].maxY)
+                } else {
+                    #expect(layout == base)
+                }
+            }
+        }
     }
 }

@@ -49,6 +49,7 @@ final class ConquestReportNode: SKNode {
     private let titleLabel: SKLabelNode
     private let rewardIcon: SKSpriteNode
     private let rewardLabel: SKLabelNode
+    private let gearLabel: SKLabelNode
     private let tileBundles: [StatTileBundle]
     private let chipBundles: [ChipBundle]
     private let continueContainer: SKNode
@@ -78,6 +79,7 @@ final class ConquestReportNode: SKNode {
             in: SKTexture(imageNamed: "gold-burst")
         ))
         self.rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        self.gearLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
         self.tileBundles = (0..<Self.tileCount).map { index in
             let root = SKNode()
             let panel = PanelNode(size: .zero)
@@ -202,6 +204,7 @@ final class ConquestReportNode: SKNode {
         )
         renderCityNumber(cityNumber, frame: layout.titleFrame)
         renderReward(content.rewardText, size: rewardSize, frame: layout.rewardFrame)
+        renderGearLine(content.newGearLineText, layout: layout)
         renderTiles(content.tiles, valueSizes: tileValueSizes, labelSizes: tileLabelSizes, frames: layout.tileFrames)
         renderChips(content.achievements, labelSizes: chipLabelSizes, frames: layout.chipFrames)
         renderContinue(layout, enabled: isContinueEnabled)
@@ -316,6 +319,30 @@ final class ConquestReportNode: SKNode {
         rewardLabel.position = CGPoint(x: frame.midX + min(30, frame.width / 8), y: frame.midY)
     }
 
+    /// The optional new-gear receipt line (HPA-671). Low priority: hidden —
+    /// never a layout failure — when the receipt is absent, the layout
+    /// supplied no frame (compact heights, no spare space), or the text
+    /// cannot fit at the minimum font size. Always re-evaluated so a reused
+    /// node never keeps a stale line from a previous report.
+    private func renderGearLine(_ text: String?, layout: ConquestReportLayout) {
+        guard let text,
+              let frame = layout.gearLabelFrame,
+              let size = fitSize(
+                  text,
+                  fontName: GameUITheme.Font.bold,
+                  start: layout.gearStartingFontSize,
+                  minimum: layout.gearMinimumFontSize,
+                  width: frame.width
+              ) else {
+            gearLabel.isHidden = true
+            return
+        }
+        gearLabel.text = text
+        gearLabel.fontSize = size
+        gearLabel.position = CGPoint(x: frame.midX, y: frame.midY)
+        gearLabel.isHidden = false
+    }
+
     private func renderTiles(
         _ tiles: [ConquestReportContent.StatTile],
         valueSizes: [CGFloat],
@@ -423,6 +450,7 @@ final class ConquestReportNode: SKNode {
 
     private func failApply() -> ApplyResult {
         isHidden = true
+        gearLabel.isHidden = true
         continueHitFrame = nil
         goldAnchor = nil
         renderedTitleFontSize = 0
@@ -509,6 +537,14 @@ final class ConquestReportNode: SKNode {
         rewardLabel.zPosition = 1
         rewardLabel.isHidden = true
         addChild(rewardLabel)
+
+        gearLabel.name = "conquestGearLineLabel"
+        gearLabel.fontColor = GameUITheme.Color.gold
+        gearLabel.horizontalAlignmentMode = .center
+        gearLabel.verticalAlignmentMode = .center
+        gearLabel.zPosition = 1
+        gearLabel.isHidden = true
+        addChild(gearLabel)
 
         for bundle in tileBundles {
             bundle.icon.zPosition = 2
@@ -648,5 +684,9 @@ extension ConquestReportNode {
     var renderedCityNumberTextForTesting: String? { cityNumberLabel.text }
     var renderedCityTitleForTesting: String? { titleLabel.text }
     var renderedContinueTextForTesting: String? { continueLabel.text }
+    /// The visible new-gear line text, or nil when the label is hidden.
+    var renderedGearLineTextForTesting: String? {
+        gearLabel.isHidden ? nil : gearLabel.text
+    }
 }
 #endif

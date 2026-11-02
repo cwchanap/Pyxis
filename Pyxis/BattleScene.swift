@@ -4281,7 +4281,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             tileCount: content.tiles.count,
             chipCount: content.achievements.count,
             compactHeight: compactHeight,
-            includesCountryCompletion: tier?.isCountryFinale == true
+            includesCountryCompletion: tier?.isCountryFinale == true,
+            includesGearLine: content.newGearLineText != nil
         )
         #if DEBUG
         lastConquestReportLayoutInputForTestingStorage = input
@@ -5156,6 +5157,12 @@ extension BattleScene {
 
     var conquestReportChipCountForTesting: Int {
         conquestReportNode.renderedChipSymbolsForTesting.count
+    }
+
+    /// The visible new-gear receipt line on the conquest report, or nil when
+    /// hidden (no receipt, compact height, or unfittable text) — HPA-671.
+    var conquestReportGearLineTextForTesting: String? {
+        conquestReportNode.renderedGearLineTextForTesting
     }
 
     func repeatDidMoveForTesting() {
