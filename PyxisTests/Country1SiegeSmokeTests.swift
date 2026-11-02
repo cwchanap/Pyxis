@@ -1315,19 +1315,42 @@ struct Country1SiegeSmokeTests {
         }
     }
 
-    /// Shared HPA-671 campaign equipment evidence: exactly one fixed catalog
-    /// drop per conquered Country 1 city, all 15 unique catalog IDs owned by
-    /// a completed run (including never-equipped rewards), and — for the
-    /// no-gear controls — zero equipped slots captured at every siege entry.
+    /// Shared HPA-671 campaign equipment evidence: every record's owned set
+    /// is exactly the preceding record's owned set plus its city's fixed
+    /// catalog drop — which was not owned before — starting from empty, so a
+    /// future city's item can never arrive early (a matching receipt plus a
+    /// matching final set alone would not prove that). Also: all 15 unique
+    /// catalog IDs owned by a completed run (including never-equipped
+    /// rewards), and — for the no-gear controls — zero equipped slots
+    /// captured at every siege entry.
     private static func expectEquipmentCampaignEvidence(
         _ records: [Country1CampaignCityRecord],
         zeroEquippedAtSiege: Bool
     ) {
-        for record in records where record.reachedConquest {
+        var previouslyOwned = Set<String>()
+        for record in records {
+            let expectedDrop = record.reachedConquest
+                ? EquipmentCatalog.byCity(record.city)?.id
+                : nil
             #expect(
-                record.newEquipmentItemID == EquipmentCatalog.byCity(record.city)?.id,
+                record.newEquipmentItemID == expectedDrop,
                 Comment(rawValue: "city \(record.city) conquest did not grant its fixed drop")
             )
+            if let expectedDrop {
+                #expect(
+                    !previouslyOwned.contains(expectedDrop),
+                    Comment(rawValue: "city \(record.city) drop \(expectedDrop) was already owned before its conquest")
+                )
+            }
+            let expectedOwned = previouslyOwned.union(expectedDrop.map { [$0] } ?? [])
+            #expect(
+                Set(record.ownedEquipmentIDs) == expectedOwned,
+                Comment(
+                    rawValue: "city \(record.city) owned \(record.ownedEquipmentIDs.sorted()) "
+                        + "instead of \(expectedOwned.sorted())"
+                )
+            )
+            previouslyOwned = Set(record.ownedEquipmentIDs)
         }
         guard records.count == KingdomGameState.firstCountryCityCount else {
             return
