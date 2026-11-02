@@ -259,6 +259,247 @@ struct KingdomEquipmentStateTests {
         #expect(result.goldEarned == 12)
     }
 
+    // MARK: - HPA-671 Task 2: the one conquest grant seam
+
+    @Test func liveConquestGrantsCityGearAutoEquipsFirstItemAndReceiptSurvivesRoundTrip() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 1)
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+
+        let result = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: keepID,
+                appliedDamage: 1
+            )
+        ])
+
+        #expect(result.conqueredCities == 1)
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        // First-ever infantry item auto-equips.
+        #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.newEquipmentItemID == "c01-infantry-attack")
+
+        // The receipt survives process death (save encode/decode).
+        var decoded = try JSONDecoder().decode(
+            KingdomGameState.self,
+            from: JSONEncoder().encode(state)
+        )
+        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+        #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
+
+        // Acknowledging clears only the report — gear is account-level.
+        decoded.acknowledgePendingBattleResult()
+        #expect(decoded.pendingBattleResult == nil)
+        #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(decoded.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+    }
+
+    @Test func backgroundIdleConquestGrantsCityGearWithSurvivingReceipt() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 2_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 100,
+            keepRemaining: 1,
+            selectedLane: .right
+        )
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+
+        state.enterBackground(at: start)
+        let result = state.returnFromBackground(at: start.addingTimeInterval(100))
+
+        // 100s idle → 10s effective → one barracks spawn → 1 damage kills the Keep.
+        #expect(result.conqueredCities == 1)
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .idle)
+        #expect(pending.newEquipmentItemID == "c01-infantry-attack")
+
+        var decoded = try JSONDecoder().decode(
+            KingdomGameState.self,
+            from: JSONEncoder().encode(state)
+        )
+        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+        decoded.acknowledgePendingBattleResult()
+        #expect(decoded.pendingBattleResult == nil)
+        #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(decoded.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+    }
+
+    @Test func campBuildSettlementConquestGrantsCityGearWithSurvivingReceipt() throws {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 100,
+            keepRemaining: 1,
+            selectedLane: .right
+        )
+        #expect(state.buildBuilding(.barracks, inSlot: 1, at: start) == .built(cost: 15, remainingGold: 85))
+
+        // A second build settles the first barracks' pending production first.
+        let result = state.buildBuilding(.barracks, inSlot: 2, at: start.addingTimeInterval(100))
+
+        #expect(result == .cityConqueredDuringSettlement(goldEarned: 8, remainingGold: 93))
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        let pending = try #require(state.pendingBattleResult)
+        #expect(pending.conquestMode == .idle)
+        #expect(pending.newEquipmentItemID == "c01-infantry-attack")
+
+        var decoded = try JSONDecoder().decode(
+            KingdomGameState.self,
+            from: JSONEncoder().encode(state)
+        )
+        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+        decoded.acknowledgePendingBattleResult()
+        #expect(decoded.pendingBattleResult == nil)
+        #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(decoded.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+    }
+
+    @Test func pinnedSequencePriorOwnershipSuppressesAutoEquipAfterIntentionalNone() throws {
+        // Country 1 City 1 — Infantry Attack: first-ever infantry item auto-equips.
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 1)
+        var keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: keepID,
+                appliedDamage: 1
+            )
+        ])
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+
+        // Choose None, then save/reload — the absent entry must survive.
+        state.acknowledgePendingBattleResult()
+        #expect(state.unequip(soldierType: .infantry) == .success)
+        state = try JSONDecoder().decode(KingdomGameState.self, from: JSONEncoder().encode(state))
+        #expect(state.equippedItemBySoldierType == [:])
+
+        // Country 1 City 2 — Archer Attack: archer's first item auto-equips;
+        // infantry stays explicitly unequipped.
+        #expect(state.startCityFromMap(2) == .entered(country: 1, city: 2))
+        SiegeTestSupport.setKeepRemaining(1, on: &state)
+        keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: keepID,
+                appliedDamage: 1
+            )
+        ])
+        #expect(state.pendingBattleResult?.newEquipmentItemID == "c02-archer-attack")
+        #expect(state.equippedItemBySoldierType == ["archer": "c02-archer-attack"])
+
+        // Country 1 City 3 — Infantry Toughness: newly owned and reported, but
+        // prior infantry ownership suppresses auto-equip (ownership, not slot).
+        state.acknowledgePendingBattleResult()
+        #expect(state.startCityFromMap(3) == .entered(country: 1, city: 3))
+        SiegeTestSupport.setKeepRemaining(1, on: &state)
+        keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: keepID,
+                appliedDamage: 1
+            )
+        ])
+
+        #expect(state.ownedEquipmentIDs == [
+            "c01-infantry-attack",
+            "c02-archer-attack",
+            "c03-infantry-toughness"
+        ])
+        #expect(state.pendingBattleResult?.newEquipmentItemID == "c03-infantry-toughness")
+        #expect(state.equippedItemBySoldierType == ["archer": "c02-archer-attack"])
+    }
+
+    @Test func country2CompletionEarnsGoldWithoutCountry1GearOrReceipt() throws {
+        var state = KingdomGameState(gold: 50, countryNumber: 2, cityNumberInCountry: 1)
+
+        let completion = state.completeCurrentCity(
+            with: makeResult(countryNumber: 2, cityNumber: 1, goldEarned: 8)
+        )
+
+        #expect(completion == KingdomGameState.CompletionResult(awarded: true, goldEarned: 8))
+        #expect(state.gold == 58)
+        #expect(state.ownedEquipmentIDs == [])
+        #expect(state.equippedItemBySoldierType == [:])
+        #expect(state.pendingBattleResult?.newEquipmentItemID == nil)
+        #expect(state.stageStatus == .cityConqueredPendingMap)
+    }
+
+    @Test func mismatchedDuplicateAndPausedCompletionsNeverMutateEquipmentOrGold() throws {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 40, keepRemaining: 1)
+
+        // Out-of-order: a result for another city is rejected wholesale.
+        #expect(
+            state.completeCurrentCity(with: makeResult(countryNumber: 1, cityNumber: 2, goldEarned: 8))
+                == KingdomGameState.CompletionResult(awarded: false, goldEarned: 0)
+        )
+        #expect(state.gold == 40)
+        #expect(state.ownedEquipmentIDs == [])
+        #expect(state.equippedItemBySoldierType == [:])
+        #expect(state.pendingBattleResult == nil)
+
+        // One valid live completion grants exactly once.
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        _ = state.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: .center,
+                objectiveID: keepID,
+                appliedDamage: 1
+            )
+        ])
+        let goldAfterGrant = state.gold
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+
+        // Duplicate while paused (stage is now .cityConqueredPendingMap): a
+        // replayed valid result must not double-award or touch gold.
+        #expect(
+            state.completeCurrentCity(with: makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8))
+                == KingdomGameState.CompletionResult(awarded: false, goldEarned: 0)
+        )
+        #expect(state.gold == goldAfterGrant)
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        #expect(state.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+    }
+
+    private func makeResult(countryNumber: Int, cityNumber: Int, goldEarned: Int) -> BattleResult {
+        BattleResult(
+            cityKey: CityKey(countryNumber: countryNumber, cityNumber: cityNumber),
+            conquestMode: .live,
+            activeBattleSeconds: 0,
+            deployments: [],
+            appliedDamage: [],
+            losses: [],
+            idleDamageByType: [],
+            mvpSoldierType: nil,
+            mvpDamageSharePercent: nil,
+            usedFavorableUnit: false,
+            usedExposedLane: false,
+            goldEarned: goldEarned
+        )
+    }
+
     private func makeDefaults() throws -> UserDefaults {
         let suiteName = "PyxisTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
