@@ -23,15 +23,20 @@ struct KingdomLayout: Equatable {
     static let minimumBuyHitSize: CGFloat = 44
     static let minimumTextWidth: CGFloat = 100
     /// HPA-671 header section controls: two adjacent 60×44 targets in the
-    /// header's top 44pt line, 8pt left of Settings. At the 320pt zero-inset
-    /// boundary the 288pt content column spends 180pt on Settings + controls
-    /// + gaps, leaving ≥100pt (the authored allocation) for the font-shrunk
-    /// "Kingdom" title. The fail-closed floor is the width the shrunk title
-    /// still needs, not the authored allocation — a starved-but-usable
-    /// content column (e.g. under a large side inset) keeps fitting.
+    /// header's top 44pt line, 8pt left of Settings. The boundary
+    /// arithmetic is binding: at 320×454 zero-inset the 288pt content
+    /// column spends 180pt on Settings + controls + gaps, leaving exactly
+    /// the authored 100pt title plus the 8pt `titleSpareWidth`. The
+    /// fail-closed floor is the width the shrunk title still needs, not
+    /// the authored allocation — a starved-but-usable content column
+    /// (e.g. under a large side inset) keeps fitting.
     static let sectionSelectorSize = CGSize(width: 60, height: 44)
     static let sectionSelectorGap: CGFloat = 8
     static let minimumTitleWidth: CGFloat = 60
+    /// The 8pt spare the boundary leaves between the 100pt title
+    /// allocation and the selector cluster — never absorbed by the
+    /// font-shrunk title.
+    static let titleSpareWidth: CGFloat = 8
     /// HPA-671 alternative Armory band: five whole-row targets in the same
     /// span the Treasury rows occupy — (260 − 4×6) / 5 = 47.2pt rows at the
     /// 320×454 boundary, capped at 60pt on taller viewports.
@@ -285,7 +290,7 @@ struct KingdomLayout: Equatable {
         )
         let titleWidth = min(
             textWidth,
-            treasurySelectorFrame.minX - sectionSelectorGap - headerFrame.minX
+            treasurySelectorFrame.minX - sectionSelectorGap - titleSpareWidth - headerFrame.minX
         )
         guard titleWidth >= minimumTitleWidth else { return nil }
         return HeaderTopLine(

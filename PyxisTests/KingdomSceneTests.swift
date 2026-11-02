@@ -1184,6 +1184,42 @@ struct KingdomSceneTests {
         #expect(store.load().equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
     }
 
+    @Test("An Armory row tap cycles an item its own settlement just granted")
+    func armoryRowTapCyclesItemGrantedByOwnSettlement() throws {
+        // Besieging City 3 with only the City 1 blade equipped: the tap's
+        // own settle conquers City 3 and grants the City 3 toughness plate
+        // mid-tap. The cycle must re-read post-settle ownership instead of
+        // cycling the stale one-item list straight to None.
+        var initialState = makeNonlethalIdleState()
+        initialState.ownedEquipmentIDs = ["c01-infantry-attack"]
+        initialState.equippedItemBySoldierType = ["infantry": "c01-infantry-attack"]
+        let store = try makeStore(initialState: initialState)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectArmory(scene)
+
+        var armed = store.load()
+        armed.lastBackgroundedAt = .distantPast
+        armed.cityBattleStates[armed.currentCityKey.storageKey]?
+            .lastBuildingProgressResolvedAt = .distantPast
+        store.save(armed)
+
+        scene.handleTouchForTesting(at: try #require(scene.armoryRowHitFrameForTesting(.infantry)).center)
+
+        let saved = store.load()
+        // The settlement granted the City 3 plate and produced a pending
+        // report; pending-first routing still fired.
+        #expect(saved.ownedEquipmentIDs.contains("c03-infantry-toughness"))
+        #expect(saved.stageStatus == .cityConqueredPendingMap)
+        #expect(saved.pendingBattleResult?.conquestMode == .idle)
+        #expect(router.requestedTabs == [.battle])
+        // The cycle landed on the newly owned item, not skipped to None.
+        #expect(saved.equippedItemBySoldierType["infantry"] == "c03-infantry-toughness")
+        // The row redraws with the cycled choice.
+        let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
+        #expect(infantry.line1 == "Infantry · Falconridge Bulwark")
+    }
+
     @Test("Armory icons prefer equipment art and fall back to per-type glyphs")
     func armoryIconArtAndFallback() throws {
         let store = try makeStore(initialState: makeGearOwningState())
@@ -1359,6 +1395,78 @@ struct KingdomSceneTests {
         #expect(layout.titleFrame.contains(parent.convert(titleLabel.frame, to: scene)))
         #expect(titleLabel.fontSize < 26)
         #expect(scene.titleTextForTesting == "Kingdom")
+    }
+
+    @Test("Armory rendered labels fit their reserved line boxes at 320×454")
+    func armoryRowLabelsFitReservedLineBoxesAtBoundary() throws {
+        // Representative authored equipment choices at the narrowest
+        // accepted size: the layout's reserved line boxes fitting is not
+        // enough — the RENDERED two-line copy must fit them too.
+        var toughness = KingdomGameState(gold: 100)
+        toughness.ownedEquipmentIDs = ["c01-infantry-attack", "c03-infantry-toughness"]
+        toughness.equippedItemBySoldierType = ["infantry": "c03-infantry-toughness"]
+        var specialist = KingdomGameState(gold: 100)
+        specialist.ownedEquipmentIDs = ["c10-cavalry-barracks"]
+        specialist.equippedItemBySoldierType = ["cavalry": "c10-cavalry-barracks"]
+        let cases: [(label: String, state: KingdomGameState)] = [
+            // Attack row with a live next drop.
+            ("attack+next-drop", makeGearOwningState()),
+            // Toughness row.
+            ("toughness", toughness),
+            // Specialist effect + next-drop copy.
+            ("specialist+next-drop", specialist)
+        ]
+
+        for testCase in cases {
+            let scene = makeScene(
+                size: CGSize(width: 320, height: 454),
+                store: try makeStore(initialState: testCase.state),
+                safeAreaInsets: .zero
+            )
+            selectArmory(scene)
+            let layout = try #require(scene.kingdomLayoutForTesting)
+
+            for (index, type) in SoldierType.allCases.enumerated() {
+                let labels = try #require(scene.armoryRowLabelNodesForTesting(type))
+                for (box, label) in [
+                    (layout.armoryLine1LabelFrames[index], labels.line1),
+                    (layout.armoryLine2LabelFrames[index], labels.line2)
+                ] {
+                    let parent = try #require(label.parent)
+                    let rendered = parent.convert(label.frame, to: scene)
+                    // SpriteKit's convert runs in float32 — a flush fit can
+                    // pick up ~1e-5pt of rounding, so tolerate far less
+                    // than a visible point while staying strict.
+                    let tolerance: CGFloat = 0.05
+                    #expect(
+                        box.insetBy(dx: -tolerance, dy: -tolerance).contains(rendered),
+                        "\(testCase.label) \(type.rawValue) '\(label.text ?? "")' → \(box) vs \(rendered)"
+                    )
+                }
+                let rowFrame = layout.armoryRowFrames[index]
+                for label in [labels.line1, labels.line2] {
+                    let parent = try #require(label.parent)
+                    #expect(rowFrame.contains(parent.convert(label.frame, to: scene)))
+                }
+            }
+        }
+
+        // The measured copy really is the authored specialist/next-drop
+        // text, not an empty or shortened stand-in.
+        let specialistScene = makeScene(
+            size: CGSize(width: 320, height: 454),
+            store: try makeStore(initialState: specialist),
+            safeAreaInsets: .zero
+        )
+        let cavalry = try #require(specialistScene.armoryRowTextForTesting(.cavalry))
+        #expect(cavalry.line2 == "vs Barracks +40% · Drops at City 5")
+        let toughnessScene = makeScene(
+            size: CGSize(width: 320, height: 454),
+            store: try makeStore(initialState: toughness),
+            safeAreaInsets: .zero
+        )
+        let infantry = try #require(toughnessScene.armoryRowTextForTesting(.infantry))
+        #expect(infantry.line2 == "Max HP +25% · Drops at City 6")
     }
 
     // MARK: - Helpers

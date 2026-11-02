@@ -1030,10 +1030,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// settle-before-mutation sequence as a Treasury Buy tap.
     private func handleArmoryRowTouch(_ type: SoldierType) {
         var latest = store.load()
-        let owned = EquipmentCatalog.forType(type).filter { item in
+        let ownedBeforeSettle = EquipmentCatalog.forType(type).filter { item in
             latest.ownedEquipmentIDs.contains(item.id)
         }
-        guard !owned.isEmpty else {
+        guard !ownedBeforeSettle.isEmpty else {
             redraw()
             return
         }
@@ -1043,6 +1043,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let settleDate = Date()
         settleIdleProgress(in: &latest, at: settleDate) {
             $0.conqueredCities == 0
+        }
+
+        // The settle can itself conquer and grant a new item of this type
+        // (the gear-grant seam in completeCurrentCity), so recompute the
+        // cycle from post-settle ownership — the stale list would skip the
+        // new item straight to None. Ownership never shrinks, so the
+        // pre-settle guard above still applies.
+        let owned = EquipmentCatalog.forType(type).filter { item in
+            latest.ownedEquipmentIDs.contains(item.id)
         }
 
         let current = latest.equippedItemBySoldierType[type.rawValue]
@@ -1559,6 +1568,11 @@ extension KingdomScene {
 
     func armoryRowNodeForTesting(_ type: SoldierType) -> SKNode? {
         armoryRowBundles[type]?.panel
+    }
+
+    func armoryRowLabelNodesForTesting(_ type: SoldierType) -> (line1: SKLabelNode, line2: SKLabelNode)? {
+        guard let bundle = armoryRowBundles[type] else { return nil }
+        return (bundle.line1Label, bundle.line2Label)
     }
 
     func armoryRowTextForTesting(_ type: SoldierType) -> ArmoryRowTextForTesting? {

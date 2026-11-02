@@ -232,17 +232,19 @@ struct KingdomLayoutTests {
         )))
 
         // The binding arithmetic: 288pt content = 44 Settings + 8 gap +
-        // 120pt of section controls + ≥100pt width-fitted title (228 of
-        // the 236pt remainder allocated, slack absorbed by the title),
-        // all inside the unchanged 88pt header — zero new height.
+        // 120pt of section controls + 8pt selector gap + exactly the
+        // authored 100pt title (228 of the 236pt remainder allocated),
+        // leaving the 8pt spare unallocated — all inside the unchanged
+        // 88pt header, zero new height.
         #expect(layout.headerFrame == CGRect(x: 16, y: 366, width: 288, height: 88))
         #expect(layout.goldFrame == CGRect(x: 16, y: 366, width: 236, height: 44))
 
         #expect(layout.titleFrame.minX == layout.headerFrame.minX)
         #expect(layout.titleFrame.height == 44)
         #expect(layout.titleFrame.maxY == layout.headerFrame.maxY)
-        // The authored compact allocation is 100pt; the boundary leaves 108.
-        #expect(layout.titleFrame.width >= 100)
+        // The authored compact allocation is exactly 100pt; the title
+        // never absorbs the remaining spare.
+        #expect(layout.titleFrame.width == 100)
 
         #expect(layout.treasurySelectorFrame.size == CGSize(width: 60, height: 44))
         #expect(layout.armorySelectorFrame.size == CGSize(width: 60, height: 44))
@@ -251,7 +253,13 @@ struct KingdomLayoutTests {
         // Adjacent controls, 8pt left of the untouched Settings target.
         #expect(layout.treasurySelectorFrame.maxX == layout.armorySelectorFrame.minX)
         #expect(layout.armorySelectorFrame.maxX + 8 == layout.settingsFrame.minX)
-        #expect(layout.titleFrame.maxX + 8 <= layout.treasurySelectorFrame.minX)
+        // The authored 8pt gap plus the reserved 8pt spare separate the
+        // title allocation from the selector cluster.
+        #expect(
+            layout.titleFrame.maxX + KingdomLayout.sectionSelectorGap
+                + KingdomLayout.titleSpareWidth
+                == layout.treasurySelectorFrame.minX
+        )
 
         let topLine = [
             layout.titleFrame,
