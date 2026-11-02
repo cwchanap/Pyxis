@@ -75,6 +75,7 @@ struct ConquestReportLayout: Equatable {
         let gearLineHeight: CGFloat
         let gearStartingFontSize: CGFloat
         let gearMinimumFontSize: CGFloat
+        let gearMinimumLineHeight: CGFloat
 
         init(compactHeight: Bool) {
             let compact = compactHeight
@@ -111,10 +112,15 @@ struct ConquestReportLayout: Equatable {
             takenMedallionDiameter = compact ? 96 : 118
             takenMedallionOverlap = compact ? 28 : 39
             // The gear line never renders on compact heights (HPA-671): 0
-            // height means the optional grown-panel variant is not attempted.
+            // means no frame is derived. On roomy layouts this is the label's
+            // maximum line box — the derived frame is capped by the existing
+            // reward→tiles gap, so it never grows the panel.
             gearLineHeight = compact ? 0 : 18
             gearStartingFontSize = 12
             gearMinimumFontSize = 9
+            // ceil(9pt minimum font × 1.2 line spacing): smaller gaps drop the
+            // line instead of letting it collide with required content.
+            gearMinimumLineHeight = 11
         }
     }
 
@@ -123,9 +129,10 @@ struct ConquestReportLayout: Equatable {
     let takenMedallionFrame: CGRect?
     let titleFrame: CGRect
     let rewardFrame: CGRect
-    /// Optional decorative new-gear label between reward and stat tiles
-    /// (HPA-671). Nil whenever the taller panel cannot fit — the rest of the
-    /// layout then equals the gearless result exactly.
+    /// Optional decorative new-gear label centered in the base geometry's
+    /// reward→tiles gap (HPA-671). Nil whenever that gap cannot hold a
+    /// minimum-font line (compact heights) — required frames never depend
+    /// on it, so dropping the item cannot move or resize anything.
     let gearLabelFrame: CGRect?
     let tileFrames: [CGRect]
     let chipStripFrame: CGRect?
@@ -149,25 +156,14 @@ struct ConquestReportLayout: Equatable {
     let gearMinimumFontSize: CGFloat
 
     static func compute(_ input: Input) -> ConquestReportLayout? {
-        guard let base = computeLayout(input, gearLineHeight: 0) else { return nil }
-        // The new-gear line is optional presentation (HPA-671): attempt a
-        // taller panel that inserts it between reward and stat tiles, but fall
-        // back to the exact gearless layout whenever the growth does not fit.
-        // A dropped item can therefore never regress the success gate.
-        let metrics = Metrics(compactHeight: input.compactHeight)
-        guard input.includesGearLine, metrics.gearLineHeight > 0 else { return base }
-        guard let grown = computeLayout(input, gearLineHeight: metrics.gearLineHeight),
-              let gearFrame = grown.gearLabelFrame,
-              grown.panelFrame.contains(gearFrame) else {
-            return base
-        }
-        return grown
+        // HPA-671: the new-gear line is strictly optional decoration carved
+        // out of the base geometry's existing reward→tiles gap. Required
+        // frames are identical whether the line is requested, fitted, or
+        // dropped, so the item can never regress the report's success gate.
+        computeLayout(input)
     }
 
-    private static func computeLayout(
-        _ input: Input,
-        gearLineHeight: CGFloat
-    ) -> ConquestReportLayout? {
+    private static func computeLayout(_ input: Input) -> ConquestReportLayout? {
         guard (2...3).contains(input.tileCount),
               (0...2).contains(input.chipCount) else { return nil }
 
@@ -209,7 +205,6 @@ struct ConquestReportLayout: Equatable {
             + metrics.titleRewardGap
             + metrics.rewardHeight
             + metrics.rewardTilesGap
-            + gearLineHeight
             + metrics.tileHeight
             + chipReservation
             + metrics.continueHeight
@@ -281,7 +276,7 @@ struct ConquestReportLayout: Equatable {
             && avoidsCountryCompletion
             ? medallionCandidateFrame
             : nil
-        cursorY -= metrics.rewardHeight + metrics.rewardTilesGap + gearLineHeight
+        cursorY -= metrics.rewardHeight + metrics.rewardTilesGap
 
         let tileY = cursorY - metrics.tileHeight
         let tileFrames = (0..<input.tileCount).map { index in
@@ -293,14 +288,15 @@ struct ConquestReportLayout: Equatable {
                 height: metrics.tileHeight
             )
         }
-        let gearLabelFrame: CGRect? = gearLineHeight > 0
-            ? CGRect(
-                x: panelX + metrics.horizontalPadding,
-                y: tileY + metrics.tileHeight + metrics.rewardTilesGap / 2,
-                width: innerWidth,
-                height: gearLineHeight
-            )
-            : nil
+        // HPA-671: the optional line is carved out of the base geometry's
+        // existing reward→tiles gap — never a sizing input.
+        let gearLabelFrame = optionalGearLabelFrame(
+            includesGearLine: input.includesGearLine,
+            metrics: metrics,
+            panelFrame: panelFrame,
+            rewardBottomY: rewardFrame.minY,
+            tileTopY: tileY + metrics.tileHeight
+        )
         cursorY -= metrics.tileHeight
 
         let chipStripFrame: CGRect?
@@ -381,6 +377,29 @@ struct ConquestReportLayout: Equatable {
             continueMinimumFontSize: metrics.continueMinimumFontSize,
             gearStartingFontSize: metrics.gearStartingFontSize,
             gearMinimumFontSize: metrics.gearMinimumFontSize
+        )
+    }
+
+    /// Derives the optional new-gear line (HPA-671) inside the base
+    /// geometry's spare reward→tiles gap. The frame is capped by that gap
+    /// and nil when a minimum-font line cannot fit — required frames are
+    /// never resized or moved by the result.
+    private static func optionalGearLabelFrame(
+        includesGearLine: Bool,
+        metrics: Metrics,
+        panelFrame: CGRect,
+        rewardBottomY: CGFloat,
+        tileTopY: CGFloat
+    ) -> CGRect? {
+        guard includesGearLine, metrics.gearLineHeight > 0 else { return nil }
+        let gap = rewardBottomY - tileTopY
+        let lineHeight = min(metrics.gearLineHeight, gap)
+        guard lineHeight >= metrics.gearMinimumLineHeight else { return nil }
+        return CGRect(
+            x: panelFrame.minX + metrics.horizontalPadding,
+            y: tileTopY + (gap - lineHeight) / 2,
+            width: panelFrame.width - metrics.horizontalPadding * 2,
+            height: lineHeight
         )
     }
 
