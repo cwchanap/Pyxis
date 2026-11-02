@@ -217,7 +217,10 @@ enum Country1SiegeSmoke {
             ? "none"
             : record.camp.map { "\($0.type.rawValue):L\($0.level)" }.joined(separator: ",")
         let treasury = "\(record.treasury.warChest)/\(record.treasury.drillYard)/\(record.treasury.quartermaster)"
-        return [
+        // HPA-671 evidence tokens: the loadout policy, the fixed drop earned
+        // by this city's conquest, every owned ID, and (greedy variant only)
+        // the per-type selection in force during the siege.
+        var tokens = [
             "COUNTRY1_SMOKE",
             "campaign=1",
             "city=\(record.city)",
@@ -231,7 +234,34 @@ enum Country1SiegeSmoke {
             "seed=\(campaignSeed)",
             "outcome=\(record.reachedConquest ? "conquered" : "stalled")",
             "elapsed=\(String(format: "%.1f", record.elapsedSeconds))",
-            "losses=\(record.troopLosses)"
+            "losses=\(record.troopLosses)",
+            "equipment=\(record.equipment.rawValue)",
+            "newGear=\(record.newEquipmentItemID ?? "none")",
+            "owned=\(record.ownedEquipmentIDs.isEmpty ? "-" : record.ownedEquipmentIDs.joined(separator: "+"))"
+        ]
+        if record.equipment == .greedy {
+            let loadout = SoldierType.allCases
+                .map { "\($0.rawValue)=\(record.equippedAtSiege[$0.rawValue] ?? "none")" }
+                .joined(separator: ";")
+            tokens.append("loadout=\(loadout)")
+        }
+        return tokens.joined(separator: " ")
+    }
+
+    /// One total-elapsed summary line per chained variant, so the HPA-670
+    /// baseline (570.5 s zero-Treasury, 383.2 s bought, seed 582) and the
+    /// HPA-671 bought+gear comparison land directly in the test log.
+    nonisolated static func campaignTotalsLine(
+        variant: CampaignTreasuryVariant,
+        records: [Country1CampaignCityRecord]
+    ) -> String {
+        let total = records.reduce(0) { $0 + $1.elapsedSeconds }
+        return [
+            "COUNTRY1_SMOKE",
+            "campaign=1",
+            "variant=\(variant.rawValue)",
+            "cities=\(records.count)",
+            "totalElapsed=\(String(format: "%.1f", total))"
         ].joined(separator: " ")
     }
 
@@ -283,15 +313,123 @@ enum Country1SiegeSmoke {
         return spend
     }
 
+    /// Test-only `equipment=greedy` policy (HPA-671 Task 6), run immediately
+    /// after entering a city and before the Treasury/Camp purchases: for each
+    /// soldier type independently at fixed level 1, evaluate `None`, each
+    /// owned Attack item and each owned Specialist item with the exact
+    /// integer first-round trait/Treasury/attack formula and second-round
+    /// inherent-role/specialist formula against the first live objective on
+    /// the freshly reset default `selectedLane` (entry-time objective HP and
+    /// damage maps — Treasury/Camp purchases never change them). Choose the
+    /// best strictly positive integer gain over `None`; an equal-damage tie
+    /// prefers the general Attack item (attack candidates are evaluated first
+    /// and only a strictly greater score replaces them). If no damage option
+    /// improves the integer result, equip owned Toughness; if unavailable
+    /// select `None`. Only the real `equip`/`unequip` mutations are applied.
+    /// A bounded deterministic test policy — not runtime AI, not a
+    /// recommendation feature.
+    static func applyGreedyEquipmentPolicy(for state: inout KingdomGameState) {
+        let layout = state.currentSiegeLayout
+        let firstLiveID = layout.firstLiveObjectiveID(
+            for: state.siegeProgress.selectedLane,
+            maxPowers: state.currentSiegeMaxPowers,
+            damageByObjectiveID: state.siegeProgress.damageByObjectiveID
+        )
+        guard let targetKind = layout.objectives.first(where: { $0.id == firstLiveID })?.kind else {
+            for type in SoldierType.allCases {
+                state.unequip(soldierType: type)
+            }
+            return
+        }
+
+        let drillYardMultiplier = 1.0 + 0.05 * Double(state.treasury.drillYard)
+        for type in SoldierType.allCases {
+            let owned = EquipmentCatalog.forType(type).filter { state.ownedEquipmentIDs.contains($0.id) }
+            let noneDamage = greedyCandidateDamage(
+                of: nil,
+                for: type,
+                at: targetKind,
+                defenseTrait: state.currentCityDefenseTrait,
+                drillYardMultiplier: drillYardMultiplier
+            ) ?? 0
+
+            var best: (id: String, damage: Int)?
+            for item in owned {
+                guard let damage = greedyCandidateDamage(
+                    of: item,
+                    for: type,
+                    at: targetKind,
+                    defenseTrait: state.currentCityDefenseTrait,
+                    drillYardMultiplier: drillYardMultiplier
+                ), damage > noneDamage, damage > (best?.damage ?? 0) else {
+                    continue
+                }
+                best = (item.id, damage)
+            }
+
+            if let best {
+                state.equip(itemID: best.id)
+            } else if let toughness = owned.first(where: { item in
+                if case .maxHPBonus = item.effect {
+                    return true
+                }
+                return false
+            }) {
+                state.equip(itemID: toughness.id)
+            } else {
+                state.unequip(soldierType: type)
+            }
+        }
+    }
+
+    /// The exact integer two-round damage of one greedy candidate at fixed
+    /// level 1 against `targetKind`: `nil` is the `None` baseline (which
+    /// always yields a damage value), an Attack item takes the first-round
+    /// ×(1 + fraction) fold, a Specialist item takes the second-round
+    /// role ×(1 + fraction) on the matching kind, and a Toughness item has
+    /// no damage candidate at all.
+    private static func greedyCandidateDamage(
+        of item: EquipmentItem?,
+        for type: SoldierType,
+        at targetKind: CitySiegeLayout.ObjectiveKind,
+        defenseTrait: CityDefenseTrait,
+        drillYardMultiplier: Double
+    ) -> Int? {
+        let equipmentAttackMultiplier: Double
+        var specialist: SoldierSpecialistBonus?
+        switch item?.effect {
+        case .attackBonus(let fraction):
+            equipmentAttackMultiplier = 1 + fraction
+        case .specialistBonus(let target, let fraction):
+            equipmentAttackMultiplier = 1
+            specialist = SoldierSpecialistBonus(target: target, multiplier: 1 + fraction)
+        case .maxHPBonus:
+            return nil
+        case nil:
+            equipmentAttackMultiplier = 1
+        }
+        let power = KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: type,
+            level: 1,
+            defenseTrait: defenseTrait,
+            upgradeMultiplier: drillYardMultiplier,
+            equipmentAttackMultiplier: equipmentAttackMultiplier
+        )
+        return type.roleAdjustedDamage(power: power, against: targetKind, specialist: specialist)
+    }
+
     /// Chained 15-city campaign from the production fresh state (HPA-582 Task
-    /// 0; HPA-670 Task 5 added the Treasury variants): per city, enter through
-    /// the real transitions, optionally buy Treasury levels first (bought
-    /// variant, via the real purchase mutation), buy the camp under the
-    /// deterministic test-only greedy buyer via the real purchase mutations at
-    /// a fixed date, run the bounded siege rail, and carry the actual final
-    /// state — gold, rewards, progression — into the next city. Stops at the
-    /// first stall so the evidence is preserved; conquests are never fabricated
-    /// and rewards are never double-counted.
+    /// 0; HPA-670 Task 5 added the Treasury variants; HPA-671 Task 6 added the
+    /// equipment anchor): per city, enter through the real transitions,
+    /// apply the variant's loadout policy right after entry (controls strip
+    /// every auto-equipped drop through the real `unequip`; the gear variant
+    /// runs the test-only greedy policy), optionally buy Treasury levels
+    /// first (bought variants, via the real purchase mutation), buy the camp
+    /// under the deterministic test-only greedy buyer via the real purchase
+    /// mutations at a fixed date, run the bounded siege rail, and carry the
+    /// actual final state — gold, rewards, gear, progression — into the next
+    /// city. Stops at the first stall so the evidence is preserved;
+    /// conquests are never fabricated and rewards are never double-counted.
     static func runGreedyCampaign(
         seed: UInt64,
         variant: CampaignTreasuryVariant
@@ -320,8 +458,22 @@ enum Country1SiegeSmoke {
                 }
             }
 
+            // HPA-671 loadout anchor: immediately after entry, before the
+            // Camp purchases and the siege. The controls still OWN every
+            // earned item, but each control siege runs with zero active
+            // equipment, keeping the runs numerically comparable to HPA-670;
+            // the gear variant selects through the real equip/unequip
+            // mutations instead.
+            if variant == .boughtGear {
+                applyGreedyEquipmentPolicy(for: &state)
+            } else {
+                for type in SoldierType.allCases {
+                    state.unequip(soldierType: type)
+                }
+            }
+
             let startGold = state.gold
-            let treasurySpend = variant == .bought
+            let treasurySpend = variant.buysTreasury
                 ? buyTreasuryUpgradesBeforeCamp(for: &state)
                 : 0
             // Levels in force during this city's siege (after entry purchases).
@@ -332,6 +484,7 @@ enum Country1SiegeSmoke {
                 .sorted { $0.key < $1.key }
                 .map { Building(type: $0.value.type, level: $0.value.level) }
             let lane = state.siegeProgress.selectedLane
+            let equippedAtSiege = state.equippedItemBySoldierType
 
             let outcome = run(
                 initialState: state,
@@ -351,7 +504,11 @@ enum Country1SiegeSmoke {
                 endGold: state.gold,
                 elapsedSeconds: outcome.elapsedSeconds,
                 troopLosses: outcome.troopLosses,
-                reachedConquest: outcome.reachedConquest
+                reachedConquest: outcome.reachedConquest,
+                equipment: variant == .boughtGear ? .greedy : .none,
+                equippedAtSiege: equippedAtSiege,
+                ownedEquipmentIDs: state.ownedEquipmentIDs,
+                newEquipmentItemID: state.pendingBattleResult?.newEquipmentItemID
             )
             records.append(record)
             print("[\(variant.rawValue)] \(campaignLine(for: record))")
@@ -416,9 +573,24 @@ struct Country1CampaignCityRecord {
     let elapsedSeconds: Double
     let troopLosses: Int
     let reachedConquest: Bool
+    /// HPA-671: the loadout policy in force during this city's siege — `none`
+    /// for the three controls (all gear owned but unequipped), `greedy` for
+    /// the bought+gear variant.
+    var equipment: CampaignEquipmentPolicy = .none
+    /// HPA-671: the equipped slot map captured at siege entry (raw soldier
+    /// key → item ID). An intentional `None` selection is an absent entry, so
+    /// every control city records an empty map.
+    var equippedAtSiege: [String: String] = [:]
+    /// HPA-671: every owned catalog ID after this city's outcome (a conquest
+    /// grants exactly one more).
+    var ownedEquipmentIDs: [String] = []
+    /// HPA-671: this city's conquest receipt — its fixed catalog drop, or nil
+    /// when the city stalled.
+    var newEquipmentItemID: String?
 }
 
-/// Treasury policy of a chained-campaign variant (HPA-670 Task 5).
+/// Treasury policy of a chained-campaign variant (HPA-670 Task 5; HPA-671
+/// Task 6 added the gear variant).
 enum CampaignTreasuryVariant: String, CaseIterable {
     /// Zero Treasury, never purchased — the HPA-582 regression baseline.
     case baseline
@@ -427,6 +599,22 @@ enum CampaignTreasuryVariant: String, CaseIterable {
     /// Buys the cheapest affordable Treasury level before each city's Camp
     /// purchases, through the real purchase mutation.
     case bought
+    /// The bought Treasury policy plus the test-only `equipment=greedy`
+    /// loadout selection at each city entry.
+    case boughtGear
+
+    /// Whether the variant buys Treasury levels at each city entry.
+    var buysTreasury: Bool {
+        self == .bought || self == .boughtGear
+    }
+}
+
+/// HPA-671 loadout policy of a chained-campaign city: the controls log
+/// `equipment=none` (gear owned, never active), the gear variant logs
+/// `equipment=greedy` with its per-type selections.
+enum CampaignEquipmentPolicy: String {
+    case none
+    case greedy
 }
 
 /// One matched comparison (HPA-477 Task 8). Reuses a city's committed camp and spawn policy on one lane.
@@ -1009,12 +1197,16 @@ struct Country1SiegeSmokeTests {
     }
 
     /// Chained 15-city greedy campaigns (HPA-582 Task 0; HPA-670 Task 5 added
-    /// the Treasury variants), opt-in via `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`.
+    /// the Treasury variants; HPA-671 Task 6 added the no-gear anchor and the
+    /// gear variant), opt-in via `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1`.
     /// The per-city COUNTRY1_SMOKE campaign=1 lines are the balance evidence;
     /// the assertion is the 15/15 conquest gate (green since Task 4 tuned
     /// `cityMaxPower` to a 1.85 growth curve). The baseline is the
     /// zero-Treasury HPA-582 regression rail; free 4/4/4 measures the power
-    /// ceiling, never pricing; bought exercises real affordability.
+    /// ceiling, never pricing; bought exercises real affordability. HPA-671:
+    /// every control city strips its auto-equipped drops at entry, so the
+    /// control numbers stay comparable with HPA-670's 570.5 s (baseline) and
+    /// 383.2 s (bought) seed-582 baselines.
     @Test(
         "Chained greedy campaign (zero-Treasury baseline) conquers every Country 1 city inside the bound",
         .enabled(if: Country1SiegeSmoke.campaignEnabled)
@@ -1024,6 +1216,7 @@ struct Country1SiegeSmokeTests {
             seed: Country1SiegeSmoke.campaignSeed,
             variant: .baseline
         )
+        print(Country1SiegeSmoke.campaignTotalsLine(variant: .baseline, records: records))
 
         #expect(records.count == KingdomGameState.firstCountryCityCount)
         let stalledCities = records.filter { !$0.reachedConquest }
@@ -1032,6 +1225,7 @@ struct Country1SiegeSmokeTests {
             Comment(rawValue: "Campaign ended early: " + (records.last.map { Country1SiegeSmoke.campaignLine(for: $0) }
                 ?? "no cities reached"))
         )
+        Self.expectEquipmentCampaignEvidence(records, zeroEquippedAtSiege: true)
     }
 
     @Test(
@@ -1043,6 +1237,7 @@ struct Country1SiegeSmokeTests {
             seed: Country1SiegeSmoke.campaignSeed,
             variant: .freeSeeded
         )
+        print(Country1SiegeSmoke.campaignTotalsLine(variant: .freeSeeded, records: records))
 
         #expect(records.count == KingdomGameState.firstCountryCityCount)
         let stalledCities = records.filter { !$0.reachedConquest }
@@ -1051,6 +1246,7 @@ struct Country1SiegeSmokeTests {
             Comment(rawValue: "Campaign ended early: " + (records.last.map { Country1SiegeSmoke.campaignLine(for: $0) }
                 ?? "no cities reached"))
         )
+        Self.expectEquipmentCampaignEvidence(records, zeroEquippedAtSiege: true)
     }
 
     @Test(
@@ -1062,6 +1258,7 @@ struct Country1SiegeSmokeTests {
             seed: Country1SiegeSmoke.campaignSeed,
             variant: .bought
         )
+        print(Country1SiegeSmoke.campaignTotalsLine(variant: .bought, records: records))
 
         #expect(records.count == KingdomGameState.firstCountryCityCount)
         let stalledCities = records.filter { !$0.reachedConquest }
@@ -1070,6 +1267,131 @@ struct Country1SiegeSmokeTests {
             Comment(rawValue: "Campaign ended early: " + (records.last.map { Country1SiegeSmoke.campaignLine(for: $0) }
                 ?? "no cities reached"))
         )
+        Self.expectEquipmentCampaignEvidence(records, zeroEquippedAtSiege: true)
+    }
+
+    /// HPA-671 Task 6 balance rail: the bought-Treasury chain plus the
+    /// test-only `equipment=greedy` loadout policy at each city entry. Same
+    /// seed 582 and greedy Camp buyer as the `bought` control, so the two
+    /// totals isolate the equipment effect. Asserts the gear invariants:
+    /// one fixed drop per conquered city, all 15 catalog IDs owned by a
+    /// completed run (including unequipped rewards), and five valid equipped
+    /// slots — each owned and type-matching — after the final pre-siege
+    /// selection (City 15, where every type owns at least its Toughness
+    /// item, so a valid slot always exists).
+    @Test(
+        "Chained greedy campaign (bought Treasury + greedy equipment) conquers every Country 1 city inside the bound",
+        .enabled(if: Country1SiegeSmoke.campaignEnabled)
+    )
+    func chainedBoughtGearCampaignConquersEveryCityInsideBound() {
+        let records = Country1SiegeSmoke.runGreedyCampaign(
+            seed: Country1SiegeSmoke.campaignSeed,
+            variant: .boughtGear
+        )
+        print(Country1SiegeSmoke.campaignTotalsLine(variant: .boughtGear, records: records))
+
+        #expect(records.count == KingdomGameState.firstCountryCityCount)
+        let stalledCities = records.filter { !$0.reachedConquest }
+        #expect(
+            stalledCities.isEmpty,
+            Comment(rawValue: "Campaign ended early: " + (records.last.map { Country1SiegeSmoke.campaignLine(for: $0) }
+                ?? "no cities reached"))
+        )
+        Self.expectEquipmentCampaignEvidence(records, zeroEquippedAtSiege: false)
+
+        guard let finalCity = records.last else {
+            return
+        }
+        #expect(finalCity.equippedAtSiege.count == SoldierType.allCases.count)
+        for (slotKey, itemID) in finalCity.equippedAtSiege {
+            #expect(
+                EquipmentCatalog.byID(itemID)?.soldierType.rawValue == slotKey,
+                Comment(rawValue: "slot \(slotKey) holds non-matching item \(itemID)")
+            )
+            #expect(
+                finalCity.ownedEquipmentIDs.contains(itemID),
+                Comment(rawValue: "slot \(slotKey) holds unowned item \(itemID)")
+            )
+        }
+    }
+
+    /// Shared HPA-671 campaign equipment evidence: exactly one fixed catalog
+    /// drop per conquered Country 1 city, all 15 unique catalog IDs owned by
+    /// a completed run (including never-equipped rewards), and — for the
+    /// no-gear controls — zero equipped slots captured at every siege entry.
+    private static func expectEquipmentCampaignEvidence(
+        _ records: [Country1CampaignCityRecord],
+        zeroEquippedAtSiege: Bool
+    ) {
+        for record in records where record.reachedConquest {
+            #expect(
+                record.newEquipmentItemID == EquipmentCatalog.byCity(record.city)?.id,
+                Comment(rawValue: "city \(record.city) conquest did not grant its fixed drop")
+            )
+        }
+        guard records.count == KingdomGameState.firstCountryCityCount else {
+            return
+        }
+        let finalOwned = Set(records.last?.ownedEquipmentIDs ?? [])
+        #expect(
+            finalOwned == Set(EquipmentCatalog.items.map(\.id)),
+            Comment(rawValue: "completed run owns \(finalOwned.count) of 15 catalog IDs")
+        )
+        if zeroEquippedAtSiege {
+            for record in records {
+                #expect(
+                    record.equippedAtSiege.isEmpty,
+                    Comment(rawValue: "control city \(record.city) entered its siege with gear active")
+                )
+            }
+        }
+    }
+
+    // MARK: - Greedy equipment policy mechanics (always-on, no BattleScene)
+
+    @Test("Greedy equipment policy selects None for every type when nothing is owned")
+    func greedyEquipmentPolicySelectsNoneWhenNothingIsOwned() {
+        var state = KingdomGameState()
+
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
+
+        #expect(state.ownedEquipmentIDs.isEmpty)
+        #expect(state.equippedItemBySoldierType.isEmpty)
+    }
+
+    /// City 1's first live objective (Willowford Gate) leaves every level-1
+    /// power at 1, so the Attack bonus rounds to a tie and the owned
+    /// Toughness item is the fallback.
+    @Test("Greedy equipment policy falls back to owned Toughness when damage does not improve")
+    func greedyEquipmentPolicyFallsBackToOwnedToughness() {
+        var state = KingdomGameState()
+        state.ownedEquipmentIDs = ["c01-infantry-attack", "c03-infantry-toughness"]
+
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
+
+        #expect(state.equippedItemBySoldierType == ["infantry": "c03-infantry-toughness"])
+    }
+
+    /// City 5's default lane (right) routes straight to the Keep, and siege's
+    /// inherent role vs a Keep is 2.0 — round(1×2)=2 against
+    /// round(1×2×1.4)=3 is a strict integer gain at level 1, so the matching
+    /// specialist is chosen over the attack and toughness items.
+    @Test("Greedy equipment policy picks a matching specialist on a strict integer gain")
+    func greedyEquipmentPolicyPicksMatchingSpecialistOnStrictGain() {
+        var state = KingdomGameState(
+            cityNumberInCountry: 4,
+            completedCityCount: 4,
+            stageStatus: .cityConqueredPendingMap
+        )
+        guard case .entered = state.startCityFromMap(5) else {
+            Issue.record("city 5 entry failed")
+            return
+        }
+        state.ownedEquipmentIDs = ["c11-siege-attack", "c13-siege-toughness", "c15-siege-keep"]
+
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
+
+        #expect(state.equippedItemBySoldierType == ["siege": "c15-siege-keep"])
     }
 
     /// Runs one matched comparison (an alternate or default lane on a committed camp and policy) and
