@@ -282,6 +282,11 @@ struct BattleResult: Codable, Equatable {
     var usedFavorableUnit: Bool
     var usedExposedLane: Bool
     var goldEarned: Int
+    /// HPA-671 new-gear receipt: the catalog ID of a newly acquired drop,
+    /// set only by `completeCurrentCity` when the conquest awarded a
+    /// previously unowned item. Optional so existing persisted results
+    /// without the key decode unchanged; presentation ignores unknown IDs.
+    var newEquipmentItemID: String?
 
     private enum CodingKeys: String, CodingKey {
         case cityKey
@@ -296,6 +301,7 @@ struct BattleResult: Codable, Equatable {
         case usedFavorableUnit
         case usedExposedLane
         case goldEarned
+        case newEquipmentItemID
     }
 
     init(
@@ -310,7 +316,8 @@ struct BattleResult: Codable, Equatable {
         mvpDamageSharePercent: Int?,
         usedFavorableUnit: Bool,
         usedExposedLane: Bool,
-        goldEarned: Int
+        goldEarned: Int,
+        newEquipmentItemID: String? = nil
     ) {
         self.cityKey = cityKey
         self.conquestMode = conquestMode
@@ -324,6 +331,7 @@ struct BattleResult: Codable, Equatable {
         self.usedFavorableUnit = usedFavorableUnit
         self.usedExposedLane = usedExposedLane
         self.goldEarned = goldEarned
+        self.newEquipmentItemID = newEquipmentItemID
     }
 
     init(from decoder: Decoder) throws {
@@ -382,7 +390,8 @@ struct BattleResult: Codable, Equatable {
             ),
             usedFavorableUnit: try container.decode(Bool.self, forKey: .usedFavorableUnit),
             usedExposedLane: try container.decode(Bool.self, forKey: .usedExposedLane),
-            goldEarned: try container.decode(Int.self, forKey: .goldEarned)
+            goldEarned: try container.decode(Int.self, forKey: .goldEarned),
+            newEquipmentItemID: try container.decodeIfPresent(String.self, forKey: .newEquipmentItemID)
         )
     }
 
@@ -399,7 +408,8 @@ struct BattleResult: Codable, Equatable {
             mvpDamageSharePercent: mvpDamageSharePercent,
             usedFavorableUnit: usedFavorableUnit,
             usedExposedLane: usedExposedLane,
-            goldEarned: goldEarned
+            goldEarned: goldEarned,
+            newEquipmentItemID: newEquipmentItemID
         )
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(normalized.cityKey, forKey: .cityKey)
@@ -417,6 +427,7 @@ struct BattleResult: Codable, Equatable {
         try container.encode(normalized.usedFavorableUnit, forKey: .usedFavorableUnit)
         try container.encode(normalized.usedExposedLane, forKey: .usedExposedLane)
         try container.encode(normalized.goldEarned, forKey: .goldEarned)
+        try container.encodeIfPresent(normalized.newEquipmentItemID, forKey: .newEquipmentItemID)
     }
 }
 

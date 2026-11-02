@@ -104,6 +104,12 @@ struct KingdomGameState: Codable, Equatable {
     var activeSiegeSession: ActiveSiegeSession?
     var pendingBattleResult: BattleResult?
     var treasury: TreasuryState
+    /// HPA-671 conquest gear: owned catalog IDs in city order, and one
+    /// equipped (owned, matching-type) ID per raw soldier key. An
+    /// intentional `None` slot is the **absence** of an entry — no third
+    /// save field, no "none" item ID.
+    var ownedEquipmentIDs: [String]
+    var equippedItemBySoldierType: [String: String]
 
     private enum CodingKeys: String, CodingKey {
         case gold
@@ -118,6 +124,8 @@ struct KingdomGameState: Codable, Equatable {
         case activeSiegeSession
         case pendingBattleResult
         case treasury
+        case ownedEquipmentIDs
+        case equippedItemBySoldierType
     }
 
     /// Decode-only tombstone keys (HPA-582). `normalSoldierUpgradeLevel`
@@ -157,7 +165,9 @@ struct KingdomGameState: Codable, Equatable {
         cityBattleStates: [String: CityBattleState] = [:],
         activeSiegeSession: ActiveSiegeSession? = nil,
         pendingBattleResult: BattleResult? = nil,
-        treasury: TreasuryState = TreasuryState()
+        treasury: TreasuryState = TreasuryState(),
+        ownedEquipmentIDs: [String] = [],
+        equippedItemBySoldierType: [String: String] = [:]
     ) {
         self.init(
             gold: gold,
@@ -172,6 +182,8 @@ struct KingdomGameState: Codable, Equatable {
             activeSiegeSession: activeSiegeSession,
             pendingBattleResult: pendingBattleResult,
             treasury: treasury,
+            ownedEquipmentIDs: ownedEquipmentIDs,
+            equippedItemBySoldierType: equippedItemBySoldierType,
             persistedSiegeDamageUnderLegacyCurve: false
         )
     }
@@ -194,6 +206,8 @@ struct KingdomGameState: Codable, Equatable {
         activeSiegeSession: ActiveSiegeSession? = nil,
         pendingBattleResult: BattleResult? = nil,
         treasury: TreasuryState,
+        ownedEquipmentIDs: [String] = [],
+        equippedItemBySoldierType: [String: String] = [:],
         persistedSiegeDamageUnderLegacyCurve: Bool
     ) {
         let clampedCountryNumber = max(1, countryNumber)
@@ -243,6 +257,11 @@ struct KingdomGameState: Codable, Equatable {
         self.completedCityCount = normalizedCompletedCityCount
         self.stageStatus = resolvedStatus
         self.treasury = treasury
+        self.ownedEquipmentIDs = Self.normalizedOwnedEquipmentIDs(ownedEquipmentIDs)
+        self.equippedItemBySoldierType = Self.normalizedEquippedItemBySoldierType(
+            equippedItemBySoldierType,
+            ownedEquipmentIDs: self.ownedEquipmentIDs
+        )
 
         var normalizedCityBattleStates: [String: CityBattleState] = [:]
         for (key, value) in cityBattleStates {
@@ -351,8 +370,43 @@ struct KingdomGameState: Codable, Equatable {
             treasury: (
                 try? container.decodeIfPresent(TreasuryState.self, forKey: .treasury)
             ) ?? TreasuryState(),
+            ownedEquipmentIDs: (
+                try? container.decodeIfPresent([String].self, forKey: .ownedEquipmentIDs)
+            ) ?? [],
+            equippedItemBySoldierType: (
+                try? container.decodeIfPresent([String: String].self, forKey: .equippedItemBySoldierType)
+            ) ?? [:],
             persistedSiegeDamageUnderLegacyCurve: persistedSiegeDamageUnderLegacyCurve
         )
+    }
+
+    /// HPA-671 owned-gear normalization: drops noncatalog and duplicate IDs
+    /// and keeps the survivors unique in catalog (city) order.
+    private static func normalizedOwnedEquipmentIDs(_ ids: [String]) -> [String] {
+        var seen = Set(ids)
+        return EquipmentCatalog.items.filter { seen.remove($0.id) != nil }.map(\.id)
+    }
+
+    /// HPA-671 equipped-slot normalization: drops malformed/unknown soldier
+    /// keys, unowned item IDs, and slots whose item does not match the
+    /// key's soldier type. Iterating `SoldierType.allCases` gives the map a
+    /// stable per-type order independent of persisted key order.
+    private static func normalizedEquippedItemBySoldierType(
+        _ equipped: [String: String],
+        ownedEquipmentIDs: [String]
+    ) -> [String: String] {
+        let owned = Set(ownedEquipmentIDs)
+        var normalized: [String: String] = [:]
+        for soldierType in SoldierType.allCases {
+            guard let itemID = equipped[soldierType.rawValue],
+                  let item = EquipmentCatalog.byID(itemID),
+                  item.soldierType == soldierType,
+                  owned.contains(itemID) else {
+                continue
+            }
+            normalized[soldierType.rawValue] = itemID
+        }
+        return normalized
     }
 
     private static func decodeCityBattleStates(
@@ -1042,6 +1096,39 @@ struct KingdomGameState: Codable, Equatable {
         gold -= cost
         treasury.setLevel(currentLevel + 1, for: upgrade)
         return .purchased(cost: cost, newLevel: currentLevel + 1, remainingGold: gold)
+    }
+
+    /// HPA-671 equipment slot mutation. Gear is account-level, so this is
+    /// available in every stage. The item's own soldier type picks the
+    /// slot (no mismatched-slot path through the API); auto-equipping a
+    /// first-ever acquisition is the conquest grant's job (Task 2), never
+    /// this method's.
+    @discardableResult
+    mutating func equip(itemID: String) -> EquipmentMutationResult {
+        guard let item = EquipmentCatalog.byID(itemID),
+              ownedEquipmentIDs.contains(item.id) else {
+            return .rejected
+        }
+
+        let slotKey = item.soldierType.rawValue
+        guard equippedItemBySoldierType[slotKey] != item.id else {
+            return .unchanged
+        }
+
+        equippedItemBySoldierType[slotKey] = item.id
+        return .success
+    }
+
+    /// HPA-671 explicit `None`: removes the slot entry entirely (the
+    /// intentional-unequip representation, preserved across reloads).
+    @discardableResult
+    mutating func unequip(soldierType: SoldierType) -> EquipmentMutationResult {
+        guard equippedItemBySoldierType[soldierType.rawValue] != nil else {
+            return .unchanged
+        }
+
+        equippedItemBySoldierType.removeValue(forKey: soldierType.rawValue)
+        return .success
     }
 
     @discardableResult
