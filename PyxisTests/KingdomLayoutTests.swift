@@ -221,4 +221,142 @@ struct KingdomLayoutTests {
         let second = try #require(KingdomLayout.compute(input))
         #expect(first == second)
     }
+
+    // MARK: - HPA-671 Armory section selector and band
+
+    @Test("320×454 header keeps the gold line and fits title + two 60×44 section controls")
+    func boundaryHeaderFitsTitleAndSectionControls() throws {
+        let layout = try #require(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 320, height: 454),
+            safeAreaInsets: .zero
+        )))
+
+        // The binding arithmetic: 288pt content = 44 Settings + 8 gap +
+        // 120pt of section controls + ≥100pt width-fitted title (228 of
+        // the 236pt remainder allocated, slack absorbed by the title),
+        // all inside the unchanged 88pt header — zero new height.
+        #expect(layout.headerFrame == CGRect(x: 16, y: 366, width: 288, height: 88))
+        #expect(layout.goldFrame == CGRect(x: 16, y: 366, width: 236, height: 44))
+
+        #expect(layout.titleFrame.minX == layout.headerFrame.minX)
+        #expect(layout.titleFrame.height == 44)
+        #expect(layout.titleFrame.maxY == layout.headerFrame.maxY)
+        // The authored compact allocation is 100pt; the boundary leaves 108.
+        #expect(layout.titleFrame.width >= 100)
+
+        #expect(layout.treasurySelectorFrame.size == CGSize(width: 60, height: 44))
+        #expect(layout.armorySelectorFrame.size == CGSize(width: 60, height: 44))
+        #expect(layout.treasurySelectorFrame.maxY == layout.headerFrame.maxY)
+        #expect(layout.armorySelectorFrame.maxY == layout.headerFrame.maxY)
+        // Adjacent controls, 8pt left of the untouched Settings target.
+        #expect(layout.treasurySelectorFrame.maxX == layout.armorySelectorFrame.minX)
+        #expect(layout.armorySelectorFrame.maxX + 8 == layout.settingsFrame.minX)
+        #expect(layout.titleFrame.maxX + 8 <= layout.treasurySelectorFrame.minX)
+
+        let topLine = [
+            layout.titleFrame,
+            layout.treasurySelectorFrame,
+            layout.armorySelectorFrame,
+            layout.settingsFrame
+        ]
+        for i in topLine.indices {
+            for j in (i + 1)..<topLine.count {
+                #expect(!topLine[i].intersects(topLine[j]))
+            }
+        }
+    }
+
+    @Test("Five Armory rows share the Treasury band at 320×454 with ≥44pt whole-row targets")
+    func boundaryArmoryRowsShareTreasuryBand() throws {
+        let layout = try #require(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 320, height: 454),
+            safeAreaInsets: .zero
+        )))
+
+        #expect(layout.armoryRowFrames.count == KingdomLayout.armoryRowCount)
+        for (index, row) in layout.armoryRowFrames.enumerated() {
+            // (260 − 4×6) / 5 = 47.2pt rows inside the same content band.
+            #expect(abs(row.height - 47.2) < 0.01)
+            #expect(row.height >= 44)
+            #expect(row.width == layout.rowFrames[0].width)
+            #expect(row.maxY <= layout.headerFrame.minY)
+            #expect(row.minY >= layout.tabBarFrame.maxY)
+            #expect(layout.safeFrame.contains(row))
+
+            #expect(row.contains(layout.armoryIconFrames[index]))
+            #expect(row.contains(layout.armoryTextFrames[index]))
+            #expect(layout.armoryTextFrames[index].width >= KingdomLayout.minimumTextWidth)
+            let line1 = layout.armoryLine1LabelFrames[index]
+            let line2 = layout.armoryLine2LabelFrames[index]
+            #expect(layout.armoryTextFrames[index].contains(line1))
+            #expect(layout.armoryTextFrames[index].contains(line2))
+            #expect(!line1.intersects(line2))
+        }
+        for (row, next) in zip(layout.armoryRowFrames, layout.armoryRowFrames.dropFirst()) {
+            #expect(abs(row.minY - next.maxY - KingdomLayout.armoryRowGap) < 0.01)
+        }
+        // Treasury geometry is untouched in the same band: three 80pt rows.
+        for row in layout.rowFrames {
+            #expect(row.height == KingdomLayout.minimumRowHeight)
+        }
+    }
+
+    @Test("Armory rows cap at their maximum on taller viewports")
+    func armoryRowsCapAtMaximumHeight() throws {
+        let layout = try #require(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: phoneInsets
+        )))
+        for row in layout.armoryRowFrames {
+            #expect(row.height == KingdomLayout.armoryMaximumRowHeight)
+        }
+        #expect(layout.armoryRowFrames[0].maxY == layout.headerFrame.minY - 12)
+        for (row, next) in zip(layout.armoryRowFrames, layout.armoryRowFrames.dropFirst()) {
+            #expect(row.minY - next.maxY == KingdomLayout.armoryRowGap)
+        }
+    }
+
+    @Test("Section controls stay disjoint from title and Settings on every accepted size")
+    func selectorControlsStayDisjointAcrossSizes() throws {
+        let cases: [(size: CGSize, insets: BattleChromeLayout.SafeAreaInsets)] = [
+            (CGSize(width: 320, height: 568), .zero),
+            (CGSize(width: 375, height: 812), phoneInsets),
+            (CGSize(width: 393, height: 852), phoneInsets),
+            (CGSize(width: 414, height: 896), phoneInsets),
+            (CGSize(width: 820, height: 1180), padInsets)
+        ]
+        for testCase in cases {
+            let layout = try #require(KingdomLayout.compute(.init(
+                sceneSize: testCase.size,
+                safeAreaInsets: testCase.insets
+            )))
+            #expect(layout.treasurySelectorFrame.size == CGSize(width: 60, height: 44))
+            #expect(layout.armorySelectorFrame.size == CGSize(width: 60, height: 44))
+            #expect(layout.titleFrame.width >= KingdomLayout.minimumTitleWidth)
+            let frames = [
+                layout.titleFrame,
+                layout.treasurySelectorFrame,
+                layout.armorySelectorFrame,
+                layout.settingsFrame
+            ]
+            for frame in frames {
+                #expect(layout.headerFrame.contains(frame))
+            }
+            for i in frames.indices {
+                for j in (i + 1)..<frames.count {
+                    #expect(!frames[i].intersects(frames[j]))
+                }
+            }
+        }
+    }
+
+    @Test("A viewport too narrow for the header selector cluster fails closed")
+    func tooNarrowForSectionControlsReturnsNil() {
+        // 228pt content minus 180pt of Settings/selector chrome leaves a
+        // 28pt title — below the fitted-title floor.
+        #expect(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 260, height: 454),
+            safeAreaInsets: .zero
+        )) == nil)
+    }
 }

@@ -1072,6 +1072,295 @@ struct KingdomSceneTests {
         #expect(scene.children.filter { $0 is SettingsGearNode }.count == 1)
     }
 
+    // MARK: - HPA-671 Armory section
+
+    @Test("Section selector switches sections without settling or saving")
+    func sectionSelectorSwitchesWithoutSaving() throws {
+        let suiteName = "PyxisTests.\(UUID().uuidString)"
+        let defaults = try #require(
+            CountingUserDefaults(suiteName: suiteName, countedKey: "state")
+        )
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        store.save(makeGearOwningState())
+        let scene = makeScene(store: store)
+        defaults.resetStateSaveCount()
+
+        #expect(scene.selectedSectionForTesting == .treasury)
+
+        let armoryHit = try #require(scene.armorySelectorHitFrameForTesting())
+        scene.handleTouchForTesting(at: armoryHit.center)
+        #expect(scene.selectedSectionForTesting == .armory)
+        #expect(defaults.stateSaveCount == 0)
+
+        let treasuryHit = try #require(scene.treasurySelectorHitFrameForTesting())
+        scene.handleTouchForTesting(at: treasuryHit.center)
+        #expect(scene.selectedSectionForTesting == .treasury)
+        #expect(defaults.stateSaveCount == 0)
+    }
+
+    @Test("Armory rows show equipped name, effect, next drop, and dim locked types")
+    func armoryRowsShowContentAndDimming() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store)
+        selectArmory(scene)
+
+        let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
+        #expect(infantry.line1 == "Infantry · Willowford Blade")
+        #expect(infantry.line2 == "Attack +15% · Drops at City 6")
+
+        // Nothing equipped and the type still locked at City 1: the row
+        // still announces the earliest drop.
+        let archer = try #require(scene.armoryRowTextForTesting(.archer))
+        #expect(archer.line1 == "Archer · None")
+        #expect(archer.line2 == "Drops at City 2")
+
+        // A type with every catalog item owned but deliberately unequipped.
+        var complete = KingdomGameState(gold: 100)
+        complete.ownedEquipmentIDs = EquipmentCatalog.forType(.archer).map(\.id)
+        let completeScene = makeScene(store: try makeStore(initialState: complete))
+        let allOwned = try #require(completeScene.armoryRowTextForTesting(.archer))
+        #expect(allOwned.line1 == "Archer · None")
+        #expect(allOwned.line2 == "All gear earned")
+
+        // Specialist effect copy quotes the matched objective.
+        var specialist = makeGearOwningState()
+        specialist.ownedEquipmentIDs = ["c04-archer-tower"]
+        specialist.equippedItemBySoldierType = ["archer": "c04-archer-tower"]
+        let specialistScene = makeScene(store: try makeStore(initialState: specialist))
+        let archerTower = try #require(specialistScene.armoryRowTextForTesting(.archer))
+        #expect(archerTower.line2 == "vs Arrow Tower +40% · Drops at City 2")
+
+        #expect(!scene.isArmoryRowDimmedForTesting(.infantry))
+        #expect(scene.isArmoryRowDimmedForTesting(.archer))
+        #expect(scene.isArmoryRowDimmedForTesting(.cavalry))
+        #expect(scene.isArmoryRowDimmedForTesting(.mage))
+        #expect(scene.isArmoryRowDimmedForTesting(.siege))
+
+        // Only the selected section's rows are visible.
+        #expect(scene.treasuryRowNodeForTesting(.warChest)?.isHidden == true)
+        #expect(scene.armoryRowNodeForTesting(.mage)?.isHidden == false)
+    }
+
+    @Test("Armory row taps cycle None → owned in city order → None and save on change")
+    func armoryRowTapCyclesOwnedChoices() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectArmory(scene)
+        let hit = try #require(scene.armoryRowHitFrameForTesting(.infantry))
+
+        scene.handleTouchForTesting(at: hit.center)
+        #expect(store.load().equippedItemBySoldierType["infantry"] == "c03-infantry-toughness")
+        scene.handleTouchForTesting(at: hit.center)
+        #expect(store.load().equippedItemBySoldierType["infantry"] == nil)
+        scene.handleTouchForTesting(at: hit.center)
+        #expect(store.load().equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
+        #expect(router.requestedTabs.isEmpty)
+
+        // The label redraws with the cycled choice.
+        let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
+        #expect(infantry.line1 == "Infantry · Willowford Blade")
+    }
+
+    @Test("A row with no owned items does nothing — no settle, no save")
+    func armoryRowWithoutOwnedItemsDoesNothing() throws {
+        let suiteName = "PyxisTests.\(UUID().uuidString)"
+        let defaults = try #require(
+            CountingUserDefaults(suiteName: suiteName, countedKey: "state")
+        )
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        store.save(makeGearOwningState())
+        let scene = makeScene(store: store)
+        defaults.resetStateSaveCount()
+        selectArmory(scene)
+
+        scene.handleTouchForTesting(at: try #require(scene.armoryRowHitFrameForTesting(.mage)).center)
+
+        #expect(defaults.stateSaveCount == 0)
+        #expect(store.load().equippedItemBySoldierType["mage"] == nil)
+        // The untouched infantry slot survives the rejected tap.
+        #expect(store.load().equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
+    }
+
+    @Test("Armory icons prefer equipment art and fall back to per-type glyphs")
+    func armoryIconArtAndFallback() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store, imageLoader: { name in
+            name == "equipment-c01-infantry-attack" ? UIImage(systemName: "star.fill") : nil
+        })
+
+        let equippedIcon = try #require(scene.armoryIconNodeForTesting(.infantry))
+        #expect(equippedIcon is SKSpriteNode)
+        let fallbackIcon = try #require(scene.armoryIconNodeForTesting(.archer))
+        #expect(fallbackIcon is SKShapeNode)
+    }
+
+    @Test("Selector, Settings and section content touches stay isolated")
+    func selectorSettingsAndSectionTouchesIsolated() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+
+        // The 8pt gap between the Armory control and Settings hits neither.
+        scene.handleTouchForTesting(at: CGPoint(
+            x: layout.armorySelectorFrame.maxX + 4,
+            y: layout.armorySelectorFrame.midY
+        ))
+        #expect(scene.selectedSectionForTesting == .treasury)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        // A selector tap never opens Settings...
+        scene.handleTouchForTesting(at: layout.armorySelectorFrame.center)
+        #expect(scene.selectedSectionForTesting == .armory)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        // ...and the gear never switches sections.
+        scene.handleTouchForTesting(at: layout.settingsFrame.center)
+        #expect(scene.selectedSectionForTesting == .armory)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        scene.activateFeedbackSettingsForTesting(.close)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+    }
+
+    @Test("Treasury Buys and Armory rows respond only in their own section")
+    func buysAndArmoryRowsAreSectionIsolated() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+
+        // Find a point inside both a Treasury Buy target and an Armory row.
+        let buyFrame = layout.buyHitFrames[0]
+        let overlappingRow = try #require(
+            layout.armoryRowFrames.first { $0.intersects(buyFrame) }
+        )
+        let shared = buyFrame.intersection(overlappingRow)
+        let point = CGPoint(x: shared.midX, y: shared.midY)
+
+        // Treasury active: the same point buys, never cycles gear.
+        scene.handleTouchForTesting(at: point)
+        #expect(store.load().treasury.warChest == 1)
+        #expect(store.load().equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
+
+        // Armory active: the same point cycles, never buys.
+        selectArmory(scene)
+        scene.handleTouchForTesting(at: point)
+        #expect(store.load().treasury.warChest == 1)
+        #expect(store.load().equippedItemBySoldierType["infantry"] == "c03-infantry-toughness")
+    }
+
+    @Test("Node tree stays stable across section switches, equip cycles and relayout")
+    func nodeTreeStaysStableAcrossSectionInteractions() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store)
+        let initialChildCount = scene.children.count
+
+        selectArmory(scene)
+        scene.handleTouchForTesting(at: try #require(scene.armoryRowHitFrameForTesting(.infantry)).center)
+        #expect(scene.children.count == initialChildCount)
+
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.children.count == initialChildCount)
+
+        scene.repeatDidMoveForTesting()
+        #expect(scene.children.count == initialChildCount)
+    }
+
+    @Test("Armory UI hides on unsupported geometry and recovers with its section")
+    func armoryHidesOnUnsupportedGeometryAndRecovers() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store)
+        selectArmory(scene)
+
+        scene.size = CGSize(width: 320, height: 330)
+        #expect(scene.isTreasuryFitFailedForTesting)
+        #expect(scene.headerNodeForTesting?.isHidden == true)
+        #expect(scene.armoryRowNodeForTesting(.infantry)?.isHidden == true)
+
+        scene.size = CGSize(width: 393, height: 852)
+        #expect(!scene.isTreasuryFitFailedForTesting)
+        #expect(scene.headerNodeForTesting?.isHidden == false)
+        // The ephemeral section survives the fail/recover cycle.
+        #expect(scene.selectedSectionForTesting == .armory)
+        #expect(scene.armoryRowNodeForTesting(.infantry)?.isHidden == false)
+        #expect(scene.treasuryRowNodeForTesting(.warChest)?.isHidden == true)
+    }
+
+    @Test("VoiceOver exposes section controls and Armory rows that drive the cycle")
+    func accessibilityExposesSectionsAndArmoryRows() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: store,
+            safeAreaInsetsOverride: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+
+        func exposedIdentifiers() -> [String] {
+            let elements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+            return elements.compactMap(\.accessibilityIdentifier)
+        }
+
+        // Treasury is exposed by default; the section controls ride along.
+        var identifiers = exposedIdentifiers()
+        #expect(identifiers.contains("kingdom-section-treasury"))
+        #expect(identifiers.contains("kingdom-section-armory"))
+        #expect(identifiers.contains("kingdom-row-warChest"))
+        #expect(!identifiers.contains("kingdom-armory-row-infantry"))
+
+        let armorySection = try #require(
+            (view.accessibilityElements as? [UIAccessibilityElement])?
+                .first { $0.accessibilityIdentifier == "kingdom-section-armory" }
+        )
+        #expect(armorySection.accessibilityTraits.contains(.button))
+        #expect(!armorySection.accessibilityTraits.contains(.selected))
+        #expect(armorySection.accessibilityActivate())
+        #expect(scene.selectedSectionForTesting == .armory)
+
+        identifiers = exposedIdentifiers()
+        for type in SoldierType.allCases {
+            #expect(identifiers.contains("kingdom-armory-row-\(type.rawValue)"))
+        }
+        #expect(!identifiers.contains("kingdom-row-warChest"))
+
+        let elements = (view.accessibilityElements as? [UIAccessibilityElement]) ?? []
+        let infantryRow = try #require(
+            elements.first { $0.accessibilityIdentifier == "kingdom-armory-row-infantry" }
+        )
+        #expect(infantryRow.accessibilityTraits.contains(.button))
+        #expect(!infantryRow.accessibilityTraits.contains(.notEnabled))
+        // Fuller flavor rides in the accessible value, not stacked text.
+        #expect(infantryRow.accessibilityValue?.contains("Willowford Blade") == true)
+        #expect(infantryRow.accessibilityValue?.contains("riverside smith") == true)
+        #expect(infantryRow.accessibilityActivate())
+        #expect(store.load().equippedItemBySoldierType["infantry"] == "c03-infantry-toughness")
+
+        let siegeRow = try #require(
+            elements.first { $0.accessibilityIdentifier == "kingdom-armory-row-siege" }
+        )
+        #expect(siegeRow.accessibilityTraits.contains(.notEnabled))
+    }
+
+    @Test("Kingdom title shrinks to fit the narrowed header line at 320×454")
+    func titleFitsNarrowedHeaderLine() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(
+            size: CGSize(width: 320, height: 454),
+            store: store,
+            safeAreaInsets: .zero
+        )
+        let layout = try #require(scene.kingdomLayoutForTesting)
+
+        let titleLabel = scene.titleLabelNodeForTesting
+        let parent = try #require(titleLabel.parent)
+        #expect(layout.titleFrame.contains(parent.convert(titleLabel.frame, to: scene)))
+        #expect(titleLabel.fontSize < 26)
+        #expect(scene.titleTextForTesting == "Kingdom")
+    }
+
     // MARK: - Helpers
 
     private func makeIdleAccruingState(since date: Date) -> KingdomGameState {
@@ -1091,6 +1380,21 @@ struct KingdomSceneTests {
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(initialState)
         return store
+    }
+
+    /// Infantry owns the City 1 attack blade (equipped) and the City 3
+    /// toughness plate; every other type owns nothing.
+    private func makeGearOwningState() -> KingdomGameState {
+        var state = KingdomGameState(gold: 100)
+        state.ownedEquipmentIDs = ["c01-infantry-attack", "c03-infantry-toughness"]
+        state.equippedItemBySoldierType = ["infantry": "c01-infantry-attack"]
+        return state
+    }
+
+    /// Switches sections exactly the way a player tap does.
+    private func selectArmory(_ scene: KingdomScene) {
+        let hit = try? scene.armorySelectorHitFrameForTesting()
+        scene.handleTouchForTesting(at: CGPoint(x: hit?.midX ?? 0, y: hit?.midY ?? 0))
     }
 
     private func makeScene(

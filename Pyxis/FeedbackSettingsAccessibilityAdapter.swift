@@ -174,6 +174,15 @@ final class FeedbackSettingsAccessibilityAdapter {
         }
     }
 
+    /// Re-exposes the gear plus the scene's current supplementary
+    /// elements. The scene calls this when its own element MEMBERSHIP
+    /// changes between layout passes (HPA-671 Kingdom section switch) —
+    /// element content alone stays fresh through the provider.
+    func refreshSceneElements() {
+        guard !isModalVisible, isSceneGearActionable else { return }
+        exposeGearIfAvailable()
+    }
+
     func present(layout: FeedbackSettingsLayout, preferences: FeedbackPreferences) {
         guard canPresentSettings else {
             return
