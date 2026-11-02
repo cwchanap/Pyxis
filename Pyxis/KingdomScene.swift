@@ -14,16 +14,39 @@ protocol KingdomSceneRouting: AnyObject {
     func kingdomScene(_ scene: KingdomScene, didRequestLayoutGate reason: AppLayoutGateReason)
 }
 
-/// HPA-670 Kingdom tab: persisted gold plus exactly three Treasury rows.
-/// Every exit routes through the controller's pending-first gate; the
-/// scene-local lifecycle sequences mirror Map/Camp (entry/foreground settle,
-/// gate pause/resume re-arming) without a shared lifecycle abstraction.
+/// HPA-671 ephemeral Kingdom tab section. Never persisted: switching
+/// sections neither settles nor saves — HPA-672 may extend the header
+/// control later.
+enum KingdomSection: Equatable {
+    case treasury
+    case armory
+
+    var displayName: String {
+        switch self {
+        case .treasury:
+            return "Treasury"
+        case .armory:
+            return "Armory"
+        }
+    }
+}
+
+/// HPA-670 Kingdom tab: persisted gold plus exactly three Treasury rows,
+/// with the HPA-671 Armory section sharing the same content band behind a
+/// compact header selector. Every exit routes through the controller's
+/// pending-first gate; the scene-local lifecycle sequences mirror Map/Camp
+/// (entry/foreground settle, gate pause/resume re-arming) without a shared
+/// lifecycle abstraction.
 final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefreshable {
     private enum NodeName {
         static let header = "kingdomHeader"
         static let rowPrefix = "kingdomTreasuryRow-"
         static let buyPrefix = "kingdomTreasuryBuy-"
         static let iconPrefix = "kingdomTreasuryIcon-"
+        static let treasurySelector = "kingdomSectionTreasury"
+        static let armorySelector = "kingdomSectionArmory"
+        static let armoryRowPrefix = "kingdomArmoryRow-"
+        static let armoryIconPrefix = "kingdomArmoryIcon-"
     }
 
     private struct RowBundle {
@@ -37,6 +60,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let buyLabel: SKLabelNode
     }
 
+    /// HPA-671 Armory row: stable per-`SoldierType` nodes. The icon holder's
+    /// child is swapped on redraw (equipped item art vs per-type glyph).
+    private struct ArmoryRowBundle {
+        let panel: PanelNode
+        let iconHolder: SKNode
+        let line1Label: SKLabelNode
+        let line2Label: SKLabelNode
+    }
+
     private let store: KingdomGameStore
     private weak var router: (any KingdomSceneRouting)?
     private let feedbackPreferences: FeedbackPreferencesManaging
@@ -47,10 +79,17 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private var state: KingdomGameState
     private var kingdomLayout: KingdomLayout?
     private var rowBundles: [TreasuryUpgrade: RowBundle] = [:]
+    private var armoryRowBundles: [SoldierType: ArmoryRowBundle] = [:]
+    /// Ephemeral section selection (HPA-671): scene UI state only.
+    private var selectedSection: KingdomSection = .treasury
 
     private let headerPanel = PanelNode(size: .zero)
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let goldLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let treasurySelectorPanel = PanelNode(size: .zero)
+    private let treasurySelectorLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let armorySelectorPanel = PanelNode(size: .zero)
+    private let armorySelectorLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     /// The tab bar shares the scene's per-instance image loader (the same
     /// injection style as the row icons) instead of a global lookup hook.
     private lazy var gameplayTabBar = GameplayTabBarNode(
@@ -77,8 +116,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     private struct SceneAccessibilityElements {
         let header: UIAccessibilityElement
+        let sections: [KingdomSection: ActionAccessibilityElement]
         let rows: [TreasuryUpgrade: UIAccessibilityElement]
         let buys: [TreasuryUpgrade: ActionAccessibilityElement]
+        let armoryRows: [SoldierType: ActionAccessibilityElement]
     }
     /// Entry-settle conquests route on the first update instead of inside
     /// didMove: didMove runs within presentScene, so a synchronous route
@@ -173,6 +214,50 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         goldLabel.horizontalAlignmentMode = .left
         goldLabel.zPosition = GameUITheme.Z.hud + 1
         headerPanel.addChild(goldLabel)
+
+        for (panel, label, name, text) in [
+            (treasurySelectorPanel, treasurySelectorLabel, NodeName.treasurySelector, "Treasury"),
+            (armorySelectorPanel, armorySelectorLabel, NodeName.armorySelector, "Armory")
+        ] {
+            panel.name = name
+            panel.zPosition = GameUITheme.Z.hud + 1
+            headerPanel.addChild(panel)
+            configureLabel(label, fontSize: 13, color: GameUITheme.Color.textPrimary)
+            label.text = text
+            label.zPosition = 1
+            panel.addChild(label)
+        }
+
+        for type in SoldierType.allCases {
+            let panel = PanelNode(size: .zero)
+            panel.name = "\(NodeName.armoryRowPrefix)\(type.rawValue)"
+            panel.zPosition = GameUITheme.Z.hud
+            addChild(panel)
+
+            let iconHolder = SKNode()
+            iconHolder.name = "\(NodeName.armoryIconPrefix)\(type.rawValue)"
+            iconHolder.zPosition = 1
+            panel.addChild(iconHolder)
+
+            let line1Label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            configureLabel(line1Label, fontSize: 13, color: GameUITheme.Color.textPrimary)
+            line1Label.horizontalAlignmentMode = .left
+            line1Label.zPosition = 1
+            panel.addChild(line1Label)
+
+            let line2Label = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+            configureLabel(line2Label, fontSize: 11, color: GameUITheme.Color.textSecondary)
+            line2Label.horizontalAlignmentMode = .left
+            line2Label.zPosition = 1
+            panel.addChild(line2Label)
+
+            armoryRowBundles[type] = ArmoryRowBundle(
+                panel: panel,
+                iconHolder: iconHolder,
+                line1Label: line1Label,
+                line2Label: line2Label
+            )
+        }
 
         for upgrade in TreasuryUpgrade.allCases {
             let panel = PanelNode(size: .zero)
@@ -280,6 +365,77 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         return shape
     }
 
+    /// HPA-671 Armory row icon: `equipment-<itemID>` art first (the
+    /// HPA-673 art-name contract), one simple per-type vector glyph as the
+    /// fallback — also used when nothing is equipped. The art-only PR must
+    /// never need Swift integration edits.
+    private func makeArmoryIconNode(
+        for item: EquipmentItem?,
+        soldierType: SoldierType
+    ) -> SKNode {
+        if let item, let image = imageLoader("equipment-\(item.id)") {
+            let sprite = SKSpriteNode(texture: SKTexture(image: image))
+            sprite.size = CGSize(
+                width: KingdomLayout.armoryIconSize,
+                height: KingdomLayout.armoryIconSize
+            )
+            return sprite
+        }
+        return Self.makeArmoryFallbackGlyph(for: soldierType)
+    }
+
+    /// Five distinct simple silhouettes in the same gold-on-panel language
+    /// as the Treasury placeholder: shield, arrow, chevrons, gem, ram head.
+    private static func makeArmoryFallbackGlyph(for type: SoldierType) -> SKShapeNode {
+        let path = CGMutablePath()
+        switch type {
+        case .infantry:
+            path.move(to: CGPoint(x: 0, y: 15))
+            path.addLine(to: CGPoint(x: 12, y: 10))
+            path.addLine(to: CGPoint(x: 12, y: -2))
+            path.addLine(to: CGPoint(x: 0, y: -14))
+            path.addLine(to: CGPoint(x: -12, y: -2))
+            path.addLine(to: CGPoint(x: -12, y: 10))
+        case .archer:
+            path.move(to: CGPoint(x: 0, y: 15))
+            path.addLine(to: CGPoint(x: 11, y: 3))
+            path.addLine(to: CGPoint(x: 4, y: 3))
+            path.addLine(to: CGPoint(x: 4, y: -14))
+            path.addLine(to: CGPoint(x: -4, y: -14))
+            path.addLine(to: CGPoint(x: -4, y: 3))
+            path.addLine(to: CGPoint(x: -11, y: 3))
+        case .cavalry:
+            path.move(to: CGPoint(x: -12, y: 9))
+            path.addLine(to: CGPoint(x: -1, y: 0))
+            path.addLine(to: CGPoint(x: -12, y: -9))
+            path.addLine(to: CGPoint(x: -8, y: 0))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 1, y: 9))
+            path.addLine(to: CGPoint(x: 12, y: 0))
+            path.addLine(to: CGPoint(x: 1, y: -9))
+            path.addLine(to: CGPoint(x: 5, y: 0))
+        case .mage:
+            path.move(to: CGPoint(x: 0, y: 15))
+            path.addLine(to: CGPoint(x: 11, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: -15))
+            path.addLine(to: CGPoint(x: -11, y: 0))
+        case .siege:
+            path.move(to: CGPoint(x: -10, y: 10))
+            path.addLine(to: CGPoint(x: 6, y: 10))
+            path.addLine(to: CGPoint(x: 15, y: 0))
+            path.addLine(to: CGPoint(x: 6, y: -10))
+            path.addLine(to: CGPoint(x: -10, y: -10))
+        }
+        path.closeSubpath()
+        let shape = SKShapeNode(path: path)
+        shape.strokeColor = GameUITheme.Color.gold
+        shape.fillColor = SKColor(red: 1, green: 0.8, blue: 0.22, alpha: 0.12)
+        shape.lineWidth = 1.5
+        shape.lineCap = .round
+        shape.lineJoin = .round
+        return shape
+    }
+
     // MARK: - Layout
 
     private func currentSafeAreaInsets() -> BattleChromeLayout.SafeAreaInsets? {
@@ -366,6 +522,38 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             y: layout.goldFrame.midY - layout.headerFrame.midY
         )
 
+        for (frame, panel, label) in [
+            (layout.treasurySelectorFrame, treasurySelectorPanel, treasurySelectorLabel),
+            (layout.armorySelectorFrame, armorySelectorPanel, armorySelectorLabel)
+        ] {
+            panel.isHidden = false
+            panel.position = CGPoint(
+                x: frame.midX - layout.headerFrame.midX,
+                y: frame.midY - layout.headerFrame.midY
+            )
+            label.position = .zero
+        }
+
+        for (index, type) in SoldierType.allCases.enumerated() {
+            guard let bundle = armoryRowBundles[type] else { continue }
+            let rowFrame = layout.armoryRowFrames[index]
+            bundle.panel.position = CGPoint(x: rowFrame.midX, y: rowFrame.midY)
+            let iconFrame = layout.armoryIconFrames[index]
+            bundle.iconHolder.position = CGPoint(
+                x: iconFrame.midX - rowFrame.midX,
+                y: iconFrame.midY - rowFrame.midY
+            )
+            for (frame, label) in [
+                (layout.armoryLine1LabelFrames[index], bundle.line1Label),
+                (layout.armoryLine2LabelFrames[index], bundle.line2Label)
+            ] {
+                label.position = CGPoint(
+                    x: frame.minX - rowFrame.midX,
+                    y: frame.midY - rowFrame.midY
+                )
+            }
+        }
+
         for (index, upgrade) in TreasuryUpgrade.allCases.enumerated() {
             guard let bundle = rowBundles[upgrade] else { continue }
             let rowFrame = layout.rowFrames[index]
@@ -414,6 +602,23 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             frame: layout.tabBarFrame,
             hitFrames: layout.tabHitFrames
         )
+
+        // A fail→recover resize cycle must restore the active section's
+        // rows (clearLayoutGeometry hid everything).
+        applySectionVisibility()
+    }
+
+    /// One source for which section's rows are visible — called from both
+    /// layout application and redraw, because a section switch redraws
+    /// without a relayout.
+    private func applySectionVisibility() {
+        let treasuryVisible = selectedSection == .treasury
+        for bundle in rowBundles.values {
+            bundle.panel.isHidden = !treasuryVisible
+        }
+        for bundle in armoryRowBundles.values {
+            bundle.panel.isHidden = treasuryVisible
+        }
     }
 
     private func clearLayoutGeometry() {
@@ -421,6 +626,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         for bundle in rowBundles.values {
             bundle.panel.isHidden = true
             bundle.buyPanel.isHidden = true
+        }
+        for bundle in armoryRowBundles.values {
+            bundle.panel.isHidden = true
         }
         gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
         feedbackSettingsController?.applyGearFrame(.zero)
@@ -430,6 +638,69 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     private func redraw() {
         goldLabel.text = "Gold " + CompactNumberFormatter.string(from: state.gold)
+
+        // The section controls narrowed the header's title line (HPA-671):
+        // reset then shrink so a wider resize can re-grow the font.
+        titleLabel.fontSize = 26
+        if let layout = kingdomLayout {
+            titleLabel.shrinkFontSize(
+                toFitWidth: layout.titleFrame.width,
+                floor: 12
+            )
+        }
+
+        applySectionSelector(
+            treasurySelectorPanel,
+            label: treasurySelectorLabel,
+            frame: kingdomLayout?.treasurySelectorFrame,
+            section: .treasury
+        )
+        applySectionSelector(
+            armorySelectorPanel,
+            label: armorySelectorLabel,
+            frame: kingdomLayout?.armorySelectorFrame,
+            section: .armory
+        )
+
+        for type in SoldierType.allCases {
+            guard let bundle = armoryRowBundles[type] else { continue }
+            let text = Self.armoryRowText(for: type, state: state)
+            let dimmed = Self.armoryRowIsDimmed(type, state: state)
+            bundle.line1Label.text = text.line1
+            bundle.line2Label.text = text.line2
+            bundle.line1Label.fontSize = 13
+            bundle.line2Label.fontSize = 11
+            if let layout = kingdomLayout,
+               let index = SoldierType.allCases.firstIndex(of: type) {
+                bundle.panel.apply(
+                    size: layout.armoryRowFrames[index].size,
+                    style: dimmed ? .disabled : .normal,
+                    showsRivets: true,
+                    appearance: .forged
+                )
+                bundle.line1Label.shrinkFontSize(
+                    toFitWidth: layout.armoryTextFrames[index].width,
+                    floor: 9
+                )
+                bundle.line2Label.shrinkFontSize(
+                    toFitWidth: layout.armoryTextFrames[index].width,
+                    floor: 8
+                )
+            }
+            let contentAlpha: CGFloat = dimmed ? GameUITheme.Alpha.lockedIcon : 1
+            bundle.line1Label.alpha = contentAlpha
+            bundle.line2Label.alpha = contentAlpha
+            bundle.iconHolder.alpha = contentAlpha
+
+            bundle.iconHolder.removeAllChildren()
+            let icon = makeArmoryIconNode(
+                for: state.equippedItem(for: type),
+                soldierType: type
+            )
+            icon.name = "\(NodeName.armoryIconPrefix)\(type.rawValue)"
+            icon.zPosition = 1
+            bundle.iconHolder.addChild(icon)
+        }
 
         for upgrade in TreasuryUpgrade.allCases {
             guard let bundle = rowBundles[upgrade] else { continue }
@@ -472,9 +743,32 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         }
 
         applyGameplayTabBar()
+        applySectionVisibility()
         // Keep the exposed elements' labels/values/traits current even when
         // no re-expose happens between a purchase and the next VoiceOver read.
         refreshSceneAccessibilityElements()
+    }
+
+    /// Styles one header section control: the selected section reads as
+    /// selected, the other stays a plain button.
+    private func applySectionSelector(
+        _ panel: PanelNode,
+        label: SKLabelNode,
+        frame: CGRect?,
+        section: KingdomSection
+    ) {
+        let isSelected = selectedSection == section
+        if let frame {
+            panel.apply(
+                size: frame.size,
+                style: isSelected ? .selected : .normal,
+                showsRivets: false,
+                appearance: .forged
+            )
+            label.fontSize = 13
+            label.shrinkFontSize(toFitWidth: frame.width - 8, floor: 9)
+        }
+        label.alpha = isSelected ? 1 : GameUITheme.Alpha.unaffordableIcon
     }
 
     private func applyGameplayTabBar() {
@@ -562,6 +856,73 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             + "\(current) → \(next) attack\(changeNote)"
     }
 
+    // MARK: - Armory row projections (HPA-671)
+
+    /// Compact two-line Armory row copy: line 1 type + equipped short
+    /// name/`None`; line 2 equipped effect + next unearned drop. Fuller
+    /// flavor rides in the row's accessible value, not stacked text.
+    static func armoryRowText(
+        for type: SoldierType,
+        state: KingdomGameState
+    ) -> (line1: String, line2: String) {
+        let equipped = state.equippedItem(for: type)
+        let line1 = "\(type.displayName) · \(equipped?.name ?? "None")"
+
+        let owned = Set(state.ownedEquipmentIDs)
+        let nextDrop = EquipmentCatalog.forType(type).first { !owned.contains($0.id) }
+        var line2Parts: [String] = []
+        if let equipped {
+            line2Parts.append(equipmentEffectText(for: equipped.effect))
+        }
+        if let nextDrop {
+            line2Parts.append("Drops at City \(nextDrop.cityNumber)")
+        }
+        if line2Parts.isEmpty {
+            line2Parts.append("All gear earned")
+        }
+        return (line1, line2Parts.joined(separator: " · "))
+    }
+
+    static func equipmentEffectText(for effect: EquipmentEffect) -> String {
+        switch effect {
+        case .attackBonus(let fraction):
+            return "Attack +\(wholePercent(fraction))%"
+        case .maxHPBonus(let fraction):
+            return "Max HP +\(wholePercent(fraction))%"
+        case .specialistBonus(let target, let fraction):
+            return "vs \(objectiveDisplayName(target)) +\(wholePercent(fraction))%"
+        }
+    }
+
+    /// A type stays dimmed until its spawning building unlocks — the same
+    /// seam Building View uses, matching the catalog's earliest drop city.
+    static func armoryRowIsDimmed(_ type: SoldierType, state: KingdomGameState) -> Bool {
+        !state.isBuildingTypeUnlocked(buildingType(for: type))
+    }
+
+    private static func buildingType(for type: SoldierType) -> BuildingType {
+        BuildingType.allCases.first { $0.soldierType == type } ?? .barracks
+    }
+
+    private static func wholePercent(_ fraction: Double) -> Int {
+        Int((fraction * 100).rounded())
+    }
+
+    private static func objectiveDisplayName(
+        _ kind: CitySiegeLayout.ObjectiveKind
+    ) -> String {
+        switch kind {
+        case .keep:
+            return "Keep"
+        case .gate:
+            return "Gate"
+        case .arrowTower:
+            return "Arrow Tower"
+        case .barracks:
+            return "Barracks"
+        }
+    }
+
     // MARK: - Touch handling
 
     private func handleTouch(at point: CGPoint) {
@@ -581,9 +942,33 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             requestGameplayTab(tab)
             return
         }
-        if let upgrade = buyUpgrade(at: point) {
+        if let section = kingdomSection(at: point) {
+            selectSection(section)
+            return
+        }
+        if selectedSection == .armory, let type = armoryRowType(at: point) {
+            handleArmoryRowTouch(type)
+            return
+        }
+        if selectedSection == .treasury, let upgrade = buyUpgrade(at: point) {
             handleBuyTouch(upgrade)
         }
+    }
+
+    private func kingdomSection(at point: CGPoint) -> KingdomSection? {
+        guard let layout = kingdomLayout else { return nil }
+        if layout.armorySelectorFrame.contains(point) { return .armory }
+        if layout.treasurySelectorFrame.contains(point) { return .treasury }
+        return nil
+    }
+
+    private func armoryRowType(at point: CGPoint) -> SoldierType? {
+        guard let layout = kingdomLayout else { return nil }
+        for (index, type) in SoldierType.allCases.enumerated()
+        where layout.armoryRowFrames[index].contains(point) {
+            return type
+        }
+        return nil
     }
 
     private func buyUpgrade(at point: CGPoint) -> TreasuryUpgrade? {
@@ -622,6 +1007,57 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         // abandon the buy, unlike Camp's stage-gated build/upgrade. The
         // pending result still routes pending-first below.
         _ = latest.purchaseTreasuryUpgrade(upgrade)
+        state = latest
+        store.save(state)
+        redraw()
+        routePendingConquestIfNeeded()
+    }
+
+    // MARK: - Armory cycling (HPA-671)
+
+    /// Ephemeral section switch: never settles, never saves — only
+    /// visibility and selector styling change. The exposed element
+    /// membership changes with the section, so the adapter re-exposes.
+    private func selectSection(_ section: KingdomSection) {
+        guard selectedSection != section else { return }
+        selectedSection = section
+        redraw()
+        activeAccessibilityAdapter?.refreshSceneElements()
+    }
+
+    /// Whole-row tap cycles `None → owned items in city order → None`.
+    /// Rows with no owned items do nothing; real changes follow the same
+    /// settle-before-mutation sequence as a Treasury Buy tap.
+    private func handleArmoryRowTouch(_ type: SoldierType) {
+        var latest = store.load()
+        let owned = EquipmentCatalog.forType(type).filter { item in
+            latest.ownedEquipmentIDs.contains(item.id)
+        }
+        guard !owned.isEmpty else {
+            redraw()
+            return
+        }
+
+        // Same rule as a Buy tap: credit the armed interval at the OLD
+        // loadout before the cycle changes it, then re-arm.
+        let settleDate = Date()
+        settleIdleProgress(in: &latest, at: settleDate) {
+            $0.conqueredCities == 0
+        }
+
+        let current = latest.equippedItemBySoldierType[type.rawValue]
+        let next: String?
+        if let current,
+           let currentIndex = owned.firstIndex(where: { $0.id == current }) {
+            next = currentIndex + 1 < owned.count ? owned[currentIndex + 1].id : nil
+        } else {
+            next = owned.first?.id
+        }
+        if let next {
+            _ = latest.equip(itemID: next)
+        } else {
+            _ = latest.unequip(soldierType: type)
+        }
         state = latest
         store.save(state)
         redraw()
@@ -863,6 +1299,26 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         header.accessibilityIdentifier = "kingdom-header"
         header.accessibilityTraits = .header
 
+        var sections: [KingdomSection: ActionAccessibilityElement] = [:]
+        for section in [KingdomSection.treasury, .armory] {
+            let element = ActionAccessibilityElement(accessibilityContainer: container) { [weak self] in
+                self?.selectSection(section)
+            }
+            element.accessibilityIdentifier = "kingdom-section-\(section.displayName.lowercased())"
+            element.accessibilityTraits = .button
+            sections[section] = element
+        }
+
+        var armoryRows: [SoldierType: ActionAccessibilityElement] = [:]
+        for type in SoldierType.allCases {
+            let row = ActionAccessibilityElement(accessibilityContainer: container) { [weak self] in
+                self?.handleArmoryRowTouch(type)
+            }
+            row.accessibilityIdentifier = "kingdom-armory-row-\(type.rawValue)"
+            row.accessibilityTraits = .button
+            armoryRows[type] = row
+        }
+
         var rows: [TreasuryUpgrade: UIAccessibilityElement] = [:]
         var buys: [TreasuryUpgrade: ActionAccessibilityElement] = [:]
         for upgrade in TreasuryUpgrade.allCases {
@@ -878,7 +1334,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             buy.accessibilityTraits = .button
             buys[upgrade] = buy
         }
-        return SceneAccessibilityElements(header: header, rows: rows, buys: buys)
+        return SceneAccessibilityElements(
+            header: header,
+            sections: sections,
+            rows: rows,
+            buys: buys,
+            armoryRows: armoryRows
+        )
     }
 
     /// The supplementary elements the adapter exposes alongside the gear:
@@ -892,9 +1354,19 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         guard let elements = sceneAccessibilityElements,
               kingdomLayout != nil else { return [] }
         var ordered: [UIAccessibilityElement] = [elements.header]
-        for upgrade in TreasuryUpgrade.allCases {
-            if let row = elements.rows[upgrade] { ordered.append(row) }
-            if let buy = elements.buys[upgrade] { ordered.append(buy) }
+        for section in [KingdomSection.treasury, .armory] {
+            if let control = elements.sections[section] { ordered.append(control) }
+        }
+        // Only the selected section's rows are visible — expose those.
+        if selectedSection == .treasury {
+            for upgrade in TreasuryUpgrade.allCases {
+                if let row = elements.rows[upgrade] { ordered.append(row) }
+                if let buy = elements.buys[upgrade] { ordered.append(buy) }
+            }
+        } else {
+            for type in SoldierType.allCases {
+                if let row = elements.armoryRows[type] { ordered.append(row) }
+            }
         }
         return ordered
     }
@@ -911,6 +1383,39 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         elements.header.accessibilityFrame = adapter.screenAccessibilityFrame(
             for: layout.headerFrame
         ) ?? .zero
+
+        for section in [KingdomSection.treasury, .armory] {
+            guard let control = elements.sections[section] else { continue }
+            control.accessibilityLabel = "\(section.displayName) section"
+            control.accessibilityTraits = selectedSection == section
+                ? [.button, .selected]
+                : .button
+            let frame = section == .treasury
+                ? layout.treasurySelectorFrame
+                : layout.armorySelectorFrame
+            control.accessibilityFrame = adapter.screenAccessibilityFrame(for: frame) ?? .zero
+        }
+
+        for (index, type) in SoldierType.allCases.enumerated() {
+            let text = Self.armoryRowText(for: type, state: state)
+            let equipped = state.equippedItem(for: type)
+            let row = elements.armoryRows[type]
+            row?.accessibilityLabel = "\(type.displayName) gear"
+            row?.accessibilityValue = [
+                text.line1,
+                text.line2,
+                equipped?.flavorText
+            ]
+                .compactMap { $0 }
+                .joined(separator: ". ")
+            let hasOwnedGear = EquipmentCatalog.forType(type).contains { item in
+                state.ownedEquipmentIDs.contains(item.id)
+            }
+            row?.accessibilityTraits = hasOwnedGear ? .button : [.button, .notEnabled]
+            row?.accessibilityFrame = adapter.screenAccessibilityFrame(
+                for: layout.armoryRowFrames[index]
+            ) ?? .zero
+        }
 
         for (index, upgrade) in TreasuryUpgrade.allCases.enumerated() {
             let level = state.treasury.level(for: upgrade)
@@ -982,9 +1487,16 @@ extension KingdomScene {
         let price: String
     }
 
+    struct ArmoryRowTextForTesting {
+        let line1: String
+        let line2: String
+    }
+
     var titleTextForTesting: String? { titleLabel.text }
 
     var goldTextForTesting: String? { goldLabel.text }
+
+    var selectedSectionForTesting: KingdomSection { selectedSection }
 
     var kingdomLayoutForTesting: KingdomLayout? { kingdomLayout }
 
@@ -1035,6 +1547,43 @@ extension KingdomScene {
             return nil
         }
         return layout.buyHitFrames[index]
+    }
+
+    func treasurySelectorHitFrameForTesting() -> CGRect? {
+        kingdomLayout?.treasurySelectorFrame
+    }
+
+    func armorySelectorHitFrameForTesting() -> CGRect? {
+        kingdomLayout?.armorySelectorFrame
+    }
+
+    func armoryRowNodeForTesting(_ type: SoldierType) -> SKNode? {
+        armoryRowBundles[type]?.panel
+    }
+
+    func armoryRowTextForTesting(_ type: SoldierType) -> ArmoryRowTextForTesting? {
+        guard let bundle = armoryRowBundles[type] else { return nil }
+        return ArmoryRowTextForTesting(
+            line1: bundle.line1Label.text ?? "",
+            line2: bundle.line2Label.text ?? ""
+        )
+    }
+
+    func armoryRowHitFrameForTesting(_ type: SoldierType) -> CGRect? {
+        guard let layout = kingdomLayout,
+              let index = SoldierType.allCases.firstIndex(of: type) else {
+            return nil
+        }
+        return layout.armoryRowFrames[index]
+    }
+
+    func armoryIconNodeForTesting(_ type: SoldierType) -> SKNode? {
+        armoryRowBundles[type]?.iconHolder.children.first
+    }
+
+    func isArmoryRowDimmedForTesting(_ type: SoldierType) -> Bool {
+        guard let bundle = armoryRowBundles[type] else { return false }
+        return bundle.line1Label.alpha < 1
     }
 
     func isBuyEnabledForTesting(_ upgrade: TreasuryUpgrade) -> Bool {
