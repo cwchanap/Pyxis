@@ -1862,8 +1862,32 @@ struct KingdomGameState: Codable, Equatable {
         // `normalizedCaptainProgress` enforces on init/decode holds after a
         // live conquest too.
         siegeProgress.captain = nil
-        pendingBattleResult = result
         completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
+
+        // HPA-671: the single gear-grant seam — every conquest route (live,
+        // background-idle, Camp settlement) converges here. Country 1 only;
+        // other countries complete normally with no grant and no receipt.
+        var storedResult = result
+        // The receipt is this seam's alone: reset any caller-set value, then
+        // set it iff the conquest awarded a previously unowned item.
+        storedResult.newEquipmentItemID = nil
+        if currentCityKey.countryNumber == 1,
+           let item = EquipmentCatalog.byCity(cityNumberInCountry),
+           !ownedEquipmentIDs.contains(item.id) {
+            // First-owned-only auto-equip: snapshot the type's ownership
+            // BEFORE the award. An explicit `None` (absent slot) after
+            // earlier ownership stays empty — the check is ownership, not
+            // slot emptiness.
+            let typeOwnedAnyGear = ownedEquipmentIDs.contains { id in
+                EquipmentCatalog.byID(id)?.soldierType == item.soldierType
+            }
+            ownedEquipmentIDs = Self.normalizedOwnedEquipmentIDs(ownedEquipmentIDs + [item.id])
+            if !typeOwnedAnyGear {
+                equippedItemBySoldierType[item.soldierType.rawValue] = item.id
+            }
+            storedResult.newEquipmentItemID = item.id
+        }
+        pendingBattleResult = storedResult
 
         if completedCityCount >= Self.firstCountryCityCount {
             stageStatus = .countryComplete
