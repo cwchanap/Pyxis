@@ -2376,6 +2376,73 @@ struct BattleSceneTests {
         ])
     }
 
+    // MARK: - HPA-671 equipment at the two spawn callers
+
+    @Test func manualSpawnCarriesEquipmentToughnessAndSpecialistSnapshot() throws {
+        // Toughness: the Falconridge Bulwark lifts the deployed infantry's
+        // cached max HP by the authored +25% before the final round
+        // (round(10 × 1.25) = 13).
+        var toughState = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+        toughState.ownedEquipmentIDs = ["c03-infantry-toughness"]
+        #expect(toughState.equip(itemID: "c03-infantry-toughness") == .success)
+        let toughScene = makeScene(store: try makeStore(initialState: toughState))
+
+        toughScene.spawnSoldierForTesting()
+
+        #expect(toughScene.liveSoldierCountForTesting == 1)
+        #expect(toughScene.liveSoldierMaxHPsForTesting == [13])
+        #expect(toughScene.liveSoldierSpecialistBonusesForTesting == [nil])
+
+        // Specialist: the Granite Ram's gate target + 1.40 factor is
+        // snapshotted onto the transient soldier at deploy time.
+        var specialistState = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+        specialistState.ownedEquipmentIDs = ["c06-infantry-gate"]
+        #expect(specialistState.equip(itemID: "c06-infantry-gate") == .success)
+        let specialistScene = makeScene(store: try makeStore(initialState: specialistState))
+
+        specialistScene.spawnSoldierForTesting()
+
+        #expect(specialistScene.liveSoldierCountForTesting == 1)
+        #expect(specialistScene.liveSoldierMaxHPsForTesting == [10])
+        #expect(specialistScene.liveSoldierSpecialistBonusesForTesting == [
+            SoldierSpecialistBonus(target: .gate, multiplier: 1.4)
+        ])
+    }
+
+    @Test func buildingSpawnCarriesEquipmentToughnessAndSpecialistSnapshot() throws {
+        let interval = KingdomGameState.activeSpawnInterval(for: .barracks)
+        func spawnScene(equippedItemID: String) throws -> BattleScene {
+            let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
+            let cityState = CityBattleState(
+                slots: [1: CityBuilding(type: .barracks, level: 1, spawnTimerElapsed: interval - 0.1)]
+            )
+            var state = KingdomGameState(
+                gold: 200,
+                cityNumberInCountry: 1,
+                completedCityCount: 0,
+                cityBattleStates: [cityKey.storageKey: cityState]
+            )
+            SiegeTestSupport.setKeepRemaining(100, on: &state)
+            state.ownedEquipmentIDs = [equippedItemID]
+            #expect(state.equip(itemID: equippedItemID) == .success)
+            let scene = makeScene(store: try makeStore(initialState: state))
+            scene.advanceCombatForTesting(deltaTime: 0.2)
+            return scene
+        }
+
+        let toughScene = try spawnScene(equippedItemID: "c03-infantry-toughness")
+        #expect(toughScene.buildingLiveSoldierCountForTesting == 1)
+        #expect(toughScene.liveSoldierMaxHPsForTesting == [13])
+        #expect(toughScene.liveSoldierSpecialistBonusesForTesting == [nil])
+
+        let specialistScene = try spawnScene(equippedItemID: "c06-infantry-gate")
+        #expect(specialistScene.buildingLiveSoldierCountForTesting == 1)
+        #expect(specialistScene.liveSoldierMaxHPsForTesting == [10])
+        #expect(specialistScene.liveSoldierSpecialistBonusesForTesting == [
+            SoldierSpecialistBonus(target: .gate, multiplier: 1.4)
+        ])
+    }
+
     @Test func activeBuildingPartialTimerProgressPersistsWithoutSpawn() throws {
         let cityKey = CityKey(countryNumber: 1, cityNumber: 1)
         let cityState = CityBattleState(

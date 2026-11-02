@@ -3,6 +3,7 @@
 //  PyxisTests
 //
 
+import Foundation
 import Testing
 @testable import Pyxis
 
@@ -2893,6 +2894,162 @@ struct BattleCombatStateTests {
         // charges are transient, never persisted.
         let restarted = makeChargeState()
         #expect(restarted.manualDeployCharges == 3)
+    }
+
+    // MARK: - HPA-671 equipment effects at the combat seams
+
+    @Test func spawnSoldierMaxHPMultiplierAppliesBeforeFinalRoundingPerType() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+        let typeMultipliers: [(type: SoldierType, multiplier: Double)] = [
+            (.infantry, 1.0), (.archer, 0.7), (.cavalry, 0.9), (.mage, 0.65), (.siege, 1.35)
+        ]
+        let gear = 1.25
+        for level in 1...3 {
+            for entry in typeMultipliers {
+                let expected = max(
+                    1,
+                    Int((10.0 * entry.multiplier * pow(1.25, Double(level - 1)) * gear).rounded())
+                )
+                let id = combat.spawnSoldier(
+                    type: entry.type,
+                    source: .manual,
+                    level: level,
+                    attackPower: 1,
+                    lane: .center,
+                    maxHPMultiplier: gear
+                )
+                let soldier = try #require(combat.soldier(id: id))
+                #expect(soldier.maxHP == expected, "\(entry.type) level \(level)")
+                #expect(soldier.currentHP == expected)
+            }
+        }
+    }
+
+    @Test func toughnessMultiplierRoundsOnceNotAfterTheBaseRounding() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+        // Mage L1 base 6.5: round(6.5 × 1.25) = 8; rounding the base first
+        // (7) then boosting rounds 8.75 → 9. Siege L1 base 13.5: 17 vs 18.
+        let mage = combat.spawnSoldier(
+            type: .mage, source: .manual, level: 1, attackPower: 1, lane: .center,
+            maxHPMultiplier: 1.25
+        )
+        let siege = combat.spawnSoldier(
+            type: .siege, source: .manual, level: 1, attackPower: 1, lane: .center,
+            maxHPMultiplier: 1.25
+        )
+        #expect(try #require(combat.soldier(id: mage)).maxHP == 8)
+        #expect(try #require(combat.soldier(id: siege)).maxHP == 17)
+    }
+
+    @Test func spawnSoldierWithoutMultiplierMatchesTheLegacyMaxHP() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+        for type in SoldierType.allCases {
+            let defaulted = combat.spawnSoldier(
+                type: type, source: .manual, level: 2, attackPower: 1, lane: .center
+            )
+            let explicit = combat.spawnSoldier(
+                type: type, source: .manual, level: 2, attackPower: 1, lane: .center,
+                maxHPMultiplier: 1.0
+            )
+            let defaultedHP = try #require(combat.soldier(id: defaulted)).maxHP
+            let explicitHP = try #require(combat.soldier(id: explicit)).maxHP
+            #expect(defaultedHP == explicitHP)
+        }
+    }
+
+    @Test func spawnSoldierStoresTheSpecialistSnapshot() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+        let bonus = SoldierSpecialistBonus(target: .keep, multiplier: 1.4)
+        let geared = combat.spawnSoldier(
+            type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .center,
+            specialistBonus: bonus
+        )
+        #expect(try #require(combat.soldier(id: geared)).specialistBonus == bonus)
+
+        let bare = combat.spawnSoldier(
+            type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .center
+        )
+        #expect(try #require(combat.soldier(id: bare)).specialistBonus == nil)
+    }
+
+    @Test func captainAndGuardsNeverCarryEquipmentEffects() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 3))
+        let spawnedCaptainID = combat.spawnCaptain(
+            progress: .freshCaptain(selectedLane: .center, captainLevel: 3),
+            captainLevel: 3
+        )
+        let captain = try #require(spawnedCaptainID.flatMap { combat.soldier(id: $0) })
+        #expect(captain.specialistBonus == nil)
+        #expect(captain.maxHP == VanguardCaptainRules.maxHP(for: 3))
+
+        // Guards restore from durable snapshots only — no equipment input.
+        combat.restoreGuard(
+            GuardSnapshot(lane: .center, remainingHP: Country1GuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+        let restored = try #require(combat.guardSnapshots.first)
+        #expect(restored.remainingHP == Country1GuardRules.maxHP)
+    }
+
+    @Test func tickAppliesEachSoldierSnapshottedSpecialistInItsSecondRound() throws {
+        var combat = BattleCombatState(configuration: .live(cityLevel: 1))
+        let plain = combat.spawnSoldier(
+            type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .center
+        )
+        let geared = combat.spawnSoldier(
+            type: .infantry, source: .manual, level: 1, attackPower: 2, lane: .center,
+            specialistBonus: SoldierSpecialistBonus(target: .keep, multiplier: 1.4)
+        )
+
+        var sawPlain = false
+        var sawGeared = false
+        for _ in 0..<20 where !(sawPlain && sawGeared) {
+            let result = combat.tick(
+                deltaTime: 1.0,
+                siege: SiegeFixtures.singleKeepSnapshot(keepRemaining: 10_000)
+            )
+            for attack in result.soldierAttacks {
+                if attack.soldierID == plain {
+                    sawPlain = true
+                    #expect(attack.appliedDamage == 2) // round(2 × 1.0)
+                }
+                if attack.soldierID == geared {
+                    sawGeared = true
+                    #expect(attack.appliedDamage == 3) // round(2 × 1.0 × 1.4)
+                }
+            }
+        }
+        #expect(sawPlain)
+        #expect(sawGeared)
+    }
+
+    @Test func guardHitsUseCachedAttackOnlyNeverRoleOrSpecialist() throws {
+        var combat = BattleCombatState(configuration: guardCombatConfiguration())
+        // Siege power 3 with a Keep-matched specialist snapshot: against the
+        // Keep structure the role alone would double it and the gear 1.4
+        // would boost it further — the Guard hit must stay exactly 3.
+        let soldier = combat.spawnSoldier(
+            type: .siege,
+            source: .manual,
+            level: 1,
+            attackPower: 3,
+            lane: .right,
+            specialistBonus: SoldierSpecialistBonus(target: .keep, multiplier: 1.4)
+        )
+        for _ in 0..<2 {
+            _ = combat.tick(deltaTime: 1.0, siege: SiegeFixtures.highcrestSnapshot())
+        }
+        combat.restoreGuard(
+            GuardSnapshot(lane: .right, remainingHP: Country1GuardRules.maxHP),
+            siege: SiegeFixtures.highcrestSnapshot()
+        )
+
+        let result = combat.tick(deltaTime: 0.80, siege: SiegeFixtures.highcrestSnapshot())
+
+        #expect(result.guardHits.map(\.soldierID) == [soldier])
+        #expect(result.guardHits.map(\.appliedDamage) == [3])
+        #expect(try #require(combat.guardSnapshots.first).remainingHP
+            == Country1GuardRules.maxHP - 3)
     }
 }
 

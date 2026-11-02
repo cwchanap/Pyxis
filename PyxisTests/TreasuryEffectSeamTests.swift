@@ -358,6 +358,83 @@ struct TreasuryEffectSeamTests {
         #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 5)
     }
 
+    // MARK: - HPA-671 attack gear in the same first round
+
+    @Test("Attack gear folds into the trait × Drill Yard single round")
+    func attackGearFoldsIntoTheSingleRound() {
+        for level in 1...8 {
+            let base = KingdomGameState.normalSoldierAttackPower(for: level)
+            for soldierType in SoldierType.allCases {
+                for trait in CityDefenseTrait.allCases {
+                    let traitMultiplier = trait.damageMultiplier(for: soldierType)
+                    for drillYard in [0, 2, 4] {
+                        let drillMultiplier = 1.0 + 0.05 * Double(drillYard)
+                        for hasGear in [false, true] {
+                            let gearMultiplier = hasGear ? 1.15 : 1.0
+                            let expected = max(1, Int(
+                                (Double(base) * traitMultiplier * drillMultiplier * gearMultiplier).rounded()
+                            ))
+                            #expect(
+                                KingdomGameState.traitAdjustedSoldierAttackPower(
+                                    for: soldierType,
+                                    level: level,
+                                    defenseTrait: trait,
+                                    upgradeMultiplier: drillMultiplier,
+                                    equipmentAttackMultiplier: gearMultiplier
+                                ) == expected,
+                                "level \(level), \(soldierType), \(trait), DY \(drillYard), gear \(hasGear)"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("Attack gear pin: one round beats trait-first double rounding")
+    func attackGearSingleRoundPin() {
+        // Mage L4 base 3, arrowTower disadvantage 0.80, DY 1 (× 1.05), gear
+        // × 1.15: 3 × 0.80 × 1.05 × 1.15 = 2.898 → 3 in one round. Rounding
+        // the trait first (round(2.4) = 2) ends at round(2.415) = 2.
+        #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .mage, level: 4, defenseTrait: .arrowTower,
+            upgradeMultiplier: 1.05, equipmentAttackMultiplier: 1.15
+        ) == 3)
+        let traitRoundedFirst = Int((Double(
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .mage, level: 4, defenseTrait: .arrowTower
+            )
+        ) * 1.05 * 1.15).rounded())
+        #expect(traitRoundedFirst == 2)
+    }
+
+    @Test("Zero equipment leaves the pre-HPA-671 outputs bit-identical")
+    func zeroEquipmentMatchesPreEquipmentFormula() {
+        for level in 1...8 {
+            for soldierType in SoldierType.allCases {
+                for trait in CityDefenseTrait.allCases {
+                    for drillYard in 0...10 {
+                        let drillMultiplier = 1.0 + 0.05 * Double(drillYard)
+                        #expect(
+                            KingdomGameState.traitAdjustedSoldierAttackPower(
+                                for: soldierType,
+                                level: level,
+                                defenseTrait: trait,
+                                upgradeMultiplier: drillMultiplier,
+                                equipmentAttackMultiplier: 1
+                            ) == KingdomGameState.traitAdjustedSoldierAttackPower(
+                                for: soldierType,
+                                level: level,
+                                defenseTrait: trait,
+                                upgradeMultiplier: drillMultiplier
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Quartermaster (cost seam)
 
     @Test("Quartermaster discounts quotes with a single rounding")

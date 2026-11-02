@@ -159,4 +159,103 @@ struct SoldierRoleDamageTests {
             )
         }
     }
+
+    // MARK: - HPA-671 specialist gear in the same second round
+
+    /// The specialist factor joins the EXISTING second round — combined with
+    /// the inherent role multiplier and the cached attack power in one
+    /// rounding — and applies only against its matching objective kind.
+    @Test func specialistMatrixCombinesRoleAndGearInOneSecondRound() {
+        let powers = [1, 2, 3, 5, 7]
+        for type in SoldierType.allCases {
+            for kind in [CitySiegeLayout.ObjectiveKind.keep, .gate, .arrowTower, .barracks] {
+                for power in powers {
+                    for bonus in [
+                        SoldierSpecialistBonus(target: .keep, multiplier: 1.4),
+                        SoldierSpecialistBonus(target: .gate, multiplier: 1.4),
+                        SoldierSpecialistBonus(target: .arrowTower, multiplier: 1.4),
+                        SoldierSpecialistBonus(target: .barracks, multiplier: 1.4)
+                    ] {
+                        let role = type.objectiveDamageMultiplier(against: kind)
+                        let specialistMultiplier = kind == bonus.target ? bonus.multiplier : 1
+                        let expected = max(
+                            1,
+                            Int((Double(power) * role * specialistMultiplier).rounded())
+                        )
+                        #expect(
+                            type.roleAdjustedDamage(power: power, against: kind, specialist: bonus)
+                                == expected,
+                            "\(type) vs \(kind), power \(power), target \(bonus.target)"
+                        )
+                    }
+                    // No snapshot: the pre-HPA-671 two-argument call, unchanged.
+                    #expect(
+                        type.roleAdjustedDamage(power: power, against: kind, specialist: nil)
+                            == type.roleAdjustedDamage(power: power, against: kind)
+                    )
+                }
+            }
+        }
+    }
+
+    @Test func specialistNeverRoundsSeparatelyFromRole() {
+        // Power 1 archer vs arrow tower (role 1.5) with matching gear 1.40:
+        // combined round(1 × 1.5 × 1.4) = round(2.1) = 2. Erroneously
+        // rounding the role first gives round(1.5) = 2, then round(2 × 1.4)
+        // = 3 — a different integer.
+        let archerCombined = SoldierType.archer.roleAdjustedDamage(
+            power: 1,
+            against: .arrowTower,
+            specialist: SoldierSpecialistBonus(target: .arrowTower, multiplier: 1.4)
+        )
+        let archerRoleFirst = max(
+            1,
+            Int((Double(
+                SoldierType.archer.roleAdjustedDamage(power: 1, against: .arrowTower)
+            ) * 1.4).rounded())
+        )
+        #expect(archerCombined == 2)
+        #expect(archerRoleFirst == 3)
+        #expect(archerCombined != archerRoleFirst)
+
+        // Power 3 mage vs barracks (role 1.5): combined round(6.3) = 6;
+        // role-first round(4.5) = 5 → round(7) = 7.
+        let mageCombined = SoldierType.mage.roleAdjustedDamage(
+            power: 3,
+            against: .barracks,
+            specialist: SoldierSpecialistBonus(target: .barracks, multiplier: 1.4)
+        )
+        let mageRoleFirst = max(
+            1,
+            Int((Double(
+                SoldierType.mage.roleAdjustedDamage(power: 3, against: .barracks)
+            ) * 1.4).rounded())
+        )
+        #expect(mageCombined == 6)
+        #expect(mageRoleFirst == 7)
+        #expect(mageCombined != mageRoleFirst)
+    }
+
+    @Test func specialistStacksWithTheInherentRoleMultiplier() {
+        // Siege vs gate keeps its authored 2.0 role; the specialist 1.40
+        // multiplies within the same single second round: round(5 × 2.8) = 14.
+        #expect(
+            SoldierType.siege.roleAdjustedDamage(
+                power: 5,
+                against: .gate,
+                specialist: SoldierSpecialistBonus(target: .gate, multiplier: 1.4)
+            ) == 14
+        )
+        // Against every non-matching objective the same soldier stays at
+        // its authored role-only damage.
+        for kind in [CitySiegeLayout.ObjectiveKind.keep, .arrowTower, .barracks] {
+            #expect(
+                SoldierType.siege.roleAdjustedDamage(
+                    power: 5,
+                    against: kind,
+                    specialist: SoldierSpecialistBonus(target: .gate, multiplier: 1.4)
+                ) == SoldierType.siege.roleAdjustedDamage(power: 5, against: kind)
+            )
+        }
+    }
 }

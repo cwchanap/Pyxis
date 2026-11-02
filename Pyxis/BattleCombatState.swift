@@ -153,6 +153,11 @@ struct BattleCombatState: Equatable {
         /// HPA-475: the single Vanguard Captain, carried by the ordinary
         /// soldier loop. Never a `SoldierType` or `SoldierSpawnSource`.
         let isCaptain: Bool
+        /// HPA-671: specialist gear snapshotted at spawn — nil without a
+        /// specialist item, and always nil for the Captain. `let`, and read
+        /// only via each soldier's own value in `tick`, so later equip
+        /// changes never rewrite a live soldier's structure hits.
+        let specialistBonus: SoldierSpecialistBonus?
 
         var isAlive: Bool {
             currentHP > 0
@@ -286,20 +291,25 @@ struct BattleCombatState: Equatable {
     /// Every spawn carries an explicit lane (HPA-468 §3.4): production and
     /// tests pass `siegeProgress.selectedLane`. There is no random-lane
     /// fallback; RNG is reserved for true randoms such as choosing among
-    /// multiple occupied defensive-fire lanes.
+    /// multiple occupied defensive-fire lanes. HPA-671: `maxHPMultiplier`
+    /// (equipped toughness, default 1) multiplies inside `maxHP` before its
+    /// final rounding, and `specialistBonus` freezes the equipped specialist
+    /// snapshot onto this soldier — both new ordinary soldiers only.
     @discardableResult
     mutating func spawnSoldier(
         type: SoldierType,
         source: SoldierSpawnSource,
         level: Int,
         attackPower: Int,
-        lane: BattleLane
+        lane: BattleLane,
+        maxHPMultiplier: Double = 1.0,
+        specialistBonus: SoldierSpecialistBonus? = nil
     ) -> SoldierID {
         let id = nextSoldierID
         nextSoldierID += 1
 
         let clampedLevel = max(1, level)
-        let maxHP = maxHP(for: type, level: clampedLevel)
+        let maxHP = maxHP(for: type, level: clampedLevel, hpMultiplier: maxHPMultiplier)
         soldiers.append(
             Soldier(
                 id: id,
@@ -316,7 +326,8 @@ struct BattleCombatState: Equatable {
                 movementSpeed: movementSpeed(for: type),
                 position: 0,
                 attackCooldownRemaining: 0,
-                isCaptain: false
+                isCaptain: false,
+                specialistBonus: specialistBonus
             )
         )
 
@@ -361,7 +372,8 @@ struct BattleCombatState: Equatable {
                 movementSpeed: movementSpeed(for: .infantry),
                 position: 0,
                 attackCooldownRemaining: 0,
-                isCaptain: true
+                isCaptain: true,
+                specialistBonus: nil // the Captain has no equipment (HPA-671)
             )
         )
 
@@ -580,11 +592,14 @@ struct BattleCombatState: Equatable {
             if soldiers[index].attackCooldownRemaining <= 0 {
                 // HPA-582: the role multiplier applies only here, on top of
                 // the already trait-adjusted cached power, rounded again and
-                // clamped positive before the remaining-HP cap. Cached
-                // `attackPower`, Captain damage and Guard combat stay flat.
+                // clamped positive before the remaining-HP cap. HPA-671: the
+                // soldier's spawn-time specialist snapshot multiplies inside
+                // this same single round. Cached `attackPower`, Captain
+                // damage and Guard combat stay flat.
                 let roleDamage = soldiers[index].type.roleAdjustedDamage(
                     power: soldiers[index].attackPower,
-                    against: snapshot.layout.objective(id: targetID)?.kind
+                    against: snapshot.layout.objective(id: targetID)?.kind,
+                    specialist: soldiers[index].specialistBonus
                 )
                 let objectiveRemainingBeforeHit = objectiveRemaining[targetID, default: 0]
                 let appliedDamage = min(roleDamage, objectiveRemainingBeforeHit)
@@ -634,7 +649,7 @@ struct BattleCombatState: Equatable {
         min(max(0, rawDeltaTime), max(0.01, configuration.maxDeltaTime))
     }
 
-    private func maxHP(for type: SoldierType, level: Int) -> Int {
+    private func maxHP(for type: SoldierType, level: Int, hpMultiplier: Double = 1.0) -> Int {
         let baseConfigurationHP = Double(max(1, configuration.soldierMaxHP))
         let multiplier: Double
         switch type {
@@ -651,7 +666,9 @@ struct BattleCombatState: Equatable {
         }
 
         let baseHP = baseConfigurationHP * multiplier
-        return max(1, Int((baseHP * pow(1.25, Double(max(1, level) - 1))).rounded()))
+        // HPA-671: equipped toughness multiplies BEFORE the existing final
+        // rounding, so gear never double-rounds the base curve.
+        return max(1, Int((baseHP * pow(1.25, Double(max(1, level) - 1)) * hpMultiplier).rounded()))
     }
 
     private func attackRange(for type: SoldierType) -> Double {

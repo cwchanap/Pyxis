@@ -2143,7 +2143,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 source: .building,
                 level: spawn.level,
                 attackPower: state.traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level),
-                lane: state.siegeProgress.selectedLane
+                lane: state.siegeProgress.selectedLane,
+                maxHPMultiplier: state.equipmentMaxHPMultiplier(for: spawn.soldierType),
+                specialistBonus: state.equipmentSpecialistBonus(for: spawn.soldierType)
             )
             if let soldier = combat.soldier(id: soldierID) {
                 state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
@@ -2717,7 +2719,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 for: type,
                 level: level
             ),
-            lane: state.siegeProgress.selectedLane
+            lane: state.siegeProgress.selectedLane,
+            maxHPMultiplier: state.equipmentMaxHPMultiplier(for: type),
+            specialistBonus: state.equipmentSpecialistBonus(for: type)
         )
         if let soldier = combat.soldier(id: soldierID) {
             state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
@@ -4859,6 +4863,14 @@ extension BattleScene {
 
     var liveSoldierAttackPowersForTesting: [Int] {
         combat.soldiers.filter { $0.isAlive && !$0.isCaptain }.map(\.attackPower)
+    }
+
+    var liveSoldierMaxHPsForTesting: [Int] {
+        combat.soldiers.filter { $0.isAlive && !$0.isCaptain }.map(\.maxHP)
+    }
+
+    var liveSoldierSpecialistBonusesForTesting: [SoldierSpecialistBonus?] {
+        combat.soldiers.filter { $0.isAlive && !$0.isCaptain }.map(\.specialistBonus)
     }
 
     var firstLiveSoldierHPBarFrameForTesting: CGRect? {
