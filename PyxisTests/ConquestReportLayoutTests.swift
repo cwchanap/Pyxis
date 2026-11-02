@@ -42,6 +42,25 @@ private func makeLayout(
     ))
 }
 
+/// HPA-671: the optional gear line must never displace required report
+/// content — compare required frames against the gearless base, not just
+/// counts and sizes.
+private func assertRequiredFramesMatchBase(
+    _ layout: ConquestReportLayout,
+    _ base: ConquestReportLayout,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    #expect(layout.panelFrame == base.panelFrame, sourceLocation: sourceLocation)
+    #expect(layout.titleFrame == base.titleFrame, sourceLocation: sourceLocation)
+    #expect(layout.rewardFrame == base.rewardFrame, sourceLocation: sourceLocation)
+    #expect(layout.takenMedallionFrame == base.takenMedallionFrame, sourceLocation: sourceLocation)
+    #expect(layout.tileFrames == base.tileFrames, sourceLocation: sourceLocation)
+    #expect(layout.chipStripFrame == base.chipStripFrame, sourceLocation: sourceLocation)
+    #expect(layout.chipFrames == base.chipFrames, sourceLocation: sourceLocation)
+    #expect(layout.continueFrame == base.continueFrame, sourceLocation: sourceLocation)
+    #expect(layout.countryCompleteFrame == base.countryCompleteFrame, sourceLocation: sourceLocation)
+}
+
 struct ConquestReportLayoutTests {
     @Test func referencePhoneMatchesAuthoredForgedReportGeometry() throws {
         let layout = try #require(makeLayout(
@@ -198,13 +217,14 @@ struct ConquestReportLayoutTests {
 
         let layout = try #require(makeLayout(size: size, tiles: 3, chips: 2, includesGearLine: true))
         let gear = try #require(layout.gearLabelFrame)
-        #expect(layout.panelFrame.height == base.panelFrame.height + 18)
+        // Requesting the line never displaces required content: every
+        // required frame is byte-identical to the gearless base.
+        assertRequiredFramesMatchBase(layout, base)
+        // The line lives inside the base geometry's reward→tiles gap.
         #expect(layout.panelFrame.contains(gear))
-        #expect(gear.maxY <= layout.rewardFrame.minY)
-        #expect(gear.minY >= layout.tileFrames[0].maxY)
-        #expect(layout.tileFrames.count == base.tileFrames.count)
-        #expect(layout.chipFrames.count == base.chipFrames.count)
-        #expect(layout.continueFrame.size == base.continueFrame.size)
+        #expect(gear.maxY <= base.rewardFrame.minY)
+        #expect(gear.minY >= base.tileFrames[0].maxY)
+        #expect(gear.height > 0)
         #expect(layout.gearStartingFontSize >= layout.gearMinimumFontSize)
     }
 
@@ -217,12 +237,12 @@ struct ConquestReportLayoutTests {
         #expect(layout == base)
     }
 
-    @Test("A roomy layout without spare height drops the gear line instead of failing")
-    func tightRoomyHeightDropsGearLineInsteadOfFailing() throws {
+    @Test("A roomy layout without spare safe height still fits the gear line in the unchanged gap")
+    func tightRoomyHeightStillFitsGearLineWithoutGrowingThePanel() throws {
         // Roomy (500pt+ scene) but only 11pt of spare safe height: the base
-        // group (419pt) fits while the grown panel (437pt) cannot, so the
-        // gear request must fall back to the exact gearless layout — a drop
-        // can never regress the report's success gate.
+        // group (419pt) fits in the 430pt safe area. The gear line must reuse
+        // the existing reward→tiles gap rather than grow the panel, so the
+        // report still presents with required frames exactly at base values.
         let size = CGSize(width: 480, height: 500)
         let insets = ConquestReportSafeAreaInsets(top: 35, left: 0, bottom: 35, right: 0)
         let base = try #require(makeLayout(size: size, insets: insets, tiles: 3, chips: 2))
@@ -233,13 +253,21 @@ struct ConquestReportLayoutTests {
             chips: 2,
             includesGearLine: true
         ))
-        #expect(layout.gearLabelFrame == nil)
-        #expect(layout == base)
+        let gear = try #require(layout.gearLabelFrame)
+        assertRequiredFramesMatchBase(layout, base)
+        #expect(gear.maxY <= base.rewardFrame.minY)
+        #expect(gear.minY >= base.tileFrames[0].maxY)
     }
 
     @Test("Finale keeps its required completion geometry with an optional gear line")
     func finaleKeepsRequiredGeometryWithOptionalGearLine() throws {
         let size = CGSize(width: 375, height: 667)
+        let base = try #require(makeLayout(
+            size: size,
+            tiles: 3,
+            chips: 2,
+            includesCountryCompletion: true
+        ))
         let layout = try #require(makeLayout(
             size: size,
             tiles: 3,
@@ -249,6 +277,7 @@ struct ConquestReportLayoutTests {
         ))
         let completion = try #require(layout.countryCompleteFrame)
         let gear = try #require(layout.gearLabelFrame)
+        assertRequiredFramesMatchBase(layout, base)
         #expect(layout.safeFrame.contains(layout.panelFrame))
         #expect(layout.panelFrame.contains(gear))
         #expect(gear.maxY <= layout.rewardFrame.minY)
@@ -286,6 +315,7 @@ struct ConquestReportLayoutTests {
                     continue
                 }
                 let layout = try #require(withGear)
+                assertRequiredFramesMatchBase(layout, base)
                 if let gear = layout.gearLabelFrame {
                     #expect(layout.panelFrame.contains(gear))
                     #expect(gear.maxY <= layout.rewardFrame.minY)
