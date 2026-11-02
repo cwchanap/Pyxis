@@ -179,7 +179,7 @@ final class PyxisUITests: XCTestCase {
         case "return-damage":
             return "Battle;stage=battleActive;mode=normal;city=1-3;manualLiving=0;"
                 + "family=frontier;fortress=damaged;"
-                + "feedback=Buildings dealt 36 idle damage.;captain=deployed;rally=inactive;protected=0"
+                + "feedback=Buildings dealt 24 idle damage.;captain=deployed;rally=inactive;protected=0"
         default:
             return ""
         }
