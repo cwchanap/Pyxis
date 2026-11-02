@@ -8,7 +8,8 @@ private func reportLayout(
     tiles: Int,
     chips: Int,
     panelWidth: CGFloat = 319,
-    sceneSize: CGSize = CGSize(width: 393, height: 499)
+    sceneSize: CGSize = CGSize(width: 393, height: 499),
+    includesGearLine: Bool = false
 ) throws -> ConquestReportLayout {
     guard let layout = ConquestReportLayout.compute(.init(
         sceneSize: sceneSize,
@@ -16,17 +17,19 @@ private func reportLayout(
         battleContentWidth: panelWidth,
         tileCount: tiles,
         chipCount: chips,
-        compactHeight: sceneSize.height < 500
+        compactHeight: sceneSize.height < 500,
+        includesGearLine: includesGearLine
     )) else {
         throw ConquestReportNodeTestError.layoutUnavailable
     }
     return layout
 }
 
-private func fullContent() -> ConquestReportContent {
+private func fullContent(newGearLineText: String? = nil) -> ConquestReportContent {
     ConquestReportContent(
         title: "Falconridge Silenced",
         rewardText: "+8",
+        newGearLineText: newGearLineText,
         tiles: [
             .mvp(soldierType: .cavalry, sharePercent: 60),
             .battleTime(seconds: 60),
@@ -144,5 +147,72 @@ struct ConquestReportNodeTests {
         #expect(node.continuePanelStyleForTesting == .primaryAction)
         #expect(node.continueUsesForgedAppearanceForTesting)
         #expect(node.statTilesUseForgedAppearanceForTesting)
+    }
+
+    @Test func gearLineRendersAndClearsOnNodeReuse() throws {
+        let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
+        let layout = try reportLayout(
+            tiles: 3,
+            chips: 2,
+            sceneSize: CGSize(width: 393, height: 852),
+            includesGearLine: true
+        )
+
+        #expect(node.apply(
+            content: fullContent(newGearLineText: "New gear: Willowford Blade"),
+            layout: layout,
+            isContinueEnabled: true
+        ) == .presented)
+        #expect(node.renderedGearLineTextForTesting == "New gear: Willowford Blade")
+
+        // A subsequent report without a new reward reuses the same node and
+        // must not keep a stale gear line (HPA-671 Task 5).
+        #expect(node.apply(content: fullContent(), layout: layout, isContinueEnabled: true) == .presented)
+        #expect(node.renderedGearLineTextForTesting == nil)
+    }
+
+    @Test func gearLineHidesWithoutFailingCompactOrUnfittableReports() throws {
+        let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
+        let compactLayout = try reportLayout(
+            tiles: 3,
+            chips: 2,
+            sceneSize: CGSize(width: 393, height: 499),
+            includesGearLine: true
+        )
+        #expect(compactLayout.gearLabelFrame == nil)
+        #expect(node.apply(
+            content: fullContent(newGearLineText: "New gear: Willowford Blade"),
+            layout: compactLayout,
+            isContinueEnabled: true
+        ) == .presented)
+        #expect(node.renderedGearLineTextForTesting == nil)
+        #expect(node.containsContinue(CGPoint(
+            x: compactLayout.continueFrame.midX,
+            y: compactLayout.continueFrame.midY
+        )))
+
+        // Roomy frame but the gear text cannot fit even at the minimum font —
+        // only the label is dropped; required content still presents.
+        let unfittable = ConquestReportNode(textWidth: { text, _, size in
+            text.hasPrefix("New gear:")
+                ? .greatestFiniteMagnitude
+                : CGFloat(text.count) * size * 0.45
+        })
+        let roomyLayout = try reportLayout(
+            tiles: 3,
+            chips: 2,
+            sceneSize: CGSize(width: 393, height: 852),
+            includesGearLine: true
+        )
+        #expect(unfittable.apply(
+            content: fullContent(newGearLineText: "New gear: Willowford Blade"),
+            layout: roomyLayout,
+            isContinueEnabled: true
+        ) == .presented)
+        #expect(unfittable.renderedGearLineTextForTesting == nil)
+        #expect(unfittable.containsContinue(CGPoint(
+            x: roomyLayout.continueFrame.midX,
+            y: roomyLayout.continueFrame.midY
+        )))
     }
 }

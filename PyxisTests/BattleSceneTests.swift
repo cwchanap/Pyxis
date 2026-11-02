@@ -3371,6 +3371,100 @@ struct BattleSceneTests {
         #expect(store.load().pendingBattleResult == nil)
     }
 
+    @Test("A new-gear receipt adds one optional line without touching core metrics")
+    func conquestReportShowsNewGearLineOnRoomyReport() throws {
+        let router = BattleRouterSpy()
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState(
+                city: 1, newGear: "c01-infantry-attack"
+            )),
+            router: router
+        )
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+        #expect(scene.conquestReportRewardTextForTesting == "+8")
+        #expect(scene.conquestReportTilesForTesting == [
+            .battleTime(seconds: 65),
+            .sentLost(sent: 0, lost: 0)
+        ])
+
+        scene.tapConquestContinueForTesting()
+        #expect(router.countryMapRequestCount == 1)
+        #expect(scene.gameStateForTesting.pendingBattleResult == nil)
+    }
+
+    @Test("A restored report still shows its gear line after a relaunch re-encode")
+    func restoredReportShowsNewGearLineAfterRelaunchReencode() throws {
+        let original = pendingConqueredState(city: 1, newGear: "c01-infantry-attack")
+        let decoded = try JSONDecoder().decode(
+            KingdomGameState.self,
+            from: JSONEncoder().encode(original)
+        )
+        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+
+        let scene = makeScene(store: try makeStore(initialState: decoded))
+        #expect(scene.lastConquestReportOriginForTesting == "restored")
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+        #expect(!scene.isConquestReportFitFailedForTesting)
+    }
+
+    @Test("A compact scene hides the gear line but keeps the report and Continue")
+    func compactSceneHidesGearLineButKeepsReportAndContinue() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState(
+                city: 1, newGear: "c01-infantry-attack"
+            )),
+            size: CGSize(width: 320, height: 568)
+        )
+
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+        #expect(scene.conquestReportGearLineTextForTesting == nil)
+        #expect(scene.popupContinueButtonFrameForTesting != nil)
+    }
+
+    @Test("Relayout keeps the gear line in sync with the current geometry")
+    func gearLineSurvivesRelayoutAndHidesOnCompactResize() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState(
+                city: 1, newGear: "c01-infantry-attack"
+            ))
+        )
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+
+        scene.size = CGSize(width: 393, height: 700)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.isConquestPopupVisibleForTesting)
+        #expect(scene.conquestReportGearLineTextForTesting == nil)
+
+        scene.size = CGSize(width: 390, height: 844)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+    }
+
+    @Test("The City 15 finale shows its gear line without displacing finale content")
+    func city15FinaleShowsGearLineWithoutDisplacingFinaleContent() throws {
+        let router = BattleRouterSpy()
+        let scene = makeScene(
+            store: try makeStore(initialState: pendingConqueredState(
+                city: 15, mode: .idle, countryComplete: true, newGear: "c15-siege-keep"
+            )),
+            router: router
+        )
+
+        #expect(scene.conquestReportTitleForTesting == "Crownspire Keep Falls")
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Crownspire Breaker")
+        #expect(scene.countryCompleteTextForTesting == "Country 1 Complete")
+        #expect(scene.countryCompleteFrameForTesting != nil)
+        #expect(!scene.isConquestReportFitFailedForTesting)
+
+        scene.tapConquestContinueForTesting()
+        #expect(router.countryMapRequestCount == 1)
+        #expect(scene.gameStateForTesting.pendingBattleResult == nil)
+    }
+
     @Test("Fresh City 5 flourish uses the applied result once")
     func freshCity5ConquestPresentsMilestoneFlourishOnce() throws {
         let key = CityKey(countryNumber: 1, cityNumber: 5)
@@ -4107,7 +4201,8 @@ struct BattleSceneTests {
         mode: BattleConquestMode = .live,
         activeBattleSeconds: TimeInterval = 65,
         usedFavorableUnit: Bool = false,
-        usedExposedLane: Bool = false
+        usedExposedLane: Bool = false,
+        newGear: String? = nil
     ) -> BattleResult {
         BattleResult(
             cityKey: CityKey(countryNumber: 1, cityNumber: city),
@@ -4121,7 +4216,8 @@ struct BattleSceneTests {
             mvpDamageSharePercent: nil,
             usedFavorableUnit: usedFavorableUnit,
             usedExposedLane: usedExposedLane,
-            goldEarned: 8
+            goldEarned: 8,
+            newEquipmentItemID: newGear
         )
     }
 
@@ -4130,7 +4226,8 @@ struct BattleSceneTests {
         mode: BattleConquestMode = .live,
         countryComplete: Bool = false,
         usedFavorableUnit: Bool = false,
-        usedExposedLane: Bool = false
+        usedExposedLane: Bool = false,
+        newGear: String? = nil
     ) -> KingdomGameState {
         KingdomGameState(
             cityLevel: city,
@@ -4141,7 +4238,8 @@ struct BattleSceneTests {
                 city: city,
                 mode: mode,
                 usedFavorableUnit: usedFavorableUnit,
-                usedExposedLane: usedExposedLane
+                usedExposedLane: usedExposedLane,
+                newGear: newGear
             )
         )
     }

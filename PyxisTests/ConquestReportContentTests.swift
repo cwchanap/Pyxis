@@ -134,6 +134,38 @@ struct ConquestReportContentTests {
         #expect(content.title == "Crownspire Keep Falls")
     }
 
+    @Test func newGearReceiptProjectsToAuthoredCatalogName() {
+        let content = ConquestReportContent.project(
+            from: makeResult(newGear: "c01-infantry-attack"),
+            title: "Willowford Secured"
+        )
+        #expect(content.newGearLineText == "New gear: Willowford Blade")
+    }
+
+    @Test func city15ReceiptProjectsFinaleItemName() {
+        let content = ConquestReportContent.project(
+            from: makeResult(city: 15, newGear: "c15-siege-keep"),
+            title: "Crownspire Keep Falls"
+        )
+        #expect(content.newGearLineText == "New gear: Crownspire Breaker")
+    }
+
+    @Test func unknownGearReceiptProducesNoLine() {
+        let content = ConquestReportContent.project(
+            from: makeResult(newGear: "c99-unauthored-item"),
+            title: "Falconridge Silenced"
+        )
+        #expect(content.newGearLineText == nil)
+    }
+
+    @Test func missingGearReceiptProducesNoLine() {
+        let content = ConquestReportContent.project(
+            from: makeResult(),
+            title: "Falconridge Silenced"
+        )
+        #expect(content.newGearLineText == nil)
+    }
+
     @Test(arguments: [
         (0.0, "0:00"), (59.9, "0:59"), (60.0, "1:00"),
         (65.0, "1:05"), (3_599.0, "59:59"),
@@ -185,7 +217,8 @@ private func makeResult(
     losses: Int = 2,
     favorable: Bool = true,
     exposed: Bool = true,
-    city: Int = 3
+    city: Int = 3,
+    newGear: String? = nil
 ) -> BattleResult {
     BattleResult(
         cityKey: CityKey(countryNumber: 1, cityNumber: city),
@@ -203,6 +236,7 @@ private func makeResult(
         mvpDamageSharePercent: share,
         usedFavorableUnit: favorable,
         usedExposedLane: exposed,
-        goldEarned: gold
+        goldEarned: gold,
+        newEquipmentItemID: newGear
     )
 }
