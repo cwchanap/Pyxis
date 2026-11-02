@@ -33,6 +33,15 @@ enum SoldierSpawnSource: String, Codable, Equatable {
     case building
 }
 
+/// HPA-671 specialist gear snapshotted at spawn (live soldiers) or per
+/// resolved spawn (idle budgets): the equipped item's matching objective
+/// kind and combined multiplier (1 + authored fraction). Value captured
+/// once so later equip changes never rewrite a live soldier's hits.
+struct SoldierSpecialistBonus: Equatable {
+    let target: CitySiegeLayout.ObjectiveKind
+    let multiplier: Double
+}
+
 extension SoldierType {
     /// HPA-582 per-objective soldier-role multiplier, applied (and rounded)
     /// at each structure hit on top of the already trait-adjusted cached
@@ -61,8 +70,19 @@ extension SoldierType {
     /// applied on top of an already trait-adjusted `power`, rounded and
     /// clamped positive — before the remaining-HP cap. Live ticks, idle
     /// spawn budgets, and any future structure-damage path must all round
-    /// identically, so the formula lives here exactly once.
-    func roleAdjustedDamage(power: Int, against kind: CitySiegeLayout.ObjectiveKind?) -> Int {
-        max(1, Int((Double(power) * objectiveDamageMultiplier(against: kind)).rounded()))
+    /// identically, so the formula lives here exactly once. HPA-671: a
+    /// matching specialist snapshot multiplies inside this SAME single
+    /// round (role × specialist together); any other objective, and every
+    /// caller without a snapshot, keeps the pre-gear result exactly.
+    func roleAdjustedDamage(
+        power: Int,
+        against kind: CitySiegeLayout.ObjectiveKind?,
+        specialist bonus: SoldierSpecialistBonus? = nil
+    ) -> Int {
+        let specialistMultiplier = kind == bonus?.target ? bonus?.multiplier ?? 1 : 1
+        return max(
+            1,
+            Int((Double(power) * objectiveDamageMultiplier(against: kind) * specialistMultiplier).rounded())
+        )
     }
 }

@@ -1131,6 +1131,51 @@ struct KingdomGameState: Codable, Equatable {
         return .success
     }
 
+    // MARK: - HPA-671 combat loadout projections
+    // The three authoritative gear reads: attack folds into the shared
+    // first-round attack seam, toughness into `spawnSoldier`'s max-HP
+    // multiplier, specialist into the second-round role adjustment. No
+    // generic modifier pipeline — consumers snapshot these at spawn.
+
+    /// The equipped catalog item for one soldier type, or nil for an
+    /// explicit `None` slot.
+    func equippedItem(for soldierType: SoldierType) -> EquipmentItem? {
+        guard let itemID = equippedItemBySoldierType[soldierType.rawValue] else {
+            return nil
+        }
+        return EquipmentCatalog.byID(itemID)
+    }
+
+    /// Equipped attack factor for the single-round fold (1 + authored
+    /// bonus). 1 — bit-identical to the pre-gear formula — without an
+    /// attack item equipped.
+    func equipmentAttackMultiplier(for soldierType: SoldierType) -> Double {
+        if case .attackBonus(let fraction)? = equippedItem(for: soldierType)?.effect {
+            return 1 + fraction
+        }
+        return 1
+    }
+
+    /// Equipped toughness factor for `spawnSoldier`'s max-HP multiplier
+    /// (1 + authored bonus). Only live ordinary soldiers consume it; the
+    /// Captain, Guards and idle abstract damage never do.
+    func equipmentMaxHPMultiplier(for soldierType: SoldierType) -> Double {
+        if case .maxHPBonus(let fraction)? = equippedItem(for: soldierType)?.effect {
+            return 1 + fraction
+        }
+        return 1
+    }
+
+    /// Equipped specialist snapshot (matching objective kind, 1 + authored
+    /// fraction) captured at spawn so later equip changes never rewrite a
+    /// live soldier's structure hits. Nil without a specialist item.
+    func equipmentSpecialistBonus(for soldierType: SoldierType) -> SoldierSpecialistBonus? {
+        if case .specialistBonus(let target, let fraction)? = equippedItem(for: soldierType)?.effect {
+            return SoldierSpecialistBonus(target: target, multiplier: 1 + fraction)
+        }
+        return nil
+    }
+
     @discardableResult
     mutating func resolveActiveBuildingSpawns(deltaTime rawDeltaTime: Double) -> [BuildingSpawn] {
         guard stageStatus == .battleActive else {
@@ -1293,8 +1338,10 @@ struct KingdomGameState: Codable, Equatable {
 
             // HPA-582: one role multiplier per spawn, keyed to the first live
             // objective on the selected lane, before the unchanged route-budget
-            // helper. Bounded approximation: the boosted budget's spill past
-            // that objective stays raw. Neutral roles reproduce the old call.
+            // helper. HPA-671: the currently equipped specialist joins that
+            // same single second round; neutral roles and non-matching gear
+            // reproduce the old call exactly. Bounded approximation: the
+            // boosted budget's spill past that objective stays raw.
             let firstLiveKind = layout.firstLiveObjectiveID(
                 for: siegeProgress.selectedLane,
                 maxPowers: maxPowers,
@@ -1302,7 +1349,8 @@ struct KingdomGameState: Codable, Equatable {
             ).flatMap { layout.objective(id: $0)?.kind }
             let budget = spawn.soldierType.roleAdjustedDamage(
                 power: leftover,
-                against: firstLiveKind
+                against: firstLiveKind,
+                specialist: equipmentSpecialistBonus(for: spawn.soldierType)
             )
 
             let (spentDamage, appliedByObjectiveID) = layout.spendDamageBudget(
@@ -1760,22 +1808,29 @@ struct KingdomGameState: Codable, Equatable {
 
     /// The shared live/abstract attack seam with the Drill Yard multiplier
     /// folded into the single round (HPA-670): the default `upgradeMultiplier`
-    /// of 1 reproduces the pre-Treasury result exactly. Never round this
-    /// result again downstream — the separate role-multiplier hit round is
-    /// the only permitted second rounding.
+    /// of 1 reproduces the pre-Treasury result exactly, and the default
+    /// `equipmentAttackMultiplier` of 1 reproduces the pre-HPA-671 result
+    /// bit-identically. Never round this result again downstream — the
+    /// separate role-multiplier hit round is the only permitted second
+    /// rounding.
     static func traitAdjustedSoldierAttackPower(
         for soldierType: SoldierType,
         level: Int,
         defenseTrait: CityDefenseTrait,
-        upgradeMultiplier: Double = 1
+        upgradeMultiplier: Double = 1,
+        equipmentAttackMultiplier: Double = 1
     ) -> Int {
         let baseDamage = soldierAttackPower(for: soldierType, level: level)
         guard baseDamage > 0 else { return 0 }
 
-        // One round for trait × upgrade together: an intermediate round loses
-        // damage (9 × 0.80 × 1.05 rounds to 8 once, to 7 if rounded twice).
+        // One round for trait × upgrade × gear together: an intermediate
+        // round loses damage (9 × 0.80 × 1.05 rounds to 8 once, to 7 if
+        // rounded twice).
         let adjustedDamage = Int(
-            (Double(baseDamage) * defenseTrait.damageMultiplier(for: soldierType) * upgradeMultiplier).rounded()
+            (Double(baseDamage)
+                * defenseTrait.damageMultiplier(for: soldierType)
+                * upgradeMultiplier
+                * equipmentAttackMultiplier).rounded()
         )
         return max(1, adjustedDamage)
     }
@@ -1785,7 +1840,8 @@ struct KingdomGameState: Codable, Equatable {
             for: soldierType,
             level: level,
             defenseTrait: currentCityDefenseTrait,
-            upgradeMultiplier: 1.0 + 0.05 * Double(treasury.drillYard)
+            upgradeMultiplier: 1.0 + 0.05 * Double(treasury.drillYard),
+            equipmentAttackMultiplier: equipmentAttackMultiplier(for: soldierType)
         )
     }
 
