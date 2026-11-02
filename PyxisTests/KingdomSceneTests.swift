@@ -1397,30 +1397,25 @@ struct KingdomSceneTests {
         #expect(scene.titleTextForTesting == "Kingdom")
     }
 
-    @Test("Armory rendered labels fit their reserved line boxes at 320×454")
+    @Test("Armory rendered labels fit their reserved line boxes for every authored item")
     func armoryRowLabelsFitReservedLineBoxesAtBoundary() throws {
-        // Representative authored equipment choices at the narrowest
-        // accepted size: the layout's reserved line boxes fitting is not
-        // enough — the RENDERED two-line copy must fit them too.
-        var toughness = KingdomGameState(gold: 100)
-        toughness.ownedEquipmentIDs = ["c01-infantry-attack", "c03-infantry-toughness"]
-        toughness.equippedItemBySoldierType = ["infantry": "c03-infantry-toughness"]
-        var specialist = KingdomGameState(gold: 100)
-        specialist.ownedEquipmentIDs = ["c10-cavalry-barracks"]
-        specialist.equippedItemBySoldierType = ["cavalry": "c10-cavalry-barracks"]
-        let cases: [(label: String, state: KingdomGameState)] = [
-            // Attack row with a live next drop.
-            ("attack+next-drop", makeGearOwningState()),
-            // Toughness row.
-            ("toughness", toughness),
-            // Specialist effect + next-drop copy.
-            ("specialist+next-drop", specialist)
-        ]
+        // Every authored equipment choice at the narrowest accepted size,
+        // not just representative ones: the layout's reserved line boxes
+        // fitting is not enough — the RENDERED two-line copy must fit them
+        // too. Each iteration owns the realistic city-1…N drop prefix and
+        // equips one catalog item in its own row, so all 15 names, every
+        // effect string, and every effect+next-drop combination renders;
+        // the final iteration also covers the "All gear earned" rows.
+        for item in EquipmentCatalog.items {
+            var state = KingdomGameState(gold: 100)
+            state.ownedEquipmentIDs = EquipmentCatalog.items
+                .filter { $0.cityNumber <= item.cityNumber }
+                .map(\.id)
+            state.equippedItemBySoldierType = [item.soldierType.rawValue: item.id]
 
-        for testCase in cases {
             let scene = makeScene(
                 size: CGSize(width: 320, height: 454),
-                store: try makeStore(initialState: testCase.state),
+                store: try makeStore(initialState: state),
                 safeAreaInsets: .zero
             )
             selectArmory(scene)
@@ -1440,7 +1435,7 @@ struct KingdomSceneTests {
                     let tolerance: CGFloat = 0.05
                     #expect(
                         box.insetBy(dx: -tolerance, dy: -tolerance).contains(rendered),
-                        "\(testCase.label) \(type.rawValue) '\(label.text ?? "")' → \(box) vs \(rendered)"
+                        "city \(item.cityNumber) \(type.rawValue) '\(label.text ?? "")' → \(box) vs \(rendered)"
                     )
                 }
                 let rowFrame = layout.armoryRowFrames[index]
@@ -1451,22 +1446,22 @@ struct KingdomSceneTests {
             }
         }
 
-        // The measured copy really is the authored specialist/next-drop
-        // text, not an empty or shortened stand-in.
-        let specialistScene = makeScene(
+        // The longest measured copy really is the authored specialist +
+        // next-drop text (Bramblegate Broadhead on the city-1…4 prefix),
+        // not an empty or shortened stand-in.
+        var broadhead = KingdomGameState(gold: 100)
+        broadhead.ownedEquipmentIDs = EquipmentCatalog.items
+            .filter { $0.cityNumber <= 4 }
+            .map(\.id)
+        broadhead.equippedItemBySoldierType = ["archer": "c04-archer-tower"]
+        let broadheadScene = makeScene(
             size: CGSize(width: 320, height: 454),
-            store: try makeStore(initialState: specialist),
+            store: try makeStore(initialState: broadhead),
             safeAreaInsets: .zero
         )
-        let cavalry = try #require(specialistScene.armoryRowTextForTesting(.cavalry))
-        #expect(cavalry.line2 == "vs Barracks +40% · Drops at City 5")
-        let toughnessScene = makeScene(
-            size: CGSize(width: 320, height: 454),
-            store: try makeStore(initialState: toughness),
-            safeAreaInsets: .zero
-        )
-        let infantry = try #require(toughnessScene.armoryRowTextForTesting(.infantry))
-        #expect(infantry.line2 == "Max HP +25% · Drops at City 6")
+        let archer = try #require(broadheadScene.armoryRowTextForTesting(.archer))
+        #expect(archer.line1 == "Archer · Bramblegate Broadhead")
+        #expect(archer.line2 == "vs Arrow Tower +40% · Drops at City 9")
     }
 
     // MARK: - Helpers
