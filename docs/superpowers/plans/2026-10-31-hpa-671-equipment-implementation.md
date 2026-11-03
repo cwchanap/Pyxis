@@ -96,6 +96,6 @@
 - **Idle parity:** specialist uses the first live objective and preserves the existing spill rule; toughness doesn't leak into idle damage.
 - **Scope:** one ticket, one PR, no art in code work.
 
-## Planning-only status
+## Completion status
 
-This design-review revision still changes **docs only**. No simulator, build, SwiftLint, tests or balance runs have been performed for HPA-671. Those are implementation acceptance steps, not claimed results. Review clarifications: header-integrated selector at 320×454, first-owned-only auto-equip preserving `None`, Country 1-only rewards, fixed level-1/default-lane selection, and explicit no-gear campaign controls.
+Implementation is complete on this PR: catalog, once-per-conquest grant seam, three stat effects, Armory UI, optional report line and the four-variant chained campaign all landed on this branch. Simulator, build, SwiftLint, unit/UI test and balance evidence is recorded in PR #50's **Implementation evidence** section. Design-review clarifications (kept for the record): header-integrated selector at 320×454, first-owned-only auto-equip preserving `None`, Country 1-only rewards, fixed level-1/default-lane selection, and explicit no-gear campaign controls.
