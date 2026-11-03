@@ -67,9 +67,12 @@ struct EquipmentEffectTests {
     // MARK: - Attack gear at the shared seam
 
     @Test func instanceAttackSeamFoldsEquippedAttackGearIntoTheSingleRound() {
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            keepRemaining: 100_000,
+            ownedEquipmentIDs: ["c01-infantry-attack"]
+        )
         state.treasury.drillYard = 2
-        state.ownedEquipmentIDs = ["c01-infantry-attack"]
         #expect(state.equip(itemID: "c01-infantry-attack") == .success)
 
         let expected = KingdomGameState.traitAdjustedSoldierAttackPower(
@@ -95,10 +98,13 @@ struct EquipmentEffectTests {
         // round(4 × 1.15) = 5 (4.6 → 5) on BOTH the live combat spawn and
         // the idle abstract budget.
         func armedState() -> KingdomGameState {
-            var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+            var state = SiegeTestSupport.makeBattleState(
+                atCity: 1,
+                keepRemaining: 100_000,
+                ownedEquipmentIDs: ["c01-infantry-attack"]
+            )
             SiegeTestSupport.destroySupportObjectives(of: &state)
             state.siegeProgress.guardReinforcements = nil
-            state.ownedEquipmentIDs = ["c01-infantry-attack"]
             #expect(state.equip(itemID: "c01-infantry-attack") == .success)
 
             let key = state.currentCityKey
@@ -133,8 +139,11 @@ struct EquipmentEffectTests {
     // MARK: - New-spawns-only snapshot
 
     @Test func equipChangeAfterLiveSpawnNeverRewritesCachedStats() throws {
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
-        state.ownedEquipmentIDs = ["c06-infantry-gate", "c01-infantry-attack"]
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            keepRemaining: 100_000,
+            ownedEquipmentIDs: ["c06-infantry-gate", "c01-infantry-attack"]
+        )
         #expect(state.equip(itemID: "c06-infantry-gate") == .success)
 
         var combat = BattleCombatState(configuration: .live(cityLevel: state.cityLevel))
@@ -179,11 +188,11 @@ struct EquipmentEffectTests {
             var state = SiegeTestSupport.makeBattleState(
                 atCity: 1,
                 keepRemaining: 15,
-                supportDamage: [.gate: 3] // gate 5 − 3 = 2 remaining
+                supportDamage: [.gate: 3], // gate 5 − 3 = 2 remaining
+                ownedEquipmentIDs: equippedItemID.map { [$0] } ?? []
             )
             state.siegeProgress.guardReinforcements = nil
             if let equippedItemID {
-                state.ownedEquipmentIDs = [equippedItemID]
                 #expect(state.equip(itemID: equippedItemID) == .success)
             }
 
@@ -222,12 +231,15 @@ struct EquipmentEffectTests {
 
     @Test func idleSpecialistStaysNeutralAgainstNonMatchingFirstLiveObjective() {
         func idleDamage(equipped: Bool) -> Int {
-            var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 15)
+            var state = SiegeTestSupport.makeBattleState(
+                atCity: 1,
+                keepRemaining: 15,
+                ownedEquipmentIDs: equipped ? ["c06-infantry-gate"] : []
+            )
             // Gate destroyed: the Keep (not the Ram's gate target) is first live.
             SiegeTestSupport.destroySupportObjectives(of: &state)
             state.siegeProgress.guardReinforcements = nil
             if equipped {
-                state.ownedEquipmentIDs = ["c06-infantry-gate"]
                 #expect(state.equip(itemID: "c06-infantry-gate") == .success)
             }
 
@@ -249,11 +261,14 @@ struct EquipmentEffectTests {
         // Idle does not model soldier HP; the Bulwark must not leak an
         // abstract damage boost into the offline budget.
         func idleDamage(equipped: Bool) -> Int {
-            var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 15)
+            var state = SiegeTestSupport.makeBattleState(
+                atCity: 1,
+                keepRemaining: 15,
+                ownedEquipmentIDs: equipped ? ["c03-infantry-toughness"] : []
+            )
             SiegeTestSupport.destroySupportObjectives(of: &state)
             state.siegeProgress.guardReinforcements = nil
             if equipped {
-                state.ownedEquipmentIDs = ["c03-infantry-toughness"]
                 #expect(state.equip(itemID: "c03-infantry-toughness") == .success)
             }
 
@@ -326,12 +341,12 @@ struct EquipmentEffectTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: cell.city,
             keepRemaining: 1_000_000, // clamps to the authored max: full Keep
-            selectedLane: cell.lane
+            selectedLane: cell.lane,
+            ownedEquipmentIDs: cell.equippedItemID.map { [$0] } ?? []
         )
         // No Guard absorption: the whole budget reaches the route on both paths.
         state.siegeProgress.guardReinforcements = nil
         if let itemID = cell.equippedItemID {
-            state.ownedEquipmentIDs = [itemID]
             #expect(state.equip(itemID: itemID) == .success)
         }
         return state

@@ -163,11 +163,6 @@ private extension BattleLane {
 
 private extension CitySiegeLayout.ObjectiveKind {
     var tacticalName: String {
-        switch self {
-        case .keep: return "Keep"
-        case .gate: return "Gate"
-        case .arrowTower: return "Tower"
-        case .barracks: return "Barracks"
-        }
+        self == .arrowTower ? "Tower" : displayName
     }
 }

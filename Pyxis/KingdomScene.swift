@@ -17,7 +17,7 @@ protocol KingdomSceneRouting: AnyObject {
 /// HPA-671 ephemeral Kingdom tab section. Never persisted: switching
 /// sections neither settles nor saves — HPA-672 may extend the header
 /// control later.
-enum KingdomSection: Equatable {
+enum KingdomSection: Equatable, CaseIterable {
     case treasury
     case armory
 
@@ -46,6 +46,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         static let treasurySelector = "kingdomSectionTreasury"
         static let armorySelector = "kingdomSectionArmory"
         static let armoryRowPrefix = "kingdomArmoryRow-"
+        static let armoryIconHolderPrefix = "kingdomArmoryIconHolder-"
         static let armoryIconPrefix = "kingdomArmoryIcon-"
     }
 
@@ -80,6 +81,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private var kingdomLayout: KingdomLayout?
     private var rowBundles: [TreasuryUpgrade: RowBundle] = [:]
     private var armoryRowBundles: [SoldierType: ArmoryRowBundle] = [:]
+    /// The equipped item each Armory icon holder last rendered — redraw
+    /// skips the texture/glyph rebuild while the loadout is unchanged.
+    private var armoryIconEquippedItemIDs: [SoldierType: String] = [:]
     /// Ephemeral section selection (HPA-671): scene UI state only.
     private var selectedSection: KingdomSection = .treasury
 
@@ -235,7 +239,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             addChild(panel)
 
             let iconHolder = SKNode()
-            iconHolder.name = "\(NodeName.armoryIconPrefix)\(type.rawValue)"
+            iconHolder.name = "\(NodeName.armoryIconHolderPrefix)\(type.rawValue)"
             iconHolder.zPosition = 1
             panel.addChild(iconHolder)
 
@@ -689,20 +693,33 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                     toFitWidth: layout.armoryTextFrames[index].width,
                     floor: 8
                 )
+                if bundle.line2Label.frame.width > layout.armoryTextFrames[index].width {
+                    // Keep the effect and rounding disclosure legible on the
+                    // narrowest layouts; accessibility retains the full hint.
+                    bundle.line2Label.text = text.line2.replacingOccurrences(
+                        of: " · Drops at City ",
+                        with: " · City "
+                    )
+                }
             }
             let contentAlpha: CGFloat = dimmed ? GameUITheme.Alpha.lockedIcon : 1
             bundle.line1Label.alpha = contentAlpha
             bundle.line2Label.alpha = contentAlpha
             bundle.iconHolder.alpha = contentAlpha
 
-            bundle.iconHolder.removeAllChildren()
-            let icon = makeArmoryIconNode(
-                for: state.equippedItem(for: type),
-                soldierType: type
-            )
-            icon.name = "\(NodeName.armoryIconPrefix)\(type.rawValue)"
-            icon.zPosition = 1
-            bundle.iconHolder.addChild(icon)
+            // Redraw runs on every purchase/equip/section switch — the
+            // texture or glyph only needs rebuilding when this row's
+            // equipped item actually changed.
+            let equippedItem = state.equippedItem(for: type)
+            if bundle.iconHolder.children.isEmpty
+                || armoryIconEquippedItemIDs[type] != equippedItem?.id {
+                bundle.iconHolder.removeAllChildren()
+                let icon = makeArmoryIconNode(for: equippedItem, soldierType: type)
+                icon.name = "\(NodeName.armoryIconPrefix)\(type.rawValue)"
+                icon.zPosition = 1
+                bundle.iconHolder.addChild(icon)
+                armoryIconEquippedItemIDs[type] = equippedItem?.id
+            }
         }
 
         for upgrade in TreasuryUpgrade.allCases {
@@ -727,6 +744,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                     toFitWidth: layout.effectLabelFrames[index].width,
                     floor: 8
                 )
+                if upgrade == .drillYard,
+                   bundle.effectLabel.frame.width > layout.effectLabelFrames[index].width {
+                    bundle.effectLabel.text = Self.drillYardExampleText(for: state)
+                        .replacingOccurrences(of: "Infantry", with: "Inf")
+                        .replacingOccurrences(of: " vs this city's trait", with: " · trait")
+                        .replacingOccurrences(of: " + gear, city trait", with: " · gear + trait")
+                        .replacingOccurrences(of: " attack", with: " atk")
+                        .replacingOccurrences(of: " (no damage change yet)", with: " (no gain)")
+                }
             }
             bundle.priceLabel.text = isMaxLevel
                 ? "MAX"
@@ -829,11 +855,14 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// Infantry level against the current city's defense trait, at the
     /// current and next Drill Yard level, through the same
     /// `traitAdjustedSoldierAttackPower(for:level:)` seam the live/abstract
-    /// damage paths use. When the rounded attack is unchanged the row says
-    /// so instead of implying a guaranteed gain.
+    /// damage paths use. Equipped attack gear is labeled because it can
+    /// change the upgrade's rounded result.
     static func drillYardExampleText(for state: KingdomGameState) -> String {
         let infantryLevel = state.manualSoldierLevel(for: .infantry) ?? 1
         let drillYardLevel = state.treasury.drillYard
+        let exampleContext = state.equipmentAttackMultiplier(for: .infantry) == 1
+            ? "Infantry Lv \(infantryLevel) vs this city's trait"
+            : "Infantry Lv \(infantryLevel) + gear, city trait"
 
         // Read the attack through the same instance seam live/abstract
         // damage uses, on a copy whose Drill Yard level is moved — the
@@ -849,13 +878,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
         let current = attack(atUpgradeLevel: drillYardLevel)
         guard drillYardLevel < TreasuryUpgrade.drillYard.maxLevel else {
-            return "Infantry Lv \(infantryLevel) vs this city's trait: \(current) attack"
+            return "\(exampleContext): \(current) attack"
         }
         let next = attack(atUpgradeLevel: drillYardLevel + 1)
         let changeNote = current == next ? " (no damage change yet)" : ""
         // Two lines: the wrapped pair fits every accepted layout's text frame
         // (including 320pt phones) without dropping the no-change note.
-        return "Infantry Lv \(infantryLevel) vs this city's trait:\n"
+        return "\(exampleContext):\n"
             + "\(current) → \(next) attack\(changeNote)"
     }
 
@@ -875,7 +904,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let nextDrop = EquipmentCatalog.forType(type).first { !owned.contains($0.id) }
         var line2Parts: [String] = []
         if let equipped {
-            line2Parts.append(equipmentEffectText(for: equipped.effect))
+            var effectText = equipmentEffectText(for: equipped.effect)
+            // The two-round integer math can round an equipped bonus back
+            // to the unequipped result at this type's current level — the
+            // row discloses it instead of claiming a gain the spawn path
+            // won't deliver (same honesty as the Drill Yard example).
+            if Self.equippedEffectRoundsAway(equipped.effect, for: type, state: state) {
+                effectText += " (no gain yet)"
+            }
+            line2Parts.append(effectText)
         }
         if let nextDrop {
             line2Parts.append("Drops at City \(nextDrop.cityNumber)")
@@ -893,37 +930,58 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         case .maxHPBonus(let fraction):
             return "Max HP +\(wholePercent(fraction))%"
         case .specialistBonus(let target, let fraction):
-            return "vs \(objectiveDisplayName(target)) +\(wholePercent(fraction))%"
+            return "vs \(target.displayName) +\(wholePercent(fraction))%"
+        }
+    }
+
+    /// True when the equipped item's realized integer equals the
+    /// unequipped outcome at this type's current level — the bonus is
+    /// applied but rounded away by the two-round integer math (the same
+    /// granularity the Drill Yard example discloses). Projects through the
+    /// same seams combat uses: the one-round attack fold, the role×gear
+    /// second round, and `spawnSoldier`'s max-HP formula.
+    static func equippedEffectRoundsAway(
+        _ effect: EquipmentEffect,
+        for type: SoldierType,
+        state: KingdomGameState
+    ) -> Bool {
+        let level = state.manualSoldierLevel(for: type) ?? 1
+        switch effect {
+        case .attackBonus:
+            var bare = state
+            bare.unequip(soldierType: type)
+            return state.traitAdjustedSoldierAttackPower(for: type, level: level)
+                == bare.traitAdjustedSoldierAttackPower(for: type, level: level)
+        case .specialistBonus(let target, _):
+            let power = state.traitAdjustedSoldierAttackPower(for: type, level: level)
+            return type.roleAdjustedDamage(
+                power: power,
+                against: target,
+                specialist: state.equipmentSpecialistBonus(for: type)
+            ) == type.roleAdjustedDamage(power: power, against: target)
+        case .maxHPBonus:
+            let configuration = BattleCombatState.Configuration.live(cityLevel: state.cityLevel)
+            return BattleCombatState.soldierMaxHP(
+                for: type,
+                level: level,
+                hpMultiplier: state.equipmentMaxHPMultiplier(for: type),
+                configuration: configuration
+            ) == BattleCombatState.soldierMaxHP(
+                for: type,
+                level: level,
+                configuration: configuration
+            )
         }
     }
 
     /// A type stays dimmed until its spawning building unlocks — the same
     /// seam Building View uses, matching the catalog's earliest drop city.
     static func armoryRowIsDimmed(_ type: SoldierType, state: KingdomGameState) -> Bool {
-        !state.isBuildingTypeUnlocked(buildingType(for: type))
-    }
-
-    private static func buildingType(for type: SoldierType) -> BuildingType {
-        BuildingType.allCases.first { $0.soldierType == type } ?? .barracks
+        !state.isBuildingTypeUnlocked(BuildingType(soldierType: type))
     }
 
     private static func wholePercent(_ fraction: Double) -> Int {
         Int((fraction * 100).rounded())
-    }
-
-    private static func objectiveDisplayName(
-        _ kind: CitySiegeLayout.ObjectiveKind
-    ) -> String {
-        switch kind {
-        case .keep:
-            return "Keep"
-        case .gate:
-            return "Gate"
-        case .arrowTower:
-            return "Arrow Tower"
-        case .barracks:
-            return "Barracks"
-        }
     }
 
     // MARK: - Touch handling
@@ -1312,7 +1370,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         header.accessibilityTraits = .header
 
         var sections: [KingdomSection: ActionAccessibilityElement] = [:]
-        for section in [KingdomSection.treasury, .armory] {
+        for section in KingdomSection.allCases {
             let element = ActionAccessibilityElement(accessibilityContainer: container) { [weak self] in
                 self?.selectSection(section)
             }
@@ -1366,7 +1424,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         guard let elements = sceneAccessibilityElements,
               kingdomLayout != nil else { return [] }
         var ordered: [UIAccessibilityElement] = [elements.header]
-        for section in [KingdomSection.treasury, .armory] {
+        for section in KingdomSection.allCases {
             if let control = elements.sections[section] { ordered.append(control) }
         }
         // Only the selected section's rows are visible — expose those.
@@ -1396,7 +1454,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             for: layout.headerFrame
         ) ?? .zero
 
-        for section in [KingdomSection.treasury, .armory] {
+        for section in KingdomSection.allCases {
             guard let control = elements.sections[section] else { continue }
             control.accessibilityLabel = "\(section.displayName) section"
             control.accessibilityTraits = selectedSection == section
@@ -1433,7 +1491,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             let level = state.treasury.level(for: upgrade)
             let row = elements.rows[upgrade]
             row?.accessibilityLabel = "\(upgrade.displayName), level \(level) of \(upgrade.maxLevel)"
-            row?.accessibilityValue = rowBundles[upgrade]?.effectLabel.text
+            row?.accessibilityValue = Self.effectText(for: upgrade, state: state)
             row?.accessibilityFrame = adapter.screenAccessibilityFrame(
                 for: layout.rowFrames[index]
             ) ?? .zero

@@ -73,6 +73,9 @@ struct ConquestReportLayout: Equatable {
         let takenMedallionDiameter: CGFloat
         let takenMedallionOverlap: CGFloat
         let gearLineHeight: CGFloat
+        /// Clear space kept between the gear line and the required
+        /// reward/tile panels it sits between.
+        let gearLineClearance: CGFloat
         let gearStartingFontSize: CGFloat
         let gearMinimumFontSize: CGFloat
         let gearMinimumLineHeight: CGFloat
@@ -112,10 +115,12 @@ struct ConquestReportLayout: Equatable {
             takenMedallionDiameter = compact ? 96 : 118
             takenMedallionOverlap = compact ? 28 : 39
             // The gear line never renders on compact heights (HPA-671): 0
-            // means no frame is derived. On roomy layouts the line box IS the
-            // reward→tiles gap (16pt) — carved out of existing geometry, so
-            // it can never grow the panel.
+            // means no frame is derived. On roomy layouts the line box is
+            // the 16pt reward→tiles gap minus `gearLineClearance` on each
+            // side — carved out of existing geometry, so it can never grow
+            // the panel, and never touches the reward row or tile panels.
             gearLineHeight = compact ? 0 : 16
+            gearLineClearance = 2
             gearStartingFontSize = 12
             gearMinimumFontSize = 9
             // ceil(9pt minimum font × 1.2 line spacing): smaller gaps drop the
@@ -389,7 +394,10 @@ struct ConquestReportLayout: Equatable {
     ) -> CGRect? {
         guard includesGearLine, metrics.gearLineHeight > 0 else { return nil }
         let gap = rewardBottomY - tileTopY
-        let lineHeight = min(metrics.gearLineHeight, gap)
+        let lineHeight = min(
+            metrics.gearLineHeight,
+            gap - 2 * metrics.gearLineClearance
+        )
         guard lineHeight >= metrics.gearMinimumLineHeight else { return nil }
         return CGRect(
             x: panelFrame.minX + metrics.horizontalPadding,

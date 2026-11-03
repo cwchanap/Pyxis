@@ -431,14 +431,19 @@ struct KingdomSceneTests {
     /// City 3 with a 1000s armed window: nonlethal at scene creation, so the
     /// entry settle is a no-op that clears and re-arms the anchor; a later
     /// settle can conquer.
-    private func makeNonlethalIdleState() -> KingdomGameState {
+    private func makeNonlethalIdleState(
+        ownedEquipmentIDs: [String] = [],
+        equippedItemBySoldierType: [String: String] = [:]
+    ) -> KingdomGameState {
         let start = Date(timeIntervalSinceNow: -1_000)
         var state = KingdomGameState(
             gold: 100,
             lastBackgroundedAt: start,
             cityNumberInCountry: 3,
             completedCityCount: 2,
-            stageStatus: .battleActive
+            stageStatus: .battleActive,
+            ownedEquipmentIDs: ownedEquipmentIDs,
+            equippedItemBySoldierType: equippedItemBySoldierType
         )
         _ = state.buildBuilding(.barracks, inSlot: 1, at: start)
         return state
@@ -1107,7 +1112,7 @@ struct KingdomSceneTests {
 
         let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
         #expect(infantry.line1 == "Infantry · Willowford Blade")
-        #expect(infantry.line2 == "Attack +15% · Drops at City 6")
+        #expect(infantry.line2 == "Attack +15% (no gain yet) · Drops at City 6")
 
         // Nothing equipped and the type still locked at City 1: the row
         // still announces the earliest drop.
@@ -1116,20 +1121,24 @@ struct KingdomSceneTests {
         #expect(archer.line2 == "Drops at City 2")
 
         // A type with every catalog item owned but deliberately unequipped.
-        var complete = KingdomGameState(gold: 100)
-        complete.ownedEquipmentIDs = EquipmentCatalog.forType(.archer).map(\.id)
+        let complete = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: EquipmentCatalog.forType(.archer).map(\.id)
+        )
         let completeScene = makeScene(store: try makeStore(initialState: complete))
         let allOwned = try #require(completeScene.armoryRowTextForTesting(.archer))
         #expect(allOwned.line1 == "Archer · None")
         #expect(allOwned.line2 == "All gear earned")
 
         // Specialist effect copy quotes the matched objective.
-        var specialist = makeGearOwningState()
-        specialist.ownedEquipmentIDs = ["c04-archer-tower"]
-        specialist.equippedItemBySoldierType = ["archer": "c04-archer-tower"]
+        let specialist = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c04-archer-tower"],
+            equippedItemBySoldierType: ["archer": "c04-archer-tower"]
+        )
         let specialistScene = makeScene(store: try makeStore(initialState: specialist))
         let archerTower = try #require(specialistScene.armoryRowTextForTesting(.archer))
-        #expect(archerTower.line2 == "vs Arrow Tower +40% · Drops at City 2")
+        #expect(archerTower.line2 == "vs Arrow Tower +40% (no gain yet) · Drops at City 2")
 
         #expect(!scene.isArmoryRowDimmedForTesting(.infantry))
         #expect(scene.isArmoryRowDimmedForTesting(.archer))
@@ -1190,9 +1199,10 @@ struct KingdomSceneTests {
         // own settle conquers City 3 and grants the City 3 toughness plate
         // mid-tap. The cycle must re-read post-settle ownership instead of
         // cycling the stale one-item list straight to None.
-        var initialState = makeNonlethalIdleState()
-        initialState.ownedEquipmentIDs = ["c01-infantry-attack"]
-        initialState.equippedItemBySoldierType = ["infantry": "c01-infantry-attack"]
+        let initialState = makeNonlethalIdleState(
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
         let store = try makeStore(initialState: initialState)
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
@@ -1236,6 +1246,121 @@ struct KingdomSceneTests {
         let missingArtScene = makeScene(store: store, imageLoader: { _ in nil })
         let equippedFallbackIcon = try #require(missingArtScene.armoryIconNodeForTesting(.infantry))
         #expect(equippedFallbackIcon is SKShapeNode)
+    }
+
+    @Test("Armory icons reuse their node until the equipped item changes")
+    func armoryIconsReuseNodeAcrossUnchangedRedraws() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store)
+        selectArmory(scene)
+        let firstIcon = try #require(scene.armoryIconNodeForTesting(.infantry))
+
+        // Section switches redraw every label but must not rebuild icons.
+        scene.handleTouchForTesting(
+            at: try #require(scene.treasurySelectorHitFrameForTesting()).center
+        )
+        scene.handleTouchForTesting(
+            at: try #require(scene.armorySelectorHitFrameForTesting()).center
+        )
+        #expect(scene.armoryIconNodeForTesting(.infantry) === firstIcon)
+
+        // Cycling the equipped item rebuilds exactly that row's icon.
+        scene.handleTouchForTesting(
+            at: try #require(scene.armoryRowHitFrameForTesting(.infantry)).center
+        )
+        let secondIcon = try #require(scene.armoryIconNodeForTesting(.infantry))
+        #expect(secondIcon !== firstIcon)
+    }
+
+    @Test("Armory icon holder and icon child own distinct node names")
+    func armoryIconHolderAndChildNamesAreDistinct() throws {
+        let store = try makeStore(initialState: makeGearOwningState())
+        let scene = makeScene(store: store)
+        selectArmory(scene)
+
+        let row = try #require(scene.armoryRowNodeForTesting(.infantry))
+        let holder = try #require(
+            row.childNode(withName: "kingdomArmoryIconHolder-infantry")
+        )
+        let icon = try #require(
+            row.childNode(withName: "//kingdomArmoryIcon-infantry")
+        )
+        // The icon prefix resolves to the rendered icon, never the holder.
+        #expect(icon === scene.armoryIconNodeForTesting(.infantry))
+        #expect(holder !== icon)
+    }
+
+    @Test("KingdomSection enumerates every section exactly once")
+    func kingdomSectionAllCasesCoversSections() {
+        #expect(KingdomSection.allCases == [.treasury, .armory])
+    }
+
+    @Test("Armory drops the no-gain note once the bonus survives rounding")
+    func armoryEffectNoteOnlyShowsWhenRoundedAway() throws {
+        // Level-5 barracks: base 4 × 1.15 = 4.6 → 5 vs the bare 4 — a real
+        // integer gain, so the row claims the bonus without a disclosure.
+        var state = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, level: 5)]
+        )
+        let scene = makeScene(store: try makeStore(initialState: state))
+        selectArmory(scene)
+
+        let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
+        #expect(infantry.line2 == "Attack +15% · Drops at City 3")
+    }
+
+    @Test("Drill Yard example identifies equipped attack gear")
+    func drillYardExampleIncludesAndLabelsEquippedGear() {
+        var state = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(
+            slots: [1: CityBuilding(type: .barracks, level: 5)]
+        )
+        state.treasury.setLevel(2, for: .drillYard)
+
+        #expect(KingdomScene.drillYardExampleText(for: state)
+            == "Infantry Lv 5 + gear, city trait:\n5 → 5 attack (no damage change yet)")
+        state.unequip(soldierType: .infantry)
+        #expect(KingdomScene.drillYardExampleText(for: state)
+            == "Infantry Lv 5 vs this city's trait:\n4 → 5 attack")
+    }
+
+    @Test("Equipped Drill Yard example fits the narrow Treasury row")
+    func equippedDrillYardExampleFitsNarrowRow() throws {
+        let state = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
+        let size = CGSize(width: 264, height: 454)
+        let scene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: state),
+            safeAreaInsetsOverride: .zero
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+        let index = try #require(TreasuryUpgrade.allCases.firstIndex(of: .drillYard))
+        let labels = try #require(scene.treasuryRowLabelNodesForTesting(.drillYard))
+        for label in labels {
+            let parent = try #require(label.parent)
+            #expect(layout.textFrames[index].contains(parent.convert(label.frame, to: scene)))
+        }
+        #expect(labels[2].text?.contains("gear + trait") == true)
+        let row = try #require(
+            (view.accessibilityElements as? [UIAccessibilityElement])?
+                .first { $0.accessibilityIdentifier == "kingdom-row-drillYard" }
+        )
+        #expect(row.accessibilityValue == KingdomScene.drillYardExampleText(for: state))
     }
 
     @Test("Selector, Settings and section content touches stay isolated")
@@ -1410,9 +1535,12 @@ struct KingdomSceneTests {
         #expect(scene.titleTextForTesting == "Kingdom")
     }
 
-    @Test("Armory rendered labels fit their reserved line boxes for every authored item")
-    func armoryRowLabelsFitReservedLineBoxesAtBoundary() throws {
-        // Every authored equipment choice at the narrowest accepted size,
+    @Test(
+        "Armory rendered labels fit their reserved line boxes for every authored item",
+        arguments: [CGFloat(264), 320]
+    )
+    func armoryRowLabelsFitReservedLineBoxesAtBoundary(width: CGFloat) throws {
+        // Every authored equipment choice at both narrow boundary sizes,
         // not just representative ones: the layout's reserved line boxes
         // fitting is not enough — the RENDERED two-line copy must fit them
         // too. Each iteration owns the realistic city-1…N drop prefix and
@@ -1420,14 +1548,16 @@ struct KingdomSceneTests {
         // effect string, and every effect+next-drop combination renders;
         // the final iteration also covers the "All gear earned" rows.
         for item in EquipmentCatalog.items {
-            var state = KingdomGameState(gold: 100)
-            state.ownedEquipmentIDs = EquipmentCatalog.items
-                .filter { $0.cityNumber <= item.cityNumber }
-                .map(\.id)
-            state.equippedItemBySoldierType = [item.soldierType.rawValue: item.id]
+            let state = KingdomGameState(
+                gold: 100,
+                ownedEquipmentIDs: EquipmentCatalog.items
+                    .filter { $0.cityNumber <= item.cityNumber }
+                    .map(\.id),
+                equippedItemBySoldierType: [item.soldierType.rawValue: item.id]
+            )
 
             let scene = makeScene(
-                size: CGSize(width: 320, height: 454),
+                size: CGSize(width: width, height: 454),
                 store: try makeStore(initialState: state),
                 safeAreaInsets: .zero
             )
@@ -1448,7 +1578,7 @@ struct KingdomSceneTests {
                     let tolerance: CGFloat = 0.05
                     #expect(
                         box.insetBy(dx: -tolerance, dy: -tolerance).contains(rendered),
-                        "city \(item.cityNumber) \(type.rawValue) '\(label.text ?? "")' → \(box) vs \(rendered)"
+                        "width \(width), city \(item.cityNumber), \(type.rawValue): \(rendered) in \(box)"
                     )
                 }
                 let rowFrame = layout.armoryRowFrames[index]
@@ -1462,11 +1592,13 @@ struct KingdomSceneTests {
         // The longest measured copy really is the authored specialist +
         // next-drop text (Bramblegate Broadhead on the city-1…4 prefix),
         // not an empty or shortened stand-in.
-        var broadhead = KingdomGameState(gold: 100)
-        broadhead.ownedEquipmentIDs = EquipmentCatalog.items
-            .filter { $0.cityNumber <= 4 }
-            .map(\.id)
-        broadhead.equippedItemBySoldierType = ["archer": "c04-archer-tower"]
+        let broadhead = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: EquipmentCatalog.items
+                .filter { $0.cityNumber <= 4 }
+                .map(\.id),
+            equippedItemBySoldierType: ["archer": "c04-archer-tower"]
+        )
         let broadheadScene = makeScene(
             size: CGSize(width: 320, height: 454),
             store: try makeStore(initialState: broadhead),
@@ -1474,7 +1606,32 @@ struct KingdomSceneTests {
         )
         let archer = try #require(broadheadScene.armoryRowTextForTesting(.archer))
         #expect(archer.line1 == "Archer · Bramblegate Broadhead")
-        #expect(archer.line2 == "vs Arrow Tower +40% · Drops at City 9")
+        #expect(archer.line2 == "vs Arrow Tower +40% (no gain yet) · Drops at City 9")
+    }
+
+    @Test("Narrow Armory rows retain the full drop hint for VoiceOver")
+    func narrowArmoryDropHintRemainsAccessible() throws {
+        let state = KingdomGameState(
+            ownedEquipmentIDs: EquipmentCatalog.items.filter { $0.cityNumber <= 4 }.map(\.id),
+            equippedItemBySoldierType: ["archer": "c04-archer-tower"]
+        )
+        let size = CGSize(width: 264, height: 454)
+        let scene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: state),
+            safeAreaInsetsOverride: .zero
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+        selectArmory(scene)
+
+        let labels = try #require(scene.armoryRowLabelNodesForTesting(.archer))
+        #expect(labels.line2.text == "vs Arrow Tower +40% (no gain yet) · City 9")
+        let row = try #require(
+            (view.accessibilityElements as? [UIAccessibilityElement])?
+                .first { $0.accessibilityIdentifier == "kingdom-armory-row-archer" }
+        )
+        #expect(row.accessibilityValue?.contains("Drops at City 9") == true)
     }
 
     // MARK: - Helpers
@@ -1501,10 +1658,11 @@ struct KingdomSceneTests {
     /// Infantry owns the City 1 attack blade (equipped) and the City 3
     /// toughness plate; every other type owns nothing.
     private func makeGearOwningState() -> KingdomGameState {
-        var state = KingdomGameState(gold: 100)
-        state.ownedEquipmentIDs = ["c01-infantry-attack", "c03-infantry-toughness"]
-        state.equippedItemBySoldierType = ["infantry": "c01-infantry-attack"]
-        return state
+        KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
     }
 
     /// Switches sections exactly the way a player tap does.

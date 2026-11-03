@@ -226,6 +226,10 @@ struct ConquestReportLayoutTests {
         #expect(gear.minY >= base.tileFrames[0].maxY)
         #expect(gear.height > 0)
         #expect(layout.gearStartingFontSize >= layout.gearMinimumFontSize)
+        // The optional line keeps real clearance from the required panels
+        // on each side — it must never visually touch them.
+        #expect(base.rewardFrame.minY - gear.maxY >= 2)
+        #expect(gear.minY - base.tileFrames[0].maxY >= 2)
     }
 
     @Test("Compact heights hide the gear line without failing the report")

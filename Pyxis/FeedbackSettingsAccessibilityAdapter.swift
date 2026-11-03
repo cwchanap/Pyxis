@@ -177,10 +177,13 @@ final class FeedbackSettingsAccessibilityAdapter {
     /// Re-exposes the gear plus the scene's current supplementary
     /// elements. The scene calls this when its own element MEMBERSHIP
     /// changes between layout passes (HPA-671 Kingdom section switch) —
-    /// element content alone stays fresh through the provider.
+    /// element content alone stays fresh through the provider. The
+    /// `.layoutChanged` post moves VoiceOver focus off any element that
+    /// the membership swap just removed from the hierarchy.
     func refreshSceneElements() {
         guard !isModalVisible, isSceneGearActionable else { return }
         exposeGearIfAvailable()
+        postNotification(.layoutChanged, nil)
     }
 
     func present(layout: FeedbackSettingsLayout, preferences: FeedbackPreferences) {

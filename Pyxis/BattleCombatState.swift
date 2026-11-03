@@ -650,6 +650,20 @@ struct BattleCombatState: Equatable {
     }
 
     private func maxHP(for type: SoldierType, level: Int, hpMultiplier: Double = 1.0) -> Int {
+        Self.soldierMaxHP(for: type, level: level, hpMultiplier: hpMultiplier, configuration: configuration)
+    }
+
+    /// The live ordinary-soldier max-HP formula (HPA-671 toughness seam):
+    /// `hpMultiplier` folds in BEFORE the existing final rounding, so gear
+    /// never double-rounds the base curve. Exposed for projections that
+    /// price the same spawn a soldier would get (the Armory's realized-
+    /// effect readout) without constructing a combat state.
+    static func soldierMaxHP(
+        for type: SoldierType,
+        level: Int,
+        hpMultiplier: Double = 1.0,
+        configuration: Configuration
+    ) -> Int {
         let baseConfigurationHP = Double(max(1, configuration.soldierMaxHP))
         let multiplier: Double
         switch type {
@@ -666,8 +680,6 @@ struct BattleCombatState: Equatable {
         }
 
         let baseHP = baseConfigurationHP * multiplier
-        // HPA-671: equipped toughness multiplies BEFORE the existing final
-        // rounding, so gear never double-rounds the base curve.
         return max(1, Int((baseHP * pow(1.25, Double(max(1, level) - 1)) * hpMultiplier).rounded()))
     }
 
