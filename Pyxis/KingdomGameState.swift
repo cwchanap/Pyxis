@@ -110,6 +110,11 @@ struct KingdomGameState: Codable, Equatable {
     /// save field, no "none" item ID.
     private(set) var ownedEquipmentIDs: [String]
     private(set) var equippedItemBySoldierType: [String: String]
+    /// HPA-672: owned-item gear level (1...3) keyed by catalog ID, plus the
+    /// permanent Ascension count. Levels live on owned state only —
+    /// normalization guarantees every owned ID carries exactly one entry.
+    var ascensionCount: Int
+    private(set) var equipmentLevelsByID: [String: Int]
 
     private enum CodingKeys: String, CodingKey {
         case gold
@@ -126,6 +131,8 @@ struct KingdomGameState: Codable, Equatable {
         case treasury
         case ownedEquipmentIDs
         case equippedItemBySoldierType
+        case ascensionCount
+        case equipmentLevelsByID
     }
 
     /// Decode-only tombstone keys (HPA-582). `normalSoldierUpgradeLevel`
@@ -167,7 +174,9 @@ struct KingdomGameState: Codable, Equatable {
         pendingBattleResult: BattleResult? = nil,
         treasury: TreasuryState = TreasuryState(),
         ownedEquipmentIDs: [String] = [],
-        equippedItemBySoldierType: [String: String] = [:]
+        equippedItemBySoldierType: [String: String] = [:],
+        equipmentLevelsByID: [String: Int] = [:],
+        ascensionCount: Int = 0
     ) {
         self.init(
             gold: gold,
@@ -184,6 +193,8 @@ struct KingdomGameState: Codable, Equatable {
             treasury: treasury,
             ownedEquipmentIDs: ownedEquipmentIDs,
             equippedItemBySoldierType: equippedItemBySoldierType,
+            equipmentLevelsByID: equipmentLevelsByID,
+            ascensionCount: ascensionCount,
             persistedSiegeDamageUnderLegacyCurve: false
         )
     }
@@ -208,6 +219,8 @@ struct KingdomGameState: Codable, Equatable {
         treasury: TreasuryState,
         ownedEquipmentIDs: [String] = [],
         equippedItemBySoldierType: [String: String] = [:],
+        equipmentLevelsByID: [String: Int] = [:],
+        ascensionCount: Int = 0,
         persistedSiegeDamageUnderLegacyCurve: Bool
     ) {
         let clampedCountryNumber = max(1, countryNumber)
@@ -257,9 +270,14 @@ struct KingdomGameState: Codable, Equatable {
         self.completedCityCount = normalizedCompletedCityCount
         self.stageStatus = resolvedStatus
         self.treasury = treasury
+        self.ascensionCount = max(0, ascensionCount)
         self.ownedEquipmentIDs = Self.normalizedOwnedEquipmentIDs(ownedEquipmentIDs)
         self.equippedItemBySoldierType = Self.normalizedEquippedItemBySoldierType(
             equippedItemBySoldierType,
+            ownedEquipmentIDs: self.ownedEquipmentIDs
+        )
+        self.equipmentLevelsByID = Self.normalizedEquipmentLevelsByID(
+            equipmentLevelsByID,
             ownedEquipmentIDs: self.ownedEquipmentIDs
         )
 
@@ -376,6 +394,12 @@ struct KingdomGameState: Codable, Equatable {
             equippedItemBySoldierType: (
                 try? container.decodeIfPresent([String: String].self, forKey: .equippedItemBySoldierType)
             ) ?? [:],
+            equipmentLevelsByID: (
+                try? container.decodeIfPresent([String: Int].self, forKey: .equipmentLevelsByID)
+            ) ?? [:],
+            ascensionCount: (
+                try? container.decodeIfPresent(Int.self, forKey: .ascensionCount)
+            ) ?? 0,
             persistedSiegeDamageUnderLegacyCurve: persistedSiegeDamageUnderLegacyCurve
         )
     }
@@ -405,6 +429,20 @@ struct KingdomGameState: Codable, Equatable {
                 continue
             }
             normalized[soldierType.rawValue] = itemID
+        }
+        return normalized
+    }
+
+    /// HPA-672 equipment-level normalization: every owned catalog item
+    /// carries exactly one level clamped to 1...3 (missing → 1), and keys
+    /// for unowned or unknown items are discarded.
+    private static func normalizedEquipmentLevelsByID(
+        _ levels: [String: Int],
+        ownedEquipmentIDs: [String]
+    ) -> [String: Int] {
+        var normalized: [String: Int] = [:]
+        for itemID in ownedEquipmentIDs {
+            normalized[itemID] = min(3, max(1, levels[itemID] ?? 1))
         }
         return normalized
     }
@@ -1973,5 +2011,49 @@ struct KingdomGameState: Codable, Equatable {
         // HPA-367: Chronicle write hooks here (no-op in HPA-363).
 
         return CompletionResult(awarded: true, goldEarned: result.goldEarned)
+    }
+
+    // MARK: - HPA-672 Ascension
+
+    /// The one Ascension outcome: success with the new permanent count, or
+    /// `.unavailable` when the campaign is incomplete or a conquest report
+    /// is still pending (state is then exactly equal to its pre-call value).
+    enum AscensionResult: Equatable {
+        case ascended(newCount: Int)
+        case unavailable
+    }
+
+    /// Owned-item gear level (1...3), or nil when the item is not owned —
+    /// the only public read; callers never inspect the levels map directly.
+    func equipmentLevel(for itemID: String) -> Int? {
+        guard ownedEquipmentIDs.contains(itemID) else {
+            return nil
+        }
+        return equipmentLevelsByID[itemID] ?? 1
+    }
+
+    /// The one Ascension mutation (HPA-672): eligible only when Country 1 is
+    /// complete AND its final report is acknowledged. Rebuilds a fresh
+    /// normalized City 1 `.battleActive` run through the normal initializer
+    /// with gold explicitly 0 and Treasury zeroed — a brand-new run except
+    /// for the permanent fields: owned gear IDs, current equipped selections
+    /// (a deliberate `None` is an absent entry and copies as such), equipment
+    /// levels and the incremented count. Feedback preferences live in a
+    /// separate store and are never touched. A rejection mutates nothing.
+    @discardableResult
+    mutating func ascend() -> AscensionResult {
+        guard stageStatus == .countryComplete, pendingBattleResult == nil else {
+            return .unavailable
+        }
+
+        let newCount = ascensionCount + 1
+        self = KingdomGameState(
+            gold: 0,
+            ownedEquipmentIDs: ownedEquipmentIDs,
+            equippedItemBySoldierType: equippedItemBySoldierType,
+            equipmentLevelsByID: equipmentLevelsByID,
+            ascensionCount: newCount
+        )
+        return .ascended(newCount: newCount)
     }
 }

@@ -438,6 +438,72 @@ struct KingdomGameStoreTests {
         #expect(loaded.pendingBattleResult == nil)
     }
 
+    @Test func saveAndLoadRoundTripsAscensionCountAndEquipmentLevels() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        let saved = KingdomGameState(
+            gold: 0,
+            stageStatus: .battleActive,
+            ownedEquipmentIDs: ["c01-infantry-attack", "c02-archer-attack", "c15-siege-keep"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: [
+                "c01-infantry-attack": 2,
+                "c02-archer-attack": 3,
+                "c15-siege-keep": 1
+            ],
+            ascensionCount: 2
+        )
+
+        store.save(saved)
+        let loaded = store.load()
+
+        #expect(loaded == saved)
+        #expect(loaded.ascensionCount == 2)
+        #expect(loaded.equipmentLevel(for: "c01-infantry-attack") == 2)
+        #expect(loaded.equipmentLevel(for: "c02-archer-attack") == 3)
+        #expect(loaded.equipmentLevel(for: "c15-siege-keep") == 1)
+    }
+
+    @Test func ascendedRunStateSurvivesSaveAndReload() throws {
+        let defaults = try makeDefaults()
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        var saved = SiegeTestSupport.makeBattleState(
+            atCity: 15,
+            gold: 500,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
+        // Real finale conquest, acknowledge, then Ascend.
+        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: saved))
+        _ = saved.applyLiveSoldierAttacks([
+            SoldierAttackEvent(
+                soldierID: 1,
+                type: .infantry,
+                source: .manual,
+                lane: saved.siegeProgress.selectedLane,
+                objectiveID: keepID,
+                appliedDamage: 1
+            )
+        ])
+        saved.acknowledgePendingBattleResult()
+        #expect(saved.ascend() == .ascended(newCount: 1))
+        // The real finale conquest first-granted City 15's catalog drop.
+        #expect(saved.ownedEquipmentIDs == ["c01-infantry-attack", "c15-siege-keep"])
+
+        store.save(saved)
+        let loaded = store.load()
+
+        #expect(loaded == saved)
+        #expect(loaded.gold == 0)
+        #expect(loaded.stageStatus == .battleActive)
+        #expect(loaded.cityNumberInCountry == 1)
+        #expect(loaded.ascensionCount == 1)
+        #expect(loaded.ownedEquipmentIDs == ["c01-infantry-attack", "c15-siege-keep"])
+        #expect(loaded.equipmentLevel(for: "c01-infantry-attack") == 1)
+        #expect(loaded.equipmentLevel(for: "c15-siege-keep") == 1)
+    }
+
     @Test func loadReturnsFreshStateAndBacksUpCorruptData() throws {
         let defaults = try makeDefaults()
         let store = KingdomGameStore(defaults: defaults, key: "state")
