@@ -295,34 +295,70 @@ struct KingdomAscensionStateTests {
         #expect(state.manualSpawnableSoldierTypes() == [.infantry])
     }
 
-    @Test func beginningOfReplayConquestWorksFromZeroGold() throws {
+    @Test func beginningOfReplayConquestWorksFromZeroGold() {
         var state = Self.makeCompletedCampaignState()
         _ = state.ascend()
         #expect(state.gold == 0)
 
-        // A real beginning-of-replay conquest through the production seam:
-        // manual infantry deploy, then the keep falls.
-        let lane = state.siegeProgress.selectedLane
-        state.recordSoldierDeployment(type: .infantry, source: .manual, lane: lane)
-        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
+        // A real beginning-of-replay conquest through the same simulator
+        // path BattleScene drives: manual infantry deploys into a live
+        // `BattleCombatState`, per-tick combat against the authored City 1
+        // snapshot, and the simulator's own attack/loss events forwarded
+        // into the state. No synthetic damage is injected.
         let expectedReward = state.goldReward(forCity: 1)
+        var combat = BattleCombatState(
+            configuration: .live(
+                cityLevel: state.cityLevel,
+                laneDamageMultipliers: state.currentCityLaneDefenseProfile.towerDamageMultipliers
+            ),
+            seed: 582
+        )
 
-        let result = state.applyLiveSoldierAttacks([
-            SoldierAttackEvent(
-                soldierID: 1,
-                type: .infantry,
-                source: .manual,
-                lane: lane,
-                objectiveID: keepID,
-                appliedDamage: state.currentKeepMaxPower
-            )
-        ])
+        let deltaTime = 0.1
+        let maxTicks = 1_200 // 120 simulated combat seconds — a bounded run.
+        var ticks = 0
+        while ticks < maxTicks, state.pendingBattleResult == nil {
+            // The Deploy action's exact guard order: type, 10-live cap,
+            // then a spent charge — a rejected deploy never consumes one.
+            if let level = state.manualSoldierLevel(for: .infantry),
+               combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap,
+               combat.spendManualDeployCharge() {
+                let soldierID = combat.spawnSoldier(
+                    type: .infantry,
+                    source: .manual,
+                    level: level,
+                    attackPower: state.traitAdjustedSoldierAttackPower(
+                        for: .infantry,
+                        level: level
+                    ),
+                    lane: state.siegeProgress.selectedLane,
+                    maxHPMultiplier: state.equipmentMaxHPMultiplier(for: .infantry),
+                    specialistBonus: state.equipmentSpecialistBonus(for: .infantry)
+                )
+                if let soldier = combat.soldier(id: soldierID) {
+                    state.recordSoldierDeployment(
+                        type: soldier.type,
+                        source: soldier.source,
+                        lane: soldier.lane
+                    )
+                }
+            }
 
-        #expect(result.attackApplied)
-        #expect(result.conqueredCities == 1)
-        #expect(result.goldEarned == expectedReward)
-        #expect(state.gold == expectedReward)
+            let result = combat.tick(deltaTime: deltaTime, siege: state.currentSiegeSnapshot)
+            // Same forwarding as BattleScene's tick handling: Captain
+            // events excluded, ordinary attacks become persisted city damage.
+            let ordinaryAttacks = result.soldierAttacks.filter { !$0.isCaptain }
+            let ordinaryLosses = result.soldierLosses.filter { !$0.isCaptain }
+            state.recordSoldierLosses(ordinaryLosses)
+            if !ordinaryAttacks.isEmpty {
+                _ = state.applyLiveSoldierAttacks(ordinaryAttacks)
+            }
+            ticks += 1
+        }
+
+        #expect(state.pendingBattleResult != nil)
         #expect(state.stageStatus == .cityConqueredPendingMap)
+        #expect(state.gold == expectedReward)
         #expect(state.pendingBattleResult?.cityKey == CityKey(countryNumber: 1, cityNumber: 1))
         // All 15 items were already owned: no re-grant under the existing
         // first-drop semantics (repeat-conquest leveling is a later task).
