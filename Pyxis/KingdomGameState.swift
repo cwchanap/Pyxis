@@ -108,8 +108,8 @@ struct KingdomGameState: Codable, Equatable {
     /// equipped (owned, matching-type) ID per raw soldier key. An
     /// intentional `None` slot is the **absence** of an entry — no third
     /// save field, no "none" item ID.
-    var ownedEquipmentIDs: [String]
-    var equippedItemBySoldierType: [String: String]
+    private(set) var ownedEquipmentIDs: [String]
+    private(set) var equippedItemBySoldierType: [String: String]
 
     private enum CodingKeys: String, CodingKey {
         case gold
@@ -1324,13 +1324,32 @@ struct KingdomGameState: Codable, Equatable {
             _ = advanceActiveGuardReinforcements(deltaTime: elapsedSeconds)
         }
 
-        // Layout and max powers are invariant for the whole spawn batch —
-        // only the damage map advances between iterations.
+        // Layout, max powers and the equipment loadout are invariant for
+        // the whole spawn batch — only the damage map advances between
+        // iterations. Snapshot each type's attack/specialist projections
+        // once instead of two catalog lookups per spawn.
         let layout = currentSiegeLayout
         let maxPowers = currentSiegeMaxPowers
+        let defenseTrait = currentCityDefenseTrait
+        let drillYardMultiplier = 1.0 + 0.05 * Double(treasury.drillYard)
+        let loadoutByType = Dictionary(
+            uniqueKeysWithValues: SoldierType.allCases.map { type in
+                (type, (
+                    attack: equipmentAttackMultiplier(for: type),
+                    specialist: equipmentSpecialistBonus(for: type)
+                ))
+            }
+        )
 
         for spawn in spawns {
-            let power = traitAdjustedSoldierAttackPower(for: spawn.soldierType, level: spawn.level)
+            guard let loadout = loadoutByType[spawn.soldierType] else { continue }
+            let power = Self.traitAdjustedSoldierAttackPower(
+                for: spawn.soldierType,
+                level: spawn.level,
+                defenseTrait: defenseTrait,
+                upgradeMultiplier: drillYardMultiplier,
+                equipmentAttackMultiplier: loadout.attack
+            )
             guard power > 0 else { continue }
 
             let leftover = spendDamageOnSelectedLaneGuards(power)
@@ -1350,7 +1369,7 @@ struct KingdomGameState: Codable, Equatable {
             let budget = spawn.soldierType.roleAdjustedDamage(
                 power: leftover,
                 against: firstLiveKind,
-                specialist: equipmentSpecialistBonus(for: spawn.soldierType)
+                specialist: loadout.specialist
             )
 
             let (spentDamage, appliedByObjectiveID) = layout.spendDamageBudget(

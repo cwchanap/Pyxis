@@ -92,9 +92,9 @@ struct BattleHUDContent: Equatable {
             max(0, manualCount),
             KingdomGameState.manualSoldierCap
         )
-        // HPA-582: medallions show the pre-rounding trait×role product for
+        // Medallions show the pre-rounding trait×equipment×role product for
         // the selected lane's current first surviving structure; neutral
-        // (no live objective) keeps the trait-only value. A live Guard on
+        // (no live objective) keeps the trait and attack-gear value. A live Guard on
         // the selected lane suppresses the role bonus only once it sits
         // inside a lane soldier's own attackRange — combat diverts per
         // soldier (`BattleCombatState.isGuardBlockerEngaged`), so a
@@ -122,19 +122,23 @@ struct BattleHUDContent: Equatable {
             if let level = state.manualSoldierLevel(for: soldierType) {
                 availability = .available(level: level)
             } else {
-                let buildingType = BuildingType.allCases.first {
-                    $0.soldierType == soldierType
-                }!
+                let buildingType = BuildingType(soldierType: soldierType)
                 availability = state.isBuildingTypeUnlocked(buildingType)
                     ? .unbuilt
                     : .locked(unlocksAtCity: KingdomGameState.unlockCity(for: buildingType))
             }
 
             let roleMultiplier = soldierType.objectiveDamageMultiplier(against: firstLiveKind)
+            // Specialist gear only applies when the first objective matches.
+            let specialistMultiplier = state.equipmentSpecialistBonus(for: soldierType)
+                .map { firstLiveKind == $0.target ? $0.multiplier : 1 } ?? 1
             return Medallion(
                 soldierType: soldierType,
                 availability: availability,
-                damageMultiplier: state.currentCityDefenseTrait.damageMultiplier(for: soldierType) * roleMultiplier
+                damageMultiplier: state.currentCityDefenseTrait.damageMultiplier(for: soldierType)
+                    * state.equipmentAttackMultiplier(for: soldierType)
+                    * roleMultiplier
+                    * specialistMultiplier
             )
         }
         let recommendation = RecommendedCampRecommendation.make(for: state)

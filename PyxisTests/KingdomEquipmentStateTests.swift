@@ -488,9 +488,12 @@ struct KingdomEquipmentStateTests {
         // owned: gold pays normally, ownership/loadout are unchanged, and
         // the seam scrubs even a caller-set stale receipt instead of
         // re-reporting the owned item.
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 40, keepRemaining: 1)
-        state.ownedEquipmentIDs = ["c01-infantry-attack"]
-        state.equippedItemBySoldierType = [:]
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 40,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack"]
+        )
 
         var stale = makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8)
         stale.newEquipmentItemID = "c01-infantry-attack"

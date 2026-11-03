@@ -268,6 +268,27 @@ struct FeedbackSettingsAccessibilityAdapterTests {
         #expect(try accessibilityElements(in: context.containerView).isEmpty)
     }
 
+    @Test func sceneMembershipRefreshPostsLayoutChanged() {
+        // HPA-671 Kingdom section swap: the exposed list's membership
+        // changes, so VoiceOver must hear layoutChanged — focus parked on
+        // a removed element would otherwise dangle.
+        let context = makeAccessibilityContext()
+
+        context.adapter.refreshSceneElements()
+
+        #expect(context.posts.last?.notification == .layoutChanged)
+        #expect(context.posts.last?.target == nil)
+    }
+
+    @Test func sceneMembershipRefreshIsInertWhileGearBlocked() {
+        let context = makeAccessibilityContext()
+        context.adapter.setSceneGearActionable(false)
+
+        let postsBefore = context.posts.count
+        context.adapter.refreshSceneElements()
+        #expect(context.posts.count == postsBefore)
+    }
+
     @Test func setSceneGearActionableIsNoOpWhenValueDoesNotChange() throws {
         let context = makeAccessibilityContext()
         context.adapter.configureActions(

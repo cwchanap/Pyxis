@@ -2396,7 +2396,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         if captainCompletedConquest {
             presentLiveObjectiveDamageOutcome(
                 attacks: captainAttacks,
-                showsTraitAdvantageColor: false,
+                damageColor: .white,
                 previousPresentationStage: previousPresentationStage,
                 goldEarned: state.pendingBattleResult?.goldEarned ?? 0,
                 conqueredCities: 1
@@ -2404,7 +2404,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         } else if appliedObjectiveDamage > 0 {
             presentLiveObjectiveDamageOutcome(
                 attacks: captainAttacks,
-                showsTraitAdvantageColor: false,
+                damageColor: .white,
                 previousPresentationStage: previousPresentationStage,
                 goldEarned: 0,
                 conqueredCities: 0
@@ -2432,24 +2432,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// the tick's single end-of-tick save.
     private func presentLiveObjectiveDamageOutcome(
         attacks: [SoldierAttackEvent],
-        showsTraitAdvantageColor: Bool,
+        damageColor: SKColor,
         previousPresentationStage: LivingKingdomPresentation.FortressStage,
         goldEarned: Int,
         conqueredCities: Int
     ) {
         let conqueredCity = conqueredCities > 0
-        // HPA-582: green means the per-event trait×role product beats 1 —
-        // each event's own objective kind, not a trait-only city-wide read.
-        let layout = state.currentSiegeLayout
-        let damageColor = showsTraitAdvantageColor
-            && attacks.allSatisfy { attack in
-                state.currentCityDefenseTrait.damageMultiplier(for: attack.type)
-                    * attack.type.objectiveDamageMultiplier(
-                        against: layout.objective(id: attack.objectiveID)?.kind
-                    ) > 1
-            }
-            ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
-            : .white
         feedbackText = ""
 
         if conqueredCity {
@@ -2588,6 +2576,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // transition is requested per mutation; restore/resize/redraw paths
         // never replay historical effects.
         let previousStage = livingKingdomBattlePresentation.stage
+        // Conquest can grant and auto-equip gear, so color the hit using the
+        // loadout that existed before applying its damage.
+        let damageColor = ordinaryAttackFeedbackColor(ordinaryAttacks)
         let damageResult = state.applyLiveSoldierAttacks(ordinaryAttacks)
         guard damageResult.attackApplied else {
             return !ordinaryLosses.isEmpty
@@ -2595,12 +2586,27 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         presentLiveObjectiveDamageOutcome(
             attacks: ordinaryAttacks,
-            showsTraitAdvantageColor: true,
+            damageColor: damageColor,
             previousPresentationStage: previousStage,
             goldEarned: damageResult.goldEarned,
             conqueredCities: damageResult.conqueredCities
         )
         return true
+    }
+
+    private func ordinaryAttackFeedbackColor(_ attacks: [SoldierAttackEvent]) -> SKColor {
+        let layout = state.currentSiegeLayout
+        let isAdvantaged = attacks.allSatisfy { attack in
+            let hitKind = layout.objective(id: attack.objectiveID)?.kind
+            let specialist = combat.soldier(id: attack.soldierID)?.specialistBonus
+            return state.currentCityDefenseTrait.damageMultiplier(for: attack.type)
+                * state.equipmentAttackMultiplier(for: attack.type)
+                * attack.type.objectiveDamageMultiplier(against: hitKind)
+                * (hitKind == specialist?.target ? specialist?.multiplier ?? 1 : 1) > 1
+        }
+        return isAdvantaged
+            ? SKColor(red: 142 / 255, green: 247 / 255, blue: 173 / 255, alpha: 1)
+            : .white
     }
 
     /// Routes each damaged soldier's visual feedback: a Captain loss is a
