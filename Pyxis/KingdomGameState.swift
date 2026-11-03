@@ -1977,28 +1977,37 @@ struct KingdomGameState: Codable, Equatable {
         siegeProgress.captain = nil
         completedCityCount = min(Self.firstCountryCityCount, max(completedCityCount, cityNumberInCountry))
 
-        // HPA-671: the single gear-grant seam — every conquest route (live,
+        // HPA-672: the single gear-grant seam — every conquest route (live,
         // background-idle, Camp settlement) converges here. Country 1 only;
         // other countries complete normally with no grant and no receipt.
         var storedResult = result
         // The receipt is this seam's alone: reset any caller-set value, then
-        // set it iff the conquest awarded a previously unowned item.
-        storedResult.newEquipmentItemID = nil
+        // write it iff the conquest made a real gear change (first drop or
+        // a 1→2/2→3 level-up). A capped level-3 repeat is a no-op for gear.
+        storedResult.equipmentReward = nil
         if currentCityKey.countryNumber == 1,
-           let item = EquipmentCatalog.byCity(cityNumberInCountry),
-           !ownedEquipmentIDs.contains(item.id) {
-            // First-owned-only auto-equip: snapshot the type's ownership
-            // BEFORE the award. An explicit `None` (absent slot) after
-            // earlier ownership stays empty — the check is ownership, not
-            // slot emptiness.
-            let typeOwnedAnyGear = ownedEquipmentIDs.contains { id in
-                EquipmentCatalog.byID(id)?.soldierType == item.soldierType
+           let item = EquipmentCatalog.byCity(cityNumberInCountry) {
+            if !ownedEquipmentIDs.contains(item.id) {
+                // First drop (Lv1): first-owned-only auto-equip — snapshot
+                // the type's ownership BEFORE the award. An explicit `None`
+                // (absent slot) after earlier ownership stays empty — the
+                // check is ownership, not slot emptiness.
+                let typeOwnedAnyGear = ownedEquipmentIDs.contains { id in
+                    EquipmentCatalog.byID(id)?.soldierType == item.soldierType
+                }
+                ownedEquipmentIDs = Self.normalizedOwnedEquipmentIDs(ownedEquipmentIDs + [item.id])
+                equipmentLevelsByID[item.id] = 1
+                if !typeOwnedAnyGear {
+                    equippedItemBySoldierType[item.soldierType.rawValue] = item.id
+                }
+                storedResult.equipmentReward = EquipmentReward(itemID: item.id, level: 1)
+            } else if let currentLevel = equipmentLevel(for: item.id), currentLevel < 3 {
+                // Repeat conquest levels owned gear toward the 3 cap. Never
+                // a second owned ID and never a slot write — a chosen or
+                // deliberately-None slot survives the upgrade untouched.
+                equipmentLevelsByID[item.id] = currentLevel + 1
+                storedResult.equipmentReward = EquipmentReward(itemID: item.id, level: currentLevel + 1)
             }
-            ownedEquipmentIDs = Self.normalizedOwnedEquipmentIDs(ownedEquipmentIDs + [item.id])
-            if !typeOwnedAnyGear {
-                equippedItemBySoldierType[item.soldierType.rawValue] = item.id
-            }
-            storedResult.newEquipmentItemID = item.id
         }
         pendingBattleResult = storedResult
 

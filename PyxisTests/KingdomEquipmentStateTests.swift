@@ -188,11 +188,11 @@ struct KingdomEquipmentStateTests {
         }
     }
 
-    // MARK: - BattleResult new-gear receipt
+    // MARK: - BattleResult equipment reward receipt (HPA-672)
 
     @Test func battleResultsDefaultToNoEquipmentReceipt() {
         let session = ActiveSiegeSession(cityKey: CityKey(countryNumber: 1, cityNumber: 1))
-        #expect(session.finalized(conquestMode: .live, goldEarned: 8).newEquipmentItemID == nil)
+        #expect(session.finalized(conquestMode: .live, goldEarned: 8).equipmentReward == nil)
 
         let direct = BattleResult(
             cityKey: CityKey(countryNumber: 1, cityNumber: 1),
@@ -208,10 +208,10 @@ struct KingdomEquipmentStateTests {
             usedExposedLane: false,
             goldEarned: 8
         )
-        #expect(direct.newEquipmentItemID == nil)
+        #expect(direct.equipmentReward == nil)
     }
 
-    @Test func battleResultEncodesAndDecodesTheEquipmentReceipt() throws {
+    @Test func battleResultEncodesAndDecodesTheTypedEquipmentReceipt() throws {
         let result = BattleResult(
             cityKey: CityKey(countryNumber: 1, cityNumber: 5),
             conquestMode: .live,
@@ -225,16 +225,18 @@ struct KingdomEquipmentStateTests {
             usedFavorableUnit: false,
             usedExposedLane: false,
             goldEarned: 12,
-            newEquipmentItemID: "c05-cavalry-attack"
+            equipmentReward: EquipmentReward(itemID: "c05-cavalry-attack", level: 1)
         )
 
         let data = try JSONEncoder().encode(result)
         let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(payload["newEquipmentItemID"] as? String == "c05-cavalry-attack")
+        let receipt = try #require(payload["equipmentReward"] as? [String: Any])
+        #expect(receipt["itemID"] as? String == "c05-cavalry-attack")
+        #expect(receipt["level"] as? Int == 1)
 
         let decoded = try JSONDecoder().decode(BattleResult.self, from: data)
         #expect(decoded == result)
-        #expect(decoded.newEquipmentItemID == "c05-cavalry-attack")
+        #expect(decoded.equipmentReward == EquipmentReward(itemID: "c05-cavalry-attack", level: 1))
     }
 
     @Test func persistedResultWithoutReceiptKeyDecodesNil() throws {
@@ -255,13 +257,13 @@ struct KingdomEquipmentStateTests {
 
         let result = try JSONDecoder().decode(BattleResult.self, from: data)
 
-        #expect(result.newEquipmentItemID == nil)
+        #expect(result.equipmentReward == nil)
         #expect(result.goldEarned == 12)
     }
 
-    // MARK: - HPA-671 Task 2: the one conquest grant seam
+    // MARK: - HPA-672: the one conquest grant seam (first drop + repeat leveling)
 
-    @Test func liveConquestGrantsCityGearAutoEquipsFirstItemAndReceiptSurvivesRoundTrip() throws {
+    @Test func liveConquestGrantsCityGearAtLevelOneAutoEquipsFirstItemAndReceiptSurvivesRoundTrip() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 1)
         let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
 
@@ -280,22 +282,30 @@ struct KingdomEquipmentStateTests {
         #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
         // First-ever infantry item auto-equips.
         #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        // A new drop establishes level 1.
+        #expect(state.equipmentLevel(for: "c01-infantry-attack") == 1)
+        #expect(state.equipmentLevelsByID == ["c01-infantry-attack": 1])
         let pending = try #require(state.pendingBattleResult)
-        #expect(pending.newEquipmentItemID == "c01-infantry-attack")
+        #expect(pending.equipmentReward == EquipmentReward(itemID: "c01-infantry-attack", level: 1))
 
         // The receipt survives process death (save encode/decode).
         var decoded = try JSONDecoder().decode(
             KingdomGameState.self,
             from: JSONEncoder().encode(state)
         )
-        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+        #expect(
+            decoded.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c01-infantry-attack", level: 1)
+        )
         #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(decoded.equipmentLevel(for: "c01-infantry-attack") == 1)
 
         // Acknowledging clears only the report — gear is account-level.
         decoded.acknowledgePendingBattleResult()
         #expect(decoded.pendingBattleResult == nil)
         #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
         #expect(decoded.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        #expect(decoded.equipmentLevel(for: "c01-infantry-attack") == 1)
     }
 
     @Test func backgroundIdleConquestGrantsCityGearWithSurvivingReceipt() throws {
@@ -315,15 +325,19 @@ struct KingdomEquipmentStateTests {
         #expect(result.conqueredCities == 1)
         #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
         #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        #expect(state.equipmentLevel(for: "c01-infantry-attack") == 1)
         let pending = try #require(state.pendingBattleResult)
         #expect(pending.conquestMode == .idle)
-        #expect(pending.newEquipmentItemID == "c01-infantry-attack")
+        #expect(pending.equipmentReward == EquipmentReward(itemID: "c01-infantry-attack", level: 1))
 
         var decoded = try JSONDecoder().decode(
             KingdomGameState.self,
             from: JSONEncoder().encode(state)
         )
-        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+        #expect(
+            decoded.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c01-infantry-attack", level: 1)
+        )
         decoded.acknowledgePendingBattleResult()
         #expect(decoded.pendingBattleResult == nil)
         #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
@@ -348,13 +362,16 @@ struct KingdomEquipmentStateTests {
         #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
         let pending = try #require(state.pendingBattleResult)
         #expect(pending.conquestMode == .idle)
-        #expect(pending.newEquipmentItemID == "c01-infantry-attack")
+        #expect(pending.equipmentReward == EquipmentReward(itemID: "c01-infantry-attack", level: 1))
 
         var decoded = try JSONDecoder().decode(
             KingdomGameState.self,
             from: JSONEncoder().encode(state)
         )
-        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+        #expect(
+            decoded.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c01-infantry-attack", level: 1)
+        )
         decoded.acknowledgePendingBattleResult()
         #expect(decoded.pendingBattleResult == nil)
         #expect(decoded.ownedEquipmentIDs == ["c01-infantry-attack"])
@@ -399,8 +416,9 @@ struct KingdomEquipmentStateTests {
                 appliedDamage: 1
             )
         ])
-        #expect(state.pendingBattleResult?.newEquipmentItemID == "c02-archer-attack")
+        #expect(state.pendingBattleResult?.equipmentReward == EquipmentReward(itemID: "c02-archer-attack", level: 1))
         #expect(state.equippedItemBySoldierType == ["archer": "c02-archer-attack"])
+        #expect(state.equipmentLevel(for: "c02-archer-attack") == 1)
 
         // Country 1 City 3 — Infantry Toughness: newly owned and reported, but
         // prior infantry ownership suppresses auto-equip (ownership, not slot).
@@ -424,11 +442,132 @@ struct KingdomEquipmentStateTests {
             "c02-archer-attack",
             "c03-infantry-toughness"
         ])
-        #expect(state.pendingBattleResult?.newEquipmentItemID == "c03-infantry-toughness")
+        #expect(
+            state.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c03-infantry-toughness", level: 1)
+        )
         #expect(state.equippedItemBySoldierType == ["archer": "c02-archer-attack"])
     }
 
-    @Test func country2CompletionEarnsGoldWithoutCountry1GearOrReceipt() throws {
+    // MARK: - HPA-672 repeat-conquest leveling
+
+    @Test func repeatConquestLevelsOwnedGearOneToTwoToThreeThenCaps() throws {
+        // Level 1 → 2: receipt reports the new level; gold pays once.
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 40,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack"]
+        )
+        #expect(
+            state.completeCurrentCity(with: makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8))
+                == KingdomGameState.CompletionResult(awarded: true, goldEarned: 8)
+        )
+        #expect(state.gold == 48)
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(state.equipmentLevel(for: "c01-infantry-attack") == 2)
+        #expect(state.pendingBattleResult?.equipmentReward == EquipmentReward(itemID: "c01-infantry-attack", level: 2))
+
+        // Level 2 → 3 on the next replay.
+        state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 40,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 2]
+        )
+        #expect(
+            state.completeCurrentCity(with: makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8))
+                == KingdomGameState.CompletionResult(awarded: true, goldEarned: 8)
+        )
+        #expect(state.equipmentLevel(for: "c01-infantry-attack") == 3)
+        #expect(state.pendingBattleResult?.equipmentReward == EquipmentReward(itemID: "c01-infantry-attack", level: 3))
+
+        // The receipt survives save/relaunch with its upgrade level.
+        var decoded = try JSONDecoder().decode(
+            KingdomGameState.self,
+            from: JSONEncoder().encode(state)
+        )
+        #expect(
+            decoded.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c01-infantry-attack", level: 3)
+        )
+        #expect(decoded.equipmentLevel(for: "c01-infantry-attack") == 3)
+        decoded.acknowledgePendingBattleResult()
+        #expect(decoded.pendingBattleResult == nil)
+        #expect(decoded.equipmentLevel(for: "c01-infantry-attack") == 3)
+    }
+
+    @Test func cappedLevelThreeRepeatPaysNormalSingleGoldWithoutGearReceipt() {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 40,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 3]
+        )
+
+        let completion = state.completeCurrentCity(
+            with: makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8)
+        )
+
+        // Normal single gold, no second grant, no receipt, level stays 3.
+        #expect(completion == KingdomGameState.CompletionResult(awarded: true, goldEarned: 8))
+        #expect(state.gold == 48)
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(state.equipmentLevelsByID == ["c01-infantry-attack": 3])
+        #expect(state.pendingBattleResult?.equipmentReward == nil)
+        #expect(state.pendingBattleResult?.goldEarned == 8)
+    }
+
+    @Test func repeatConquestResetsStaleCallerReceiptBeforeComputingAward() {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 40,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack"]
+        )
+
+        var stale = makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8)
+        stale.equipmentReward = EquipmentReward(itemID: "c05-cavalry-attack", level: 3)
+
+        #expect(
+            state.completeCurrentCity(with: stale)
+                == KingdomGameState.CompletionResult(awarded: true, goldEarned: 8)
+        )
+        // The caller-supplied receipt never survives: only the real
+        // level-up of this city's fixed item is reported.
+        #expect(state.pendingBattleResult?.equipmentReward == EquipmentReward(itemID: "c01-infantry-attack", level: 2))
+        #expect(state.equipmentLevel(for: "c05-cavalry-attack") == nil)
+    }
+
+    @Test func repeatConquestNeverAutoEquipsNorOverridesChosenOrNoneSlots() {
+        // Chosen slot: infantry deliberately runs the City 3 toughness
+        // item; upgrading City 1's item must not touch it.
+        var chosen = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 40,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
+            equippedItemBySoldierType: ["infantry": "c03-infantry-toughness"]
+        )
+        _ = chosen.completeCurrentCity(with: makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8))
+        #expect(chosen.equipmentLevel(for: "c01-infantry-attack") == 2)
+        #expect(chosen.equippedItemBySoldierType == ["infantry": "c03-infantry-toughness"])
+
+        // Deliberate `None`: the absent infantry entry stays absent.
+        var none = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            gold: 40,
+            keepRemaining: 1,
+            ownedEquipmentIDs: ["c01-infantry-attack"]
+        )
+        _ = none.completeCurrentCity(with: makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8))
+        #expect(none.equipmentLevel(for: "c01-infantry-attack") == 2)
+        #expect(none.equippedItemBySoldierType == [:])
+    }
+
+    @Test func country2CompletionEarnsGoldWithoutCountry1GearReceiptOrLevels() throws {
         var state = KingdomGameState(gold: 50, countryNumber: 2, cityNumberInCountry: 1)
 
         let completion = state.completeCurrentCity(
@@ -439,7 +578,8 @@ struct KingdomEquipmentStateTests {
         #expect(state.gold == 58)
         #expect(state.ownedEquipmentIDs == [])
         #expect(state.equippedItemBySoldierType == [:])
-        #expect(state.pendingBattleResult?.newEquipmentItemID == nil)
+        #expect(state.equipmentLevelsByID == [:])
+        #expect(state.pendingBattleResult?.equipmentReward == nil)
         #expect(state.stageStatus == .cityConqueredPendingMap)
     }
 
@@ -480,32 +620,10 @@ struct KingdomEquipmentStateTests {
         #expect(state.gold == goldAfterGrant)
         #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
         #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
-        #expect(state.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
-    }
-
-    @Test func alreadyOwnedCatalogRewardPaysGoldAndScrubsStaleReceipt() throws {
-        // A VALID active conquest of City 1 whose catalog reward is already
-        // owned: gold pays normally, ownership/loadout are unchanged, and
-        // the seam scrubs even a caller-set stale receipt instead of
-        // re-reporting the owned item.
-        var state = SiegeTestSupport.makeBattleState(
-            atCity: 1,
-            gold: 40,
-            keepRemaining: 1,
-            ownedEquipmentIDs: ["c01-infantry-attack"]
-        )
-
-        var stale = makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8)
-        stale.newEquipmentItemID = "c01-infantry-attack"
-
         #expect(
-            state.completeCurrentCity(with: stale)
-                == KingdomGameState.CompletionResult(awarded: true, goldEarned: 8)
+            state.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c01-infantry-attack", level: 1)
         )
-        #expect(state.gold == 48)
-        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
-        #expect(state.equippedItemBySoldierType == [:])
-        #expect(state.pendingBattleResult?.newEquipmentItemID == nil)
     }
 
     private func makeResult(countryNumber: Int, cityNumber: Int, goldEarned: Int) -> BattleResult {

@@ -3456,7 +3456,10 @@ struct BattleSceneTests {
             KingdomGameState.self,
             from: JSONEncoder().encode(original)
         )
-        #expect(decoded.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
+        #expect(
+            decoded.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c01-infantry-attack", level: 1)
+        )
 
         let scene = makeScene(store: try makeStore(initialState: decoded))
         #expect(scene.lastConquestReportOriginForTesting == "restored")
@@ -4271,7 +4274,7 @@ struct BattleSceneTests {
             usedFavorableUnit: usedFavorableUnit,
             usedExposedLane: usedExposedLane,
             goldEarned: 8,
-            newEquipmentItemID: newGear
+            equipmentReward: newGear.map { EquipmentReward(itemID: $0, level: 1) }
         )
     }
 

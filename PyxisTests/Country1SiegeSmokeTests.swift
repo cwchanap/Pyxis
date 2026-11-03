@@ -236,7 +236,7 @@ enum Country1SiegeSmoke {
             "elapsed=\(String(format: "%.1f", record.elapsedSeconds))",
             "losses=\(record.troopLosses)",
             "equipment=\(record.equipment.rawValue)",
-            "newGear=\(record.newEquipmentItemID ?? "none")",
+            "newGear=\(record.equipmentReward.map { "\($0.itemID)Lv\($0.level)" } ?? "none")",
             "owned=\(record.ownedEquipmentIDs.isEmpty ? "-" : record.ownedEquipmentIDs.joined(separator: "+"))"
         ]
         if record.equipment == .greedy {
@@ -511,7 +511,7 @@ enum Country1SiegeSmoke {
                 equipment: variant == .boughtGear ? .greedy : .none,
                 equippedAtSiege: equippedAtSiege,
                 ownedEquipmentIDs: state.ownedEquipmentIDs,
-                newEquipmentItemID: state.pendingBattleResult?.newEquipmentItemID
+                equipmentReward: state.pendingBattleResult?.equipmentReward
             )
             records.append(record)
             print("[\(variant.rawValue)] \(campaignLine(for: record))")
@@ -587,9 +587,10 @@ struct Country1CampaignCityRecord {
     /// HPA-671: every owned catalog ID after this city's outcome (a conquest
     /// grants exactly one more).
     var ownedEquipmentIDs: [String] = []
-    /// HPA-671: this city's conquest receipt — its fixed catalog drop, or nil
-    /// when the city stalled.
-    var newEquipmentItemID: String?
+    /// HPA-672: this city's conquest receipt — its fixed catalog drop and the
+    /// level reached (Lv1 on a first-run chain; HPA-672 replays can report
+    /// Lv2/3 upgrades), or nil when the city stalled.
+    var equipmentReward: EquipmentReward?
 }
 
 /// Treasury policy of a chained-campaign variant (HPA-670 Task 5; HPA-671
@@ -1336,7 +1337,7 @@ struct Country1SiegeSmokeTests {
                 ? EquipmentCatalog.byCity(record.city)?.id
                 : nil
             #expect(
-                record.newEquipmentItemID == expectedDrop,
+                record.equipmentReward == expectedDrop.map { EquipmentReward(itemID: $0, level: 1) },
                 Comment(rawValue: "city \(record.city) conquest did not grant its fixed drop")
             )
             if let expectedDrop {
