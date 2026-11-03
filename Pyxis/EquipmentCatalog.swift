@@ -12,6 +12,24 @@ enum EquipmentEffect: Equatable {
     case attackBonus(Double)
     case maxHPBonus(Double)
     case specialistBonus(target: CitySiegeLayout.ObjectiveKind, fraction: Double)
+
+    /// The single level-scaling authority (HPA-672): the fractional bonus
+    /// multiplies by exactly 1 / 1.5 / 2 at owned levels 1 / 2 / 3, with the
+    /// kind and target preserved. Every combat projection, the Armory text
+    /// and the campaign scorer consume this — never a raw catalog fraction
+    /// once an item can be leveled. Out-of-range levels clamp to the band.
+    func scaled(toLevel level: Int) -> EquipmentEffect {
+        let clamped = min(3, max(1, level))
+        let scale = [1: 1.0, 2: 1.5, 3: 2.0][clamped, default: 1.0]
+        switch self {
+        case .attackBonus(let fraction):
+            return .attackBonus(fraction * scale)
+        case .maxHPBonus(let fraction):
+            return .maxHPBonus(fraction * scale)
+        case .specialistBonus(let target, let fraction):
+            return .specialistBonus(target: target, fraction: fraction * scale)
+        }
+    }
 }
 
 /// A compile-time catalog row: stable slug `id` (also the HPA-673 art name

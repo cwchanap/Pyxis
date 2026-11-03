@@ -117,5 +117,60 @@ struct Country1CampaignTreasuryTests {
         #expect(line.contains("outcome=conquered"))
         #expect(line.contains("elapsed=44.2"))
         #expect(line.contains("losses=12"))
+        #expect(line.contains("ascension=0"))
+    }
+
+    // MARK: - HPA-672 matched ascension-replay harness
+
+    @Test("The ascension replay fixture starts at zero gold, empty Treasury, all 15 items at Lv1")
+    func ascensionReplayFixtureIsMatchedAndZeroGold() {
+        for count in [0, 1] {
+            let state = Country1SiegeSmoke.ascensionReplayInitialState(ascensionCount: count)
+
+            #expect(state.gold == 0)
+            #expect(state.treasury == TreasuryState())
+            #expect(state.ascensionCount == count)
+            #expect(state.ownedEquipmentIDs == EquipmentCatalog.items.map(\.id))
+            #expect(state.equippedItemBySoldierType.isEmpty)
+            for item in EquipmentCatalog.items {
+                #expect(state.equipmentLevel(for: item.id) == 1, Comment(rawValue: item.id))
+            }
+        }
+    }
+
+    @Test("The campaign line carries the ascension count for matched replay variants")
+    func campaignLineCarriesTheAscensionCount() {
+        let record = Country1CampaignCityRecord(
+            city: 1,
+            lane: .center,
+            camp: [],
+            startGold: 0,
+            treasurySpend: 0,
+            treasury: TreasuryState(),
+            campSpend: 0,
+            endGold: 10,
+            elapsedSeconds: 20.5,
+            troopLosses: 3,
+            reachedConquest: true,
+            equipment: .greedy,
+            equippedAtSiege: [:],
+            ownedEquipmentIDs: EquipmentCatalog.items.map(\.id),
+            equipmentReward: EquipmentReward(itemID: "c01-infantry-attack", level: 2),
+            ascensionCount: 1
+        )
+
+        let line = Country1SiegeSmoke.campaignLine(for: record)
+
+        #expect(line.contains("ascension=1"))
+        #expect(line.contains("newGear=c01-infantry-attackLv2"))
+
+        let totals = Country1SiegeSmoke.campaignTotalsLine(
+            variant: .boughtGear,
+            records: [record],
+            ascensionCount: 1
+        )
+        #expect(totals.contains("variant=boughtGear"))
+        #expect(totals.contains("totalElapsed=20.5"))
+        #expect(totals.contains("ascension=1"))
     }
 }

@@ -167,7 +167,7 @@ struct TreasuryEffectSeamTests {
         // 3, arrowTower mage disadvantage 0.80 → round(2.52) = 3, where a
         // double round would keep 2.
         #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .mage, level: 4, defenseTrait: .arrowTower, upgradeMultiplier: 1.05
+            for: .mage, level: 4, defenseTrait: .arrowTower, multiplier: 1.05
         ) == 3)
         // The pre-HPA-670 call (default multiplier) is unchanged:
         #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
@@ -192,7 +192,7 @@ struct TreasuryEffectSeamTests {
                                 for: soldierType,
                                 level: level,
                                 defenseTrait: trait,
-                                upgradeMultiplier: upgradeMultiplier
+                                multiplier: upgradeMultiplier
                             ) == expected,
                             "level \(level), \(soldierType), \(trait), DY \(drillYard)"
                         )
@@ -208,11 +208,11 @@ struct TreasuryEffectSeamTests {
         for drillYard in 0...9 {
             #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                upgradeMultiplier: 1.0 + 0.05 * Double(drillYard)
+                multiplier: 1.0 + 0.05 * Double(drillYard)
             ) == 1)
         }
         #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .infantry, level: 1, defenseTrait: .standardWatch, upgradeMultiplier: 1.5
+            for: .infantry, level: 1, defenseTrait: .standardWatch, multiplier: 1.5
         ) == 2)
 
         // Level 2 (base 2) neutral: no visible gain through DY 4; the first
@@ -220,19 +220,19 @@ struct TreasuryEffectSeamTests {
         for drillYard in 0...4 {
             #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
                 for: .infantry, level: 2, defenseTrait: .standardWatch,
-                upgradeMultiplier: 1.0 + 0.05 * Double(drillYard)
+                multiplier: 1.0 + 0.05 * Double(drillYard)
             ) == 2)
         }
         #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .infantry, level: 2, defenseTrait: .standardWatch, upgradeMultiplier: 1.25
+            for: .infantry, level: 2, defenseTrait: .standardWatch, multiplier: 1.25
         ) == 3)
 
         // Level 4 (base 3) disadvantaged 0.80: visible from the first level.
         #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .mage, level: 4, defenseTrait: .arrowTower, upgradeMultiplier: 1.0
+            for: .mage, level: 4, defenseTrait: .arrowTower, multiplier: 1.0
         ) == 2)
         #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .mage, level: 4, defenseTrait: .arrowTower, upgradeMultiplier: 1.05
+            for: .mage, level: 4, defenseTrait: .arrowTower, multiplier: 1.05
         ) == 3)
     }
 
@@ -245,7 +245,7 @@ struct TreasuryEffectSeamTests {
             for: .infantry,
             level: 2,
             defenseTrait: state.currentCityDefenseTrait,
-            upgradeMultiplier: 1.2
+            multiplier: 1.2
         )
         #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 2) == expected)
         // City 1 is Standard Watch: base 2 × 1.0 × 1.2 = 2.4 → 2 — a paid
@@ -324,7 +324,7 @@ struct TreasuryEffectSeamTests {
                     for: .infantry,
                     level: 5,
                     defenseTrait: state.currentCityDefenseTrait,
-                    upgradeMultiplier: 1.15
+                    multiplier: 1.15
                 )
         )
     }
@@ -379,8 +379,7 @@ struct TreasuryEffectSeamTests {
                                     for: soldierType,
                                     level: level,
                                     defenseTrait: trait,
-                                    upgradeMultiplier: drillMultiplier,
-                                    equipmentAttackMultiplier: gearMultiplier
+                                    multiplier: drillMultiplier * gearMultiplier
                                 ) == expected,
                                 "level \(level), \(soldierType), \(trait), DY \(drillYard), gear \(hasGear)"
                             )
@@ -398,7 +397,7 @@ struct TreasuryEffectSeamTests {
         // the trait first (round(2.4) = 2) ends at round(2.415) = 2.
         #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
             for: .mage, level: 4, defenseTrait: .arrowTower,
-            upgradeMultiplier: 1.05, equipmentAttackMultiplier: 1.15
+            multiplier: 1.05 * 1.15
         ) == 3)
         let traitRoundedFirst = Int((Double(
             KingdomGameState.traitAdjustedSoldierAttackPower(
@@ -410,29 +409,154 @@ struct TreasuryEffectSeamTests {
 
     @Test("Zero equipment leaves the pre-HPA-671 outputs bit-identical")
     func zeroEquipmentMatchesPreEquipmentFormula() {
-        for level in 1...8 {
+        // No gear owned, no Renown: the instance seam must equal the pure
+        // trait fold at every Drill Yard level — the exact HPA-670 formula.
+        var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 500)
+        for drillYard in 0...10 {
+            state.treasury.drillYard = drillYard
+            let drillMultiplier = 1.0 + 0.05 * Double(drillYard)
             for soldierType in SoldierType.allCases {
-                for trait in CityDefenseTrait.allCases {
-                    for drillYard in 0...10 {
-                        let drillMultiplier = 1.0 + 0.05 * Double(drillYard)
-                        #expect(
-                            KingdomGameState.traitAdjustedSoldierAttackPower(
-                                for: soldierType,
-                                level: level,
-                                defenseTrait: trait,
-                                upgradeMultiplier: drillMultiplier,
-                                equipmentAttackMultiplier: 1
-                            ) == KingdomGameState.traitAdjustedSoldierAttackPower(
-                                for: soldierType,
-                                level: level,
-                                defenseTrait: trait,
-                                upgradeMultiplier: drillMultiplier
-                            )
-                        )
-                    }
-                }
+                #expect(
+                    state.traitAdjustedSoldierAttackPower(for: soldierType, level: 5)
+                        == KingdomGameState.traitAdjustedSoldierAttackPower(
+                            for: soldierType,
+                            level: 5,
+                            defenseTrait: state.currentCityDefenseTrait,
+                            multiplier: drillMultiplier
+                        ),
+                    "\(soldierType) at DY \(drillYard)"
+                )
             }
         }
+    }
+
+    // MARK: - HPA-672 Renown in the same two seams
+
+    @Test("renownMultiplier is 1 + 0.25 × ascension count")
+    func renownMultiplierCurve() {
+        for (count, expected) in [(0, 1.0), (1, 1.25), (2, 1.5), (4, 2.0), (12, 4.0)] {
+            let state = KingdomGameState(ascensionCount: count)
+            #expect(state.renownMultiplier == expected, "count \(count)")
+        }
+    }
+
+    @Test("Renown folds into the single gold round with War Chest and base")
+    func renownFoldsIntoTheSingleGoldRound() {
+        var state = KingdomGameState(ascensionCount: 1)
+        state.treasury.warChest = 3
+
+        // Base 35 × War Chest 1.30 × Renown 1.25 = 56.875 → 57 in ONE round.
+        // Rounding the War Chest first (46) then Renown gives round(57.5) = 58.
+        #expect(state.goldReward(forCity: 5) == 57)
+        #expect(Int((35.0 * 1.30 * 1.25).rounded()) == 57)
+        #expect(Int((Double(Int((35.0 * 1.30).rounded())) * 1.25).rounded()) == 58)
+
+        // Current-city quote rides the same single seam.
+        #expect(state.currentGoldReward == state.goldReward(forCity: state.cityLevel))
+    }
+
+    @Test("Zero Renown gold quote is bit-identical to the War Chest seam; every count scales it")
+    func zeroRenownGoldQuoteIdentityAndScaling() {
+        let zero = KingdomGameState()
+        var one = zero
+        one.ascensionCount = 1
+        var two = zero
+        two.ascensionCount = 2
+
+        for city in Country1CityCatalog.cityRange {
+            let base = KingdomGameState.baseGoldReward(for: city)
+            #expect(zero.goldReward(forCity: city) == base)
+            // 1.25 and 1.5 folds, each still one rounding.
+            #expect(one.goldReward(forCity: city) == max(1, Int((Double(base) * 1.25).rounded())))
+            #expect(two.goldReward(forCity: city) == max(1, Int((Double(base) * 1.5).rounded())))
+        }
+
+        // The spec's City 1 pin: base 8 × 1.25 = 10 at Renown 1.
+        #expect(one.goldReward(forCity: 1) == 10)
+    }
+
+    @Test("firstRoundAttackMultiplier composes Drill Yard × leveled attack gear × Renown")
+    func firstRoundAttackMultiplierComposition() {
+        var state = KingdomGameState(
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 2],
+            ascensionCount: 1
+        )
+        state.treasury.drillYard = 2
+
+        // 1.10 × 1.225 × 1.25 = 1.684375.
+        #expect(state.firstRoundAttackMultiplier(for: .infantry) == 1.1 * 1.225 * 1.25)
+        // An unequipped type drops only the gear factor.
+        #expect(state.firstRoundAttackMultiplier(for: .siege) == 1.1 * 1.25)
+
+        // Zero Renown, zero gear, zero Treasury is exactly 1.
+        #expect(KingdomGameState().firstRoundAttackMultiplier(for: .infantry) == 1)
+    }
+
+    @Test("Renown folds into the single-round attack at low integer levels")
+    func renownSingleRoundAttackPin() {
+        // Infantry L1 (base 1), Standard Watch, Renown 1, attack gear Lv3
+        // (× 1.30): 1 × 1 × 1.25 × 1.30 = 1.625 → 2 in ONE round. Without
+        // Renown the same loadout stays 1 (1.3 → 1) — the exact low-level
+        // case where the permanent bonus first becomes visible.
+        #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .infantry, level: 1, defenseTrait: .standardWatch, multiplier: 1.25 * 1.30
+        ) == 2)
+        #expect(KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .infantry, level: 1, defenseTrait: .standardWatch, multiplier: 1.30
+        ) == 1)
+    }
+
+    @Test("A Renown-1 spawn prices identically on the live and idle paths")
+    func renownSpawnMatchesAcrossLiveAndIdle() {
+        func singleSpawnIdleDamage(ascensionCount: Int) -> Int {
+            var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+            SiegeTestSupport.destroySupportObjectives(of: &state)
+            state.siegeProgress.guardReinforcements = nil
+            state.ascensionCount = ascensionCount
+
+            let key = state.currentCityKey
+            var cityState = state.cityBattleState(for: key)
+            cityState.setBuilding(CityBuilding(type: .barracks, level: 5), inSlot: 1)
+            state.cityBattleStates[key.storageKey] = cityState
+
+            let start = Date(timeIntervalSinceReferenceDate: 0)
+            state.enterBackground(at: start)
+            return state.returnFromBackground(at: start.addingTimeInterval(150)).damageDealt
+        }
+
+        // One level-5 infantry spawn: base 4 × 1.25 = 5 on both paths. The
+        // live-spawn parity is the instance seam BattleScene passes into
+        // spawnSoldier — same value the idle budget consumed.
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+        state.ascensionCount = 1
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 5)
+        #expect(singleSpawnIdleDamage(ascensionCount: 1) == 5)
+        #expect(singleSpawnIdleDamage(ascensionCount: 0) == 4)
+    }
+
+    @Test("Renown never touches city HP, camp prices, spawn rates or soldier HP")
+    func renownLeavesEveryOtherBalanceConstantAlone() {
+        let zero = SiegeTestSupport.makeBattleState(atCity: 5, gold: 500, keepRemaining: 900)
+        var one = zero
+        one.ascensionCount = 1
+
+        #expect(one.cityMaxPower == zero.cityMaxPower)
+        #expect(one.currentSiegeMaxPowers == zero.currentSiegeMaxPowers)
+        for type in BuildingType.allCases {
+            #expect(one.buildingBuildCost(for: type) == zero.buildingBuildCost(for: type))
+            #expect(
+                one.buildingUpgradeCost(for: type, currentLevel: 2)
+                    == zero.buildingUpgradeCost(for: type, currentLevel: 2)
+            )
+        }
+        #expect(one.equipmentMaxHPMultiplier(for: .infantry) == zero.equipmentMaxHPMultiplier(for: .infantry))
+        // Spawn intervals and the Captain's attack rule are static curves that
+        // never read state, so Renown cannot reach them by construction.
+
+        // Gold is the one thing that moves.
+        #expect(one.goldReward(forCity: 5) > zero.goldReward(forCity: 5))
     }
 
     // MARK: - Quartermaster (cost seam)
