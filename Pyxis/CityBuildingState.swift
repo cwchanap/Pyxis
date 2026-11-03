@@ -127,6 +127,12 @@ enum BuildingType: String, Codable, CaseIterable, Equatable {
             return .siege
         }
     }
+
+    /// The inverse of `soldierType`: every soldier type spawns from
+    /// exactly one building type, so the `allCases` lookup is total.
+    init(soldierType: SoldierType) {
+        self = BuildingType.allCases.first { $0.soldierType == soldierType }!
+    }
 }
 
 struct CityBuilding: Codable, Equatable {

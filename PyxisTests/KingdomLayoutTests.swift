@@ -282,6 +282,7 @@ struct KingdomLayoutTests {
         )))
 
         #expect(layout.armoryRowFrames.count == KingdomLayout.armoryRowCount)
+        #expect(KingdomLayout.armoryRowCount == SoldierType.allCases.count)
         for (index, row) in layout.armoryRowFrames.enumerated() {
             // (260 − 4×6) / 5 = 47.2pt rows inside the same content band.
             #expect(abs(row.height - 47.2) < 0.01)
@@ -364,6 +365,28 @@ struct KingdomLayoutTests {
         // 28pt title — below the fitted-title floor.
         #expect(KingdomLayout.compute(.init(
             sceneSize: CGSize(width: 260, height: 454),
+            safeAreaInsets: .zero
+        )) == nil)
+    }
+
+    @Test("Widths at the Treasury row floor still fit the header selector")
+    func rowFloorWidthKeepsSectionControls() throws {
+        // The header must never fail where the rows still fit: 232pt of
+        // content is the row-text floor (44 icon + 100 text + 88 chrome),
+        // and the title degrades its spare and gap before the layout does.
+        let layout = try #require(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 264, height: 454),
+            safeAreaInsets: .zero
+        )))
+        #expect(layout.titleFrame.width == KingdomLayout.minimumTitleWidth)
+        #expect(layout.titleFrame.maxX == layout.treasurySelectorFrame.minX)
+        #expect(layout.rowFrames.count == TreasuryUpgrade.allCases.count)
+        #expect(layout.armoryRowFrames.count == SoldierType.allCases.count)
+
+        // One point narrower starves the row text column too — the whole
+        // layout fails closed, header and band together.
+        #expect(KingdomLayout.compute(.init(
+            sceneSize: CGSize(width: 263, height: 454),
             safeAreaInsets: .zero
         )) == nil)
     }

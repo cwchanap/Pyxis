@@ -37,10 +37,12 @@ struct KingdomLayout: Equatable {
     /// allocation and the selector cluster — never absorbed by the
     /// font-shrunk title.
     static let titleSpareWidth: CGFloat = 8
-    /// HPA-671 alternative Armory band: five whole-row targets in the same
-    /// span the Treasury rows occupy — (260 − 4×6) / 5 = 47.2pt rows at the
-    /// 320×454 boundary, capped at 60pt on taller viewports.
-    static let armoryRowCount = 5
+    /// HPA-671 alternative Armory band: one whole-row target per soldier
+    /// type in the same span the Treasury rows occupy — (260 − 4×6) / 5 =
+    /// 47.2pt rows at the 320×454 boundary, capped at 60pt on taller
+    /// viewports. Derived from `SoldierType.allCases` so a future type
+    /// automatically gets its own row instead of overflowing the band.
+    static let armoryRowCount = SoldierType.allCases.count
     static let armoryRowGap: CGFloat = 6
     static let armoryMinimumRowHeight: CGFloat = 44
     static let armoryMaximumRowHeight: CGFloat = 60
@@ -288,10 +290,21 @@ struct KingdomLayout: Equatable {
             width: sectionSelectorSize.width,
             height: sectionSelectorSize.height
         )
-        let titleWidth = min(
+        // Below the authored 320pt boundary the spare degrades to zero,
+        // then the title→cluster gap: the floor lands on the Treasury
+        // rows' own 232pt content minimum, so the selector never regresses
+        // a viewport the pre-selector header already fit.
+        let clusterMinX = treasurySelectorFrame.minX - headerFrame.minX
+        var titleWidth = min(
             textWidth,
-            treasurySelectorFrame.minX - sectionSelectorGap - titleSpareWidth - headerFrame.minX
+            clusterMinX - sectionSelectorGap - titleSpareWidth
         )
+        if titleWidth < minimumTitleWidth {
+            titleWidth = min(textWidth, clusterMinX - sectionSelectorGap)
+        }
+        if titleWidth < minimumTitleWidth {
+            titleWidth = min(textWidth, clusterMinX)
+        }
         guard titleWidth >= minimumTitleWidth else { return nil }
         return HeaderTopLine(
             titleFrame: CGRect(

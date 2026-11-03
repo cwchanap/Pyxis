@@ -171,6 +171,29 @@ struct ConquestReportNodeTests {
         #expect(node.renderedGearLineTextForTesting == nil)
     }
 
+    @Test func renderedGearLabelsKeepClearanceFromRequiredPanels() throws {
+        let node = ConquestReportNode()
+        let layout = try reportLayout(
+            tiles: 3,
+            chips: 2,
+            sceneSize: CGSize(width: 393, height: 852),
+            includesGearLine: true
+        )
+
+        for item in EquipmentCatalog.items {
+            let result = node.apply(
+                content: fullContent(newGearLineText: "New gear: \(item.name)"),
+                layout: layout,
+                isContinueEnabled: true
+            )
+            #expect(result == .presented)
+            let label = try #require(node.childNode(withName: "conquestGearLineLabel") as? SKLabelNode)
+            #expect(!label.isHidden)
+            #expect(layout.rewardFrame.minY - label.frame.maxY >= 2)
+            #expect(label.frame.minY - layout.tileFrames[0].maxY >= 2)
+        }
+    }
+
     @Test func gearLineHidesWithoutFailingCompactOrUnfittableReports() throws {
         let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
         let compactLayout = try reportLayout(

@@ -17,6 +17,23 @@ struct CitySiegeLayout: Equatable {
         case gate
         case arrowTower
         case barracks
+
+        /// Full player-facing name ("Arrow Tower") — shared by every
+        /// full-name surface (HPA-671 Armory specialist-effect copy).
+        /// `CountryMapScoutCardContent` keeps its own abbreviated
+        /// scout-card names by design.
+        var displayName: String {
+            switch self {
+            case .keep:
+                return "Keep"
+            case .gate:
+                return "Gate"
+            case .arrowTower:
+                return "Arrow Tower"
+            case .barracks:
+                return "Barracks"
+            }
+        }
     }
 
     struct Objective: Equatable {

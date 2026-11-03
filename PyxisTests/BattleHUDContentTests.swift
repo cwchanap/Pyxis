@@ -253,6 +253,47 @@ struct BattleHUDContentTests {
         #expect(multiplier(.cavalry, in: state) == 1.0)
     }
 
+    // MARK: - HPA-671 equipment on the trait×role pill
+
+    @Test func matchingSpecialistGearJoinsTheMedallionProduct() {
+        // Falconridge's center route opens at the Ridge Gate: the equipped
+        // Granite Ram's +40% gate factor joins trait×role on the pill —
+        // ×1.25 × 1.0 × 1.4 = ×1.75, matching the second-round hit.
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 26,
+            selectedLane: .center,
+            ownedEquipmentIDs: ["c06-infantry-gate"],
+            equippedItemBySoldierType: ["infantry": "c06-infantry-gate"]
+        )
+        #expect(abs(multiplier(.infantry, in: state) - 1.75) < 0.0001)
+    }
+
+    @Test func specialistGearStaysOffThePillWhenTargetDoesNotMatch() {
+        // The left route opens at the Arrow Tower, not the Ram's gate —
+        // the pill keeps its trait-only ×1.25.
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 26,
+            selectedLane: .left,
+            ownedEquipmentIDs: ["c06-infantry-gate"],
+            equippedItemBySoldierType: ["infantry": "c06-infantry-gate"]
+        )
+        #expect(multiplier(.infantry, in: state) == 1.25)
+    }
+
+    @Test func attackGearJoinsTheMedallionProduct() {
+        // Attack gear joins the pre-rounding trait×role product.
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 3,
+            keepRemaining: 26,
+            selectedLane: .center,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
+        #expect(abs(multiplier(.infantry, in: state) - 1.25 * 1.15) < 0.0001)
+    }
+
     // MARK: - HPA-475 Task 4: Captain/Rally projection
 
     @Test func captainIsUnavailableBelowCityThree() {

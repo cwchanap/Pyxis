@@ -1390,8 +1390,9 @@ struct Country1SiegeSmokeTests {
     /// Toughness item is the fallback.
     @Test("Greedy equipment policy falls back to owned Toughness when damage does not improve")
     func greedyEquipmentPolicyFallsBackToOwnedToughness() {
-        var state = KingdomGameState()
-        state.ownedEquipmentIDs = ["c01-infantry-attack", "c03-infantry-toughness"]
+        var state = KingdomGameState(
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
+        )
 
         Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
 
@@ -1407,14 +1408,13 @@ struct Country1SiegeSmokeTests {
         var state = KingdomGameState(
             cityNumberInCountry: 4,
             completedCityCount: 4,
-            stageStatus: .cityConqueredPendingMap
+            stageStatus: .cityConqueredPendingMap,
+            ownedEquipmentIDs: ["c11-siege-attack", "c13-siege-toughness", "c15-siege-keep"]
         )
         guard case .entered = state.startCityFromMap(5) else {
             Issue.record("city 5 entry failed")
             return
         }
-        state.ownedEquipmentIDs = ["c11-siege-attack", "c13-siege-toughness", "c15-siege-keep"]
-
         Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
 
         #expect(state.equippedItemBySoldierType == ["siege": "c15-siege-keep"])

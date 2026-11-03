@@ -338,9 +338,20 @@ final class ConquestReportNode: SKNode {
             return
         }
         gearLabel.text = text
-        gearLabel.fontSize = size
-        gearLabel.position = CGPoint(x: frame.midX, y: frame.midY)
-        gearLabel.isHidden = false
+        var candidate = size
+        while candidate >= layout.gearMinimumFontSize {
+            gearLabel.fontSize = candidate
+            gearLabel.position = CGPoint(x: frame.midX, y: frame.midY)
+            // SpriteKit's center alignment uses font metrics rather than
+            // the actual glyph bounds; center and fit those bounds instead.
+            gearLabel.position.y += frame.midY - gearLabel.frame.midY
+            if frame.contains(gearLabel.frame) {
+                gearLabel.isHidden = false
+                return
+            }
+            candidate -= 1
+        }
+        gearLabel.isHidden = true
     }
 
     private func renderTiles(

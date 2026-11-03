@@ -2382,8 +2382,11 @@ struct BattleSceneTests {
         // Toughness: the Falconridge Bulwark lifts the deployed infantry's
         // cached max HP by the authored +25% before the final round
         // (round(10 × 1.25) = 13).
-        var toughState = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
-        toughState.ownedEquipmentIDs = ["c03-infantry-toughness"]
+        var toughState = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            keepRemaining: 100_000,
+            ownedEquipmentIDs: ["c03-infantry-toughness"]
+        )
         #expect(toughState.equip(itemID: "c03-infantry-toughness") == .success)
         let toughScene = makeScene(store: try makeStore(initialState: toughState))
 
@@ -2395,8 +2398,11 @@ struct BattleSceneTests {
 
         // Specialist: the Granite Ram's gate target + 1.40 factor is
         // snapshotted onto the transient soldier at deploy time.
-        var specialistState = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
-        specialistState.ownedEquipmentIDs = ["c06-infantry-gate"]
+        var specialistState = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            keepRemaining: 100_000,
+            ownedEquipmentIDs: ["c06-infantry-gate"]
+        )
         #expect(specialistState.equip(itemID: "c06-infantry-gate") == .success)
         let specialistScene = makeScene(store: try makeStore(initialState: specialistState))
 
@@ -2420,10 +2426,10 @@ struct BattleSceneTests {
                 gold: 200,
                 cityNumberInCountry: 1,
                 completedCityCount: 0,
-                cityBattleStates: [cityKey.storageKey: cityState]
+                cityBattleStates: [cityKey.storageKey: cityState],
+                ownedEquipmentIDs: [equippedItemID]
             )
             SiegeTestSupport.setKeepRemaining(100, on: &state)
-            state.ownedEquipmentIDs = [equippedItemID]
             #expect(state.equip(itemID: equippedItemID) == .success)
             let scene = makeScene(store: try makeStore(initialState: state))
             scene.advanceCombatForTesting(deltaTime: 0.2)
@@ -2650,6 +2656,54 @@ struct BattleSceneTests {
         #expect(abs(red - 1) < 0.01)
         #expect(abs(green - 1) < 0.01)
         #expect(abs(blue - 1) < 0.01)
+    }
+
+    @Test func attackGearMakesNeutralCityDamageGreen() throws {
+        let state = SiegeTestSupport.makeBattleState(
+            keepRemaining: 15,
+            selectedLane: .center,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
+        let scene = makeScene(store: try makeStore(initialState: state))
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3)
+
+        let label = try #require(scene.childNode(withName: "//floatingFeedback") as? SKLabelNode)
+        var red: CGFloat = 0
+        try #require(label.fontColor).getRed(&red, green: nil, blue: nil, alpha: nil)
+        #expect(abs(red - 142 / 255) < 0.01)
+    }
+
+    @Test func specialistGearMakesMatchingNeutralCityDamageGreen() throws {
+        let state = SiegeTestSupport.makeBattleState(
+            keepRemaining: 15,
+            selectedLane: .center,
+            ownedEquipmentIDs: ["c06-infantry-gate"],
+            equippedItemBySoldierType: ["infantry": "c06-infantry-gate"]
+        )
+        let scene = makeScene(store: try makeStore(initialState: state))
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3)
+
+        let label = try #require(scene.childNode(withName: "//floatingFeedback") as? SKLabelNode)
+        var red: CGFloat = 0
+        try #require(label.fontColor).getRed(&red, green: nil, blue: nil, alpha: nil)
+        #expect(abs(red - 142 / 255) < 0.01)
+    }
+
+    @Test func newlyAwardedGearDoesNotRecolorTheConquestHit() throws {
+        let state = SiegeTestSupport.makeBattleState(keepRemaining: 1, selectedLane: .right)
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(store: store)
+        scene.spawnSoldierForTesting()
+        scene.advanceCombatForTesting(deltaTime: 3)
+
+        #expect(store.load().equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
+        let label = try #require(scene.childNode(withName: "//floatingFeedback") as? SKLabelNode)
+        var red: CGFloat = 0
+        try #require(label.fontColor).getRed(&red, green: nil, blue: nil, alpha: nil)
+        #expect(abs(red - 1) < 0.01)
     }
 
     @Test func gateHitFeedbackLandsOnTheGateNodeAndSparesTheKeep() throws {
