@@ -112,10 +112,10 @@ struct ConquestReportLayout: Equatable {
             takenMedallionDiameter = compact ? 96 : 118
             takenMedallionOverlap = compact ? 28 : 39
             // The gear line never renders on compact heights (HPA-671): 0
-            // means no frame is derived. On roomy layouts this is the label's
-            // maximum line box — the derived frame is capped by the existing
-            // reward→tiles gap, so it never grows the panel.
-            gearLineHeight = compact ? 0 : 18
+            // means no frame is derived. On roomy layouts the line box IS the
+            // reward→tiles gap (16pt) — carved out of existing geometry, so
+            // it can never grow the panel.
+            gearLineHeight = compact ? 0 : 16
             gearStartingFontSize = 12
             gearMinimumFontSize = 9
             // ceil(9pt minimum font × 1.2 line spacing): smaller gaps drop the
@@ -160,10 +160,6 @@ struct ConquestReportLayout: Equatable {
         // out of the base geometry's existing reward→tiles gap. Required
         // frames are identical whether the line is requested, fitted, or
         // dropped, so the item can never regress the report's success gate.
-        computeLayout(input)
-    }
-
-    private static func computeLayout(_ input: Input) -> ConquestReportLayout? {
         guard (2...3).contains(input.tileCount),
               (0...2).contains(input.chipCount) else { return nil }
 
