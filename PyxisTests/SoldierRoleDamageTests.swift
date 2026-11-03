@@ -258,4 +258,42 @@ struct SoldierRoleDamageTests {
             )
         }
     }
+
+    // MARK: - HPA-672: composite first round, leveled second round
+
+    /// The one composite first-round multiplier (Drill Yard × attack gear ×
+    /// Renown) rounds once into the cached power; the role multiplier stays
+    /// the separate second round — folding everything into a single round
+    /// produces a different integer.
+    @Test func compositeFirstRoundNeverReFoldsIntoTheRoleRound() {
+        // Siege L1 (base 1) vs reinforcedKeep (×1.25), composite ×1.30:
+        // cached = round(1 × 1.25 × 1.30) = 2; second round vs the Keep's
+        // 2.0 role = round(2 × 2.0) = 4. One total round would give
+        // round(3.25) = 3.
+        let cached = KingdomGameState.traitAdjustedSoldierAttackPower(
+            for: .siege, level: 1, defenseTrait: .reinforcedKeep, multiplier: 1.3
+        )
+        #expect(cached == 2)
+        #expect(SoldierType.siege.roleAdjustedDamage(power: cached, against: .keep) == 4)
+        #expect(max(1, Int((1.0 * 1.25 * 1.3 * 2.0).rounded())) == 3)
+    }
+
+    /// Leveled specialist gear (×1.4/×1.6/×1.8 at Lv1/2/3) joins the SAME
+    /// single second round as the inherent role — never its own rounding.
+    @Test func leveledSpecialistRidesTheSameSingleSecondRound() {
+        for (_, multiplier) in [(1, 1.4), (2, 1.6), (3, 1.8)] {
+            for power in [1, 2, 3, 5, 7] {
+                let bonus = SoldierSpecialistBonus(target: .arrowTower, multiplier: multiplier)
+                let expected = max(1, Int((Double(power) * 1.5 * multiplier).rounded()))
+                #expect(
+                    SoldierType.archer.roleAdjustedDamage(
+                        power: power,
+                        against: .arrowTower,
+                        specialist: bonus
+                    ) == expected,
+                    "multiplier \(multiplier), power \(power)"
+                )
+            }
+        }
+    }
 }

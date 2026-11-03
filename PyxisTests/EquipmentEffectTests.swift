@@ -79,8 +79,7 @@ struct EquipmentEffectTests {
             for: .infantry,
             level: 5,
             defenseTrait: state.currentCityDefenseTrait,
-            upgradeMultiplier: 1.1,
-            equipmentAttackMultiplier: 1.15
+            multiplier: 1.1 * 1.15
         )
         #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == expected)
         // Base 4 × 1.10 × 1.15 = 5.06 → 5 in ONE round.
@@ -298,6 +297,11 @@ struct EquipmentEffectTests {
         let level: Int
         let kind: CitySiegeLayout.ObjectiveKind
         let equippedItemID: String?
+        /// HPA-672: the equipped item's owned level (1...3); `equippedItemID`
+        /// nil means no gear regardless of this value.
+        var gearLevel: Int = 1
+        /// HPA-672: the permanent Renown count folded into the first round.
+        var ascensionCount: Int = 0
 
         var city: Int {
             switch kind {
@@ -321,8 +325,8 @@ struct EquipmentEffectTests {
         }
 
         var description: String {
-            let gear = equippedItemID.map { ", \($0)" } ?? ", no gear"
-            return "\(soldierType) L\(level) vs \(kind)\(gear)"
+            let gear = equippedItemID.map { ", \($0) Lv\(gearLevel)" } ?? ", no gear"
+            return "\(soldierType) L\(level) vs \(kind)\(gear), renown \(ascensionCount)"
         }
     }
 
@@ -337,13 +341,115 @@ struct EquipmentEffectTests {
         }
     }
 
+    // MARK: - HPA-672 level scaling (one scaling owner)
+
+    /// ×1.5 of an authored binary fraction is not bit-equal to the decimal
+    /// literal (0.15 × 1.5 = 0.224999…98), so scaled fractions compare with
+    /// an epsilon instead of `==`.
+    private func fraction(_ effect: EquipmentEffect) -> Double {
+        switch effect {
+        case .attackBonus(let fraction), .maxHPBonus(let fraction):
+            return fraction
+        case .specialistBonus(_, let fraction):
+            return fraction
+        }
+    }
+
+    private func assertNear(_ lhs: Double, _ rhs: Double) -> Bool {
+        abs(lhs - rhs) < 1e-9
+    }
+
+    @Test("scaled(toLevel:) multiplies the authored bonus by 1/1.5/2 and preserves kind and target")
+    func scaledToLevelPinsTheThreeScales() {
+        #expect(EquipmentEffect.attackBonus(0.15).scaled(toLevel: 1) == .attackBonus(0.15))
+        #expect(assertNear(fraction(EquipmentEffect.attackBonus(0.15).scaled(toLevel: 2)), 0.225))
+        #expect(assertNear(fraction(EquipmentEffect.attackBonus(0.15).scaled(toLevel: 3)), 0.30))
+
+        #expect(EquipmentEffect.maxHPBonus(0.25).scaled(toLevel: 1) == .maxHPBonus(0.25))
+        #expect(assertNear(fraction(EquipmentEffect.maxHPBonus(0.25).scaled(toLevel: 2)), 0.375))
+        #expect(assertNear(fraction(EquipmentEffect.maxHPBonus(0.25).scaled(toLevel: 3)), 0.50))
+
+        let specialist = EquipmentEffect.specialistBonus(target: .keep, fraction: 0.40)
+        #expect(specialist.scaled(toLevel: 1) == .specialistBonus(target: .keep, fraction: 0.40))
+        #expect(assertNear(fraction(specialist.scaled(toLevel: 2)), 0.60))
+        #expect(assertNear(fraction(specialist.scaled(toLevel: 3)), 0.80))
+        #expect(specialist.scaled(toLevel: 2) != .specialistBonus(target: .gate, fraction: 0.60))
+
+        // Out-of-range levels clamp to the 1...3 band — state normalization
+        // already guarantees it, the scaler never amplifies junk.
+        #expect(EquipmentEffect.attackBonus(0.15).scaled(toLevel: 0) == .attackBonus(0.15))
+        #expect(EquipmentEffect.attackBonus(0.15).scaled(toLevel: 4) == .attackBonus(0.30))
+    }
+
+    @Test("equippedEffect(for:) returns the scaled effect at the owned level or nil")
+    func equippedEffectReturnsScaledEffectAtOwnedLevel() {
+        var state = KingdomGameState(ownedEquipmentIDs: ["c01-infantry-attack"])
+        #expect(state.equippedEffect(for: .infantry) == nil)
+
+        #expect(state.equip(itemID: "c01-infantry-attack") == .success)
+        #expect(state.equippedEffect(for: .infantry) == .attackBonus(0.15))
+
+        let leveled2 = KingdomGameState(
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 2]
+        )
+        #expect(assertNear(fraction(leveled2.equippedEffect(for: .infantry) ?? .attackBonus(0)), 0.225))
+        let leveled3 = KingdomGameState(
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 3]
+        )
+        #expect(leveled3.equippedEffect(for: .infantry) == .attackBonus(0.30))
+
+        // A type with no owned gear of its own stays nil.
+        #expect(leveled3.equippedEffect(for: .siege) == nil)
+    }
+
+    @Test("All three combat projections consume the scaled effect, never a raw catalog fraction")
+    func projectionsConsumeTheScaledEffect() {
+        let state = KingdomGameState(
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness", "c06-infantry-gate"],
+            equipmentLevelsByID: [
+                "c01-infantry-attack": 2,
+                "c03-infantry-toughness": 3,
+                "c06-infantry-gate": 3
+            ]
+        )
+
+        // Attack Lv2: +22.5% folded into the first round.
+        var attackEquipped = state
+        #expect(attackEquipped.equip(itemID: "c01-infantry-attack") == .success)
+        #expect(attackEquipped.equipmentAttackMultiplier(for: .infantry) == 1.225)
+        #expect(attackEquipped.equipmentMaxHPMultiplier(for: .infantry) == 1)
+        #expect(attackEquipped.equipmentSpecialistBonus(for: .infantry) == nil)
+
+        // Toughness Lv3 (capped): +50% max HP only.
+        var toughnessEquipped = state
+        #expect(toughnessEquipped.equip(itemID: "c03-infantry-toughness") == .success)
+        #expect(toughnessEquipped.equipmentAttackMultiplier(for: .infantry) == 1)
+        #expect(toughnessEquipped.equipmentMaxHPMultiplier(for: .infantry) == 1.5)
+
+        // Specialist Lv3 (capped): gate target, ×1.80 second round only.
+        var specialistEquipped = state
+        #expect(specialistEquipped.equip(itemID: "c06-infantry-gate") == .success)
+        #expect(specialistEquipped.equipmentAttackMultiplier(for: .infantry) == 1)
+        #expect(specialistEquipped.equipmentMaxHPMultiplier(for: .infantry) == 1)
+        #expect(
+            specialistEquipped.equipmentSpecialistBonus(for: .infantry)
+                == SoldierSpecialistBonus(target: .gate, multiplier: 1.8)
+        )
+    }
+
     private func armedParityState(for cell: ParityCell) -> KingdomGameState {
         var state = SiegeTestSupport.makeBattleState(
             atCity: cell.city,
             keepRemaining: 1_000_000, // clamps to the authored max: full Keep
             selectedLane: cell.lane,
-            ownedEquipmentIDs: cell.equippedItemID.map { [$0] } ?? []
+            ownedEquipmentIDs: cell.equippedItemID.map { [$0] } ?? [],
+            equipmentLevelsByID: cell.equippedItemID.map { [$0: cell.gearLevel] } ?? [:]
         )
+        state.ascensionCount = cell.ascensionCount
         // No Guard absorption: the whole budget reaches the route on both paths.
         state.siegeProgress.guardReinforcements = nil
         if let itemID = cell.equippedItemID {
@@ -504,5 +610,134 @@ struct EquipmentEffectTests {
             #expect(try liveFirstHitDamage(for: cell) == combined, "\(cell) live")
             #expect(idleSettlementDamage(for: cell) == combined, "\(cell) idle")
         }
+    }
+
+    // MARK: - HPA-672 Renown × leveled gear live/idle parity (plan step 6)
+
+    /// Focused parity matrix over the two new first-round factors: all five
+    /// soldier types at the low integer attack level, no gear / matching
+    /// specialist at each of levels 1/2/3, and Renown 0 vs 1 — plus the
+    /// neutral/disadvantaged/advantaged trait cities the kinds route
+    /// through. Every cell's LIVE first hit and IDLE settlement must land on
+    /// the same two rounds: cached power = round(base × trait × DY × gear ×
+    /// Renown), then round(power × role × specialist).
+    @Test func liveAndIdleDamageAgreeWithLeveledGearAndRenown() throws {
+        for ascensionCount in [0, 1] {
+            for gearLevel in [1, 2, 3] {
+                for type in SoldierType.allCases {
+                    let kind = Self.specialistKind(for: type)
+                    let cell = ParityCell(
+                        soldierType: type,
+                        level: 1,
+                        kind: kind,
+                        equippedItemID: Self.specialistItemID(for: type),
+                        gearLevel: gearLevel,
+                        ascensionCount: ascensionCount
+                    )
+                    try expectParity(for: cell) { armed in
+                        let bonus = armed.equipmentSpecialistBonus(for: cell.soldierType)
+                        let specialistMultiplier = bonus?.target == cell.kind ? bonus?.multiplier : 1
+                        let role = cell.soldierType.objectiveDamageMultiplier(against: cell.kind)
+                        return (role, specialistMultiplier ?? 1)
+                    }
+
+                    // The same cell with the type's ATTACK item instead: the
+                    // level scale rides the FIRST round there, never the second.
+                    let attackCell = ParityCell(
+                        soldierType: type,
+                        level: 1,
+                        kind: kind,
+                        equippedItemID: Self.attackItemID(for: type),
+                        gearLevel: gearLevel,
+                        ascensionCount: ascensionCount
+                    )
+                    try expectParity(for: attackCell) { _ in
+                        let role = attackCell.soldierType.objectiveDamageMultiplier(against: attackCell.kind)
+                        return (role, 1)
+                    }
+                }
+            }
+
+            // No-gear baseline at both counts: only Renown moves the first round.
+            for type in SoldierType.allCases {
+                let cell = ParityCell(
+                    soldierType: type,
+                    level: 1,
+                    kind: Self.specialistKind(for: type),
+                    equippedItemID: nil,
+                    ascensionCount: ascensionCount
+                )
+                try expectParity(for: cell) { _ in
+                    let role = cell.soldierType.objectiveDamageMultiplier(against: cell.kind)
+                    return (role, 1)
+                }
+            }
+        }
+    }
+
+    /// One low-level cell per trait stance where the two rounds plus Renown
+    /// produce distinguishing integers — disadvantaged archer at Falconridge,
+    /// neutral infantry at Willowford, advantaged siege at Crownspire.
+    @Test func renownParityCoversNeutralAdvantagedAndDisadvantagedTraits() throws {
+        let cells = [
+            ParityCell(
+                soldierType: .infantry, level: 1, kind: .gate,
+                equippedItemID: "c01-infantry-attack", gearLevel: 3, ascensionCount: 1
+            ),
+            ParityCell(
+                soldierType: .archer, level: 1, kind: .arrowTower,
+                equippedItemID: "c04-archer-tower", gearLevel: 3, ascensionCount: 1
+            ),
+            ParityCell(
+                soldierType: .siege, level: 1, kind: .keep,
+                equippedItemID: "c15-siege-keep", gearLevel: 3, ascensionCount: 1
+            )
+        ]
+        for cell in cells {
+            try expectParity(for: cell) { armed in
+                let bonus = armed.equipmentSpecialistBonus(for: cell.soldierType)
+                let specialistMultiplier = bonus?.target == cell.kind ? bonus?.multiplier : 1
+                let role = cell.soldierType.objectiveDamageMultiplier(against: cell.kind)
+                return (role, specialistMultiplier ?? 1)
+            }
+        }
+    }
+
+    private static func specialistKind(for type: SoldierType) -> CitySiegeLayout.ObjectiveKind {
+        switch type {
+        case .infantry: return .gate
+        case .archer: return .arrowTower
+        case .cavalry, .mage: return .barracks
+        case .siege: return .keep
+        }
+    }
+
+    private static func attackItemID(for type: SoldierType) -> String {
+        switch type {
+        case .infantry: return "c01-infantry-attack"
+        case .archer: return "c02-archer-attack"
+        case .cavalry: return "c05-cavalry-attack"
+        case .mage: return "c08-mage-attack"
+        case .siege: return "c11-siege-attack"
+        }
+    }
+
+    /// Shared cell check: LIVE first hit and IDLE settlement both equal
+    /// round(cachedPower × role × specialist), with cachedPower read through
+    /// the real instance seam (trait × DY × gear × Renown in one round).
+    private func expectParity(
+        for cell: ParityCell,
+        secondRoundMultipliers: (KingdomGameState) -> (role: Double, specialist: Double)
+    ) throws {
+        let armed = armedParityState(for: cell)
+        let power = armed.traitAdjustedSoldierAttackPower(for: cell.soldierType, level: cell.level)
+        let multipliers = secondRoundMultipliers(armed)
+        let combined = max(
+            1,
+            Int((Double(power) * multipliers.role * multipliers.specialist).rounded())
+        )
+
+        #expect(try liveFirstHitDamage(for: cell) == combined, "\(cell) live")
+        #expect(idleSettlementDamage(for: cell) == combined, "\(cell) idle")
     }
 }

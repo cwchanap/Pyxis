@@ -859,7 +859,7 @@ struct KingdomSceneTests {
             for: .infantry,
             level: 1,
             defenseTrait: state.currentCityDefenseTrait,
-            upgradeMultiplier: 1.0 + 0.05 * Double(TreasuryUpgrade.drillYard.maxLevel)
+            multiplier: 1.0 + 0.05 * Double(TreasuryUpgrade.drillYard.maxLevel)
         )
         #expect(KingdomScene.effectText(for: .drillYard, state: state)
             == "Infantry Lv 1 vs this city's trait: \(current) attack")
