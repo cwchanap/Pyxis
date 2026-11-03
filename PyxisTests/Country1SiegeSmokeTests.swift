@@ -354,6 +354,9 @@ enum Country1SiegeSmoke {
             ) ?? 0
 
             var best: (id: String, damage: Int)?
+            // "Prefer Attack on ties" relies on every type's Attack item
+            // preceding its Specialist item in catalog order: `>` keeps the
+            // first equal-damage candidate, which is therefore the Attack one.
             for item in owned {
                 guard let damage = greedyCandidateDamage(
                     of: item,

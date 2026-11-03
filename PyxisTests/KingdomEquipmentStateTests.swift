@@ -483,6 +483,28 @@ struct KingdomEquipmentStateTests {
         #expect(state.pendingBattleResult?.newEquipmentItemID == "c01-infantry-attack")
     }
 
+    @Test func alreadyOwnedCatalogRewardPaysGoldAndScrubsStaleReceipt() throws {
+        // A VALID active conquest of City 1 whose catalog reward is already
+        // owned: gold pays normally, ownership/loadout are unchanged, and
+        // the seam scrubs even a caller-set stale receipt instead of
+        // re-reporting the owned item.
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, gold: 40, keepRemaining: 1)
+        state.ownedEquipmentIDs = ["c01-infantry-attack"]
+        state.equippedItemBySoldierType = [:]
+
+        var stale = makeResult(countryNumber: 1, cityNumber: 1, goldEarned: 8)
+        stale.newEquipmentItemID = "c01-infantry-attack"
+
+        #expect(
+            state.completeCurrentCity(with: stale)
+                == KingdomGameState.CompletionResult(awarded: true, goldEarned: 8)
+        )
+        #expect(state.gold == 48)
+        #expect(state.ownedEquipmentIDs == ["c01-infantry-attack"])
+        #expect(state.equippedItemBySoldierType == [:])
+        #expect(state.pendingBattleResult?.newEquipmentItemID == nil)
+    }
+
     private func makeResult(countryNumber: Int, cityNumber: Int, goldEarned: Int) -> BattleResult {
         BattleResult(
             cityKey: CityKey(countryNumber: countryNumber, cityNumber: cityNumber),

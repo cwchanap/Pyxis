@@ -610,14 +610,17 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     /// One source for which section's rows are visible — called from both
     /// layout application and redraw, because a section switch redraws
-    /// without a relayout.
+    /// without a relayout. An unsupported layout keeps every row hidden:
+    /// gate-pause/foreground redraws run with `kingdomLayout` nil and must
+    /// not reveal the selected section's stale rows behind the gate.
     private func applySectionVisibility() {
-        let treasuryVisible = selectedSection == .treasury
+        let treasuryVisible = kingdomLayout != nil && selectedSection == .treasury
+        let armoryVisible = kingdomLayout != nil && selectedSection == .armory
         for bundle in rowBundles.values {
             bundle.panel.isHidden = !treasuryVisible
         }
         for bundle in armoryRowBundles.values {
-            bundle.panel.isHidden = treasuryVisible
+            bundle.panel.isHidden = !armoryVisible
         }
     }
 

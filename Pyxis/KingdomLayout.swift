@@ -96,7 +96,7 @@ struct KingdomLayout: Equatable {
     let armoryLine1LabelFrames: [CGRect]
     let armoryLine2LabelFrames: [CGRect]
     /// Noninteractive reservation between the last row and the tab bar for
-    /// future Kingdom sections (HPA-671/672). Never hosts controls.
+    /// future Kingdom sections (HPA-672). Never hosts controls.
     let futureSectionFrame: CGRect
     let tabBarFrame: CGRect
     let tabHitFrames: [CGRect]

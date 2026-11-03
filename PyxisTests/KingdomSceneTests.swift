@@ -1231,6 +1231,11 @@ struct KingdomSceneTests {
         #expect(equippedIcon is SKSpriteNode)
         let fallbackIcon = try #require(scene.armoryIconNodeForTesting(.archer))
         #expect(fallbackIcon is SKShapeNode)
+
+        // An EQUIPPED row whose art is missing falls back too.
+        let missingArtScene = makeScene(store: store, imageLoader: { _ in nil })
+        let equippedFallbackIcon = try #require(missingArtScene.armoryIconNodeForTesting(.infantry))
+        #expect(equippedFallbackIcon is SKShapeNode)
     }
 
     @Test("Selector, Settings and section content touches stay isolated")
@@ -1313,6 +1318,14 @@ struct KingdomSceneTests {
         #expect(scene.isTreasuryFitFailedForTesting)
         #expect(scene.headerNodeForTesting?.isHidden == true)
         #expect(scene.armoryRowNodeForTesting(.infantry)?.isHidden == true)
+
+        // A production gate-pause callback (same redraw path as foreground)
+        // while unsupported must not reveal the selected section's stale
+        // rows behind the translucent gate.
+        scene.layoutGateWillPause(at: Date(timeIntervalSinceReferenceDate: 3_000))
+        #expect(scene.isTreasuryFitFailedForTesting)
+        #expect(scene.armoryRowNodeForTesting(.infantry)?.isHidden == true)
+        #expect(scene.treasuryRowNodeForTesting(.warChest)?.isHidden == true)
 
         scene.size = CGSize(width: 393, height: 852)
         #expect(!scene.isTreasuryFitFailedForTesting)
