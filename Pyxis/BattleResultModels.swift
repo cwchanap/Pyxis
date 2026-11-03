@@ -269,6 +269,15 @@ struct ActiveSiegeSession: Codable, Equatable {
     }
 }
 
+/// HPA-672 typed gear receipt: the catalog item a conquest awarded and
+/// the level it reached — 1 means newly earned gear, 2/3 a repeat-conquest
+/// upgrade. A capped level-3 repeat writes no receipt. Written only by
+/// `completeCurrentCity`'s single grant seam.
+struct EquipmentReward: Codable, Equatable {
+    var itemID: String
+    var level: Int
+}
+
 struct BattleResult: Codable, Equatable {
     var cityKey: CityKey
     var conquestMode: BattleConquestMode
@@ -282,11 +291,11 @@ struct BattleResult: Codable, Equatable {
     var usedFavorableUnit: Bool
     var usedExposedLane: Bool
     var goldEarned: Int
-    /// HPA-671 new-gear receipt: the catalog ID of a newly acquired drop,
-    /// set only by `completeCurrentCity` when the conquest awarded a
-    /// previously unowned item. Optional so existing persisted results
-    /// without the key decode unchanged; presentation ignores unknown IDs.
-    var newEquipmentItemID: String?
+    /// HPA-672 gear receipt: the awarded item and the level it reached
+    /// (1 new, 2/3 upgraded), set only by `completeCurrentCity` on a real
+    /// gear change. Optional so existing persisted results without the
+    /// key decode unchanged; presentation ignores unknown IDs.
+    var equipmentReward: EquipmentReward?
 
     private enum CodingKeys: String, CodingKey {
         case cityKey
@@ -301,7 +310,7 @@ struct BattleResult: Codable, Equatable {
         case usedFavorableUnit
         case usedExposedLane
         case goldEarned
-        case newEquipmentItemID
+        case equipmentReward
     }
 
     init(
@@ -317,7 +326,7 @@ struct BattleResult: Codable, Equatable {
         usedFavorableUnit: Bool,
         usedExposedLane: Bool,
         goldEarned: Int,
-        newEquipmentItemID: String? = nil
+        equipmentReward: EquipmentReward? = nil
     ) {
         self.cityKey = cityKey
         self.conquestMode = conquestMode
@@ -331,7 +340,7 @@ struct BattleResult: Codable, Equatable {
         self.usedFavorableUnit = usedFavorableUnit
         self.usedExposedLane = usedExposedLane
         self.goldEarned = goldEarned
-        self.newEquipmentItemID = newEquipmentItemID
+        self.equipmentReward = equipmentReward
     }
 
     init(from decoder: Decoder) throws {
@@ -391,7 +400,7 @@ struct BattleResult: Codable, Equatable {
             usedFavorableUnit: try container.decode(Bool.self, forKey: .usedFavorableUnit),
             usedExposedLane: try container.decode(Bool.self, forKey: .usedExposedLane),
             goldEarned: try container.decode(Int.self, forKey: .goldEarned),
-            newEquipmentItemID: try container.decodeIfPresent(String.self, forKey: .newEquipmentItemID)
+            equipmentReward: try container.decodeIfPresent(EquipmentReward.self, forKey: .equipmentReward)
         )
     }
 
@@ -409,7 +418,7 @@ struct BattleResult: Codable, Equatable {
             usedFavorableUnit: usedFavorableUnit,
             usedExposedLane: usedExposedLane,
             goldEarned: goldEarned,
-            newEquipmentItemID: newEquipmentItemID
+            equipmentReward: equipmentReward
         )
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(normalized.cityKey, forKey: .cityKey)
@@ -427,7 +436,7 @@ struct BattleResult: Codable, Equatable {
         try container.encode(normalized.usedFavorableUnit, forKey: .usedFavorableUnit)
         try container.encode(normalized.usedExposedLane, forKey: .usedExposedLane)
         try container.encode(normalized.goldEarned, forKey: .goldEarned)
-        try container.encodeIfPresent(normalized.newEquipmentItemID, forKey: .newEquipmentItemID)
+        try container.encodeIfPresent(normalized.equipmentReward, forKey: .equipmentReward)
     }
 }
 

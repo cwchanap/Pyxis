@@ -237,6 +237,6 @@ private func makeResult(
         usedFavorableUnit: favorable,
         usedExposedLane: exposed,
         goldEarned: gold,
-        newEquipmentItemID: newGear
+        equipmentReward: newGear.map { EquipmentReward(itemID: $0, level: 1) }
     )
 }

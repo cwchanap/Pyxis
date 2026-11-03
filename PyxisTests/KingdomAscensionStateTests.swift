@@ -360,9 +360,13 @@ struct KingdomAscensionStateTests {
         #expect(state.stageStatus == .cityConqueredPendingMap)
         #expect(state.gold == expectedReward)
         #expect(state.pendingBattleResult?.cityKey == CityKey(countryNumber: 1, cityNumber: 1))
-        // All 15 items were already owned: no re-grant under the existing
-        // first-drop semantics (repeat-conquest leveling is a later task).
-        #expect(state.pendingBattleResult?.newEquipmentItemID == nil)
+        // HPA-672: the replay conquest of City 1 levels its already-owned
+        // fixed drop (fixture level 2) up to 3 and reports that receipt.
+        #expect(
+            state.pendingBattleResult?.equipmentReward
+                == EquipmentReward(itemID: "c01-infantry-attack", level: 3)
+        )
+        #expect(state.equipmentLevel(for: "c01-infantry-attack") == 3)
         #expect(state.ownedEquipmentIDs.count == EquipmentCatalog.items.count)
     }
 

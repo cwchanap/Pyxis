@@ -194,6 +194,74 @@ struct BattleResultModelsTests {
         #expect(try JSONDecoder().decode(BattleLane.self, from: laneData) == .right)
     }
 
+    // MARK: - HPA-672 typed equipment reward receipt
+
+    @Test("Equipment reward receipt encodes and decodes with itemID and level")
+    func equipmentRewardReceiptEncodesAndDecodesWithItemIDAndLevel() throws {
+        var upgraded = makeBattleResult()
+        upgraded.equipmentReward = EquipmentReward(itemID: "c05-cavalry-attack", level: 2)
+
+        let data = try JSONEncoder().encode(upgraded)
+        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let receipt = try #require(payload["equipmentReward"] as? [String: Any])
+        #expect(receipt["itemID"] as? String == "c05-cavalry-attack")
+        #expect(receipt["level"] as? Int == 2)
+
+        let decoded = try JSONDecoder().decode(BattleResult.self, from: data)
+        #expect(decoded == upgraded)
+        #expect(decoded.equipmentReward == EquipmentReward(itemID: "c05-cavalry-attack", level: 2))
+    }
+
+    @Test("A persisted result without the receipt key decodes a nil receipt")
+    func persistedResultWithoutReceiptKeyDecodesNilEquipmentReward() throws {
+        let data = Data("""
+        {
+          "cityKey": "1-5",
+          "conquestMode": "live",
+          "activeBattleSeconds": 0,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [],
+          "usedFavorableUnit": false,
+          "usedExposedLane": false,
+          "goldEarned": 12
+        }
+        """.utf8)
+
+        let result = try JSONDecoder().decode(BattleResult.self, from: data)
+
+        #expect(result.equipmentReward == nil)
+        #expect(result.goldEarned == 12)
+    }
+
+    @Test("The deleted newEquipmentItemID key is dropped, not migrated")
+    func legacyNewEquipmentItemIDKeyIsIgnoredWithoutMigration() throws {
+        let data = Data("""
+        {
+          "cityKey": "1-5",
+          "conquestMode": "live",
+          "activeBattleSeconds": 0,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [],
+          "usedFavorableUnit": false,
+          "usedExposedLane": false,
+          "goldEarned": 12,
+          "newEquipmentItemID": "c05-cavalry-attack"
+        }
+        """.utf8)
+
+        let result = try JSONDecoder().decode(BattleResult.self, from: data)
+
+        #expect(result.equipmentReward == nil)
+        let reencoded = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? [String: Any]
+        )
+        #expect(reencoded["newEquipmentItemID"] == nil)
+    }
+
     @Test("Idle report projection uses durable damage and drops legacy building count")
     func idleReportProjectionUsesDurableDamageAndDropsLegacyBuildingCount() throws {
         let currentJSONString = """
