@@ -566,7 +566,7 @@ struct KingdomLayout: Equatable {
     /// span: one panel, an emblem top-center, bonus/resets/keeps label
     /// boxes stacked below it, and the Confirm/Cancel targets anchored at
     /// the band's bottom. Nil when the stack cannot fit (impossible while
-    /// Treasury fits — the band is ≥260pt and the stack needs ~190pt).
+    /// Treasury fits — the band is ≥260pt and the stack needs ~255pt).
     private struct AscendBand {
         let panelFrame: CGRect
         let iconFrame: CGRect

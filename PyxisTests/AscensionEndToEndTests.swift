@@ -9,11 +9,14 @@ import Testing
 @testable import Pyxis
 
 /// HPA-672 Task 6: the real finale → Ascend → replay-conquest chain in one
-/// assertion path. The City 15 killing blow lands through the production
-/// `applyLiveSoldierAttacks` seam, the Kingdom scene commits through its
+/// assertion path. The City 15 killing blow is fought by manual infantry
+/// inside a live `BattleCombatState` whose REAL attack events flow through
+/// the production `applyLiveSoldierAttacks` seam, the pending report is
+/// persisted through the real `KingdomGameStore` and acknowledged through
+/// the production Continue path, the Kingdom scene commits through its
 /// real two-tap hit frames, and the City 1 replay conquest is fought by
 /// manual infantry inside the production `BattleScene` rail. No forged
-/// conquest and no artificial reward.
+/// conquest, no artificial reward, no handcrafted lethal event.
 @MainActor
 struct AscensionEndToEndTests {
 
@@ -42,40 +45,90 @@ struct AscensionEndToEndTests {
             keepRemaining: 1,
             ownedEquipmentIDs: ownedBeforeFinale
         )
+        // Nearly fallen: every support objective already destroyed, so the
+        // Keep is the only live objective on the route.
+        SiegeTestSupport.destroySupportObjectives(of: &state)
 
-        // 1. The real killing blow conquers City 15 through the seam
-        //    BattleScene drives, leaving the finale report pending.
-        let keepID = try #require(SiegeTestSupport.objectiveID(for: .keep, in: state))
-        let attack = state.applyLiveSoldierAttacks([
-            SoldierAttackEvent(
-                soldierID: 1,
-                type: .infantry,
-                source: .manual,
-                lane: state.siegeProgress.selectedLane,
-                objectiveID: keepID,
-                appliedDamage: 1
-            )
-        ])
-        #expect(attack.conqueredCities == 1)
+        // 1. The real killing blow conquers City 15 through the same
+        //    simulator path BattleScene drives: manual deploys into a live
+        //    `BattleCombatState`, per-tick combat against the authored City
+        //    15 snapshot, and the simulator's own attack/loss events
+        //    forwarded into the state — no handcrafted lethal event.
+        var combat = BattleCombatState(
+            configuration: .live(
+                cityLevel: state.cityLevel,
+                laneDamageMultipliers: state.currentCityLaneDefenseProfile.towerDamageMultipliers
+            ),
+            seed: 582
+        )
+
+        let deltaTime = 0.1
+        let maxTicks = 1_200 // 120 simulated combat seconds — a bounded run.
+        var ticks = 0
+        while ticks < maxTicks, state.pendingBattleResult == nil {
+            // The Deploy action's exact guard order: type, 10-live cap,
+            // then a spent charge — a rejected deploy never consumes one.
+            if let level = state.manualSoldierLevel(for: .infantry),
+               combat.livingSoldierCount(source: .manual) < KingdomGameState.manualSoldierCap,
+               combat.spendManualDeployCharge() {
+                let soldierID = combat.spawnSoldier(
+                    type: .infantry,
+                    source: .manual,
+                    level: level,
+                    attackPower: state.traitAdjustedSoldierAttackPower(
+                        for: .infantry,
+                        level: level
+                    ),
+                    lane: state.siegeProgress.selectedLane,
+                    maxHPMultiplier: state.equipmentMaxHPMultiplier(for: .infantry),
+                    specialistBonus: state.equipmentSpecialistBonus(for: .infantry)
+                )
+                if let soldier = combat.soldier(id: soldierID) {
+                    state.recordSoldierDeployment(
+                        type: soldier.type,
+                        source: soldier.source,
+                        lane: soldier.lane
+                    )
+                }
+            }
+
+            let result = combat.tick(deltaTime: deltaTime, siege: state.currentSiegeSnapshot)
+            // Same forwarding as BattleScene's tick handling: Captain
+            // events excluded, ordinary attacks become persisted city damage.
+            let ordinaryAttacks = result.soldierAttacks.filter { !$0.isCaptain }
+            let ordinaryLosses = result.soldierLosses.filter { !$0.isCaptain }
+            state.recordSoldierLosses(ordinaryLosses)
+            if !ordinaryAttacks.isEmpty {
+                _ = state.applyLiveSoldierAttacks(ordinaryAttacks)
+            }
+            ticks += 1
+        }
+
         #expect(state.stageStatus == .countryComplete)
         let finale = try #require(state.pendingBattleResult)
         // First-ever drop of this city's item: level 1, one typed receipt.
         #expect(finale.equipmentReward == EquipmentReward(itemID: city15Drop.id, level: 1))
         #expect(state.equipmentLevel(for: city15Drop.id) == 1)
 
-        // 2. Continue acknowledges the persisted report before Ascension
-        //    becomes available.
-        state.acknowledgePendingBattleResult()
-        #expect(state.pendingBattleResult == nil)
-
-        // 3. Kingdom: Ascend is visible and eligible; the real two-tap
-        //    confirm commits and routes to Battle.
+        // 2. Continue: persist the pending finale through the real store,
+        //    then acknowledge + save — the exact thing BattleScene's
+        //    Continue does — before Ascension becomes available.
         let suiteName = "AscensionEndToEnd.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = KingdomGameStore(defaults: defaults, key: "state")
         store.save(state)
+        let persistedFinale = store.load()
+        #expect(persistedFinale.pendingBattleResult?.equipmentReward == finale.equipmentReward)
+
+        state.acknowledgePendingBattleResult()
+        #expect(state.pendingBattleResult == nil)
+        store.save(state)
+        #expect(store.load().pendingBattleResult == nil)
+
+        // 3. Kingdom: Ascend is visible and eligible; the real two-tap
+        //    confirm commits and routes to Battle.
         let router = AscendRouteSpy()
         let scene = Self.makeKingdomScene(store: store, router: router)
 

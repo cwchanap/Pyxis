@@ -250,8 +250,8 @@ enum Country1SiegeSmoke {
     }
 
     /// One total-elapsed summary line per chained variant, so the HPA-670
-    /// baseline (570.5 s zero-Treasury, 383.2 s bought, seed 582) and the
-    /// HPA-671 bought+gear comparison land directly in the test log.
+    /// baseline and the HPA-671 bought+gear comparison land directly in the
+    /// test log (totals vary by run; see the campaign output).
     /// HPA-672 carries the ascension count so matched Renown runs are
     /// distinguishable in the same log.
     nonisolated static func campaignTotalsLine(
@@ -436,7 +436,7 @@ enum Country1SiegeSmoke {
             for: type,
             level: 1,
             defenseTrait: context.defenseTrait,
-            multiplier: context.drillYardMultiplier * context.renownMultiplier * gearAttackMultiplier
+            multiplier: context.drillYardMultiplier * gearAttackMultiplier * context.renownMultiplier
         )
         return type.roleAdjustedDamage(power: power, against: targetKind, specialist: specialist)
     }
