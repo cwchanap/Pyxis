@@ -950,6 +950,41 @@ struct GameViewControllerTests {
         #expect(view.scene is KingdomScene)
     }
 
+    @Test func kingdomAscendCommitPresentsFreshCountry1Battle() throws {
+        var state = KingdomGameState(
+            gold: 250,
+            completedCityCount: KingdomGameState.firstCountryCityCount,
+            stageStatus: .countryComplete
+        )
+        state.treasury.setLevel(1, for: .warChest)
+        let store = try makeStore(initialState: state)
+        let controller = makeGameViewController(store: store)
+        let view = SKView(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        controller.view = view
+        controller.viewDidLoad()
+
+        controller.presentSceneForCurrentStageForTesting(in: view, preferredTab: .kingdom)
+        let kingdom = try #require(view.scene as? KingdomScene)
+        kingdom.didMove(to: view)
+
+        // Two real taps through the scene's own hit frames: arm, commit.
+        let selector = try #require(kingdom.ascendSelectorHitFrameForTesting())
+        kingdom.handleTouchForTesting(at: CGPoint(x: selector.midX, y: selector.midY))
+        let action = try #require(kingdom.ascendPrimaryActionHitFrameForTesting())
+        kingdom.handleTouchForTesting(at: CGPoint(x: action.midX, y: action.midY))
+        kingdom.handleTouchForTesting(at: CGPoint(x: action.midX, y: action.midY))
+
+        // The controller routes the commit to Battle, Country 1 City 1 —
+        // pending-first routing is untouched (no report was pending).
+        #expect(view.scene is BattleScene)
+        let saved = store.load()
+        #expect(saved.ascensionCount == 1)
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.cityNumberInCountry == 1)
+        #expect(saved.treasury == TreasuryState())
+        #expect(saved.gold == 0)
+    }
+
     @Test func pendingReportSurvivesRejectedKingdomTabRequest() throws {
         let store = try makeStore(initialState: pendingConqueredState())
         let controller = makeGameViewController(store: store)

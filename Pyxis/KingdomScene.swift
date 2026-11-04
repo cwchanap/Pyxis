@@ -14,12 +14,12 @@ protocol KingdomSceneRouting: AnyObject {
     func kingdomScene(_ scene: KingdomScene, didRequestLayoutGate reason: AppLayoutGateReason)
 }
 
-/// HPA-671 ephemeral Kingdom tab section. Never persisted: switching
-/// sections neither settles nor saves — HPA-672 may extend the header
-/// control later.
+/// HPA-671/672 ephemeral Kingdom tab sections. Never persisted:
+/// switching sections neither settles nor saves.
 enum KingdomSection: Equatable, CaseIterable {
     case treasury
     case armory
+    case ascend
 
     var displayName: String {
         switch self {
@@ -27,6 +27,8 @@ enum KingdomSection: Equatable, CaseIterable {
             return "Treasury"
         case .armory:
             return "Armory"
+        case .ascend:
+            return "Ascend"
         }
     }
 }
@@ -45,9 +47,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         static let iconPrefix = "kingdomTreasuryIcon-"
         static let treasurySelector = "kingdomSectionTreasury"
         static let armorySelector = "kingdomSectionArmory"
+        static let ascendSelector = "kingdomSectionAscend"
         static let armoryRowPrefix = "kingdomArmoryRow-"
         static let armoryIconHolderPrefix = "kingdomArmoryIconHolder-"
         static let armoryIconPrefix = "kingdomArmoryIcon-"
+        static let ascendPanel = "kingdomAscendPanel"
+        static let ascendIconHolder = "kingdomAscendIconHolder"
+        static let ascendIcon = "kingdomAscendIcon"
+        static let ascendPrimaryAction = "kingdomAscendAction"
+        static let ascendCancel = "kingdomAscendCancel"
     }
 
     private struct RowBundle {
@@ -70,6 +78,21 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let line2Label: SKLabelNode
     }
 
+    /// HPA-672 Ascend content: one panel sharing the Treasury/Armory band.
+    /// The emblem is static (built once); the primary action relabels to
+    /// "Confirm Ascension" while the two-tap confirmation is armed.
+    private struct AscendContentBundle {
+        let panel: PanelNode
+        let iconHolder: SKNode
+        let bonusLabel: SKLabelNode
+        let resetsLabel: SKLabelNode
+        let keepsLabel: SKLabelNode
+        let primaryPanel: PanelNode
+        let primaryLabel: SKLabelNode
+        let cancelPanel: PanelNode
+        let cancelLabel: SKLabelNode
+    }
+
     private let store: KingdomGameStore
     private weak var router: (any KingdomSceneRouting)?
     private let feedbackPreferences: FeedbackPreferencesManaging
@@ -86,14 +109,23 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private var armoryIconEquippedItemIDs: [SoldierType: String] = [:]
     /// Ephemeral section selection (HPA-671): scene UI state only.
     private var selectedSection: KingdomSection = .treasury
+    /// HPA-672 two-tap Ascension confirmation: transient UI state only —
+    /// never persisted, cleared by Cancel, a section change, commit,
+    /// rejection or scene reconstruction.
+    private var isAscendConfirmationArmed = false
 
     private let headerPanel = PanelNode(size: .zero)
-    private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let goldLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    /// Right-aligned Renown summary in the header's bottom line, visible
+    /// only while `ascensionCount > 0` (HPA-672).
+    private let renownLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let treasurySelectorPanel = PanelNode(size: .zero)
     private let treasurySelectorLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let armorySelectorPanel = PanelNode(size: .zero)
     private let armorySelectorLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let ascendSelectorPanel = PanelNode(size: .zero)
+    private let ascendSelectorLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private var ascendContent: AscendContentBundle?
     /// The tab bar shares the scene's per-instance image loader (the same
     /// injection style as the row icons) instead of a global lookup hook.
     private lazy var gameplayTabBar = GameplayTabBarNode(
@@ -124,6 +156,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let rows: [TreasuryUpgrade: UIAccessibilityElement]
         let buys: [TreasuryUpgrade: ActionAccessibilityElement]
         let armoryRows: [SoldierType: ActionAccessibilityElement]
+        let ascendInfo: UIAccessibilityElement
+        let ascendAction: ActionAccessibilityElement
+        let ascendCancel: ActionAccessibilityElement
     }
     /// Entry-settle conquests route on the first update instead of inside
     /// didMove: didMove runs within presentScene, so a synchronous route
@@ -209,19 +244,20 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         headerPanel.zPosition = GameUITheme.Z.hud
         addChild(headerPanel)
 
-        configureLabel(titleLabel, fontSize: 26, color: GameUITheme.Color.textPrimary)
-        titleLabel.text = "Kingdom"
-        titleLabel.zPosition = GameUITheme.Z.hud + 1
-        headerPanel.addChild(titleLabel)
-
         configureLabel(goldLabel, fontSize: 17, color: GameUITheme.Color.gold)
         goldLabel.horizontalAlignmentMode = .left
         goldLabel.zPosition = GameUITheme.Z.hud + 1
         headerPanel.addChild(goldLabel)
 
+        configureLabel(renownLabel, fontSize: 15, color: GameUITheme.Color.gold)
+        renownLabel.horizontalAlignmentMode = .right
+        renownLabel.zPosition = GameUITheme.Z.hud + 1
+        headerPanel.addChild(renownLabel)
+
         for (panel, label, name, text) in [
             (treasurySelectorPanel, treasurySelectorLabel, NodeName.treasurySelector, "Treasury"),
-            (armorySelectorPanel, armorySelectorLabel, NodeName.armorySelector, "Armory")
+            (armorySelectorPanel, armorySelectorLabel, NodeName.armorySelector, "Armory"),
+            (ascendSelectorPanel, ascendSelectorLabel, NodeName.ascendSelector, "Ascend")
         ] {
             panel.name = name
             panel.zPosition = GameUITheme.Z.hud + 1
@@ -260,6 +296,72 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 iconHolder: iconHolder,
                 line1Label: line1Label,
                 line2Label: line2Label
+            )
+        }
+
+        // HPA-672 Ascend content: one panel in the shared band. The
+        // `ascension-renown` emblem is static art-with-vector-fallback
+        // (HPA-673 owns the final icon), built once like the row icons.
+        do {
+            let panel = PanelNode(size: .zero)
+            panel.name = NodeName.ascendPanel
+            panel.zPosition = GameUITheme.Z.hud
+            addChild(panel)
+
+            let iconHolder = SKNode()
+            iconHolder.name = NodeName.ascendIconHolder
+            iconHolder.zPosition = 1
+            let icon = makeAscendIconNode()
+            icon.name = NodeName.ascendIcon
+            iconHolder.addChild(icon)
+            panel.addChild(iconHolder)
+
+            let bonusLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            configureLabel(bonusLabel, fontSize: 15, color: GameUITheme.Color.textPrimary)
+            bonusLabel.zPosition = 1
+            panel.addChild(bonusLabel)
+
+            let resetsLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+            configureLabel(resetsLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
+            resetsLabel.zPosition = 1
+            panel.addChild(resetsLabel)
+
+            let keepsLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+            configureLabel(keepsLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
+            keepsLabel.zPosition = 1
+            panel.addChild(keepsLabel)
+
+            let primaryPanel = PanelNode(size: .zero)
+            primaryPanel.name = NodeName.ascendPrimaryAction
+            primaryPanel.zPosition = 2
+            panel.addChild(primaryPanel)
+
+            let primaryLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            configureLabel(primaryLabel, fontSize: 15, color: GameUITheme.Color.textPrimary)
+            primaryLabel.zPosition = 1
+            primaryPanel.addChild(primaryLabel)
+
+            let cancelPanel = PanelNode(size: .zero)
+            cancelPanel.name = NodeName.ascendCancel
+            cancelPanel.zPosition = 2
+            panel.addChild(cancelPanel)
+
+            let cancelLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            configureLabel(cancelLabel, fontSize: 15, color: GameUITheme.Color.textPrimary)
+            cancelLabel.text = "Cancel"
+            cancelLabel.zPosition = 1
+            cancelPanel.addChild(cancelLabel)
+
+            ascendContent = AscendContentBundle(
+                panel: panel,
+                iconHolder: iconHolder,
+                bonusLabel: bonusLabel,
+                resetsLabel: resetsLabel,
+                keepsLabel: keepsLabel,
+                primaryPanel: primaryPanel,
+                primaryLabel: primaryLabel,
+                cancelPanel: cancelPanel,
+                cancelLabel: cancelLabel
             )
         }
 
@@ -440,6 +542,40 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         return shape
     }
 
+    /// HPA-672 Ascend emblem: `ascension-renown` art first (the HPA-673
+    /// art-name contract), one code-owned vector fallback — the same
+    /// probe-and-fallback pattern as the Treasury/Armory icons.
+    private func makeAscendIconNode() -> SKNode {
+        if let image = imageLoader("ascension-renown") {
+            let sprite = SKSpriteNode(texture: SKTexture(image: image))
+            sprite.size = CGSize(
+                width: KingdomLayout.ascendIconSize,
+                height: KingdomLayout.ascendIconSize
+            )
+            return sprite
+        }
+        // A rising star over a chevron base: simple, gold-on-panel, and
+        // distinct from every Treasury placeholder and Armory glyph.
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 8))
+        path.addLine(to: CGPoint(x: 4, y: 0))
+        path.addLine(to: CGPoint(x: 0, y: -8))
+        path.addLine(to: CGPoint(x: -4, y: 0))
+        path.closeSubpath()
+        path.move(to: CGPoint(x: 0, y: -10))
+        path.addLine(to: CGPoint(x: 12, y: -14))
+        path.addLine(to: CGPoint(x: 0, y: -18))
+        path.addLine(to: CGPoint(x: -12, y: -14))
+        path.closeSubpath()
+        let shape = SKShapeNode(path: path)
+        shape.strokeColor = GameUITheme.Color.gold
+        shape.fillColor = SKColor(red: 1, green: 0.8, blue: 0.22, alpha: 0.12)
+        shape.lineWidth = 1.5
+        shape.lineCap = .round
+        shape.lineJoin = .round
+        return shape
+    }
+
     // MARK: - Layout
 
     private func currentSafeAreaInsets() -> BattleChromeLayout.SafeAreaInsets? {
@@ -517,18 +653,19 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             x: layout.headerFrame.midX,
             y: layout.headerFrame.midY
         )
-        titleLabel.position = CGPoint(
-            x: layout.titleFrame.midX - layout.headerFrame.midX,
-            y: layout.titleFrame.midY - layout.headerFrame.midY
-        )
         goldLabel.position = CGPoint(
             x: layout.goldFrame.minX - layout.headerFrame.midX + 2,
             y: layout.goldFrame.midY - layout.headerFrame.midY
         )
+        renownLabel.position = CGPoint(
+            x: layout.renownFrame.maxX - layout.headerFrame.midX,
+            y: layout.renownFrame.midY - layout.headerFrame.midY
+        )
 
         for (frame, panel, label) in [
             (layout.treasurySelectorFrame, treasurySelectorPanel, treasurySelectorLabel),
-            (layout.armorySelectorFrame, armorySelectorPanel, armorySelectorLabel)
+            (layout.armorySelectorFrame, armorySelectorPanel, armorySelectorLabel),
+            (layout.ascendSelectorFrame, ascendSelectorPanel, ascendSelectorLabel)
         ] {
             panel.isHidden = false
             panel.position = CGPoint(
@@ -556,6 +693,47 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                     y: frame.midY - rowFrame.midY
                 )
             }
+        }
+
+        // HPA-672 Ascend content in the shared band: geometry only here —
+        // `redraw()` applies the enabled/armed styles once per pass.
+        if let ascend = ascendContent {
+            ascend.panel.isHidden = false
+            ascend.panel.apply(
+                size: layout.ascendPanelFrame.size,
+                style: .normal,
+                showsRivets: true,
+                appearance: .forged
+            )
+            ascend.panel.position = CGPoint(
+                x: layout.ascendPanelFrame.midX,
+                y: layout.ascendPanelFrame.midY
+            )
+            let panelCenter = ascend.panel.position
+            ascend.iconHolder.position = CGPoint(
+                x: layout.ascendIconFrame.midX - panelCenter.x,
+                y: layout.ascendIconFrame.midY - panelCenter.y
+            )
+            for (frame, label) in [
+                (layout.ascendBonusLabelFrame, ascend.bonusLabel),
+                (layout.ascendResetsLabelFrame, ascend.resetsLabel),
+                (layout.ascendKeepsLabelFrame, ascend.keepsLabel)
+            ] {
+                label.position = CGPoint(
+                    x: frame.minX - panelCenter.x,
+                    y: frame.midY - panelCenter.y
+                )
+            }
+            ascend.primaryPanel.position = CGPoint(
+                x: layout.ascendPrimaryActionFrame.midX - panelCenter.x,
+                y: layout.ascendPrimaryActionFrame.midY - panelCenter.y
+            )
+            ascend.primaryLabel.position = .zero
+            ascend.cancelPanel.position = CGPoint(
+                x: layout.ascendCancelFrame.midX - panelCenter.x,
+                y: layout.ascendCancelFrame.midY - panelCenter.y
+            )
+            ascend.cancelLabel.position = .zero
         }
 
         for (index, upgrade) in TreasuryUpgrade.allCases.enumerated() {
@@ -620,12 +798,14 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private func applySectionVisibility() {
         let treasuryVisible = kingdomLayout != nil && selectedSection == .treasury
         let armoryVisible = kingdomLayout != nil && selectedSection == .armory
+        let ascendVisible = kingdomLayout != nil && selectedSection == .ascend
         for bundle in rowBundles.values {
             bundle.panel.isHidden = !treasuryVisible
         }
         for bundle in armoryRowBundles.values {
             bundle.panel.isHidden = !armoryVisible
         }
+        ascendContent?.panel.isHidden = !ascendVisible
     }
 
     private func clearLayoutGeometry() {
@@ -637,6 +817,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         for bundle in armoryRowBundles.values {
             bundle.panel.isHidden = true
         }
+        ascendContent?.panel.isHidden = true
         gameplayTabBar.apply(content: gameplayTabContent, frame: .zero)
         feedbackSettingsController?.applyGearFrame(.zero)
     }
@@ -644,15 +825,24 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     // MARK: - Redraw
 
     private func redraw() {
+        // HPA-672 bottom header: gold (always) and the Renown summary
+        // (positive counts only) share the line — reset then shrink so a
+        // wider resize can re-grow the fonts, and never let the two
+        // fitted labels collide.
+        let renownText = Self.headerRenownText(for: state)
         goldLabel.text = "Gold " + CompactNumberFormatter.string(from: state.gold)
-
-        // The section controls narrowed the header's title line (HPA-671):
-        // reset then shrink so a wider resize can re-grow the font.
-        titleLabel.fontSize = 26
+        renownLabel.text = renownText
+        renownLabel.isHidden = renownText == nil
+        goldLabel.fontSize = 17
+        renownLabel.fontSize = 15
         if let layout = kingdomLayout {
-            titleLabel.shrinkFontSize(
-                toFitWidth: layout.titleFrame.width,
-                floor: 12
+            goldLabel.shrinkFontSize(
+                toFitWidth: layout.goldTextMaxWidth(showingRenown: renownText != nil),
+                floor: 10
+            )
+            renownLabel.shrinkFontSize(
+                toFitWidth: layout.renownFrame.width,
+                floor: 10
             )
         }
 
@@ -668,6 +858,14 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             frame: kingdomLayout?.armorySelectorFrame,
             section: .armory
         )
+        applySectionSelector(
+            ascendSelectorPanel,
+            label: ascendSelectorLabel,
+            frame: kingdomLayout?.ascendSelectorFrame,
+            section: .ascend
+        )
+
+        redrawAscendContent()
 
         for type in SoldierType.allCases {
             guard let bundle = armoryRowBundles[type] else { continue }
@@ -788,7 +986,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     }
 
     /// Styles one header section control: the selected section reads as
-    /// selected, the other stays a plain button.
+    /// selected, the others stay plain buttons.
     private func applySectionSelector(
         _ panel: PanelNode,
         label: SKLabelNode,
@@ -807,6 +1005,70 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             label.shrinkFontSize(toFitWidth: frame.width - 8, floor: 9)
         }
         label.alpha = isSelected ? 1 : GameUITheme.Alpha.unaffordableIcon
+    }
+
+    /// HPA-672 Ascend content redraw: the inspectable summary (bonus,
+    /// resets, keeps) always renders; the action is disabled until the
+    /// campaign is complete with no pending report, and relabels to
+    /// "Confirm Ascension" while the two-tap confirmation is armed.
+    private func redrawAscendContent() {
+        guard let ascend = ascendContent else { return }
+        ascend.bonusLabel.text = Self.ascendBonusText(for: state)
+        ascend.resetsLabel.text = Self.ascendResetsText
+        ascend.keepsLabel.text = Self.ascendKeepsText
+        ascend.bonusLabel.fontSize = 15
+        ascend.resetsLabel.fontSize = 13
+        ascend.keepsLabel.fontSize = 13
+
+        let actionEnabled = isAscendActionEnabled
+        let armed = isAscendConfirmationArmed
+        ascend.primaryLabel.text = armed ? "Confirm Ascension" : "Ascend"
+        ascend.primaryLabel.fontSize = 15
+        ascend.cancelLabel.fontSize = 15
+        if let layout = kingdomLayout {
+            ascend.bonusLabel.shrinkFontSize(
+                toFitWidth: layout.ascendBonusLabelFrame.width,
+                floor: 9
+            )
+            ascend.resetsLabel.shrinkFontSize(
+                toFitWidth: layout.ascendResetsLabelFrame.width,
+                floor: 9
+            )
+            ascend.keepsLabel.shrinkFontSize(
+                toFitWidth: layout.ascendKeepsLabelFrame.width,
+                floor: 9
+            )
+            ascend.primaryPanel.apply(
+                size: layout.ascendPrimaryActionFrame.size,
+                style: armed ? .primaryAction : (actionEnabled ? .normal : .disabled),
+                showsRivets: false,
+                appearance: .forged
+            )
+            ascend.primaryLabel.shrinkFontSize(
+                toFitWidth: layout.ascendPrimaryActionFrame.width - 8,
+                floor: 9
+            )
+            ascend.cancelPanel.isHidden = !armed
+            if armed {
+                ascend.cancelPanel.apply(
+                    size: layout.ascendCancelFrame.size,
+                    style: .normal,
+                    showsRivets: false,
+                    appearance: .forged
+                )
+                ascend.cancelLabel.shrinkFontSize(
+                    toFitWidth: layout.ascendCancelFrame.width - 8,
+                    floor: 9
+                )
+            }
+        }
+        ascend.primaryLabel.alpha = actionEnabled ? 1 : 0.5
+    }
+
+    /// One definition of the Ascend action affordance shared by the
+    /// redraw and the accessibility traits (the spec's stage gate).
+    private var isAscendActionEnabled: Bool {
+        state.stageStatus == .countryComplete && state.pendingBattleResult == nil
     }
 
     private func applyGameplayTabBar() {
@@ -1027,6 +1289,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             selectSection(section)
             return
         }
+        if selectedSection == .ascend, let action = ascendAction(at: point) {
+            handleAscendActionTouch(action)
+            return
+        }
         if selectedSection == .armory, let type = armoryRowType(at: point) {
             handleArmoryRowTouch(type)
             return
@@ -1040,6 +1306,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         guard let layout = kingdomLayout else { return nil }
         if layout.armorySelectorFrame.contains(point) { return .armory }
         if layout.treasurySelectorFrame.contains(point) { return .treasury }
+        if layout.ascendSelectorFrame.contains(point) { return .ascend }
         return nil
     }
 
@@ -1097,11 +1364,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     // MARK: - Armory cycling (HPA-671)
 
     /// Ephemeral section switch: never settles, never saves — only
-    /// visibility and selector styling change. The exposed element
+    /// visibility and selector styling change. A change also disarms the
+    /// transient Ascension confirmation (spec). The exposed element
     /// membership changes with the section, so the adapter re-exposes.
     private func selectSection(_ section: KingdomSection) {
         guard selectedSection != section else { return }
         selectedSection = section
+        isAscendConfirmationArmed = false
         redraw()
         activeAccessibilityAdapter?.refreshSceneElements()
     }
@@ -1152,6 +1421,108 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         store.save(state)
         redraw()
         routePendingConquestIfNeeded()
+    }
+
+    // MARK: - Ascension (HPA-672)
+
+    /// The Ascend section's two ≥44pt targets: the primary action (label
+    /// "Ascend", then "Confirm Ascension" once armed) and the Cancel that
+    /// exists only while armed.
+    private enum AscendAction {
+        case primary
+        case cancel
+    }
+
+    private func ascendAction(at point: CGPoint) -> AscendAction? {
+        guard let layout = kingdomLayout else { return nil }
+        if layout.ascendPrimaryActionFrame.contains(point) { return .primary }
+        if isAscendConfirmationArmed, layout.ascendCancelFrame.contains(point) {
+            return .cancel
+        }
+        return nil
+    }
+
+    /// Two-tap confirmation: the first Ascend tap arms, the distinct
+    /// Confirm tap commits, Cancel disarms. A disabled tap changes
+    /// nothing (the section stays inspectable).
+    private func handleAscendActionTouch(_ action: AscendAction) {
+        let wasArmed = isAscendConfirmationArmed
+        switch action {
+        case .cancel:
+            isAscendConfirmationArmed = false
+            redraw()
+        case .primary:
+            if isAscendActionEnabled {
+                if isAscendConfirmationArmed {
+                    commitAscension()
+                } else {
+                    isAscendConfirmationArmed = true
+                    redraw()
+                }
+            } else {
+                redraw()
+            }
+        }
+        // Arming swaps the exposed membership (the Cancel element
+        // appears/disappears) — re-expose like a section switch does.
+        if isAscendConfirmationArmed != wasArmed {
+            activeAccessibilityAdapter?.refreshSceneElements()
+        }
+    }
+
+    /// The one commit path (spec): re-read the latest store state — never
+    /// the scene's local copy — re-check eligibility through the pure
+    /// `ascend()` guard, save once, then route to Battle through the
+    /// existing Kingdom routing. A rejection changes nothing and saves
+    /// nothing; an awaiting report is never acknowledged (the guard
+    /// itself rejects a pending result).
+    private func commitAscension() {
+        isAscendConfirmationArmed = false
+        var latest = store.load()
+        switch latest.ascend() {
+        case .ascended:
+            state = latest
+            store.save(state)
+            redraw()
+            isRoutingToBattle = true
+            if router?.kingdomSceneDidRequestGameplayTab(self, tab: .battle) != true {
+                isRoutingToBattle = false
+                redraw()
+            }
+        case .unavailable:
+            // The re-read state failed the pure guard: adopt it for display
+            // only — no save, no route, no mutation.
+            state = latest
+            redraw()
+        }
+    }
+
+    // MARK: - Ascend projections
+
+    /// Header Renown summary: nil at count 0 (gold-only header), otherwise
+    /// the spec's "Renown 2 · +50%" shape driven by `renownMultiplier`.
+    static func headerRenownText(for state: KingdomGameState) -> String? {
+        guard state.ascensionCount > 0 else { return nil }
+        let percent = Int(((state.renownMultiplier - 1) * 100).rounded())
+        return "Renown \(state.ascensionCount) · +\(percent)%"
+    }
+
+    /// Current → next permanent bonus, always inspectable even while the
+    /// action is locked.
+    static func ascendBonusText(for state: KingdomGameState) -> String {
+        let current = Int(((state.renownMultiplier - 1) * 100).rounded())
+        return "Renown bonus +\(current)% → +\(current + 25)%"
+    }
+
+    /// The explicit Resets / Keeps preview (spec's reset-vs-permanent table).
+    static let ascendResetsText = "Resets: cities, gold, Treasury"
+    static let ascendKeepsText = "Keeps: equipment, gear levels, Renown"
+
+    /// Why the action is disabled, in the action's accessible value.
+    static func ascendRequirementText(for state: KingdomGameState) -> String {
+        state.pendingBattleResult != nil
+            ? "Confirm the final report first"
+            : "Requires Country 1 complete"
     }
 
     // MARK: - Tab routing
@@ -1424,12 +1795,33 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             buy.accessibilityTraits = .button
             buys[upgrade] = buy
         }
+
+        // HPA-672 Ascend exposure: the inspectable summary, the two-tap
+        // action (relabeling to Confirm Ascension while armed) and the
+        // armed-only Cancel.
+        let ascendInfo = UIAccessibilityElement(accessibilityContainer: container)
+        ascendInfo.accessibilityIdentifier = "kingdom-ascend-info"
+        ascendInfo.accessibilityTraits = .staticText
+        let ascendAction = ActionAccessibilityElement(accessibilityContainer: container) { [weak self] in
+            self?.handleAscendActionTouch(.primary)
+        }
+        ascendAction.accessibilityIdentifier = "kingdom-ascend-action"
+        ascendAction.accessibilityTraits = .button
+        let ascendCancel = ActionAccessibilityElement(accessibilityContainer: container) { [weak self] in
+            self?.handleAscendActionTouch(.cancel)
+        }
+        ascendCancel.accessibilityIdentifier = "kingdom-ascend-cancel"
+        ascendCancel.accessibilityTraits = .button
+
         return SceneAccessibilityElements(
             header: header,
             sections: sections,
             rows: rows,
             buys: buys,
-            armoryRows: armoryRows
+            armoryRows: armoryRows,
+            ascendInfo: ascendInfo,
+            ascendAction: ascendAction,
+            ascendCancel: ascendCancel
         )
     }
 
@@ -1453,9 +1845,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 if let row = elements.rows[upgrade] { ordered.append(row) }
                 if let buy = elements.buys[upgrade] { ordered.append(buy) }
             }
-        } else {
+        } else if selectedSection == .armory {
             for type in SoldierType.allCases {
                 if let row = elements.armoryRows[type] { ordered.append(row) }
+            }
+        } else {
+            ordered.append(elements.ascendInfo)
+            ordered.append(elements.ascendAction)
+            if isAscendConfirmationArmed {
+                ordered.append(elements.ascendCancel)
             }
         }
         return ordered
@@ -1468,8 +1866,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             return
         }
 
-        elements.header.accessibilityLabel = titleLabel.text
-        elements.header.accessibilityValue = goldLabel.text
+        // Constant accessible header: the visible title is gone, but
+        // VoiceOver still identifies the screen (HPA-672).
+        elements.header.accessibilityLabel = "Kingdom"
+        elements.header.accessibilityValue = [
+            goldLabel.text,
+            renownLabel.text
+        ]
+            .compactMap { $0 }
+            .joined(separator: ". ")
         elements.header.accessibilityFrame = adapter.screenAccessibilityFrame(
             for: layout.headerFrame
         ) ?? .zero
@@ -1480,9 +1885,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             control.accessibilityTraits = selectedSection == section
                 ? [.button, .selected]
                 : .button
-            let frame = section == .treasury
-                ? layout.treasurySelectorFrame
-                : layout.armorySelectorFrame
+            let frame: CGRect
+            switch section {
+            case .treasury:
+                frame = layout.treasurySelectorFrame
+            case .armory:
+                frame = layout.armorySelectorFrame
+            case .ascend:
+                frame = layout.ascendSelectorFrame
+            }
             control.accessibilityFrame = adapter.screenAccessibilityFrame(for: frame) ?? .zero
         }
 
@@ -1526,6 +1937,46 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 for: layout.buyHitFrames[index]
             ) ?? .zero
         }
+
+        // HPA-672 Ascend exposure: the full summary value (fitted visible
+        // labels can shrink; VoiceOver never loses the complete text) and
+        // the action's selected/disabled state.
+        let info = elements.ascendInfo
+        info.accessibilityLabel = "Ascension"
+        info.accessibilityValue = [
+            Self.ascendBonusText(for: state),
+            Self.ascendResetsText,
+            Self.ascendKeepsText
+        ].joined(separator: ". ")
+        info.accessibilityFrame = adapter.screenAccessibilityFrame(
+            for: CGRect(
+                x: layout.ascendPanelFrame.minX,
+                y: layout.ascendKeepsLabelFrame.maxY,
+                width: layout.ascendPanelFrame.width,
+                height: layout.ascendPanelFrame.maxY - layout.ascendKeepsLabelFrame.maxY
+            )
+        ) ?? .zero
+
+        let actionEnabled = isAscendActionEnabled
+        let action = elements.ascendAction
+        action.accessibilityLabel = isAscendConfirmationArmed
+            ? "Confirm Ascension"
+            : "Ascend"
+        action.accessibilityValue = actionEnabled
+            ? nil
+            : Self.ascendRequirementText(for: state)
+        action.accessibilityTraits = actionEnabled
+            ? (isAscendConfirmationArmed ? [.button, .selected] : .button)
+            : [.button, .notEnabled]
+        action.accessibilityFrame = adapter.screenAccessibilityFrame(
+            for: layout.ascendPrimaryActionFrame
+        ) ?? .zero
+
+        let cancel = elements.ascendCancel
+        cancel.accessibilityLabel = "Cancel"
+        cancel.accessibilityFrame = adapter.screenAccessibilityFrame(
+            for: layout.ascendCancelFrame
+        ) ?? .zero
     }
 
     /// One definition of the Buy affordance shared by the row redraw and
@@ -1582,9 +2033,17 @@ extension KingdomScene {
         let line2: String
     }
 
-    var titleTextForTesting: String? { titleLabel.text }
+    struct AscendContentTextForTesting {
+        let bonus: String
+        let resets: String
+        let keeps: String
+    }
 
     var goldTextForTesting: String? { goldLabel.text }
+
+    var renownTextForTesting: String? {
+        renownLabel.isHidden ? nil : renownLabel.text
+    }
 
     var selectedSectionForTesting: KingdomSection { selectedSection }
 
@@ -1606,7 +2065,15 @@ extension KingdomScene {
 
     var goldLabelNodeForTesting: SKLabelNode { goldLabel }
 
-    var titleLabelNodeForTesting: SKLabelNode { titleLabel }
+    var renownLabelNodeForTesting: SKLabelNode { renownLabel }
+
+    func sectionSelectorLabelForTesting(_ section: KingdomSection) -> SKLabelNode? {
+        switch section {
+        case .treasury: return treasurySelectorLabel
+        case .armory: return armorySelectorLabel
+        case .ascend: return ascendSelectorLabel
+        }
+    }
 
     func treasuryRowLabelNodesForTesting(
         _ upgrade: TreasuryUpgrade
@@ -1645,6 +2112,37 @@ extension KingdomScene {
 
     func armorySelectorHitFrameForTesting() -> CGRect? {
         kingdomLayout?.armorySelectorFrame
+    }
+
+    func ascendSelectorHitFrameForTesting() -> CGRect? {
+        kingdomLayout?.ascendSelectorFrame
+    }
+
+    func ascendPrimaryActionHitFrameForTesting() -> CGRect? {
+        kingdomLayout?.ascendPrimaryActionFrame
+    }
+
+    func ascendCancelHitFrameForTesting() -> CGRect? {
+        kingdomLayout?.ascendCancelFrame
+    }
+
+    var ascendPanelNodeForTesting: SKNode? { ascendContent?.panel }
+
+    var ascendIconNodeForTesting: SKNode? { ascendContent?.iconHolder.children.first }
+
+    var isAscendConfirmationArmedForTesting: Bool { isAscendConfirmationArmed }
+
+    var isAscendActionEnabledForTesting: Bool { isAscendActionEnabled }
+
+    var ascendActionTextForTesting: String? { ascendContent?.primaryLabel.text }
+
+    func ascendContentTextForTesting() -> AscendContentTextForTesting? {
+        guard let ascend = ascendContent else { return nil }
+        return AscendContentTextForTesting(
+            bonus: ascend.bonusLabel.text ?? "",
+            resets: ascend.resetsLabel.text ?? "",
+            keeps: ascend.keepsLabel.text ?? ""
+        )
     }
 
     func armoryRowNodeForTesting(_ type: SoldierType) -> SKNode? {

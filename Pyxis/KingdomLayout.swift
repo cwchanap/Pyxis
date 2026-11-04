@@ -5,13 +5,12 @@
 
 import CoreGraphics
 
-/// Pure CoreGraphics layout for the Kingdom Treasury/Armory screen
-/// (HPA-670, HPA-671). No SpriteKit/UIKit: the scene only applies
-/// precomputed frames and the math is tested without a render loop.
-/// Returns nil when the three live Treasury rows cannot fit — the
-/// Armory section (HPA-671) reuses the SAME content band, so it fits
-/// wherever Treasury does; future-section space is only reserved when
-/// all three real rows fit first.
+/// Pure CoreGraphics layout for the Kingdom Treasury/Armory/Ascend
+/// screen (HPA-670, HPA-671, HPA-672). No SpriteKit/UIKit: the scene only
+/// applies precomputed frames and the math is tested without a render
+/// loop. Returns nil when the three live Treasury rows cannot fit — the
+/// Armory and Ascend sections reuse the SAME content band, so they fit
+/// wherever Treasury does.
 struct KingdomLayout: Equatable {
     static let sideMargin: CGFloat = 16
     static let tabBarHeight: CGFloat = 82
@@ -22,21 +21,39 @@ struct KingdomLayout: Equatable {
     static let rowIconSize: CGFloat = 44
     static let minimumBuyHitSize: CGFloat = 44
     static let minimumTextWidth: CGFloat = 100
-    /// HPA-671 header section controls: two adjacent 60×44 targets in the
-    /// header's top 44pt line, 8pt left of Settings. The boundary
-    /// arithmetic is binding: at 320×454 zero-inset the 288pt content
-    /// column spends 180pt on Settings + controls + gaps, leaving exactly
-    /// the authored 100pt title plus the 8pt `titleSpareWidth`. The
-    /// fail-closed floor is the width the shrunk title still needs, not
-    /// the authored allocation — a starved-but-usable content column
-    /// (e.g. under a large side inset) keeps fitting.
-    static let sectionSelectorSize = CGSize(width: 60, height: 44)
+    /// HPA-672 header section controls: three adaptive ≥44pt targets in
+    /// the header's top 44pt line, 8pt left of Settings, Treasury → Armory
+    /// → Ascend. With the visible title gone (the tab bar identifies the
+    /// screen; accessibility keeps a constant `Kingdom` header) the free
+    /// width distributes across the cluster: (available − 2 gaps) / 3,
+    /// capped at 88pt. At 320pt that is ~73pt per selector; at the 232pt
+    /// content floor ~54.7pt — the rows starve before the cluster does.
+    static let sectionSelectorMinimumWidth: CGFloat = 44
+    static let sectionSelectorMaximumWidth: CGFloat = 88
+    static let sectionSelectorHeight: CGFloat = 44
     static let sectionSelectorGap: CGFloat = 8
-    static let minimumTitleWidth: CGFloat = 60
-    /// The 8pt spare the boundary leaves between the 100pt title
-    /// allocation and the selector cluster — never absorbed by the
-    /// font-shrunk title.
-    static let titleSpareWidth: CGFloat = 8
+    /// HPA-672 Renown bottom-header box: right-aligned in the gold line,
+    /// clear of the Settings column. The reservation yields to keep gold
+    /// a usable measured column (≥ ~80pt) but never shrinks below the
+    /// minimum a fitted "Renown N · +N%" needs on the narrowest layout.
+    static let renownLabelMinimumWidth: CGFloat = 88
+    static let renownLabelMaximumWidth: CGFloat = 120
+    static let goldRenownGap: CGFloat = 8
+    /// The gold text width the Renown reservation must leave intact.
+    static let minimumGoldTextWidth: CGFloat = 96
+    /// HPA-672 Ascend band: one panel sharing the Treasury/Armory content
+    /// band, an emblem up top, three stacked lines, and two ≥44pt actions
+    /// anchored at the band's bottom clear of the tab bar. The stack needs
+    /// ~190pt — always inside the ≥260pt band the three Treasury rows
+    /// already guarantee, so Ascend never becomes the binding constraint.
+    static let ascendBandInset: CGFloat = 12
+    static let ascendIconSize: CGFloat = 44
+    static let ascendIconGap: CGFloat = 10
+    static let ascendBonusLineHeight: CGFloat = 18
+    static let ascendPreviewLineHeight: CGFloat = 15
+    static let ascendStackGap: CGFloat = 6
+    static let ascendActionHeight: CGFloat = 44
+    static let ascendActionGap: CGFloat = 8
     /// HPA-671 alternative Armory band: one whole-row target per soldier
     /// type in the same span the Treasury rows occupy — (260 − 4×6) / 5 =
     /// 47.2pt rows at the 320×454 boundary, capped at 60pt on taller
@@ -70,12 +87,15 @@ struct KingdomLayout: Equatable {
 
     let safeFrame: CGRect
     let headerFrame: CGRect
-    let titleFrame: CGRect
     let goldFrame: CGRect
     let settingsFrame: CGRect
-    /// HPA-671 Treasury/Armory section controls in the header's top line.
+    /// Treasury/Armory/Ascend section controls in the header's top line.
     let treasurySelectorFrame: CGRect
     let armorySelectorFrame: CGRect
+    let ascendSelectorFrame: CGRect
+    /// Right-aligned Renown box in the header's bottom (gold) line —
+    /// visible only when the ascension count is positive.
+    let renownFrame: CGRect
     /// Three row frames, index-aligned with `TreasuryUpgrade.allCases`.
     let rowFrames: [CGRect]
     let iconFrames: [CGRect]
@@ -97,9 +117,15 @@ struct KingdomLayout: Equatable {
     /// effect/next drop) inside `armoryTextFrames`.
     let armoryLine1LabelFrames: [CGRect]
     let armoryLine2LabelFrames: [CGRect]
-    /// Noninteractive reservation between the last row and the tab bar for
-    /// future Kingdom sections (HPA-672). Never hosts controls.
-    let futureSectionFrame: CGRect
+    /// HPA-672 Ascend content sharing the same band: one panel, an emblem
+    /// frame, three stacked label boxes and the Confirm/Cancel targets.
+    let ascendPanelFrame: CGRect
+    let ascendIconFrame: CGRect
+    let ascendBonusLabelFrame: CGRect
+    let ascendResetsLabelFrame: CGRect
+    let ascendKeepsLabelFrame: CGRect
+    let ascendPrimaryActionFrame: CGRect
+    let ascendCancelFrame: CGRect
     let tabBarFrame: CGRect
     let tabHitFrames: [CGRect]
 
@@ -151,22 +177,33 @@ struct KingdomLayout: Equatable {
             height: minimumBuyHitSize
         )
 
-        // HPA-671: the Treasury/Armory controls sit in the header's top
-        // 44pt line and the title frame shrinks around them. Zero new
-        // header height; the bottom 44pt gold line keeps the full width.
+        // HPA-672: three adaptive section controls share the header's top
+        // 44pt line — no visible title (the selected tab identifies the
+        // screen; accessibility keeps a constant `Kingdom` header label).
+        // Zero new header height; the bottom 44pt gold line keeps the full
+        // width with a right-aligned Renown reservation.
         let headerTopLine = Self.headerTopLineFrames(
             headerFrame: headerFrame,
-            settingsFrame: settingsFrame,
-            textWidth: textWidth
+            settingsFrame: settingsFrame
         )
         guard let headerTopLine else { return nil }
-        let titleFrame = headerTopLine.titleFrame
         let treasurySelectorFrame = headerTopLine.treasurySelectorFrame
         let armorySelectorFrame = headerTopLine.armorySelectorFrame
+        let ascendSelectorFrame = headerTopLine.ascendSelectorFrame
         let goldFrame = CGRect(
             x: headerFrame.minX,
             y: headerFrame.minY,
             width: textWidth,
+            height: 44
+        )
+        let renownWidth = min(
+            renownLabelMaximumWidth,
+            max(renownLabelMinimumWidth, textWidth - minimumGoldTextWidth)
+        )
+        let renownFrame = CGRect(
+            x: goldFrame.maxX - renownWidth,
+            y: headerFrame.minY,
+            width: renownWidth,
             height: 44
         )
 
@@ -210,14 +247,6 @@ struct KingdomLayout: Equatable {
         )
         guard let treasuryBand else { return nil }
 
-        let lastRow = treasuryBand.rowFrames[treasuryBand.rowFrames.count - 1]
-        let futureSectionFrame = CGRect(
-            x: contentX,
-            y: rowsBottom,
-            width: contentWidth,
-            height: max(0, lastRow.minY - rowGap - rowsBottom)
-        )
-
         // HPA-671 alternative Armory layout: five whole-row targets in the
         // SAME band the Treasury rows span (rowsTop…rowsBottom). The guard
         // cannot fail while Treasury fits (band ≥ 260 ⇒ slot ≥ 47.2), but
@@ -230,6 +259,16 @@ struct KingdomLayout: Equatable {
         )
         guard let armoryBand else { return nil }
 
+        // HPA-672: the Ascend content shares the SAME band — no second
+        // content area, no scrolling, no new header height.
+        let ascendBand = Self.ascendBandFrames(
+            contentX: contentX,
+            contentWidth: contentWidth,
+            rowsTop: rowsTop,
+            rowsBottom: rowsBottom
+        )
+        guard let ascendBand else { return nil }
+
         guard treasuryBand.buyHitFrames.allSatisfy({ safeFrame.contains($0) }),
               tabHitFrames.allSatisfy({ safeFrame.contains($0) && $0.width >= 44 && $0.height >= 44 })
         else {
@@ -239,11 +278,12 @@ struct KingdomLayout: Equatable {
         return KingdomLayout(
             safeFrame: safeFrame,
             headerFrame: headerFrame,
-            titleFrame: titleFrame,
             goldFrame: goldFrame,
             settingsFrame: settingsFrame,
             treasurySelectorFrame: treasurySelectorFrame,
             armorySelectorFrame: armorySelectorFrame,
+            ascendSelectorFrame: ascendSelectorFrame,
+            renownFrame: renownFrame,
             rowFrames: treasuryBand.rowFrames,
             iconFrames: treasuryBand.iconFrames,
             textFrames: treasuryBand.textFrames,
@@ -257,64 +297,63 @@ struct KingdomLayout: Equatable {
             armoryTextFrames: armoryBand.textFrames,
             armoryLine1LabelFrames: armoryBand.line1LabelFrames,
             armoryLine2LabelFrames: armoryBand.line2LabelFrames,
-            futureSectionFrame: futureSectionFrame,
+            ascendPanelFrame: ascendBand.panelFrame,
+            ascendIconFrame: ascendBand.iconFrame,
+            ascendBonusLabelFrame: ascendBand.bonusLabelFrame,
+            ascendResetsLabelFrame: ascendBand.resetsLabelFrame,
+            ascendKeepsLabelFrame: ascendBand.keepsLabelFrame,
+            ascendPrimaryActionFrame: ascendBand.primaryActionFrame,
+            ascendCancelFrame: ascendBand.cancelFrame,
             tabBarFrame: tabBarFrame,
             tabHitFrames: tabHitFrames
         )
     }
 
-    /// Header top-line frames for one compute pass: the width-fitted title
-    /// plus the two adjacent section controls, all inside the existing
-    /// 44pt title line. Nil when the title cannot fit beside the cluster.
+    /// The measured gold-label width: the full gold line, or the column
+    /// left of the Renown reservation when the Renown label is visible.
+    func goldTextMaxWidth(showingRenown: Bool) -> CGFloat {
+        guard showingRenown else { return goldFrame.width }
+        return renownFrame.minX - Self.goldRenownGap - goldFrame.minX
+    }
+
+    /// Header top-line frames for one compute pass: three adaptive
+    /// ≥44pt section controls right-aligned 8pt left of Settings. Nil
+    /// only when even the 44pt minimum cannot fit — the Treasury rows'
+    /// own floor starves first on every accepted viewport.
     private struct HeaderTopLine {
-        let titleFrame: CGRect
         let treasurySelectorFrame: CGRect
         let armorySelectorFrame: CGRect
+        let ascendSelectorFrame: CGRect
     }
 
     private static func headerTopLineFrames(
         headerFrame: CGRect,
-        settingsFrame: CGRect,
-        textWidth: CGFloat
+        settingsFrame: CGRect
     ) -> HeaderTopLine? {
-        let topLineMinY = headerFrame.maxY - sectionSelectorSize.height
-        let armorySelectorFrame = CGRect(
-            x: settingsFrame.minX - sectionSelectorGap - sectionSelectorSize.width,
-            y: topLineMinY,
-            width: sectionSelectorSize.width,
-            height: sectionSelectorSize.height
+        let topLineMinY = headerFrame.maxY - sectionSelectorHeight
+        let available = settingsFrame.minX - sectionSelectorGap - headerFrame.minX
+        let count = CGFloat(KingdomSection.allCases.count)
+        let width = min(
+            sectionSelectorMaximumWidth,
+            (available - (count - 1) * sectionSelectorGap) / count
         )
-        let treasurySelectorFrame = CGRect(
-            x: armorySelectorFrame.minX - sectionSelectorSize.width,
-            y: topLineMinY,
-            width: sectionSelectorSize.width,
-            height: sectionSelectorSize.height
-        )
-        // Below the authored 320pt boundary the spare degrades to zero,
-        // then the title→cluster gap: the floor lands on the Treasury
-        // rows' own 232pt content minimum, so the selector never regresses
-        // a viewport the pre-selector header already fit.
-        let clusterMinX = treasurySelectorFrame.minX - headerFrame.minX
-        var titleWidth = min(
-            textWidth,
-            clusterMinX - sectionSelectorGap - titleSpareWidth
-        )
-        if titleWidth < minimumTitleWidth {
-            titleWidth = min(textWidth, clusterMinX - sectionSelectorGap)
-        }
-        if titleWidth < minimumTitleWidth {
-            titleWidth = min(textWidth, clusterMinX)
-        }
-        guard titleWidth >= minimumTitleWidth else { return nil }
-        return HeaderTopLine(
-            titleFrame: CGRect(
-                x: headerFrame.minX,
+        guard width >= sectionSelectorMinimumWidth else { return nil }
+        // Treasury → Armory → Ascend, left to right, ending 8pt left of
+        // Settings.
+        let clusterMinX = settingsFrame.minX - sectionSelectorGap
+            - count * width - (count - 1) * sectionSelectorGap
+        func selectorFrame(_ index: Int) -> CGRect {
+            CGRect(
+                x: clusterMinX + CGFloat(index) * (width + sectionSelectorGap),
                 y: topLineMinY,
-                width: titleWidth,
-                height: sectionSelectorSize.height
-            ),
-            treasurySelectorFrame: treasurySelectorFrame,
-            armorySelectorFrame: armorySelectorFrame
+                width: width,
+                height: sectionSelectorHeight
+            )
+        }
+        return HeaderTopLine(
+            treasurySelectorFrame: selectorFrame(0),
+            armorySelectorFrame: selectorFrame(1),
+            ascendSelectorFrame: selectorFrame(2)
         )
     }
 
@@ -508,6 +547,95 @@ struct KingdomLayout: Equatable {
             textFrames: textFrames,
             line1LabelFrames: line1LabelFrames,
             line2LabelFrames: line2LabelFrames
+        )
+    }
+
+    /// The HPA-672 Ascend content in the band the Treasury/Armory rows
+    /// span: one panel, an emblem top-center, bonus/resets/keeps label
+    /// boxes stacked below it, and the Confirm/Cancel targets anchored at
+    /// the band's bottom. Nil when the stack cannot fit (impossible while
+    /// Treasury fits — the band is ≥260pt and the stack needs ~190pt).
+    private struct AscendBand {
+        let panelFrame: CGRect
+        let iconFrame: CGRect
+        let bonusLabelFrame: CGRect
+        let resetsLabelFrame: CGRect
+        let keepsLabelFrame: CGRect
+        let primaryActionFrame: CGRect
+        let cancelFrame: CGRect
+    }
+
+    private static func ascendBandFrames(
+        contentX: CGFloat,
+        contentWidth: CGFloat,
+        rowsTop: CGFloat,
+        rowsBottom: CGFloat
+    ) -> AscendBand? {
+        let panelFrame = CGRect(
+            x: contentX,
+            y: rowsBottom,
+            width: contentWidth,
+            height: rowsTop - rowsBottom
+        )
+        let iconFrame = CGRect(
+            x: panelFrame.midX - ascendIconSize / 2,
+            y: rowsTop - ascendBandInset - ascendIconSize,
+            width: ascendIconSize,
+            height: ascendIconSize
+        )
+        let textWidth = contentWidth - ascendBandInset * 2
+        guard textWidth >= minimumTextWidth else { return nil }
+        func lineFrame(under upperMinY: CGFloat, gap: CGFloat, height: CGFloat) -> CGRect {
+            CGRect(
+                x: contentX + ascendBandInset,
+                y: upperMinY - gap - height,
+                width: textWidth,
+                height: height
+            )
+        }
+        let bonusLabelFrame = lineFrame(
+            under: iconFrame.minY,
+            gap: ascendIconGap,
+            height: ascendBonusLineHeight
+        )
+        let resetsLabelFrame = lineFrame(
+            under: bonusLabelFrame.minY,
+            gap: ascendStackGap,
+            height: ascendPreviewLineHeight
+        )
+        let keepsLabelFrame = lineFrame(
+            under: resetsLabelFrame.minY,
+            gap: ascendStackGap,
+            height: ascendPreviewLineHeight
+        )
+        let actionWidth = max(
+            minimumBuyHitSize,
+            (contentWidth - ascendBandInset * 2 - ascendActionGap) / 2
+        )
+        let actionY = rowsBottom + ascendBandInset
+        let primaryActionFrame = CGRect(
+            x: panelFrame.maxX - ascendBandInset - actionWidth,
+            y: actionY,
+            width: actionWidth,
+            height: ascendActionHeight
+        )
+        let cancelFrame = CGRect(
+            x: contentX + ascendBandInset,
+            y: actionY,
+            width: actionWidth,
+            height: ascendActionHeight
+        )
+        guard keepsLabelFrame.minY >= primaryActionFrame.maxY + ascendStackGap else {
+            return nil
+        }
+        return AscendBand(
+            panelFrame: panelFrame,
+            iconFrame: iconFrame,
+            bonusLabelFrame: bonusLabelFrame,
+            resetsLabelFrame: resetsLabelFrame,
+            keepsLabelFrame: keepsLabelFrame,
+            primaryActionFrame: primaryActionFrame,
+            cancelFrame: cancelFrame
         )
     }
 }
