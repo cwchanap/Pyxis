@@ -404,12 +404,14 @@ struct KingdomLayoutTests {
         #expect(layout.ascendPanelFrame.width == layout.rowFrames[0].width)
         #expect(layout.safeFrame.contains(layout.ascendPanelFrame))
 
-        // Icon top-center, then bonus/resets/keeps stacked disjointly.
+        // Icon top-center, then bonus/resets/keeps/requirement stacked
+        // disjointly.
         #expect(layout.ascendPanelFrame.contains(layout.ascendIconFrame))
         let labels = [
             layout.ascendBonusLabelFrame,
             layout.ascendResetsLabelFrame,
-            layout.ascendKeepsLabelFrame
+            layout.ascendKeepsLabelFrame,
+            layout.ascendRequirementLabelFrame
         ]
         for frame in labels {
             #expect(layout.ascendPanelFrame.contains(frame))
@@ -429,6 +431,7 @@ struct KingdomLayoutTests {
             #expect(frame.minY >= layout.tabBarFrame.maxY)
             #expect(!frame.intersects(layout.settingsFrame))
             #expect(!frame.intersects(layout.ascendKeepsLabelFrame))
+            #expect(!frame.intersects(layout.ascendRequirementLabelFrame))
         }
         #expect(!layout.ascendPrimaryActionFrame.intersects(layout.ascendCancelFrame))
         #expect(layout.ascendPrimaryActionFrame.minX > layout.ascendCancelFrame.maxX)

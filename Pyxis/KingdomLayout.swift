@@ -42,10 +42,11 @@ struct KingdomLayout: Equatable {
     /// The gold text width the Renown reservation must leave intact.
     static let minimumGoldTextWidth: CGFloat = 96
     /// HPA-672 Ascend band: one panel sharing the Treasury/Armory content
-    /// band, an emblem up top, three stacked lines, and two ≥44pt actions
-    /// anchored at the band's bottom clear of the tab bar. The stack needs
-    /// ~190pt — always inside the ≥260pt band the three Treasury rows
-    /// already guarantee, so Ascend never becomes the binding constraint.
+    /// band, an emblem up top, four stacked lines (bonus, resets, keeps and
+    /// the visible unlock requirement), and two ≥44pt actions anchored at
+    /// the band's bottom clear of the tab bar. The stack needs ~211pt —
+    /// always inside the ≥260pt band the three Treasury rows already
+    /// guarantee, so Ascend never becomes the binding constraint.
     static let ascendBandInset: CGFloat = 12
     static let ascendIconSize: CGFloat = 44
     static let ascendIconGap: CGFloat = 10
@@ -118,12 +119,16 @@ struct KingdomLayout: Equatable {
     let armoryLine1LabelFrames: [CGRect]
     let armoryLine2LabelFrames: [CGRect]
     /// HPA-672 Ascend content sharing the same band: one panel, an emblem
-    /// frame, three stacked label boxes and the Confirm/Cancel targets.
+    /// frame, four stacked label boxes and the Confirm/Cancel targets.
     let ascendPanelFrame: CGRect
     let ascendIconFrame: CGRect
     let ascendBonusLabelFrame: CGRect
     let ascendResetsLabelFrame: CGRect
     let ascendKeepsLabelFrame: CGRect
+    /// The visible unlock requirement line under Keeps — the one addition
+    /// to the summary stack (review: sighted players must be able to
+    /// inspect the requirement, not just hear it).
+    let ascendRequirementLabelFrame: CGRect
     let ascendPrimaryActionFrame: CGRect
     let ascendCancelFrame: CGRect
     let tabBarFrame: CGRect
@@ -302,6 +307,7 @@ struct KingdomLayout: Equatable {
             ascendBonusLabelFrame: ascendBand.bonusLabelFrame,
             ascendResetsLabelFrame: ascendBand.resetsLabelFrame,
             ascendKeepsLabelFrame: ascendBand.keepsLabelFrame,
+            ascendRequirementLabelFrame: ascendBand.requirementLabelFrame,
             ascendPrimaryActionFrame: ascendBand.primaryActionFrame,
             ascendCancelFrame: ascendBand.cancelFrame,
             tabBarFrame: tabBarFrame,
@@ -561,6 +567,7 @@ struct KingdomLayout: Equatable {
         let bonusLabelFrame: CGRect
         let resetsLabelFrame: CGRect
         let keepsLabelFrame: CGRect
+        let requirementLabelFrame: CGRect
         let primaryActionFrame: CGRect
         let cancelFrame: CGRect
     }
@@ -608,6 +615,11 @@ struct KingdomLayout: Equatable {
             gap: ascendStackGap,
             height: ascendPreviewLineHeight
         )
+        let requirementLabelFrame = lineFrame(
+            under: keepsLabelFrame.minY,
+            gap: ascendStackGap,
+            height: ascendPreviewLineHeight
+        )
         let actionWidth = max(
             minimumBuyHitSize,
             (contentWidth - ascendBandInset * 2 - ascendActionGap) / 2
@@ -625,7 +637,7 @@ struct KingdomLayout: Equatable {
             width: actionWidth,
             height: ascendActionHeight
         )
-        guard keepsLabelFrame.minY >= primaryActionFrame.maxY + ascendStackGap else {
+        guard requirementLabelFrame.minY >= primaryActionFrame.maxY + ascendStackGap else {
             return nil
         }
         return AscendBand(
@@ -634,6 +646,7 @@ struct KingdomLayout: Equatable {
             bonusLabelFrame: bonusLabelFrame,
             resetsLabelFrame: resetsLabelFrame,
             keepsLabelFrame: keepsLabelFrame,
+            requirementLabelFrame: requirementLabelFrame,
             primaryActionFrame: primaryActionFrame,
             cancelFrame: cancelFrame
         )
