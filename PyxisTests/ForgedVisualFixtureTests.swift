@@ -356,6 +356,23 @@ struct ForgedVisualFixtureTests {
         #expect(complete.cityNumberInCountry == KingdomGameState.firstCountryCityCount)
     }
 
+    /// HPA-672 evidence seeding: only the completed-country fixture owns
+    /// gear — every catalog item at Lv1 (the first-full-completion shape)
+    /// through the initializer, because ownership is `private(set)`. The
+    /// `.map` and `.mapPartial` branches stay gear-free.
+    @Test("DEBUG completed-country fixture owns every catalog item at level 1")
+    func mapCountryCompleteFixtureOwnsFullLv1Armory() {
+        let complete = ForgedVisualFixture.mapCountryComplete.makeState()
+        #expect(complete.ownedEquipmentIDs == EquipmentCatalog.items.map(\.id))
+        #expect(complete.ascensionCount == 0)
+        for item in EquipmentCatalog.items {
+            #expect(complete.equipmentLevel(for: item.id) == 1)
+        }
+
+        #expect(ForgedVisualFixture.map.makeState().ownedEquipmentIDs.isEmpty)
+        #expect(ForgedVisualFixture.mapPartial.makeState().ownedEquipmentIDs.isEmpty)
+    }
+
     @Test("DEBUG conquest fixtures pin live and idle report data")
     func conquestFixturesPinReportData() throws {
         let live = ForgedVisualFixture.conquestLive.makeState()
