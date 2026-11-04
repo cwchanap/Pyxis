@@ -1956,9 +1956,10 @@ struct KingdomSceneTests {
         #expect(router.requestedTabs == [.map])
         #expect(!scene.isAscendConfirmationArmedForTesting)
 
-        // Dismissal + re-presentation of the SAME instance re-runs didMove
-        // and disarms a fresh arming too (spec: leaving the scene disarms).
-        // presentScene attaches the view so repeatDidMove really re-runs.
+        // Dismissal + re-presentation of the SAME instance: presenting
+        // nil removes the scene (willMove(from:)) — the dismissal itself
+        // must clear the arming; re-presenting (didMove) keeps it cleared
+        // (spec: leaving the scene disarms).
         let size = CGSize(width: 393, height: 852)
         let retained = KingdomScene(
             size: size,
@@ -1975,9 +1976,64 @@ struct KingdomSceneTests {
             at: try #require(retained.ascendPrimaryActionHitFrameForTesting()).center
         )
         #expect(retained.isAscendConfirmationArmedForTesting)
-        retained.repeatDidMoveForTesting()
+        retainedView.presentScene(nil)
+        #expect(!retained.isAscendConfirmationArmedForTesting)
+        retainedView.presentScene(retained)
         #expect(!retained.isAscendConfirmationArmedForTesting)
         #expect(retained.ascendActionTextForTesting == "Ascend")
+    }
+
+    @Test("The complete reset/keep disclosure fits at the compact sizes")
+    func ascendDisclosureFitsAtCompactSizes() throws {
+        for width in [CGFloat(264), 320] {
+            // Mid-campaign: every summary line including the visible
+            // requirement renders at once — the worst case for collisions.
+            let scene = makeScene(
+                size: CGSize(width: width, height: 454),
+                store: try makeStore(initialState: KingdomGameState(
+                    gold: 100,
+                    cityNumberInCountry: 3,
+                    completedCityCount: 2,
+                    stageStatus: .battleActive
+                )),
+                safeAreaInsets: .zero
+            )
+            selectAscend(scene)
+            let layout = try #require(scene.kingdomLayoutForTesting)
+            let resets = try #require(scene.ascendResetsLabelNodeForTesting)
+            let keeps = try #require(scene.ascendKeepsLabelNodeForTesting)
+            let requirement = try #require(scene.ascendRequirementLabelNodeForTesting)
+
+            // Every required fact is stated in the rendered text —
+            // including deliberately empty slots.
+            expectCompleteResetKeepDisclosure(
+                resets: resets.text ?? "",
+                keeps: keeps.text ?? ""
+            )
+
+            // Fitted inside its reserved box at the 9pt floor: no fact is
+            // lost to overflow at either supported compact width.
+            let boxes = [
+                (resets, layout.ascendResetsLabelFrame),
+                (keeps, layout.ascendKeepsLabelFrame),
+                (requirement, layout.ascendRequirementLabelFrame)
+            ]
+            var renderedFrames: [CGRect] = []
+            for (label, box) in boxes {
+                #expect(!label.isHidden)
+                #expect(label.fontSize >= 9)
+                let parent = try #require(label.parent)
+                let rendered = parent.convert(label.frame, to: scene)
+                #expect(rendered.minX >= box.minX)
+                #expect(rendered.maxX <= box.maxX)
+                renderedFrames.append(rendered)
+            }
+            // Stacked summary lines never collide (spec: shrink within
+            // tested bounds, never collide).
+            for (upper, lower) in zip(renderedFrames, renderedFrames.dropFirst()) {
+                #expect(!upper.intersects(lower))
+            }
+        }
     }
 
     @Test("The unlock requirement renders visibly and fits at the compact sizes")
@@ -2259,7 +2315,7 @@ struct KingdomSceneTests {
             "resets", "countr", "city", "building", "gold", "treasury"
         ]
         let keepFacts = [
-            "keeps", "equipment", "selection", "slot", "level",
+            "keeps", "equipment", "selection", "slot", "empty", "level",
             "renown", "sound", "haptic"
         ]
         for fact in resetFacts {

@@ -44,14 +44,20 @@ struct KingdomLayout: Equatable {
     /// HPA-672 Ascend band: one panel sharing the Treasury/Armory content
     /// band, an emblem up top, four stacked lines (bonus, resets, keeps and
     /// the visible unlock requirement), and two ≥44pt actions anchored at
-    /// the band's bottom clear of the tab bar. The stack needs ~211pt —
-    /// always inside the ≥260pt band the three Treasury rows already
-    /// guarantee, so Ascend never becomes the binding constraint.
+    /// the band's bottom clear of the tab bar. The Resets/Keeps disclosure
+    /// lines wrap once (their reserved boxes are two lines tall) so every
+    /// required fact stays legible at the compact widths. The stack needs
+    /// ~255pt — always inside the ≥260pt band the three Treasury rows
+    /// already guarantee, so Ascend never becomes the binding constraint.
     static let ascendBandInset: CGFloat = 12
     static let ascendIconSize: CGFloat = 44
     static let ascendIconGap: CGFloat = 10
     static let ascendBonusLineHeight: CGFloat = 18
     static let ascendPreviewLineHeight: CGFloat = 15
+    /// Reserved height for the once-wrapped disclosure lines: two 13pt
+    /// AvenirNext lines render ~38pt tall (the fitter only ever shrinks
+    /// them, so this is the tallest they get).
+    static let ascendPreviewTwoLineHeight: CGFloat = 38
     static let ascendStackGap: CGFloat = 6
     static let ascendActionHeight: CGFloat = 44
     static let ascendActionGap: CGFloat = 8
@@ -608,12 +614,12 @@ struct KingdomLayout: Equatable {
         let resetsLabelFrame = lineFrame(
             under: bonusLabelFrame.minY,
             gap: ascendStackGap,
-            height: ascendPreviewLineHeight
+            height: ascendPreviewTwoLineHeight
         )
         let keepsLabelFrame = lineFrame(
             under: resetsLabelFrame.minY,
             gap: ascendStackGap,
-            height: ascendPreviewLineHeight
+            height: ascendPreviewTwoLineHeight
         )
         let requirementLabelFrame = lineFrame(
             under: keepsLabelFrame.minY,
