@@ -251,6 +251,256 @@ final class PyxisUITests: XCTestCase {
         }
     }
 
+    /// HPA-672 evidence captures (Task 6): the real Ascension flow from the
+    /// seeded `map-country-complete` fixture through production routing —
+    /// Kingdom Ascend section → armed confirm → Battle City 1 at zero gold
+    /// → a real manual-infantry replay conquest → the Lv 2 reward report →
+    /// the post-ascension Renown header and Armory. Runs unfrozen (the
+    /// replay conquest must really play). Taps go through the same
+    /// SpriteKit-exposed node frames and chrome geometry the scenes
+    /// author, and state assertions read the gameplay surface's semantic
+    /// value — the same channels the forged-fixture parity smoke uses.
+    /// Attachments are exported to `evidence/hpa-672/` on this PR.
+    @MainActor
+    func testHPA672AscensionFlowEvidence() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [fixtureArgument, "map-country-complete"]
+        app.launch()
+        XCTAssertTrue(app.waitForExistence(timeout: 5), "Fixture did not launch.")
+        let frame = app.frame
+        guard frame.width >= 320, frame.height >= 500 else {
+            throw XCTSkip("Ascension evidence requires a supported portrait viewport; got "
+                + "\(Int(frame.width))x\(Int(frame.height)).")
+        }
+        let surface = app.otherElements["pyxisGameplaySurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            waitForSurfaceValue(surface, prefix: "Map;stage=countryComplete", timeout: 5),
+            "The completed-country fixture did not present the Map."
+        )
+
+        // Map → Kingdom tab: the four gameplay tabs (battle, camp, map,
+        // kingdom) share one bottom-bar geometry, so this coordinate tap
+        // targets the real fourth tab hit frame.
+        tap(app, at: kingdomTabPoint(mapTabGeometry: frame))
+        let treasurySelector = topmostElement(labeled: "Treasury", in: app)
+        XCTAssertTrue(
+            treasurySelector.waitForExistence(timeout: 5),
+            "Kingdom did not present its section selector row."
+        )
+
+        // 01 — the unarmed Ascend prompt with the section selected. The
+        // selector label and the (unarmed) action label are both "Ascend";
+        // the selector sits in the top header row, the action at the
+        // bottom of the content band.
+        let ascendSelector = topmostElement(labeled: "Ascend", in: app)
+        tapCenter(of: ascendSelector, in: app)
+        let action = bottommostElement(labeled: "Ascend", in: app)
+        XCTAssertTrue(action.waitForExistence(timeout: 3), "Ascend action node missing.")
+        add(screenshotAttachment(for: app, name: "hpa672-01-kingdom-ascend-prompt"))
+
+        // 02 — the armed two-tap confirmation: the action's own label
+        // becomes "Confirm Ascension" only while armed.
+        tapCenter(of: action, in: app)
+        let confirm = uniqueElement(labeled: "Confirm Ascension", in: app)
+        XCTAssertTrue(
+            confirm.waitForExistence(timeout: 3),
+            "The first Ascend tap did not arm the confirmation."
+        )
+        add(screenshotAttachment(for: app, name: "hpa672-02-kingdom-ascend-armed"))
+
+        // Cancel disarms without committing; re-arm, then the distinct
+        // Confirm Ascension tap commits and routes to Battle (City 1).
+        tapCenter(of: uniqueElement(labeled: "Cancel", in: app), in: app)
+        XCTAssertTrue(
+            waitForNonExistence(confirm, timeout: 3),
+            "Cancel did not disarm the confirmation."
+        )
+        tapCenter(of: bottommostElement(labeled: "Ascend", in: app), in: app)
+        XCTAssertTrue(
+            confirm.waitForExistence(timeout: 3),
+            "Re-arming after Cancel failed."
+        )
+        tapCenter(of: confirm, in: app)
+        XCTAssertTrue(
+            waitForSurfaceValue(surface, prefix: "Battle;stage=battleActive", timeout: 10),
+            "Ascension did not route to the City 1 battle."
+        )
+        add(screenshotAttachment(for: app, name: "hpa672-03-battle-city1-zero-gold"))
+
+        // Real replay conquest: manual infantry only (zero gold, no camp).
+        // Extra taps are capped no-ops and the pending report swallows
+        // them, so a generous fixed window is safe. Charges refill in real
+        // time, hence the paced cadence.
+        let deploy = deployActionPoint(battleChromeGeometry: frame)
+        for _ in 0..<40 {
+            tap(app, at: deploy)
+            Thread.sleep(forTimeInterval: 0.9)
+        }
+        // The report's own Continue row ("MARCH ON") is the presented
+        // signal — the surface value only republishes on scene
+        // presentation, so it cannot announce an in-scene report.
+        let marchOn = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "MARCH ON")).firstMatch
+        XCTAssertTrue(
+            marchOn.waitForExistence(timeout: 30),
+            "The real manual-infantry replay conquest never completed."
+        )
+        // The repeat conquest's truthful receipt renders as the report's
+        // fail-open gear line (owned item levels 1 → 2). HPA-671 never
+        // renders the line on compact report heights (BattleScene's own
+        // <780pt threshold), so it is only asserted where it renders.
+        if frame.height >= 780 {
+            let gearLine = app.descendants(matching: .any)
+                .matching(
+                    NSPredicate(format: "label == %@", "Gear upgraded: Willowford Blade · Lv 2")
+                )
+                .firstMatch
+            XCTAssertTrue(
+                gearLine.waitForExistence(timeout: 3),
+                "The replay conquest report is missing its Lv 2 gear-upgrade line."
+            )
+        }
+        add(screenshotAttachment(for: app, name: "hpa672-04-city1-replay-lv2-reward"))
+
+        // Continue acknowledges the report and routes to the Map; the
+        // surface value republishes at the Map presentation.
+        tapCenter(of: marchOn, in: app)
+        XCTAssertTrue(
+            waitForSurfaceValue(
+                surface, prefix: "Map;stage=cityConqueredPendingMap", timeout: 10
+            ),
+            "Continue never acknowledged the Lv 2 report and routed to the Map."
+        )
+
+        // Map → Kingdom: the post-ascension bottom header reads the Renown
+        // summary (rendered only while ascensionCount > 0), and the Armory
+        // infantry row reads its effective Lv 2 effect line once equipped —
+        // the seeded fixture owns every item but equips nothing, and the
+        // whole-row tap cycles None → owned items.
+        tap(app, at: kingdomTabPoint(mapTabGeometry: frame))
+        let renown = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Renown 1 · +25%"))
+            .firstMatch
+        XCTAssertTrue(
+            renown.waitForExistence(timeout: 5),
+            "The Renown header is missing after ascension."
+        )
+        tapCenter(of: topmostElement(labeled: "Armory", in: app), in: app)
+        let unequippedRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Infantry · None"))
+            .firstMatch
+        XCTAssertTrue(
+            unequippedRow.waitForExistence(timeout: 5),
+            "The Armory did not present the City 1 infantry row."
+        )
+        tapCenter(of: unequippedRow, in: app)
+        let infantryLv2 = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Attack Lv 2"))
+            .firstMatch
+        XCTAssertTrue(
+            infantryLv2.waitForExistence(timeout: 5),
+            "Equipping the leveled City 1 blade did not read its Lv 2 effect."
+        )
+        add(screenshotAttachment(for: app, name: "hpa672-05-kingdom-renown-armory-lv2"))
+
+        app.terminate()
+    }
+
+    private func tap(_ app: XCUIApplication, at point: CGPoint) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+            .withOffset(CGVector(dx: point.x, dy: point.y))
+            .tap()
+    }
+
+    /// Taps the center of an accessibility element through a synthesized
+    /// coordinate touch, so SpriteKit's own hit testing receives it.
+    private func tapCenter(of element: XCUIElement, in app: XCUIApplication) {
+        let frame = element.frame
+        tap(app, at: CGPoint(x: frame.midX, y: frame.midY))
+    }
+
+    private func waitForSurfaceValue(
+        _ surface: XCUIElement,
+        prefix: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let predicate = NSPredicate(format: "value BEGINSWITH %@", prefix)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: surface)
+        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        if result == .completed { return true }
+        // XCUIElement sometimes needs a re-fetch after a scene swap.
+        return (surface.value as? String)?.hasPrefix(prefix) == true
+    }
+
+    private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "exists == %@", NSNumber(value: false))
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+            || element.exists == false
+    }
+
+    /// SpriteKit exposes the scene's labels with real screen frames, but a
+    /// label can appear on several (hidden) nodes at once — e.g. both the
+    /// Ascend selector and the unarmed Ascend action read "Ascend" — so
+    /// taps pick the occurrence by vertical position in the layout.
+    private func topmostElement(labeled label: String, in app: XCUIApplication) -> XCUIElement {
+        element(labeled: label, in: app, orderedBy: { $0.frame.minY < $1.frame.minY })
+    }
+
+    private func bottommostElement(labeled label: String, in app: XCUIApplication) -> XCUIElement {
+        element(labeled: label, in: app, orderedBy: { $0.frame.minY > $1.frame.minY })
+    }
+
+    private func uniqueElement(labeled label: String, in app: XCUIApplication) -> XCUIElement {
+        visibleElements(labeled: label, in: app).first
+            ?? app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    private func element(
+        labeled label: String,
+        in app: XCUIApplication,
+        orderedBy areInIncreasingOrder: (XCUIElement, XCUIElement) -> Bool
+    ) -> XCUIElement {
+        visibleElements(labeled: label, in: app)
+            .sorted(by: areInIncreasingOrder).first
+            ?? app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    private func visibleElements(labeled label: String, in app: XCUIApplication) -> [XCUIElement] {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", label))
+            .allElementsBoundByIndex
+            .filter { $0.frame.width > 0 && $0.frame.height > 0 }
+    }
+
+    /// Mirrors `CountryMapScene.layoutGameplayTabBar` (and KingdomLayout's
+    /// identical content column): four tabs across the full width minus the
+    /// horizontal margins, hit band centered at 60pt above the bottom edge.
+    /// Kingdom is the fourth tab (battle, camp, map, kingdom).
+    private func kingdomTabPoint(mapTabGeometry frame: CGRect) -> CGPoint {
+        let margin = frame.width <= 440
+            ? 16.0
+            : min(22.0, max(16.0, frame.width * 0.05))
+        let tabWidth = frame.width - margin * 2
+        return CGPoint(x: margin + tabWidth * 7 / 8, y: frame.height - 60)
+    }
+
+    /// Mirrors `BattleChromeLayout`'s deploy frame: the Deploy action is
+    /// the ~56-58pt band left of the Captain strip — scene y 90 (reference)
+    /// or 10pt above the 82pt tab bar + half the 56pt height (compact) —
+    /// both centered at ~119-120pt above the bottom edge.
+    private func deployActionPoint(battleChromeGeometry frame: CGRect) -> CGPoint {
+        let contentWidth = min(560.0, frame.width - 32)
+        let contentX = (frame.width - contentWidth) / 2
+        return CGPoint(
+            x: contentX + (contentWidth - 140) / 2,
+            y: frame.height - (frame.height < 780 ? 120 : 119)
+        )
+    }
+
     private func screenshotAttachment(for app: XCUIApplication, name: String) -> XCTAttachment {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
