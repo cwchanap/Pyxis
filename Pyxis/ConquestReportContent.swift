@@ -79,8 +79,11 @@ struct ConquestReportContent: Equatable {
 
     let title: String
     let rewardText: String
-    /// HPA-672 optional gear receipt line ("New gear: <authored name>").
-    /// Nil when the result carries no catalog-recognized gear receipt.
+    /// HPA-672 optional level-aware gear receipt line: Lv1 →
+    /// `New gear: <authored name> · Lv 1`, Lv2/3 →
+    /// `Gear upgraded: <authored name> · Lv N`. Nil when the result carries
+    /// no catalog-recognized receipt in the 1–3 level band (no reward, a
+    /// capped Lv3 repeat, or malformed save data).
     /// Purely decorative: the report's success gate never depends on it.
     /// `var` so the memberwise init exposes it as an optional parameter
     /// (`let` with a default is omitted from the memberwise initializer).
@@ -118,11 +121,20 @@ struct ConquestReportContent: Equatable {
         return Self(
             title: title,
             rewardText: "+\(CompactNumberFormatter.string(from: result.goldEarned))",
-            newGearLineText: result.equipmentReward
-                .flatMap { EquipmentCatalog.byID($0.itemID)?.name }
-                .map { "New gear: \($0)" },
+            newGearLineText: result.equipmentReward.flatMap(Self.gearLineText(for:)),
             tiles: tiles,
             achievements: achievements
         )
+    }
+
+    /// The receipt's level-aware line, straight from the persisted receipt —
+    /// the report never recomputes an effect or level from live state, so a
+    /// saved/reloaded result renders identically.
+    private static func gearLineText(for receipt: EquipmentReward) -> String? {
+        guard let item = EquipmentCatalog.byID(receipt.itemID),
+              (1...3).contains(receipt.level) else { return nil }
+        return receipt.level == 1
+            ? "New gear: \(item.name) · Lv 1"
+            : "Gear upgraded: \(item.name) · Lv \(receipt.level)"
     }
 }

@@ -139,7 +139,7 @@ struct ConquestReportContentTests {
             from: makeResult(newGear: "c01-infantry-attack"),
             title: "Willowford Secured"
         )
-        #expect(content.newGearLineText == "New gear: Willowford Blade")
+        #expect(content.newGearLineText == "New gear: Willowford Blade · Lv 1")
     }
 
     @Test func city15ReceiptProjectsFinaleItemName() {
@@ -147,7 +147,65 @@ struct ConquestReportContentTests {
             from: makeResult(city: 15, newGear: "c15-siege-keep"),
             title: "Crownspire Keep Falls"
         )
-        #expect(content.newGearLineText == "New gear: Crownspire Breaker")
+        #expect(content.newGearLineText == "New gear: Crownspire Breaker · Lv 1")
+    }
+
+    @Test("Repeat-conquest receipts use the upgrade wording at Lv 2 and Lv 3")
+    func upgradeReceiptsProjectLevelAwareUpgradeLines() {
+        let lv2 = ConquestReportContent.project(
+            from: makeResult(city: 5, newGear: "c05-cavalry-attack", gearLevel: 2),
+            title: "Highcrest Taken"
+        )
+        #expect(lv2.newGearLineText == "Gear upgraded: Highcrest Lance · Lv 2")
+
+        let lv3 = ConquestReportContent.project(
+            from: makeResult(city: 13, newGear: "c13-siege-toughness", gearLevel: 3),
+            title: "Starveil Taken"
+        )
+        #expect(lv3.newGearLineText == "Gear upgraded: Starveil Plating · Lv 3")
+    }
+
+    @Test("Receipts with out-of-band levels produce no line")
+    func invalidReceiptLevelsProduceNoLine() {
+        // The grant seam only ever writes levels 1–3 (a capped Lv3 repeat
+        // writes no receipt at all); anything else is malformed save data.
+        for level in [0, 4] {
+            let content = ConquestReportContent.project(
+                from: makeResult(newGear: "c01-infantry-attack", gearLevel: level),
+                title: "Willowford Secured"
+            )
+            #expect(content.newGearLineText == nil)
+        }
+    }
+
+    @Test("A saved Lv 2 receipt restores to the identical upgrade line")
+    func restoredUpgradeReceiptRendersTheSameLine() throws {
+        let resultJSON = Data("""
+        {
+          "cityKey": "1-5",
+          "conquestMode": "live",
+          "activeBattleSeconds": 65,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [],
+          "usedFavorableUnit": false,
+          "usedExposedLane": false,
+          "goldEarned": 8,
+          "equipmentReward": {"itemID": "c05-cavalry-attack", "level": 2}
+        }
+        """.utf8)
+        let restored = try JSONDecoder().decode(BattleResult.self, from: resultJSON)
+        let restoredLine = ConquestReportContent.project(
+            from: restored,
+            title: "Highcrest Taken"
+        ).newGearLineText
+        let freshLine = ConquestReportContent.project(
+            from: makeResult(city: 5, newGear: "c05-cavalry-attack", gearLevel: 2),
+            title: "Highcrest Taken"
+        ).newGearLineText
+        #expect(restoredLine == "Gear upgraded: Highcrest Lance · Lv 2")
+        #expect(restoredLine == freshLine)
     }
 
     @Test func unknownGearReceiptProducesNoLine() {
@@ -218,7 +276,8 @@ private func makeResult(
     favorable: Bool = true,
     exposed: Bool = true,
     city: Int = 3,
-    newGear: String? = nil
+    newGear: String? = nil,
+    gearLevel: Int = 1
 ) -> BattleResult {
     BattleResult(
         cityKey: CityKey(countryNumber: 1, cityNumber: city),
@@ -237,6 +296,6 @@ private func makeResult(
         usedFavorableUnit: favorable,
         usedExposedLane: exposed,
         goldEarned: gold,
-        equipmentReward: newGear.map { EquipmentReward(itemID: $0, level: 1) }
+        equipmentReward: newGear.map { EquipmentReward(itemID: $0, level: gearLevel) }
     )
 }

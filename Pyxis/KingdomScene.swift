@@ -700,6 +700,15 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                         of: " · Drops at City ",
                         with: " · City "
                     )
+                    if bundle.line2Label.frame.width > layout.armoryTextFrames[index].width {
+                        // 264pt scenes: even the compacted hint overflows —
+                        // drop the next-drop segment; effect, level, percent
+                        // and the no-gain disclosure stay visible.
+                        bundle.line2Label.text = text.line2
+                            .components(separatedBy: " · ")
+                            .filter { !$0.hasPrefix("Drops at City ") }
+                            .joined(separator: " · ")
+                    }
                 }
             }
             let contentAlpha: CGFloat = dimmed ? GameUITheme.Alpha.lockedIcon : 1
@@ -903,13 +912,18 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let owned = Set(state.ownedEquipmentIDs)
         let nextDrop = EquipmentCatalog.forType(type).first { !owned.contains($0.id) }
         var line2Parts: [String] = []
-        if let equipped {
-            var effectText = equipmentEffectText(for: equipped.effect)
+        if let equipped, let effect = state.equippedEffect(for: type) {
+            // HPA-672: text, level and rounding disclosure all read the one
+            // leveled-effect accessor — never the raw catalog fraction.
+            var effectText = equipmentEffectText(
+                for: effect,
+                level: state.equipmentLevel(for: equipped.id) ?? 1
+            )
             // The two-round integer math can round an equipped bonus back
             // to the unequipped result at this type's current level — the
             // row discloses it instead of claiming a gain the spawn path
             // won't deliver (same honesty as the Drill Yard example).
-            if Self.equippedEffectRoundsAway(equipped.effect, for: type, state: state) {
+            if Self.equippedEffectRoundsAway(effect, for: type, state: state) {
                 effectText += " (no gain yet)"
             }
             line2Parts.append(effectText)
@@ -923,23 +937,24 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         return (line1, line2Parts.joined(separator: " · "))
     }
 
-    static func equipmentEffectText(for effect: EquipmentEffect) -> String {
+    static func equipmentEffectText(for effect: EquipmentEffect, level: Int) -> String {
         switch effect {
         case .attackBonus(let fraction):
-            return "Attack +\(wholePercent(fraction))%"
+            return "Attack Lv \(level) · +\(percentText(fraction))%"
         case .maxHPBonus(let fraction):
-            return "Max HP +\(wholePercent(fraction))%"
+            return "Max HP Lv \(level) · +\(percentText(fraction))%"
         case .specialistBonus(let target, let fraction):
-            return "vs \(target.displayName) +\(wholePercent(fraction))%"
+            return "vs \(target.displayName) Lv \(level) · +\(percentText(fraction))%"
         }
     }
 
     /// True when the equipped item's realized integer equals the
     /// unequipped outcome at this type's current level — the bonus is
     /// applied but rounded away by the two-round integer math (the same
-    /// granularity the Drill Yard example discloses). Projects through the
-    /// same seams combat uses: the one-round attack fold, the role×gear
-    /// second round, and `spawnSoldier`'s max-HP formula.
+    /// granularity the Drill Yard example discloses). The effect passed in
+    /// is the leveled `equippedEffect(for:)` value; the projections below
+    /// read the same scaled seams combat uses: the one-round attack fold,
+    /// the role×gear second round, and `spawnSoldier`'s max-HP formula.
     static func equippedEffectRoundsAway(
         _ effect: EquipmentEffect,
         for type: SoldierType,
@@ -980,8 +995,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         !state.isBuildingTypeUnlocked(BuildingType(soldierType: type))
     }
 
-    private static func wholePercent(_ fraction: Double) -> Int {
-        Int((fraction * 100).rounded())
+    /// The one effective-percent formatter (HPA-672): at most one decimal,
+    /// so a leveled +22.5% never displays as a claimed 23% — 0.225 renders
+    /// "22.5", 0.30 "30".
+    private static func percentText(_ fraction: Double) -> String {
+        let tenths = (fraction * 1000).rounded()
+        let text = String(format: "%.1f", tenths / 10)
+        return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
     }
 
     // MARK: - Touch handling

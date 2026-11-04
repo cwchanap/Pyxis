@@ -159,11 +159,11 @@ struct ConquestReportNodeTests {
         )
 
         #expect(node.apply(
-            content: fullContent(newGearLineText: "New gear: Willowford Blade"),
+            content: fullContent(newGearLineText: "New gear: Willowford Blade · Lv 1"),
             layout: layout,
             isContinueEnabled: true
         ) == .presented)
-        #expect(node.renderedGearLineTextForTesting == "New gear: Willowford Blade")
+        #expect(node.renderedGearLineTextForTesting == "New gear: Willowford Blade · Lv 1")
 
         // A subsequent report without a new reward reuses the same node and
         // must not keep a stale gear line (HPA-671 Task 5).
@@ -181,8 +181,10 @@ struct ConquestReportNodeTests {
         )
 
         for item in EquipmentCatalog.items {
+            // The longest line an item can ever render: the upgrade wording
+            // at the level cap (HPA-672 level-aware receipts).
             let result = node.apply(
-                content: fullContent(newGearLineText: "New gear: \(item.name)"),
+                content: fullContent(newGearLineText: "Gear upgraded: \(item.name) · Lv 3"),
                 layout: layout,
                 isContinueEnabled: true
             )
@@ -204,7 +206,7 @@ struct ConquestReportNodeTests {
         )
         #expect(compactLayout.gearLabelFrame == nil)
         #expect(node.apply(
-            content: fullContent(newGearLineText: "New gear: Willowford Blade"),
+            content: fullContent(newGearLineText: "New gear: Willowford Blade · Lv 1"),
             layout: compactLayout,
             isContinueEnabled: true
         ) == .presented)
@@ -217,7 +219,7 @@ struct ConquestReportNodeTests {
         // Roomy frame but the gear text cannot fit even at the minimum font —
         // only the label is dropped; required content still presents.
         let unfittable = ConquestReportNode(textWidth: { text, _, size in
-            text.hasPrefix("New gear:")
+            text.hasPrefix("New gear:") || text.hasPrefix("Gear upgraded:")
                 ? .greatestFiniteMagnitude
                 : CGFloat(text.count) * size * 0.45
         })
@@ -228,7 +230,7 @@ struct ConquestReportNodeTests {
             includesGearLine: true
         )
         #expect(unfittable.apply(
-            content: fullContent(newGearLineText: "New gear: Willowford Blade"),
+            content: fullContent(newGearLineText: "Gear upgraded: Willowford Blade · Lv 2"),
             layout: roomyLayout,
             isContinueEnabled: true
         ) == .presented)
@@ -237,5 +239,37 @@ struct ConquestReportNodeTests {
             x: roomyLayout.continueFrame.midX,
             y: roomyLayout.continueFrame.midY
         )))
+    }
+
+    @Test("The smallest supported roomy viewport presents with the longest level-aware gear line")
+    func minimumSizeRoomyLayoutPresentsWithLongestLevelAwareGearLine() throws {
+        // 375×667 is the smallest supported roomy report fixture: the
+        // longest possible line (upgrade wording, finale item, cap level)
+        // must never fail the report — the label renders with clearance or
+        // drops, and Continue stays hit-testable either way (HPA-672).
+        let node = ConquestReportNode()
+        let layout = try reportLayout(
+            tiles: 3,
+            chips: 2,
+            sceneSize: CGSize(width: 375, height: 667),
+            includesGearLine: true
+        )
+
+        #expect(node.apply(
+            content: fullContent(newGearLineText: "Gear upgraded: Crownspire Breaker · Lv 3"),
+            layout: layout,
+            isContinueEnabled: true
+        ) == .presented)
+        #expect(node.containsContinue(CGPoint(
+            x: layout.continueFrame.midX,
+            y: layout.continueFrame.midY
+        )))
+        if node.renderedGearLineTextForTesting != nil {
+            let label = try #require(
+                node.childNode(withName: "conquestGearLineLabel") as? SKLabelNode
+            )
+            #expect(layout.rewardFrame.minY - label.frame.maxY >= 2)
+            #expect(label.frame.minY - layout.tileFrames[0].maxY >= 2)
+        }
     }
 }

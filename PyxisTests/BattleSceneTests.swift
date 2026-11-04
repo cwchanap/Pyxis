@@ -3437,7 +3437,7 @@ struct BattleSceneTests {
 
         #expect(scene.isConquestPopupVisibleForTesting)
         #expect(!scene.isConquestReportFitFailedForTesting)
-        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade · Lv 1")
         #expect(scene.conquestReportRewardTextForTesting == "+8")
         #expect(scene.conquestReportTilesForTesting == [
             .battleTime(seconds: 65),
@@ -3463,7 +3463,7 @@ struct BattleSceneTests {
 
         let scene = makeScene(store: try makeStore(initialState: decoded))
         #expect(scene.lastConquestReportOriginForTesting == "restored")
-        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade · Lv 1")
         #expect(!scene.isConquestReportFitFailedForTesting)
     }
 
@@ -3489,7 +3489,7 @@ struct BattleSceneTests {
                 city: 1, newGear: "c01-infantry-attack"
             ))
         )
-        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade · Lv 1")
 
         scene.size = CGSize(width: 393, height: 700)
         scene.refreshLayoutForCurrentEnvironment()
@@ -3498,7 +3498,7 @@ struct BattleSceneTests {
 
         scene.size = CGSize(width: 390, height: 844)
         scene.refreshLayoutForCurrentEnvironment()
-        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade")
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Willowford Blade · Lv 1")
     }
 
     @Test("The City 15 finale shows its gear line without displacing finale content")
@@ -3512,7 +3512,7 @@ struct BattleSceneTests {
         )
 
         #expect(scene.conquestReportTitleForTesting == "Crownspire Keep Falls")
-        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Crownspire Breaker")
+        #expect(scene.conquestReportGearLineTextForTesting == "New gear: Crownspire Breaker · Lv 1")
         #expect(scene.countryCompleteTextForTesting == "Country 1 Complete")
         #expect(scene.countryCompleteFrameForTesting != nil)
         #expect(!scene.isConquestReportFitFailedForTesting)
