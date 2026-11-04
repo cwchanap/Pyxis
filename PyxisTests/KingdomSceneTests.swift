@@ -1742,8 +1742,12 @@ struct KingdomSceneTests {
 
         let content = try #require(scene.ascendContentTextForTesting())
         #expect(content.bonus == "Renown bonus +50% → +75%")
-        #expect(content.resets == KingdomScene.ascendResetsText)
-        #expect(content.keeps == KingdomScene.ascendKeepsText)
+        // The disclosure must state the full reset/keep matrix — asserted
+        // as independent facts, never by comparing with the production
+        // constants it was rendered from.
+        expectCompleteResetKeepDisclosure(resets: content.resets, keeps: content.keeps)
+        // Action enabled and no pending report: no visible requirement.
+        #expect(content.requirement == nil)
 
         // The section shares the band: only the selected section shows.
         #expect(scene.treasuryRowNodeForTesting(.warChest)?.isHidden == true)
@@ -1803,6 +1807,9 @@ struct KingdomSceneTests {
         let content = try #require(scene.ascendContentTextForTesting())
         #expect(content.bonus == "Renown bonus +0% → +25%")
         #expect(!scene.isAscendActionEnabledForTesting)
+        // The unlock requirement is VISIBLE text in the content band, not
+        // an accessibility-only value.
+        #expect(content.requirement == "Requires Country 1 complete")
 
         let hit = try #require(scene.ascendPrimaryActionHitFrameForTesting())
         scene.handleTouchForTesting(at: hit.center)
@@ -1836,6 +1843,9 @@ struct KingdomSceneTests {
         selectAscend(scene)
 
         #expect(!scene.isAscendActionEnabledForTesting)
+        // The pending-report state names its own visible requirement.
+        #expect(scene.ascendContentTextForTesting()?.requirement
+            == "Confirm the final report first")
         scene.handleTouchForTesting(
             at: try #require(scene.ascendPrimaryActionHitFrameForTesting()).center
         )
@@ -1931,6 +1941,74 @@ struct KingdomSceneTests {
         #expect(!rebuilt.isAscendConfirmationArmedForTesting)
     }
 
+    @Test("An accepted tab exit and scene dismissal disarm the confirmation")
+    func tabExitAndDismissalDisarmConfirmation() throws {
+        let store = try makeStore(initialState: makeCountryCompleteState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectAscend(scene)
+        scene.handleTouchForTesting(at: try #require(scene.ascendPrimaryActionHitFrameForTesting()).center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+
+        // The accepted exit leaves the scene: a retained instance must not
+        // still offer Confirm without a fresh first tap.
+        scene.requestGameplayTabForTesting(.map)
+        #expect(router.requestedTabs == [.map])
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+
+        // Dismissal + re-presentation of the SAME instance re-runs didMove
+        // and disarms a fresh arming too (spec: leaving the scene disarms).
+        // presentScene attaches the view so repeatDidMove really re-runs.
+        let size = CGSize(width: 393, height: 852)
+        let retained = KingdomScene(
+            size: size,
+            store: store,
+            router: router,
+            safeAreaInsetsOverride: BattleChromeLayout.SafeAreaInsets(
+                top: 59, left: 0, bottom: 34, right: 0
+            )
+        )
+        let retainedView = SKView(frame: CGRect(origin: .zero, size: size))
+        retainedView.presentScene(retained)
+        selectAscend(retained)
+        retained.handleTouchForTesting(
+            at: try #require(retained.ascendPrimaryActionHitFrameForTesting()).center
+        )
+        #expect(retained.isAscendConfirmationArmedForTesting)
+        retained.repeatDidMoveForTesting()
+        #expect(!retained.isAscendConfirmationArmedForTesting)
+        #expect(retained.ascendActionTextForTesting == "Ascend")
+    }
+
+    @Test("The unlock requirement renders visibly and fits at the compact sizes")
+    func ascendRequirementLabelFitsAtCompactSizes() throws {
+        for width in [CGFloat(264), 320] {
+            let scene = makeScene(
+                size: CGSize(width: width, height: 454),
+                store: try makeStore(initialState: KingdomGameState(
+                    gold: 100,
+                    cityNumberInCountry: 3,
+                    completedCityCount: 2,
+                    stageStatus: .battleActive
+                )),
+                safeAreaInsets: .zero
+            )
+            selectAscend(scene)
+            let layout = try #require(scene.kingdomLayoutForTesting)
+            let label = try #require(scene.ascendRequirementLabelNodeForTesting)
+
+            #expect(!label.isHidden)
+            #expect(label.text == "Requires Country 1 complete")
+            // Measured fit at the 9pt floor: the rendered text stays
+            // inside its reserved box's width.
+            #expect(label.fontSize >= 9)
+            let parent = try #require(label.parent)
+            let rendered = parent.convert(label.frame, to: scene)
+            #expect(rendered.minX >= layout.ascendRequirementLabelFrame.minX)
+            #expect(rendered.maxX <= layout.ascendRequirementLabelFrame.maxX)
+        }
+    }
+
     @Test("A confirm whose re-read store state is ineligible changes nothing")
     func confirmReReadsLatestStoreAndRespectsIneligibility() throws {
         let store = try makeStore(initialState: makeCountryCompleteState(ascensionCount: 1))
@@ -2000,6 +2078,8 @@ struct KingdomSceneTests {
         scene.handleTouchForTesting(at: layout.tabHitFrames[mapIndex].center)
         #expect(router.requestedTabs == [.map])
         #expect(store.load().ascensionCount == 0)
+        // The accepted exit also disarms the transient confirmation.
+        #expect(!scene.isAscendConfirmationArmedForTesting)
     }
 
     @Test("Ascend UI hides on unsupported geometry and recovers with its section")
@@ -2070,8 +2150,34 @@ struct KingdomSceneTests {
 
         let info = try element("kingdom-ascend-info", in: lockedView)
         #expect(info.accessibilityValue?.contains("Renown bonus +0% → +25%") == true)
-        #expect(info.accessibilityValue?.contains("Resets") == true)
-        #expect(info.accessibilityValue?.contains("Keeps") == true)
+        // VoiceOver reads the SAME complete reset/keep matrix — every
+        // required fact, asserted independently of the scene constants.
+        let valueParts = (info.accessibilityValue ?? "")
+            .components(separatedBy: ". ")
+        #expect(valueParts.count == 3)
+        if valueParts.count == 3 {
+            expectCompleteResetKeepDisclosure(
+                resets: valueParts[1],
+                keeps: valueParts[2]
+            )
+        }
+        // Touch exploration over every visible summary line — including
+        // the Keeps text and the visible requirement line — must land
+        // inside the element that reads it (unit-test views have no
+        // window, so the adapter keeps view-local flipped-Y frames).
+        let lockedLayout = try #require(lockedScene.kingdomLayoutForTesting)
+        for summaryFrame in [
+            lockedLayout.ascendKeepsLabelFrame,
+            lockedLayout.ascendRequirementLabelFrame
+        ] {
+            let screenFrame = CGRect(
+                x: summaryFrame.minX,
+                y: lockedView.bounds.height - summaryFrame.maxY,
+                width: summaryFrame.width,
+                height: summaryFrame.height
+            )
+            #expect(info.accessibilityFrame.contains(screenFrame))
+        }
         let lockedAction = try element("kingdom-ascend-action", in: lockedView)
         #expect(lockedAction.accessibilityTraits.contains(.notEnabled))
         #expect(lockedAction.accessibilityValue?.contains("Country 1 complete") == true)
@@ -2142,6 +2248,26 @@ struct KingdomSceneTests {
     private func selectArmory(_ scene: KingdomScene) {
         let hit = try? scene.armorySelectorHitFrameForTesting()
         scene.handleTouchForTesting(at: CGPoint(x: hit?.midX ?? 0, y: hit?.midY ?? 0))
+    }
+
+    /// The spec's reset/keep matrix as independent required facts. The
+    /// disclosure (visible text and accessibility value alike) must state
+    /// each one — comparing rendered text with its own production
+    /// constants would prove nothing.
+    private func expectCompleteResetKeepDisclosure(resets: String, keeps: String) {
+        let resetFacts = [
+            "resets", "countr", "city", "building", "gold", "treasury"
+        ]
+        let keepFacts = [
+            "keeps", "equipment", "selection", "slot", "level",
+            "renown", "sound", "haptic"
+        ]
+        for fact in resetFacts {
+            #expect(resets.lowercased().contains(fact), "resets line missing: \(fact)")
+        }
+        for fact in keepFacts {
+            #expect(keeps.lowercased().contains(fact), "keeps line missing: \(fact)")
+        }
     }
 
     private func makeScene(

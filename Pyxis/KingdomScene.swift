@@ -87,6 +87,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let bonusLabel: SKLabelNode
         let resetsLabel: SKLabelNode
         let keepsLabel: SKLabelNode
+        let requirementLabel: SKLabelNode
         let primaryPanel: PanelNode
         let primaryLabel: SKLabelNode
         let cancelPanel: PanelNode
@@ -111,7 +112,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private var selectedSection: KingdomSection = .treasury
     /// HPA-672 two-tap Ascension confirmation: transient UI state only —
     /// never persisted, cleared by Cancel, a section change, commit,
-    /// rejection or scene reconstruction.
+    /// rejection, an accepted tab exit or scene dismissal/reconstruction.
     private var isAscendConfirmationArmed = false
 
     private let headerPanel = PanelNode(size: .zero)
@@ -209,6 +210,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     override func didMove(to view: SKView) {
         backgroundColor = SKColor(red: 0.07, green: 0.10, blue: 0.13, alpha: 1.0)
         state = store.load()
+        // (Re)presentation is a dismissal boundary: a scene that was
+        // dismissed while armed must not offer Confirm again without a
+        // fresh first tap. didMove's settle already redraws.
+        isAscendConfirmationArmed = false
 
         if !didBuildInterface {
             buildInterface()
@@ -331,6 +336,11 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             keepsLabel.zPosition = 1
             panel.addChild(keepsLabel)
 
+            let requirementLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+            configureLabel(requirementLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
+            requirementLabel.zPosition = 1
+            panel.addChild(requirementLabel)
+
             let primaryPanel = PanelNode(size: .zero)
             primaryPanel.name = NodeName.ascendPrimaryAction
             primaryPanel.zPosition = 2
@@ -358,6 +368,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 bonusLabel: bonusLabel,
                 resetsLabel: resetsLabel,
                 keepsLabel: keepsLabel,
+                requirementLabel: requirementLabel,
                 primaryPanel: primaryPanel,
                 primaryLabel: primaryLabel,
                 cancelPanel: cancelPanel,
@@ -717,10 +728,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             for (frame, label) in [
                 (layout.ascendBonusLabelFrame, ascend.bonusLabel),
                 (layout.ascendResetsLabelFrame, ascend.resetsLabel),
-                (layout.ascendKeepsLabelFrame, ascend.keepsLabel)
+                (layout.ascendKeepsLabelFrame, ascend.keepsLabel),
+                (layout.ascendRequirementLabelFrame, ascend.requirementLabel)
             ] {
+                // .center-aligned text anchored on each box's midline —
+                // the reserved frame is where the rendered text must sit.
                 label.position = CGPoint(
-                    x: frame.minX - panelCenter.x,
+                    x: frame.midX - panelCenter.x,
                     y: frame.midY - panelCenter.y
                 )
             }
@@ -1008,7 +1022,8 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     }
 
     /// HPA-672 Ascend content redraw: the inspectable summary (bonus,
-    /// resets, keeps) always renders; the action is disabled until the
+    /// resets, keeps and — while the action is locked — the visible
+    /// requirement) always renders; the action is disabled until the
     /// campaign is complete with no pending report, and relabels to
     /// "Confirm Ascension" while the two-tap confirmation is armed.
     private func redrawAscendContent() {
@@ -1016,9 +1031,17 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         ascend.bonusLabel.text = Self.ascendBonusText(for: state)
         ascend.resetsLabel.text = Self.ascendResetsText
         ascend.keepsLabel.text = Self.ascendKeepsText
+        // The locked action's requirement is visible text too, not just
+        // an accessibility value (the section is inspectable by sight).
+        let requirementText = isAscendActionEnabled
+            ? nil
+            : Self.ascendRequirementText(for: state)
+        ascend.requirementLabel.text = requirementText
+        ascend.requirementLabel.isHidden = requirementText == nil
         ascend.bonusLabel.fontSize = 15
         ascend.resetsLabel.fontSize = 13
         ascend.keepsLabel.fontSize = 13
+        ascend.requirementLabel.fontSize = 13
 
         let actionEnabled = isAscendActionEnabled
         let armed = isAscendConfirmationArmed
@@ -1036,6 +1059,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             )
             ascend.keepsLabel.shrinkFontSize(
                 toFitWidth: layout.ascendKeepsLabelFrame.width,
+                floor: 9
+            )
+            ascend.requirementLabel.shrinkFontSize(
+                toFitWidth: layout.ascendRequirementLabelFrame.width,
                 floor: 9
             )
             ascend.primaryPanel.apply(
@@ -1514,11 +1541,20 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         return "Renown bonus +\(current)% → +\(current + 25)%"
     }
 
-    /// The explicit Resets / Keeps preview (spec's reset-vs-permanent table).
-    static let ascendResetsText = "Resets: cities, gold, Treasury"
-    static let ascendKeepsText = "Keeps: equipment, gear levels, Renown"
+    /// The explicit Resets / Keeps preview (the spec's reset-vs-permanent
+    /// table, complete): country/city progress AND camp buildings
+    /// (cityBattleStates) reset; owned equipment, slot selections
+    /// (including deliberately empty slots), gear levels, the Renown count
+    /// and the sound/haptic preferences stay. Fitted visible labels may
+    /// degrade past the 9pt floor on the narrowest widths — VoiceOver's
+    /// value always keeps the complete text.
+    static let ascendResetsText =
+        "Resets: country/city progress, camp buildings, gold, Treasury"
+    static let ascendKeepsText =
+        "Keeps: equipment and slot selections, gear levels, Renown, sound and haptics"
 
-    /// Why the action is disabled, in the action's accessible value.
+    /// Why the action is disabled — shown as the content band's visible
+    /// requirement line and repeated in the action's accessible value.
     static func ascendRequirementText(for state: KingdomGameState) -> String {
         state.pendingBattleResult != nil
             ? "Confirm the final report first"
@@ -1563,6 +1599,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             redraw()
             return
         }
+        // Accepted exit: the player left the scene, so the transient
+        // Ascension confirmation must not survive in a retained instance.
+        isAscendConfirmationArmed = false
+        redraw()
     }
 
     /// Idle conquest that settled while the player was not looking (entry or
@@ -1951,9 +1991,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         info.accessibilityFrame = adapter.screenAccessibilityFrame(
             for: CGRect(
                 x: layout.ascendPanelFrame.minX,
-                y: layout.ascendKeepsLabelFrame.maxY,
+                y: layout.ascendRequirementLabelFrame.minY,
                 width: layout.ascendPanelFrame.width,
-                height: layout.ascendPanelFrame.maxY - layout.ascendKeepsLabelFrame.maxY
+                height: layout.ascendPanelFrame.maxY - layout.ascendRequirementLabelFrame.minY
             )
         ) ?? .zero
 
@@ -2037,6 +2077,7 @@ extension KingdomScene {
         let bonus: String
         let resets: String
         let keeps: String
+        let requirement: String?
     }
 
     var goldTextForTesting: String? { goldLabel.text }
@@ -2141,8 +2182,14 @@ extension KingdomScene {
         return AscendContentTextForTesting(
             bonus: ascend.bonusLabel.text ?? "",
             resets: ascend.resetsLabel.text ?? "",
-            keeps: ascend.keepsLabel.text ?? ""
+            keeps: ascend.keepsLabel.text ?? "",
+            requirement: ascend.requirementLabel.isHidden ? nil : ascend.requirementLabel.text
         )
+    }
+
+    var ascendRequirementLabelNodeForTesting: SKLabelNode? {
+        guard let label = ascendContent?.requirementLabel, !label.isHidden else { return nil }
+        return label
     }
 
     func armoryRowNodeForTesting(_ type: SoldierType) -> SKNode? {
