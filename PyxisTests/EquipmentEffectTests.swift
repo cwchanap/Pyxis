@@ -302,8 +302,15 @@ struct EquipmentEffectTests {
         var gearLevel: Int = 1
         /// HPA-672: the permanent Renown count folded into the first round.
         var ascensionCount: Int = 0
+        /// Fix round: an explicit city/lane pair for cells that must run at a
+        /// specific catalog city (an advantaged trait route). The pair must
+        /// reach `kind` first, like the kind-derived defaults below.
+        var explicitCityAndLane: (city: Int, lane: BattleLane)?
 
         var city: Int {
+            if let explicitCityAndLane {
+                return explicitCityAndLane.city
+            }
             switch kind {
             case .gate: return 1 // Willowford center route [gate, keep]
             case .keep: return 1 // Willowford right route [keep]
@@ -313,6 +320,9 @@ struct EquipmentEffectTests {
         }
 
         var lane: BattleLane {
+            if let explicitCityAndLane {
+                return explicitCityAndLane.lane
+            }
             switch kind {
             case .gate: return .center
             case .keep: return .right
@@ -326,7 +336,7 @@ struct EquipmentEffectTests {
 
         var description: String {
             let gear = equippedItemID.map { ", \($0) Lv\(gearLevel)" } ?? ", no gear"
-            return "\(soldierType) L\(level) vs \(kind)\(gear), renown \(ascensionCount)"
+            return "\(soldierType) L\(level) vs \(kind) at city \(city)\(gear), renown \(ascensionCount)"
         }
     }
 
@@ -677,28 +687,98 @@ struct EquipmentEffectTests {
 
     /// One low-level cell per trait stance where the two rounds plus Renown
     /// produce distinguishing integers — disadvantaged archer at Falconridge,
-    /// neutral infantry at Willowford, advantaged siege at Crownspire.
+    /// neutral infantry at Willowford, advantaged siege at Runewatch (the
+    /// arcaneWard trait favours siege and the centre route reaches the Keep
+    /// first). The catalog trait multiplier is asserted per cell before
+    /// parity, so the advantaged cell can never silently fall back to a
+    /// neutral city like the kind-derived default.
     @Test func renownParityCoversNeutralAdvantagedAndDisadvantagedTraits() throws {
-        let cells = [
-            ParityCell(
-                soldierType: .infantry, level: 1, kind: .gate,
-                equippedItemID: "c01-infantry-attack", gearLevel: 3, ascensionCount: 1
+        let cells: [(cell: ParityCell, expectedTraitMultiplier: Double)] = [
+            (
+                ParityCell(
+                    soldierType: .infantry, level: 1, kind: .gate,
+                    equippedItemID: "c01-infantry-attack", gearLevel: 3, ascensionCount: 1
+                ),
+                1.0 // Willowford standardWatch: neutral for infantry.
             ),
-            ParityCell(
-                soldierType: .archer, level: 1, kind: .arrowTower,
-                equippedItemID: "c04-archer-tower", gearLevel: 3, ascensionCount: 1
+            (
+                ParityCell(
+                    soldierType: .archer, level: 1, kind: .arrowTower,
+                    equippedItemID: "c04-archer-tower", gearLevel: 3, ascensionCount: 1
+                ),
+                0.80 // Falconridge arrowTower: archer is disadvantaged.
             ),
-            ParityCell(
-                soldierType: .siege, level: 1, kind: .keep,
-                equippedItemID: "c15-siege-keep", gearLevel: 3, ascensionCount: 1
+            (
+                ParityCell(
+                    soldierType: .siege, level: 1, kind: .keep,
+                    equippedItemID: "c15-siege-keep", gearLevel: 3, ascensionCount: 1,
+                    explicitCityAndLane: (city: 9, lane: .center) // Runewatch [keep]
+                ),
+                1.25 // Runewatch arcaneWard: siege is favoured.
             )
         ]
-        for cell in cells {
+        for entry in cells {
+            let cell = entry.cell
+            let trait = Country1CityCatalog.definition(for: cell.city).defenseTrait
+            #expect(
+                trait.damageMultiplier(for: cell.soldierType) == entry.expectedTraitMultiplier,
+                "\(cell): \(trait) must give \(cell.soldierType) ×\(entry.expectedTraitMultiplier)"
+            )
             try expectParity(for: cell) { armed in
                 let bonus = armed.equipmentSpecialistBonus(for: cell.soldierType)
                 let specialistMultiplier = bonus?.target == cell.kind ? bonus?.multiplier : 1
                 let role = cell.soldierType.objectiveDamageMultiplier(against: cell.kind)
                 return (role, specialistMultiplier ?? 1)
+            }
+        }
+    }
+
+    /// Fix round: a leveled specialist contributes no second-round bonus on
+    /// a NONmatching objective — Lv1/Lv2/Lv3 gear at both Renown counts.
+    /// The low integer level uses siege (the ×2 gate role makes any leak
+    /// change the integer); the mid-power cell uses archer L5. Each cell
+    /// pins the second round to the bare inherent role, and the leak guard
+    /// proves the cell could have detected an erroneous specialist fold.
+    @Test func leveledSpecialistAddsNoSecondRoundBonusOnNonMatchingObjectives() throws {
+        for ascensionCount in [0, 1] {
+            for gearLevel in [1, 2, 3] {
+                for base in [
+                    ParityCell(soldierType: .siege, level: 1, kind: .gate, equippedItemID: nil),
+                    ParityCell(soldierType: .archer, level: 5, kind: .gate, equippedItemID: nil)
+                ] {
+                    let cell = ParityCell(
+                        soldierType: base.soldierType,
+                        level: base.level,
+                        kind: base.kind,
+                        equippedItemID: Self.specialistItemID(for: base.soldierType),
+                        gearLevel: gearLevel,
+                        ascensionCount: ascensionCount
+                    )
+                    let armed = armedParityState(for: cell)
+                    let bonus = armed.equipmentSpecialistBonus(for: cell.soldierType)
+                    #expect(
+                        bonus?.target != cell.kind,
+                        "\(cell): the equipped specialist must not target this objective"
+                    )
+
+                    let power = armed.traitAdjustedSoldierAttackPower(
+                        for: cell.soldierType,
+                        level: cell.level
+                    )
+                    let role = cell.soldierType.objectiveDamageMultiplier(against: cell.kind)
+                    let clean = max(1, Int((Double(power) * role).rounded()))
+                    let withLeak = max(
+                        1,
+                        Int((Double(power) * role * (bonus?.multiplier ?? 1)).rounded())
+                    )
+                    #expect(
+                        clean != withLeak,
+                        "\(cell): leak guard — clean \(clean) vs leaked \(withLeak)"
+                    )
+
+                    #expect(try liveFirstHitDamage(for: cell) == clean, "\(cell) live")
+                    #expect(idleSettlementDamage(for: cell) == clean, "\(cell) idle")
+                }
             }
         }
     }
