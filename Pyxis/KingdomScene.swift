@@ -226,6 +226,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         settleIdleProgressOnEntry()
     }
 
+    override func willMove(from view: SKView) {
+        super.willMove(from: view)
+        // Dismissal clears the transient confirmation: a retained instance
+        // must not offer Confirm again without a fresh first tap.
+        isAscendConfirmationArmed = false
+    }
+
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         layoutInterface()
@@ -328,11 +335,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
             let resetsLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
             configureLabel(resetsLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
+            resetsLabel.numberOfLines = 0
             resetsLabel.zPosition = 1
             panel.addChild(resetsLabel)
 
             let keepsLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
             configureLabel(keepsLabel, fontSize: 13, color: GameUITheme.Color.textSecondary)
+            keepsLabel.numberOfLines = 0
             keepsLabel.zPosition = 1
             panel.addChild(keepsLabel)
 
@@ -1545,13 +1554,14 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// table, complete): country/city progress AND camp buildings
     /// (cityBattleStates) reset; owned equipment, slot selections
     /// (including deliberately empty slots), gear levels, the Renown count
-    /// and the sound/haptic preferences stay. Fitted visible labels may
-    /// degrade past the 9pt floor on the narrowest widths — VoiceOver's
-    /// value always keeps the complete text.
+    /// and the sound/haptic preferences stay. Each line wraps once at an
+    /// authored \n so every fact stays visibly legible at the compact
+    /// widths — the fitter shrinks to the 9pt floor on the widest line,
+    /// it never truncates a fact away.
     static let ascendResetsText =
-        "Resets: country/city progress, camp buildings, gold, Treasury"
+        "Resets: country/city progress,\ncamp buildings, gold, Treasury"
     static let ascendKeepsText =
-        "Keeps: equipment and slot selections, gear levels, Renown, sound and haptics"
+        "Keeps: equipment, slot selections (empty\nslots too), gear levels, Renown, sound, haptics"
 
     /// Why the action is disabled — shown as the content band's visible
     /// requirement line and repeated in the action's accessible value.
@@ -2189,6 +2199,16 @@ extension KingdomScene {
 
     var ascendRequirementLabelNodeForTesting: SKLabelNode? {
         guard let label = ascendContent?.requirementLabel, !label.isHidden else { return nil }
+        return label
+    }
+
+    var ascendResetsLabelNodeForTesting: SKLabelNode? {
+        guard let label = ascendContent?.resetsLabel, !label.isHidden else { return nil }
+        return label
+    }
+
+    var ascendKeepsLabelNodeForTesting: SKLabelNode? {
+        guard let label = ascendContent?.keepsLabel, !label.isHidden else { return nil }
         return label
     }
 
