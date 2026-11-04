@@ -1112,7 +1112,7 @@ struct KingdomSceneTests {
 
         let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
         #expect(infantry.line1 == "Infantry · Willowford Blade")
-        #expect(infantry.line2 == "Attack +15% (no gain yet) · Drops at City 6")
+        #expect(infantry.line2 == "Attack Lv 1 · +15% (no gain yet) · Drops at City 6")
 
         // Nothing equipped and the type still locked at City 1: the row
         // still announces the earliest drop.
@@ -1138,7 +1138,7 @@ struct KingdomSceneTests {
         )
         let specialistScene = makeScene(store: try makeStore(initialState: specialist))
         let archerTower = try #require(specialistScene.armoryRowTextForTesting(.archer))
-        #expect(archerTower.line2 == "vs Arrow Tower +40% (no gain yet) · Drops at City 2")
+        #expect(archerTower.line2 == "vs Arrow Tower Lv 1 · +40% (no gain yet) · Drops at City 2")
 
         #expect(!scene.isArmoryRowDimmedForTesting(.infantry))
         #expect(scene.isArmoryRowDimmedForTesting(.archer))
@@ -1311,7 +1311,62 @@ struct KingdomSceneTests {
         selectArmory(scene)
 
         let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
-        #expect(infantry.line2 == "Attack +15% · Drops at City 3")
+        #expect(infantry.line2 == "Attack Lv 1 · +15% · Drops at City 3")
+    }
+
+    @Test("Armory rows show the owned level and effective fractional percent")
+    func armoryRowsShowLevelAndEffectivePercent() throws {
+        // The blade at Lv2/Lv3 and the plate at Lv1: effect text reads the
+        // leveled effect through `equippedEffect(for:)` — +22.5% stays
+        // fractional, never rounding up to a claimed 23%.
+        let bladeScene = makeScene(store: try makeStore(initialState: KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 2]
+        )))
+        selectArmory(bladeScene)
+        let blade = try #require(bladeScene.armoryRowTextForTesting(.infantry))
+        #expect(blade.line2.contains("Attack Lv 2 · +22.5%"))
+        #expect(!blade.line2.contains("23%"))
+
+        var cappedState = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 3]
+        )
+        let ramScene = makeScene(store: try makeStore(initialState: cappedState))
+        selectArmory(ramScene)
+        let capped = try #require(ramScene.armoryRowTextForTesting(.infantry))
+        #expect(capped.line2.contains("Attack Lv 3 · +30%"))
+
+        _ = cappedState.equip(itemID: "c03-infantry-toughness")
+        let plateScene = makeScene(store: try makeStore(initialState: cappedState))
+        selectArmory(plateScene)
+        let plate = try #require(plateScene.armoryRowTextForTesting(.infantry))
+        #expect(plate.line2.contains("Max HP Lv 1 · +25%"))
+    }
+
+    @Test("Effect text formats every kind and level band with one decimal")
+    func equipmentEffectTextUsesMaxOneDecimalPercent() {
+        #expect(KingdomScene.equipmentEffectText(
+            for: EquipmentEffect.attackBonus(0.15).scaled(toLevel: 1), level: 1
+        ) == "Attack Lv 1 · +15%")
+        #expect(KingdomScene.equipmentEffectText(
+            for: EquipmentEffect.attackBonus(0.15).scaled(toLevel: 2), level: 2
+        ) == "Attack Lv 2 · +22.5%")
+        #expect(KingdomScene.equipmentEffectText(
+            for: EquipmentEffect.attackBonus(0.15).scaled(toLevel: 3), level: 3
+        ) == "Attack Lv 3 · +30%")
+        #expect(KingdomScene.equipmentEffectText(
+            for: EquipmentEffect.maxHPBonus(0.25).scaled(toLevel: 2), level: 2
+        ) == "Max HP Lv 2 · +37.5%")
+        #expect(KingdomScene.equipmentEffectText(
+            for: EquipmentEffect.specialistBonus(target: .arrowTower, fraction: 0.4)
+                .scaled(toLevel: 3),
+            level: 3
+        ) == "vs Arrow Tower Lv 3 · +80%")
     }
 
     @Test("Drill Yard example identifies equipped attack gear")
@@ -1518,6 +1573,35 @@ struct KingdomSceneTests {
         #expect(siegeRow.accessibilityTraits.contains(.notEnabled))
     }
 
+    @Test("Armory VoiceOver values carry the level and effective percent")
+    func armoryVoiceOverIncludesLevelAndEffectivePercent() throws {
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: KingdomGameState(
+                gold: 100,
+                ownedEquipmentIDs: ["c01-infantry-attack"],
+                equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+                equipmentLevelsByID: ["c01-infantry-attack": 2]
+            )),
+            safeAreaInsetsOverride: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+        selectArmory(scene)
+
+        let row = try #require(
+            (view.accessibilityElements as? [UIAccessibilityElement])?
+                .first { $0.accessibilityIdentifier == "kingdom-armory-row-infantry" }
+        )
+        // Complete value: item name, owned level and the effective
+        // fractional percent (never a rounded-up 23%).
+        #expect(row.accessibilityValue?.contains("Willowford Blade") == true)
+        #expect(row.accessibilityValue?.contains("Lv 2") == true)
+        #expect(row.accessibilityValue?.contains("+22.5%") == true)
+        #expect(row.accessibilityValue?.contains("23%") == false)
+    }
+
     @Test("Kingdom title shrinks to fit the narrowed header line at 320×454")
     func titleFitsNarrowedHeaderLine() throws {
         let store = try makeStore(initialState: makeGearOwningState())
@@ -1606,7 +1690,7 @@ struct KingdomSceneTests {
         )
         let archer = try #require(broadheadScene.armoryRowTextForTesting(.archer))
         #expect(archer.line1 == "Archer · Bramblegate Broadhead")
-        #expect(archer.line2 == "vs Arrow Tower +40% (no gain yet) · Drops at City 9")
+        #expect(archer.line2 == "vs Arrow Tower Lv 1 · +40% (no gain yet) · Drops at City 9")
     }
 
     @Test("Narrow Armory rows retain the full drop hint for VoiceOver")
@@ -1626,7 +1710,10 @@ struct KingdomSceneTests {
         selectArmory(scene)
 
         let labels = try #require(scene.armoryRowLabelNodesForTesting(.archer))
-        #expect(labels.line2.text == "vs Arrow Tower +40% (no gain yet) · City 9")
+        // At 264pt even the compacted hint overflows: the visible label
+        // drops the next-drop segment, keeping effect, level, percent and
+        // the no-gain disclosure legible.
+        #expect(labels.line2.text == "vs Arrow Tower Lv 1 · +40% (no gain yet)")
         let row = try #require(
             (view.accessibilityElements as? [UIAccessibilityElement])?
                 .first { $0.accessibilityIdentifier == "kingdom-armory-row-archer" }

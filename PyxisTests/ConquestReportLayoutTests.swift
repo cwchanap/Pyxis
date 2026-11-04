@@ -295,6 +295,18 @@ struct ConquestReportLayoutTests {
         }
     }
 
+    @Test("A gear line request at the smallest supported roomy fixture never fails compute")
+    func minimumSupportedFixtureKeepsGearLineFailOpen() throws {
+        // 375×667 is the smallest supported roomy report fixture: the
+        // level-aware gear line request keeps every required frame at its
+        // gearless base value (fail-open — the line can only be dropped).
+        let size = CGSize(width: 375, height: 667)
+        let base = try #require(makeLayout(size: size, tiles: 3, chips: 2))
+        let layout = try #require(makeLayout(size: size, tiles: 3, chips: 2, includesGearLine: true))
+        assertRequiredFramesMatchBase(layout, base)
+        _ = try #require(layout.gearLabelFrame)
+    }
+
     @Test("Requesting a gear line never changes success across supported fixtures")
     func gearLineNeverChangesSuccessAcrossSupportedFixtures() throws {
         for fixture in supportedFixtures {
