@@ -192,10 +192,19 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             state.stageStatus = .cityConqueredPendingMap
             return state
         case .mapCountryComplete:
-            var state = DevJumpState.make(city: KingdomGameState.firstCountryCityCount, campLevel: nil)
-            state.completedCityCount = KingdomGameState.firstCountryCityCount
-            state.stageStatus = .countryComplete
-            return state
+            // HPA-672 evidence seeding: the completed campaign also owns
+            // every catalog item at Lv1 (the first-full-completion shape)
+            // through the initializer, because ownership is
+            // `private(set)`. Only this branch is seeded; `.map` and
+            // `.mapPartial` stay gear-free.
+            return KingdomGameState(
+                gold: DevJumpState.gold,
+                countryNumber: 1,
+                cityNumberInCountry: KingdomGameState.firstCountryCityCount,
+                completedCityCount: KingdomGameState.firstCountryCityCount,
+                stageStatus: .countryComplete,
+                ownedEquipmentIDs: EquipmentCatalog.items.map(\.id)
+            )
         default:
             preconditionFailure("mapFixtureState supports map fixtures only")
         }
