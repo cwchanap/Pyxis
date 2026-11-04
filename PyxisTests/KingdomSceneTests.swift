@@ -21,7 +21,6 @@ struct KingdomSceneTests {
         let store = try makeStore(initialState: KingdomGameState(gold: 123))
         let scene = makeScene(store: store)
 
-        #expect(scene.titleTextForTesting == "Kingdom")
         #expect(scene.goldTextForTesting
             == "Gold " + CompactNumberFormatter.string(from: 123))
     }
@@ -123,20 +122,6 @@ struct KingdomSceneTests {
             #expect(
                 layout.goldFrame.contains(goldParent.convert(goldLabel.frame, to: scene)),
                 "gold label outside header gold frame at \(sceneSize)"
-            )
-
-            let titleLabel = scene.titleLabelNodeForTesting
-            let titleParent = try #require(titleLabel.parent)
-            let titleSceneFrame = titleParent.convert(titleLabel.frame, to: scene)
-            #expect(
-                layout.titleFrame.contains(titleSceneFrame),
-                "title label outside header title frame at \(sceneSize)"
-            )
-            // The title is center-aligned inside titleFrame — its midpoint
-            // must land on the frame's, not the header panel's center.
-            #expect(
-                abs(titleSceneFrame.midX - layout.titleFrame.midX) < 1,
-                "title label not centered in title frame at \(sceneSize)"
             )
 
             for (index, upgrade) in TreasuryUpgrade.allCases.enumerated() {
@@ -886,22 +871,6 @@ struct KingdomSceneTests {
         #expect(scene.kingdomLayoutForTesting == nil)
     }
 
-    @Test("Touches in the future-section gap buy nothing and route nowhere")
-    func futureSectionTouchIsIgnored() throws {
-        let store = try makeStore(initialState: KingdomGameState(gold: 100))
-        let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-        let layout = try #require(scene.kingdomLayoutForTesting)
-
-        scene.handleTouchForTesting(at: CGPoint(
-            x: layout.futureSectionFrame.midX,
-            y: layout.futureSectionFrame.midY
-        ))
-
-        #expect(router.requestedTabs.isEmpty)
-        #expect(store.load().treasury == TreasuryState())
-    }
-
     @Test("An empty touch set ends without routing or purchasing")
     func touchesEndedWithEmptySetIsIgnored() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 100))
@@ -1292,7 +1261,7 @@ struct KingdomSceneTests {
 
     @Test("KingdomSection enumerates every section exactly once")
     func kingdomSectionAllCasesCoversSections() {
-        #expect(KingdomSection.allCases == [.treasury, .armory])
+        #expect(KingdomSection.allCases == [.treasury, .armory, .ascend])
     }
 
     @Test("Armory drops the no-gain note once the bonus survives rounding")
@@ -1602,21 +1571,31 @@ struct KingdomSceneTests {
         #expect(row.accessibilityValue?.contains("23%") == false)
     }
 
-    @Test("Kingdom title shrinks to fit the narrowed header line at 320×454")
-    func titleFitsNarrowedHeaderLine() throws {
-        let store = try makeStore(initialState: makeGearOwningState())
-        let scene = makeScene(
-            size: CGSize(width: 320, height: 454),
-            store: store,
-            safeAreaInsets: .zero
-        )
-        let layout = try #require(scene.kingdomLayoutForTesting)
+    @Test("Selector labels fit at or above the 9pt floor at both boundary widths")
+    func selectorLabelsFitAboveFloorAtBoundaries() throws {
+        for width in [CGFloat(264), 320, 393] {
+            let store = try makeStore(initialState: makeGearOwningState())
+            let scene = makeScene(
+                size: CGSize(width: width, height: 454),
+                store: store,
+                safeAreaInsets: .zero
+            )
+            let layout = try #require(scene.kingdomLayoutForTesting)
 
-        let titleLabel = scene.titleLabelNodeForTesting
-        let parent = try #require(titleLabel.parent)
-        #expect(layout.titleFrame.contains(parent.convert(titleLabel.frame, to: scene)))
-        #expect(titleLabel.fontSize < 26)
-        #expect(scene.titleTextForTesting == "Kingdom")
+            for (section, frame) in [
+                (KingdomSection.treasury, layout.treasurySelectorFrame),
+                (KingdomSection.armory, layout.armorySelectorFrame),
+                (KingdomSection.ascend, layout.ascendSelectorFrame)
+            ] {
+                let label = try #require(scene.sectionSelectorLabelForTesting(section))
+                #expect(label.fontSize >= 9, "\(section) below 9pt at \(width)")
+                let parent = try #require(label.parent)
+                #expect(
+                    frame.contains(parent.convert(label.frame, to: scene)),
+                    "\(section) label outside its selector frame at \(width)"
+                )
+            }
+        }
     }
 
     @Test(
@@ -1719,6 +1698,413 @@ struct KingdomSceneTests {
                 .first { $0.accessibilityIdentifier == "kingdom-armory-row-archer" }
         )
         #expect(row.accessibilityValue?.contains("Drops at City 9") == true)
+    }
+
+    // MARK: - HPA-672 Ascend section
+
+    /// Country 1 complete with permanent gear: the one eligible shape.
+    private func makeCountryCompleteState(ascensionCount: Int = 0) -> KingdomGameState {
+        KingdomGameState(
+            gold: 500,
+            completedCityCount: KingdomGameState.firstCountryCityCount,
+            stageStatus: .countryComplete,
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 2],
+            ascensionCount: ascensionCount
+        )
+    }
+
+    private func selectAscend(_ scene: KingdomScene) {
+        let hit = try? scene.ascendSelectorHitFrameForTesting()
+        scene.handleTouchForTesting(at: CGPoint(x: hit?.midX ?? 0, y: hit?.midY ?? 0))
+    }
+
+    @Test("Ascend section shows renown header, bonus and reset/keep preview")
+    func ascendSectionShowsContent() throws {
+        let suiteName = "PyxisTests.\(UUID().uuidString)"
+        let defaults = try #require(
+            CountingUserDefaults(suiteName: suiteName, countedKey: "state")
+        )
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        store.save(makeCountryCompleteState(ascensionCount: 2))
+        let scene = makeScene(store: store)
+        defaults.resetStateSaveCount()
+
+        // Count > 0: the two-label bottom header shows "Renown 2 · +50%".
+        #expect(scene.renownTextForTesting == "Renown 2 · +50%")
+        #expect(scene.selectedSectionForTesting == .treasury)
+
+        selectAscend(scene)
+        #expect(scene.selectedSectionForTesting == .ascend)
+        #expect(defaults.stateSaveCount == 0)
+
+        let content = try #require(scene.ascendContentTextForTesting())
+        #expect(content.bonus == "Renown bonus +50% → +75%")
+        #expect(content.resets == KingdomScene.ascendResetsText)
+        #expect(content.keeps == KingdomScene.ascendKeepsText)
+
+        // The section shares the band: only the selected section shows.
+        #expect(scene.treasuryRowNodeForTesting(.warChest)?.isHidden == true)
+        #expect(scene.armoryRowNodeForTesting(.mage)?.isHidden == true)
+        #expect(scene.ascendPanelNodeForTesting?.isHidden == false)
+        #expect(scene.ascendActionTextForTesting == "Ascend")
+        #expect(scene.isAscendActionEnabledForTesting)
+
+        // Zero count: gold-only header (spec), bonus still starts at +0%.
+        let freshScene = makeScene(store: try makeStore(initialState: makeCountryCompleteState()))
+        #expect(freshScene.renownTextForTesting == nil)
+        #expect(KingdomScene.ascendBonusText(for: makeCountryCompleteState())
+            == "Renown bonus +0% → +25%")
+    }
+
+    @Test("Gold and Renown header labels fit together at both boundary widths")
+    func renownAndGoldLabelsFitTogether() throws {
+        for width in [CGFloat(264), 320] {
+            let scene = makeScene(
+                size: CGSize(width: width, height: 454),
+                store: try makeStore(initialState: makeCountryCompleteState(ascensionCount: 2)),
+                safeAreaInsets: .zero
+            )
+            let layout = try #require(scene.kingdomLayoutForTesting)
+
+            let renown = scene.renownLabelNodeForTesting
+            #expect(!renown.isHidden)
+            #expect(renown.fontSize >= 10)
+            let renownParent = try #require(renown.parent)
+            #expect(layout.renownFrame.contains(
+                renownParent.convert(renown.frame, to: scene)
+            ))
+
+            // The fitted gold label keeps clear of the renown box.
+            let gold = scene.goldLabelNodeForTesting
+            #expect(gold.fontSize >= 10)
+            let goldParent = try #require(gold.parent)
+            let goldFrame = goldParent.convert(gold.frame, to: scene)
+            #expect(goldFrame.maxX <= layout.renownFrame.minX - 8)
+            #expect(layout.goldFrame.contains(goldFrame))
+        }
+    }
+
+    @Test("Ascend action is disabled mid-campaign and its taps change nothing")
+    func ascendActionDisabledBeforeCompletion() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        ))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectAscend(scene)
+
+        // Inspectable but locked: the bonus still renders.
+        let content = try #require(scene.ascendContentTextForTesting())
+        #expect(content.bonus == "Renown bonus +0% → +25%")
+        #expect(!scene.isAscendActionEnabledForTesting)
+
+        let hit = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+        scene.handleTouchForTesting(at: hit.center)
+
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        #expect(router.requestedTabs.isEmpty)
+        #expect(store.load().ascensionCount == 0)
+        #expect(store.load().gold == 100)
+    }
+
+    @Test("A pending final report keeps Ascension disabled")
+    func pendingFinalReportKeepsAscensionDisabled() throws {
+        var state = makeCountryCompleteState()
+        state.pendingBattleResult = BattleResult(
+            cityKey: CityKey(countryNumber: 1, cityNumber: 15),
+            conquestMode: .live,
+            activeBattleSeconds: 60,
+            deployments: [],
+            appliedDamage: [],
+            losses: [],
+            idleDamageByType: [],
+            mvpSoldierType: nil,
+            mvpDamageSharePercent: nil,
+            usedFavorableUnit: false,
+            usedExposedLane: false,
+            goldEarned: 10
+        )
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectAscend(scene)
+
+        #expect(!scene.isAscendActionEnabledForTesting)
+        scene.handleTouchForTesting(
+            at: try #require(scene.ascendPrimaryActionHitFrameForTesting()).center
+        )
+
+        // The awaiting report is never acknowledged or discarded.
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        #expect(store.load().pendingBattleResult != nil)
+        #expect(store.load().ascensionCount == 0)
+        #expect(router.requestedTabs.isEmpty)
+    }
+
+    @Test("Two-tap Ascension confirms, saves once and routes to Battle")
+    func ascendTwoTapConfirmCommitsOnce() throws {
+        let suiteName = "PyxisTests.\(UUID().uuidString)"
+        let defaults = try #require(
+            CountingUserDefaults(suiteName: suiteName, countedKey: "state")
+        )
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = KingdomGameStore(defaults: defaults, key: "state")
+        var state = makeCountryCompleteState(ascensionCount: 1)
+        state.treasury.setLevel(2, for: .warChest)
+        store.save(state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        defaults.resetStateSaveCount()
+        selectAscend(scene)
+
+        let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+
+        // First tap only arms the in-scene confirmation.
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+        #expect(scene.ascendActionTextForTesting == "Confirm Ascension")
+        #expect(defaults.stateSaveCount == 0)
+        #expect(router.requestedTabs.isEmpty)
+
+        // The Cancel target exists and is distinct from Confirm.
+        let cancel = try #require(scene.ascendCancelHitFrameForTesting())
+        #expect(!cancel.intersects(action))
+
+        // The distinct Confirm Ascension tap commits once.
+        scene.handleTouchForTesting(at: action.center)
+        let saved = store.load()
+        #expect(saved.ascensionCount == 2)
+        #expect(saved.gold == 0)
+        #expect(saved.cityNumberInCountry == 1)
+        #expect(saved.completedCityCount == 0)
+        #expect(saved.stageStatus == .battleActive)
+        #expect(saved.treasury == TreasuryState())
+        #expect(saved.ownedEquipmentIDs == ["c01-infantry-attack", "c03-infantry-toughness"])
+        #expect(saved.equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
+        #expect(saved.equipmentLevel(for: "c01-infantry-attack") == 2)
+        #expect(defaults.stateSaveCount == 1)
+        #expect(router.requestedTabs == [.battle])
+        #expect(scene.isRoutingToBattleForTesting)
+
+        // Repeated taps after the commit change nothing.
+        scene.handleTouchForTesting(at: action.center)
+        #expect(defaults.stateSaveCount == 1)
+        #expect(router.requestedTabs == [.battle])
+        #expect(store.load().ascensionCount == 2)
+    }
+
+    @Test("Cancel, section change and reconstruction disarm the confirmation")
+    func cancelSectionChangeAndReconstructionDisarm() throws {
+        let store = try makeStore(initialState: makeCountryCompleteState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectAscend(scene)
+        let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+
+        scene.handleTouchForTesting(
+            at: try #require(scene.ascendCancelHitFrameForTesting()).center
+        )
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        #expect(scene.ascendActionTextForTesting == "Ascend")
+        #expect(store.load().ascensionCount == 0)
+
+        // A section change disarms without saving.
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+        scene.handleTouchForTesting(
+            at: try #require(scene.treasurySelectorHitFrameForTesting()).center
+        )
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        #expect(store.load().ascensionCount == 0)
+
+        // Reconstruction starts disarmed (the arming is transient).
+        let rebuilt = makeScene(store: store, router: router)
+        #expect(!rebuilt.isAscendConfirmationArmedForTesting)
+    }
+
+    @Test("A confirm whose re-read store state is ineligible changes nothing")
+    func confirmReReadsLatestStoreAndRespectsIneligibility() throws {
+        let store = try makeStore(initialState: makeCountryCompleteState(ascensionCount: 1))
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectAscend(scene)
+        let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+
+        // Another surface overwrites the save mid-confirmation with a
+        // mid-campaign state: the commit's re-read must reject it.
+        store.save(KingdomGameState(
+            gold: 7,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        ))
+        scene.handleTouchForTesting(at: action.center)
+
+        #expect(store.load().ascensionCount == 0)
+        #expect(store.load().gold == 7)
+        #expect(router.requestedTabs.isEmpty)
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+    }
+
+    @Test("Ascend icon prefers ascension-renown art with a vector fallback")
+    func ascendIconArtAndFallback() throws {
+        let artScene = makeScene(
+            store: try makeStore(initialState: makeCountryCompleteState()),
+            imageLoader: { $0 == "ascension-renown" ? UIImage(systemName: "star.fill") : nil }
+        )
+        selectAscend(artScene)
+        #expect(artScene.ascendIconNodeForTesting is SKSpriteNode)
+
+        let fallbackScene = makeScene(
+            store: try makeStore(initialState: makeCountryCompleteState()),
+            imageLoader: { _ in nil }
+        )
+        #expect(fallbackScene.ascendIconNodeForTesting is SKShapeNode)
+    }
+
+    @Test("Ascend Confirm/Cancel stay isolated from the tab bar and Settings")
+    func ascendHitTargetsStayIsolated() throws {
+        let store = try makeStore(initialState: makeCountryCompleteState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        selectAscend(scene)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+
+        let primary = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+        // Scene y grows upward: the band sits ABOVE the bottom tab bar.
+        #expect(primary.minY >= layout.tabBarFrame.maxY)
+        #expect(!primary.intersects(layout.settingsFrame))
+
+        // A Settings tap never arms or confirms Ascension.
+        scene.handleTouchForTesting(at: layout.settingsFrame.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        scene.activateFeedbackSettingsForTesting(.close)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+
+        // A tab-bar tap while armed routes the exit and never commits.
+        scene.handleTouchForTesting(at: primary.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+        let mapIndex = try #require(GameplayTab.allCases.firstIndex(of: .map))
+        scene.handleTouchForTesting(at: layout.tabHitFrames[mapIndex].center)
+        #expect(router.requestedTabs == [.map])
+        #expect(store.load().ascensionCount == 0)
+    }
+
+    @Test("Ascend UI hides on unsupported geometry and recovers with its section")
+    func ascendHidesOnUnsupportedGeometryAndRecovers() throws {
+        let store = try makeStore(initialState: makeCountryCompleteState())
+        let scene = makeScene(store: store)
+        selectAscend(scene)
+
+        scene.size = CGSize(width: 320, height: 330)
+        #expect(scene.isTreasuryFitFailedForTesting)
+        #expect(scene.headerNodeForTesting?.isHidden == true)
+        #expect(scene.ascendPanelNodeForTesting?.isHidden == true)
+
+        scene.size = CGSize(width: 393, height: 852)
+        #expect(!scene.isTreasuryFitFailedForTesting)
+        #expect(scene.headerNodeForTesting?.isHidden == false)
+        #expect(scene.selectedSectionForTesting == .ascend)
+        #expect(scene.ascendPanelNodeForTesting?.isHidden == false)
+        #expect(scene.treasuryRowNodeForTesting(.warChest)?.isHidden == true)
+    }
+
+    @Test("VoiceOver exposes the Ascend section, action state and reset/keep values")
+    func accessibilityExposesAscendSection() throws {
+        let size = CGSize(width: 393, height: 852)
+        let insets = BattleChromeLayout.SafeAreaInsets(top: 59, left: 0, bottom: 34, right: 0)
+
+        struct Exposed {
+            let scene: KingdomScene
+            let view: SKView
+            let store: KingdomGameStore
+            // The scene's router reference is weak — the test must retain
+            // the spy or the commit's route request silently targets nil.
+            let router: RouteSpy
+        }
+        func makeExposedScene(state: KingdomGameState) throws -> Exposed {
+            let store = try makeStore(initialState: state)
+            let router = RouteSpy()
+            let scene = KingdomScene(
+                size: size,
+                store: store,
+                router: router,
+                safeAreaInsetsOverride: insets
+            )
+            let view = SKView(frame: CGRect(origin: .zero, size: size))
+            scene.didMove(to: view)
+            return Exposed(scene: scene, view: view, store: store, router: router)
+        }
+
+        func element(_ identifier: String, in view: SKView) throws -> UIAccessibilityElement {
+            try #require(
+                (view.accessibilityElements as? [UIAccessibilityElement])?
+                    .first { $0.accessibilityIdentifier == identifier }
+            )
+        }
+
+        // Mid-campaign: the section is exposed, the action disabled.
+        let locked = try makeExposedScene(state: KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: 3,
+            completedCityCount: 2,
+            stageStatus: .battleActive
+        ))
+        let lockedScene = locked.scene
+        let lockedView = locked.view
+        let lockedSection = try element("kingdom-section-ascend", in: lockedView)
+        #expect(lockedSection.accessibilityActivate())
+        #expect(lockedScene.selectedSectionForTesting == .ascend)
+
+        let info = try element("kingdom-ascend-info", in: lockedView)
+        #expect(info.accessibilityValue?.contains("Renown bonus +0% → +25%") == true)
+        #expect(info.accessibilityValue?.contains("Resets") == true)
+        #expect(info.accessibilityValue?.contains("Keeps") == true)
+        let lockedAction = try element("kingdom-ascend-action", in: lockedView)
+        #expect(lockedAction.accessibilityTraits.contains(.notEnabled))
+        #expect(lockedAction.accessibilityValue?.contains("Country 1 complete") == true)
+        // A disabled activation changes nothing.
+        #expect(lockedAction.accessibilityActivate())
+        #expect(!lockedScene.isAscendConfirmationArmedForTesting)
+
+        // Complete: the same element arms, exposes Cancel, then commits.
+        let exposed = try makeExposedScene(state: makeCountryCompleteState(ascensionCount: 1))
+        let scene = exposed.scene
+        let view = exposed.view
+        let store = exposed.store
+        let router = exposed.router
+        let section = try element("kingdom-section-ascend", in: view)
+        #expect(section.accessibilityActivate())
+
+        let action = try element("kingdom-ascend-action", in: view)
+        #expect(action.accessibilityLabel == "Ascend")
+        #expect(!action.accessibilityTraits.contains(.notEnabled))
+        #expect(action.accessibilityActivate())
+        #expect(scene.isAscendConfirmationArmedForTesting)
+        #expect(action.accessibilityLabel == "Confirm Ascension")
+
+        let cancel = try element("kingdom-ascend-cancel", in: view)
+        #expect(cancel.accessibilityActivate())
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+
+        #expect(action.accessibilityActivate())
+        #expect(action.accessibilityActivate())
+        #expect(scene.isRoutingToBattleForTesting)
+        #expect(router.requestedTabs == [.battle])
+        #expect(store.load().ascensionCount == 2)
+        #expect(store.load().stageStatus == .battleActive)
     }
 
     // MARK: - Helpers
