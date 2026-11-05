@@ -375,9 +375,8 @@ final class PyxisUITests: XCTestCase {
 
         // Map → Kingdom: the post-ascension bottom header reads the Renown
         // summary (rendered only while ascensionCount > 0), and the Armory
-        // infantry row reads its effective Lv 2 effect line once equipped —
-        // the seeded fixture owns every item but equips nothing, and the
-        // whole-row tap cycles None → owned items.
+        // infantry row reflects its leveled Lv 2 blade already equipped —
+        // matching a real run where the first-earned drop was auto-equipped.
         tap(app, at: kingdomTabPoint(mapTabGeometry: frame))
         let renown = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", "Renown 1 · +25%"))
@@ -387,20 +386,19 @@ final class PyxisUITests: XCTestCase {
             "The Renown header is missing after ascension."
         )
         tapCenter(of: topmostElement(labeled: "Armory", in: app), in: app)
-        let unequippedRow = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "Infantry · None"))
+        let equippedRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Infantry · Willowford Blade"))
             .firstMatch
         XCTAssertTrue(
-            unequippedRow.waitForExistence(timeout: 5),
+            equippedRow.waitForExistence(timeout: 5),
             "The Armory did not present the City 1 infantry row."
         )
-        tapCenter(of: unequippedRow, in: app)
         let infantryLv2 = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH %@", "Attack Lv 2"))
             .firstMatch
         XCTAssertTrue(
             infantryLv2.waitForExistence(timeout: 5),
-            "Equipping the leveled City 1 blade did not read its Lv 2 effect."
+            "The leveled City 1 blade did not read its Lv 2 effect."
         )
         add(screenshotAttachment(for: app, name: "hpa672-05-kingdom-renown-armory-lv2"))
 
