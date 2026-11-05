@@ -117,6 +117,44 @@ struct KingdomAscensionStateTests {
         #expect(state.equipmentLevelsByID == ["c01-infantry-attack": 3])
     }
 
+    @Test func hugePersistedCountClampsToTheDecodeSafetyBound() throws {
+        // A corrupt count must never reach the Int-overflow roundings in
+        // the gold quote, the attack fold, the header percent or
+        // `ascensionCount + 1` — the bound keeps every seam finite.
+        let data = Data("""
+        {
+          "gold": 40,
+          "stageStatus": "countryComplete",
+          "ascensionCount": 9223372036854775807
+        }
+        """.utf8)
+
+        let state = try JSONDecoder().decode(KingdomGameState.self, from: data)
+
+        #expect(state.ascensionCount == KingdomGameState.maximumAscensionCount)
+        #expect(state.goldReward(forCity: 1) > 0)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1) > 0)
+        #expect(state.renownMultiplier == 1.0 + 0.25 * 1_000)
+
+        // Same bound through the memberwise init.
+        #expect(KingdomGameState(ascensionCount: Int.max).ascensionCount
+            == KingdomGameState.maximumAscensionCount)
+    }
+
+    @Test func ascendAtTheBoundSaturatesInsteadOfTrapping() {
+        var state = KingdomGameState(
+            completedCityCount: KingdomGameState.firstCountryCityCount,
+            stageStatus: .countryComplete,
+            ascensionCount: KingdomGameState.maximumAscensionCount
+        )
+
+        #expect(state.ascend() == .ascended(newCount: KingdomGameState.maximumAscensionCount))
+        #expect(state.ascensionCount == KingdomGameState.maximumAscensionCount)
+        // The reset still ran — the count saturates, the run restarts.
+        #expect(state.stageStatus == .battleActive)
+        #expect(state.cityNumberInCountry == 1)
+    }
+
     // MARK: - Ascension eligibility gates
 
     @Test func ascendRejectsMidCampaignStagesAsExactNoOp() {

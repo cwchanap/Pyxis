@@ -400,7 +400,11 @@ struct BattleResult: Codable, Equatable {
             usedFavorableUnit: try container.decode(Bool.self, forKey: .usedFavorableUnit),
             usedExposedLane: try container.decode(Bool.self, forKey: .usedExposedLane),
             goldEarned: try container.decode(Int.self, forKey: .goldEarned),
-            equipmentReward: try container.decodeIfPresent(EquipmentReward.self, forKey: .equipmentReward)
+            // The gear receipt fails open: a malformed receipt drops only
+            // the receipt — the conquest report itself still loads.
+            equipmentReward: (
+                try? container.decodeIfPresent(EquipmentReward.self, forKey: .equipmentReward)
+            ) ?? nil
         )
     }
 

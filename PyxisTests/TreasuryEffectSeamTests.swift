@@ -458,10 +458,8 @@ struct TreasuryEffectSeamTests {
     @Test("Zero Renown gold quote is bit-identical to the War Chest seam; every count scales it")
     func zeroRenownGoldQuoteIdentityAndScaling() {
         let zero = KingdomGameState()
-        var one = zero
-        one.ascensionCount = 1
-        var two = zero
-        two.ascensionCount = 2
+        let one = KingdomGameState(ascensionCount: 1)
+        let two = KingdomGameState(ascensionCount: 2)
 
         for city in Country1CityCatalog.cityRange {
             let base = KingdomGameState.baseGoldReward(for: city)
@@ -511,10 +509,13 @@ struct TreasuryEffectSeamTests {
     @Test("A Renown-1 spawn prices identically on the live and idle paths")
     func renownSpawnMatchesAcrossLiveAndIdle() {
         func singleSpawnIdleDamage(ascensionCount: Int) -> Int {
-            var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+            var state = SiegeTestSupport.makeBattleState(
+                atCity: 1,
+                keepRemaining: 100_000,
+                ascensionCount: ascensionCount
+            )
             SiegeTestSupport.destroySupportObjectives(of: &state)
             state.siegeProgress.guardReinforcements = nil
-            state.ascensionCount = ascensionCount
 
             let key = state.currentCityKey
             var cityState = state.cityBattleState(for: key)
@@ -529,8 +530,11 @@ struct TreasuryEffectSeamTests {
         // One level-5 infantry spawn: base 4 × 1.25 = 5 on both paths. The
         // live-spawn parity is the instance seam BattleScene passes into
         // spawnSoldier — same value the idle budget consumed.
-        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
-        state.ascensionCount = 1
+        let state = SiegeTestSupport.makeBattleState(
+            atCity: 1,
+            keepRemaining: 100_000,
+            ascensionCount: 1
+        )
         #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 5)
         #expect(singleSpawnIdleDamage(ascensionCount: 1) == 5)
         #expect(singleSpawnIdleDamage(ascensionCount: 0) == 4)
@@ -539,8 +543,12 @@ struct TreasuryEffectSeamTests {
     @Test("Renown never touches city HP, camp prices, spawn rates or soldier HP")
     func renownLeavesEveryOtherBalanceConstantAlone() {
         let zero = SiegeTestSupport.makeBattleState(atCity: 5, gold: 500, keepRemaining: 900)
-        var one = zero
-        one.ascensionCount = 1
+        let one = SiegeTestSupport.makeBattleState(
+            atCity: 5,
+            gold: 500,
+            keepRemaining: 900,
+            ascensionCount: 1
+        )
 
         #expect(one.cityMaxPower == zero.cityMaxPower)
         #expect(one.currentSiegeMaxPowers == zero.currentSiegeMaxPowers)

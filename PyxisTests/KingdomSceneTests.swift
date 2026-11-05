@@ -1357,6 +1357,45 @@ struct KingdomSceneTests {
             == "Infantry Lv 5 vs this city's trait:\n4 → 5 attack")
     }
 
+    @Test("Drill Yard example labels Renown whenever it folds into the numbers")
+    func drillYardExampleLabelsRenown() {
+        var state = KingdomGameState(
+            gold: 100,
+            cityBattleStates: [CityKey(
+                countryNumber: 1,
+                cityNumber: 1
+            ).storageKey: CityBattleState(
+                slots: [1: CityBuilding(type: .barracks, level: 5)]
+            )],
+            ascensionCount: 1
+        )
+        state.treasury.setLevel(1, for: .drillYard)
+
+        // Renown alone folds ×1.25 into the first-round seam — the label
+        // must credit it, not silently imply gear is the only modifier.
+        // Infantry Lv 5 = 4 × 1.05 × 1.25 = 5.25 → 5 at DY 1;
+        // 4 × 1.10 × 1.25 = 5.5 → 6 at DY 2 — a visible gain.
+        #expect(KingdomScene.drillYardExampleText(for: state)
+            == "Infantry Lv 5 + Renown, city trait:\n5 → 6 attack")
+
+        // Gear + Renown: both modifiers named in order.
+        state = KingdomGameState(
+            gold: 100,
+            cityBattleStates: [CityKey(
+                countryNumber: 1,
+                cityNumber: 1
+            ).storageKey: CityBattleState(
+                slots: [1: CityBuilding(type: .barracks, level: 5)]
+            )],
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            ascensionCount: 1
+        )
+        state.treasury.setLevel(2, for: .drillYard)
+        let combined = KingdomScene.drillYardExampleText(for: state)
+        #expect(combined.hasPrefix("Infantry Lv 5 + gear + Renown, city trait:\n"))
+    }
+
     @Test("Equipped Drill Yard example fits the narrow Treasury row")
     func equippedDrillYardExampleFitsNarrowRow() throws {
         let state = KingdomGameState(
@@ -1715,9 +1754,12 @@ struct KingdomSceneTests {
         )
     }
 
-    private func selectAscend(_ scene: KingdomScene) {
-        let hit = try? scene.ascendSelectorHitFrameForTesting()
-        scene.handleTouchForTesting(at: CGPoint(x: hit?.midX ?? 0, y: hit?.midY ?? 0))
+    /// Switches to the Ascend section exactly the way a player tap does —
+    /// and fails the test when the selector has no laid-out frame instead
+    /// of tapping the scene origin.
+    private func selectAscend(_ scene: KingdomScene) throws {
+        let hit = try #require(scene.ascendSelectorHitFrameForTesting())
+        scene.handleTouchForTesting(at: hit.center)
     }
 
     @Test("Ascend section shows renown header, bonus and reset/keep preview")
@@ -1736,7 +1778,7 @@ struct KingdomSceneTests {
         #expect(scene.renownTextForTesting == "Renown 2 · +50%")
         #expect(scene.selectedSectionForTesting == .treasury)
 
-        selectAscend(scene)
+        try selectAscend(scene)
         #expect(scene.selectedSectionForTesting == .ascend)
         #expect(defaults.stateSaveCount == 0)
 
@@ -1801,7 +1843,7 @@ struct KingdomSceneTests {
         ))
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
-        selectAscend(scene)
+        try selectAscend(scene)
 
         // Inspectable but locked: the bonus still renders.
         let content = try #require(scene.ascendContentTextForTesting())
@@ -1840,7 +1882,7 @@ struct KingdomSceneTests {
         let store = try makeStore(initialState: state)
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
-        selectAscend(scene)
+        try selectAscend(scene)
 
         #expect(!scene.isAscendActionEnabledForTesting)
         // The pending-report state names its own visible requirement.
@@ -1871,7 +1913,7 @@ struct KingdomSceneTests {
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
         defaults.resetStateSaveCount()
-        selectAscend(scene)
+        try selectAscend(scene)
 
         let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
 
@@ -1914,7 +1956,7 @@ struct KingdomSceneTests {
         let store = try makeStore(initialState: makeCountryCompleteState())
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
-        selectAscend(scene)
+        try selectAscend(scene)
         let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
 
         scene.handleTouchForTesting(at: action.center)
@@ -1941,17 +1983,92 @@ struct KingdomSceneTests {
         #expect(!rebuilt.isAscendConfirmationArmedForTesting)
     }
 
+    @Test("A layout-gate pause disarms and blocks the confirmation while paused")
+    func layoutGatePauseDisarmsAndBlocksAscension() throws {
+        let store = try makeStore(initialState: makeCountryCompleteState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        try selectAscend(scene)
+        let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+
+        // The gate pause itself disarms: an armed Confirm must not survive
+        // a pause that can outlast hours.
+        scene.layoutGateWillPause(at: Date())
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        #expect(scene.ascendActionTextForTesting == "Ascend")
+
+        // While paused the action is dead — no arm, no commit, no route.
+        scene.handleTouchForTesting(at: action.center)
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        #expect(store.load().ascensionCount == 0)
+        #expect(router.requestedTabs.isEmpty)
+
+        // Resuming restores a fresh first tap: one tap re-arms, it does
+        // not commit.
+        scene.layoutGateWillResume(at: Date())
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+        #expect(store.load().ascensionCount == 0)
+        #expect(router.requestedTabs.isEmpty)
+    }
+
+    @Test("System backgrounding disarms and a resumed scene needs a fresh first tap")
+    func backgroundDisarmsAscensionConfirmation() throws {
+        let store = try makeStore(initialState: makeCountryCompleteState())
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        try selectAscend(scene)
+        let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+
+        let t0 = Date()
+        scene.sceneDidEnterBackgroundForTesting(at: t0)
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+
+        // While backgrounded the action stays dead.
+        scene.handleTouchForTesting(at: action.center)
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        #expect(store.load().ascensionCount == 0)
+        #expect(router.requestedTabs.isEmpty)
+
+        // Foregrounding hours later: still disarmed, and the next tap only
+        // re-arms — a single resumed tap never finishes the wipe.
+        scene.sceneWillEnterForegroundForTesting(at: t0.addingTimeInterval(14_400))
+        #expect(!scene.isAscendConfirmationArmedForTesting)
+        scene.handleTouchForTesting(at: action.center)
+        #expect(scene.isAscendConfirmationArmedForTesting)
+        #expect(store.load().ascensionCount == 0)
+        #expect(router.requestedTabs.isEmpty)
+    }
+
     @Test("An accepted tab exit and scene dismissal disarm the confirmation")
     func tabExitAndDismissalDisarmConfirmation() throws {
         let store = try makeStore(initialState: makeCountryCompleteState())
         let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-        selectAscend(scene)
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: store,
+            router: router,
+            safeAreaInsetsOverride: BattleChromeLayout.SafeAreaInsets(
+                top: 59, left: 0, bottom: 34, right: 0
+            )
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        view.presentScene(scene)
+        try selectAscend(scene)
         scene.handleTouchForTesting(at: try #require(scene.ascendPrimaryActionHitFrameForTesting()).center)
         #expect(scene.isAscendConfirmationArmedForTesting)
 
-        // The accepted exit leaves the scene: a retained instance must not
-        // still offer Confirm without a fresh first tap.
+        // The accepted exit leaves the scene: the controller presents the
+        // destination inside the routing call — the spy dismisses the same
+        // way, and the willMove(from:) dismissal owns the disarm. A
+        // retained instance must not still offer Confirm without a fresh
+        // first tap.
+        router.onRequest = { [weak view] in view?.presentScene(nil) }
         scene.requestGameplayTabForTesting(.map)
         #expect(router.requestedTabs == [.map])
         #expect(!scene.isAscendConfirmationArmedForTesting)
@@ -1960,7 +2077,6 @@ struct KingdomSceneTests {
         // nil removes the scene (willMove(from:)) — the dismissal itself
         // must clear the arming; re-presenting (didMove) keeps it cleared
         // (spec: leaving the scene disarms).
-        let size = CGSize(width: 393, height: 852)
         let retained = KingdomScene(
             size: size,
             store: store,
@@ -1971,7 +2087,7 @@ struct KingdomSceneTests {
         )
         let retainedView = SKView(frame: CGRect(origin: .zero, size: size))
         retainedView.presentScene(retained)
-        selectAscend(retained)
+        try selectAscend(retained)
         retained.handleTouchForTesting(
             at: try #require(retained.ascendPrimaryActionHitFrameForTesting()).center
         )
@@ -1998,7 +2114,7 @@ struct KingdomSceneTests {
                 )),
                 safeAreaInsets: .zero
             )
-            selectAscend(scene)
+            try selectAscend(scene)
             let layout = try #require(scene.kingdomLayoutForTesting)
             let resets = try #require(scene.ascendResetsLabelNodeForTesting)
             let keeps = try #require(scene.ascendKeepsLabelNodeForTesting)
@@ -2049,7 +2165,7 @@ struct KingdomSceneTests {
                 )),
                 safeAreaInsets: .zero
             )
-            selectAscend(scene)
+            try selectAscend(scene)
             let layout = try #require(scene.kingdomLayoutForTesting)
             let label = try #require(scene.ascendRequirementLabelNodeForTesting)
 
@@ -2070,7 +2186,7 @@ struct KingdomSceneTests {
         let store = try makeStore(initialState: makeCountryCompleteState(ascensionCount: 1))
         let router = RouteSpy()
         let scene = makeScene(store: store, router: router)
-        selectAscend(scene)
+        try selectAscend(scene)
         let action = try #require(scene.ascendPrimaryActionHitFrameForTesting())
         scene.handleTouchForTesting(at: action.center)
         #expect(scene.isAscendConfirmationArmedForTesting)
@@ -2097,7 +2213,7 @@ struct KingdomSceneTests {
             store: try makeStore(initialState: makeCountryCompleteState()),
             imageLoader: { $0 == "ascension-renown" ? UIImage(systemName: "star.fill") : nil }
         )
-        selectAscend(artScene)
+        try selectAscend(artScene)
         #expect(artScene.ascendIconNodeForTesting is SKSpriteNode)
 
         let fallbackScene = makeScene(
@@ -2111,8 +2227,21 @@ struct KingdomSceneTests {
     func ascendHitTargetsStayIsolated() throws {
         let store = try makeStore(initialState: makeCountryCompleteState())
         let router = RouteSpy()
-        let scene = makeScene(store: store, router: router)
-        selectAscend(scene)
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: store,
+            router: router,
+            safeAreaInsetsOverride: BattleChromeLayout.SafeAreaInsets(
+                top: 59, left: 0, bottom: 34, right: 0
+            )
+        )
+        // The accepted exit presents the destination inside the routing
+        // call; the spy dismisses the same way so willMove(from:) fires.
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        view.presentScene(scene)
+        router.onRequest = { [weak view] in view?.presentScene(nil) }
+        try selectAscend(scene)
         let layout = try #require(scene.kingdomLayoutForTesting)
 
         let primary = try #require(scene.ascendPrimaryActionHitFrameForTesting())
@@ -2134,7 +2263,7 @@ struct KingdomSceneTests {
         scene.handleTouchForTesting(at: layout.tabHitFrames[mapIndex].center)
         #expect(router.requestedTabs == [.map])
         #expect(store.load().ascensionCount == 0)
-        // The accepted exit also disarms the transient confirmation.
+        // The accepted exit's dismissal also disarms the confirmation.
         #expect(!scene.isAscendConfirmationArmedForTesting)
     }
 
@@ -2142,7 +2271,7 @@ struct KingdomSceneTests {
     func ascendHidesOnUnsupportedGeometryAndRecovers() throws {
         let store = try makeStore(initialState: makeCountryCompleteState())
         let scene = makeScene(store: store)
-        selectAscend(scene)
+        try selectAscend(scene)
 
         scene.size = CGSize(width: 320, height: 330)
         #expect(scene.isTreasuryFitFailedForTesting)

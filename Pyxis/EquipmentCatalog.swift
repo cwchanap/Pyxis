@@ -20,7 +20,8 @@ enum EquipmentEffect: Equatable {
     /// once an item can be leveled. Out-of-range levels clamp to the band.
     func scaled(toLevel level: Int) -> EquipmentEffect {
         let clamped = min(3, max(1, level))
-        let scale = [1: 1.0, 2: 1.5, 3: 2.0][clamped, default: 1.0]
+        // 1 → 1.0, 2 → 1.5, 3 → 2.0 — plain arithmetic on a per-frame path.
+        let scale = 1.0 + 0.5 * Double(clamped - 1)
         switch self {
         case .attackBonus(let fraction):
             return .attackBonus(fraction * scale)

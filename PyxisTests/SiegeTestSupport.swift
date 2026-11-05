@@ -63,7 +63,8 @@ enum SiegeTestSupport {
         selectedLane: BattleLane? = nil,
         ownedEquipmentIDs: [String] = [],
         equippedItemBySoldierType: [String: String] = [:],
-        equipmentLevelsByID: [String: Int] = [:]
+        equipmentLevelsByID: [String: Int] = [:],
+        ascensionCount: Int = 0
     ) -> KingdomGameState {
         var state = KingdomGameState(
             gold: gold,
@@ -71,7 +72,8 @@ enum SiegeTestSupport {
             completedCityCount: cityNumber - 1,
             ownedEquipmentIDs: ownedEquipmentIDs,
             equippedItemBySoldierType: equippedItemBySoldierType,
-            equipmentLevelsByID: equipmentLevelsByID
+            equipmentLevelsByID: equipmentLevelsByID,
+            ascensionCount: ascensionCount
         )
 
         let layout = state.currentCityDefinition.siegeLayout

@@ -469,4 +469,21 @@ struct KingdomLayoutTests {
             #expect(layout.goldTextMaxWidth(showingRenown: false) == layout.goldFrame.width)
         }
     }
+
+    @Test("The Renown reservation keeps the documented gold minimum where it fits")
+    func renownReservationKeepsGoldMinimum() throws {
+        // Widths where the uncapped reservation is active (the 8pt gap
+        // must come out of the Renown side, never out of the gold side).
+        for width in [CGFloat(280), 320, 393] {
+            let layout = try #require(KingdomLayout.compute(.init(
+                sceneSize: CGSize(width: width, height: 454),
+                safeAreaInsets: .zero
+            )))
+            #expect(
+                layout.goldTextMaxWidth(showingRenown: true)
+                    >= KingdomLayout.minimumGoldTextWidth,
+                "width \(width): gold measured \(layout.goldTextMaxWidth(showingRenown: true))"
+            )
+        }
+    }
 }

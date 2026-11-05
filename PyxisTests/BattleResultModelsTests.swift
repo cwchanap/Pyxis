@@ -235,6 +235,34 @@ struct BattleResultModelsTests {
         #expect(result.goldEarned == 12)
     }
 
+    @Test("A malformed receipt drops only the receipt — the report still loads")
+    func malformedReceiptFailsOpenKeepingTheReport() throws {
+        // The gear line is fail-open: a corrupt receipt must not sink the
+        // whole conquest report back into a missing pending result.
+        let data = Data("""
+        {
+          "cityKey": "1-5",
+          "conquestMode": "live",
+          "activeBattleSeconds": 74,
+          "deployments": [],
+          "appliedDamage": [],
+          "losses": [],
+          "idleDamageByType": [],
+          "usedFavorableUnit": false,
+          "usedExposedLane": false,
+          "goldEarned": 640,
+          "equipmentReward": {"itemID": 42, "level": "two"}
+        }
+        """.utf8)
+
+        let result = try JSONDecoder().decode(BattleResult.self, from: data)
+
+        #expect(result.equipmentReward == nil)
+        #expect(result.goldEarned == 640)
+        #expect(result.activeBattleSeconds == 74)
+        #expect(result.cityKey == CityKey(countryNumber: 1, cityNumber: 5))
+    }
+
     @Test("The deleted newEquipmentItemID key is dropped, not migrated")
     func legacyNewEquipmentItemIDKeyIsIgnoredWithoutMigration() throws {
         let data = Data("""
