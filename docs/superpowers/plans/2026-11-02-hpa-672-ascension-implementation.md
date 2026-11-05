@@ -98,6 +98,6 @@ Do not add a new game-state owner, modifier engine, save/version framework, scen
 - **Compact and accessible:** remove visible title and dead future reservation, preserve 320×454 and existing narrow-row support, assert selector text fit and 44pt hit targets.
 - **Keep scope small:** no different architecture, extra scene, save migration, final art/SFX, or separate implementation PR.
 
-## Current status
+## Completion status
 
-**Planning only.** This PR contains revised design + plan documents addressing the Nov 3 design review. No shipping Swift changes, simulator runs, passing tests, Codecov results or measured Renown balance numbers are claimed yet. All implementation and evidence remain work on the **same Draft PR #52**.
+Implementation is complete on this PR: the pure `ascend()` reset with its exact keep/reject matrix, the single `equipmentReward` receipt replacing `newEquipmentItemID`, the one `EquipmentEffect.scaled(toLevel:)`/`equippedEffect(for:)` scaling owner feeding the shared live/idle `firstRoundAttackMultiplier(for:)`, the fail-open report level line and level-aware Armory, and the third Kingdom Ascend section with its in-scene two-tap confirmation all landed on this branch. Build, lint, serial unit/UI regression, coverage and the seed-582 ascension-0/1 chained-campaign balance results are recorded in PR #52's **Verification** and **Balance evidence** sections; real-routing Ascension flow captures live under `evidence/hpa-672/`.
