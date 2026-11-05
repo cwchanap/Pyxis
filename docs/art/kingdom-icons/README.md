@@ -6,6 +6,8 @@ Twenty transparent 128×128 PNGs are installed in `Pyxis/Assets.xcassets` under 
 
 Each icon was generated individually with the built-in image-generation tool using `conquered-marker.png` as a style reference. The tool did not expose a model identifier or seed. Source images remain in the local Codex generated-images directory; the runtime PNGs are tracked in the asset catalog. Square sources were resized to 128×128; landscape sources were center-cropped to a square and resized, except the City 11 siege engine, which was fitted to a transparent square to retain its full silhouette. Alpha was preserved.
 
+Post-processing exception: the Renown source returned its crown/wreath on a translucent pale diamond field instead of bare transparency, so that field was keyed to transparent in post (the painted glow behind the crown was kept) to match the other 19 gold-on-transparent icons.
+
 The Kingdom tab prompt requested a simple three-point gold crown, polished forged gold with warm highlights and a dark outline, centered on transparency and legible at 28 pt. The other icons used this common prompt with the subjects below:
 
 > Create one medieval fantasy game UI icon: [subject]. Match the supplied image's polished dimensional forged game-art treatment, warm gold highlights, clear dark edges, restrained jewel colors. One isolated centered object, bold readable silhouette at 28–44 pt, generous transparent padding. No frame, tile, letters, numbers or watermark.
