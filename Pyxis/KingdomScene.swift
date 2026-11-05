@@ -14,25 +14,6 @@ protocol KingdomSceneRouting: AnyObject {
     func kingdomScene(_ scene: KingdomScene, didRequestLayoutGate reason: AppLayoutGateReason)
 }
 
-/// HPA-671/672 ephemeral Kingdom tab sections. Never persisted:
-/// switching sections neither settles nor saves.
-enum KingdomSection: Equatable, CaseIterable {
-    case treasury
-    case armory
-    case ascend
-
-    var displayName: String {
-        switch self {
-        case .treasury:
-            return "Treasury"
-        case .armory:
-            return "Armory"
-        case .ascend:
-            return "Ascend"
-        }
-    }
-}
-
 /// HPA-670 Kingdom tab: persisted gold plus exactly three Treasury rows,
 /// with the HPA-671 Armory section sharing the same content band behind a
 /// compact header selector. Every exit routes through the controller's
@@ -112,7 +93,8 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     private var selectedSection: KingdomSection = .treasury
     /// HPA-672 two-tap Ascension confirmation: transient UI state only —
     /// never persisted, cleared by Cancel, a section change, commit,
-    /// rejection, an accepted tab exit or scene dismissal/reconstruction.
+    /// rejection, a layout-gate pause or system backgrounding, and scene
+    /// dismissal (`willMove(from:)` is the one dismissal boundary).
     private var isAscendConfirmationArmed = false
 
     private let headerPanel = PanelNode(size: .zero)
@@ -210,10 +192,6 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     override func didMove(to view: SKView) {
         backgroundColor = SKColor(red: 0.07, green: 0.10, blue: 0.13, alpha: 1.0)
         state = store.load()
-        // (Re)presentation is a dismissal boundary: a scene that was
-        // dismissed while armed must not offer Confirm again without a
-        // fresh first tap. didMove's settle already redraws.
-        isAscendConfirmationArmed = false
 
         if !didBuildInterface {
             buildInterface()
@@ -980,6 +958,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                         .replacingOccurrences(of: "Infantry", with: "Inf")
                         .replacingOccurrences(of: " vs this city's trait", with: " · trait")
                         .replacingOccurrences(of: " + gear, city trait", with: " · gear + trait")
+                        .replacingOccurrences(of: ", city trait", with: " · trait")
                         .replacingOccurrences(of: " attack", with: " atk")
                         .replacingOccurrences(of: " (no damage change yet)", with: " (no gain)")
                 }
@@ -1102,9 +1081,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     }
 
     /// One definition of the Ascend action affordance shared by the
-    /// redraw and the accessibility traits (the spec's stage gate).
+    /// redraw and the accessibility traits — the model's own eligibility
+    /// rule, never a scene-side copy of the stage gate.
     private var isAscendActionEnabled: Bool {
-        state.stageStatus == .countryComplete && state.pendingBattleResult == nil
+        state.canAscend
     }
 
     private func applyGameplayTabBar() {
@@ -1162,14 +1142,22 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// Infantry level against the current city's defense trait, at the
     /// current and next Drill Yard level, through the same
     /// `traitAdjustedSoldierAttackPower(for:level:)` seam the live/abstract
-    /// damage paths use. Equipped attack gear is labeled because it can
+    /// damage paths use. Every first-round modifier the seam folds in is
+    /// labeled — equipped attack gear and Renown alike — because each can
     /// change the upgrade's rounded result.
     static func drillYardExampleText(for state: KingdomGameState) -> String {
         let infantryLevel = state.manualSoldierLevel(for: .infantry) ?? 1
         let drillYardLevel = state.treasury.drillYard
-        let exampleContext = state.equipmentAttackMultiplier(for: .infantry) == 1
+        var exampleModifiers: [String] = []
+        if state.equipmentAttackMultiplier(for: .infantry) != 1 {
+            exampleModifiers.append("gear")
+        }
+        if state.ascensionCount > 0 {
+            exampleModifiers.append("Renown")
+        }
+        let exampleContext = exampleModifiers.isEmpty
             ? "Infantry Lv \(infantryLevel) vs this city's trait"
-            : "Infantry Lv \(infantryLevel) + gear, city trait"
+            : "Infantry Lv \(infantryLevel) + \(exampleModifiers.joined(separator: " + ")), city trait"
 
         // Read the attack through the same instance seam live/abstract
         // damage uses, on a copy whose Drill Yard level is moved — the
@@ -1480,8 +1468,17 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     /// Two-tap confirmation: the first Ascend tap arms, the distinct
     /// Confirm tap commits, Cancel disarms. A disabled tap changes
-    /// nothing (the section stays inspectable).
+    /// nothing (the section stays inspectable). VoiceOver activation
+    /// bypasses `handleTouch`, so the live-scene gate repeats here: a
+    /// gate-paused, backgrounded or mid-route scene never arms, commits
+    /// or routes — the full reset can only run while this scene is live.
     private func handleAscendActionTouch(_ action: AscendAction) {
+        guard !isRoutingToBattle,
+              !isLayoutGatePaused,
+              !isSystemBackgrounded,
+              kingdomLayout != nil else {
+            return
+        }
         let wasArmed = isAscendConfirmationArmed
         switch action {
         case .cancel:
@@ -1509,9 +1506,11 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// The one commit path (spec): re-read the latest store state — never
     /// the scene's local copy — re-check eligibility through the pure
     /// `ascend()` guard, save once, then route to Battle through the
-    /// existing Kingdom routing. A rejection changes nothing and saves
-    /// nothing; an awaiting report is never acknowledged (the guard
-    /// itself rejects a pending result).
+    /// existing Kingdom routing. Only reachable while the scene is live
+    /// (the action gate above blocks paused/backgrounded/mid-route
+    /// commits), so the route needs no second pause check. A rejection
+    /// changes nothing and saves nothing; an awaiting report is never
+    /// acknowledged (the guard itself rejects a pending result).
     private func commitAscension() {
         isAscendConfirmationArmed = false
         var latest = store.load()
@@ -1544,10 +1543,18 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     }
 
     /// Current → next permanent bonus, always inspectable even while the
-    /// action is locked.
+    /// action is locked. The next step reads the model's own 0.25/count
+    /// curve at the post-ascend count — never a hard-coded +25.
     static func ascendBonusText(for state: KingdomGameState) -> String {
         let current = Int(((state.renownMultiplier - 1) * 100).rounded())
-        return "Renown bonus +\(current)% → +\(current + 25)%"
+        let nextCount = min(
+            state.ascensionCount + 1,
+            KingdomGameState.maximumAscensionCount
+        )
+        let next = Int(
+            ((KingdomGameState.renownMultiplier(forAscensionCount: nextCount) - 1) * 100).rounded()
+        )
+        return "Renown bonus +\(current)% → +\(next)%"
     }
 
     /// The explicit Resets / Keeps preview (the spec's reset-vs-permanent
@@ -1609,9 +1616,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             redraw()
             return
         }
-        // Accepted exit: the player left the scene, so the transient
-        // Ascension confirmation must not survive in a retained instance.
-        isAscendConfirmationArmed = false
+        // Accepted exit: the synchronous destination presentation inside
+        // the routing call dismisses this scene, and `willMove(from:)`
+        // owns the disarm — no separate clear here.
         redraw()
     }
 
@@ -1709,6 +1716,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
 
     private func handleSceneDidEnterBackground(at date: Date) {
         isSystemBackgrounded = true
+        // Hours later, one stray Confirm tap must not finish the wipe —
+        // time away always disarms the two-tap confirmation.
+        isAscendConfirmationArmed = false
         if isLayoutGatePaused {
             state.enterBackground(at: date)
         }
@@ -1726,6 +1736,8 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     func layoutGateWillPause(at date: Date) {
         guard !isLayoutGatePaused else { return }
         isLayoutGatePaused = true
+        // A pause can outlast hours — an armed Confirm must not survive it.
+        isAscendConfirmationArmed = false
 
         let result = state.returnFromBackground(at: date)
         lastIdleProgressResult = result

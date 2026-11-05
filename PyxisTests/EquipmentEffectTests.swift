@@ -457,9 +457,9 @@ struct EquipmentEffectTests {
             keepRemaining: 1_000_000, // clamps to the authored max: full Keep
             selectedLane: cell.lane,
             ownedEquipmentIDs: cell.equippedItemID.map { [$0] } ?? [],
-            equipmentLevelsByID: cell.equippedItemID.map { [$0: cell.gearLevel] } ?? [:]
+            equipmentLevelsByID: cell.equippedItemID.map { [$0: cell.gearLevel] } ?? [:],
+            ascensionCount: cell.ascensionCount
         )
-        state.ascensionCount = cell.ascensionCount
         // No Guard absorption: the whole budget reaches the route on both paths.
         state.siegeProgress.guardReinforcements = nil
         if let itemID = cell.equippedItemID {

@@ -195,15 +195,23 @@ enum ForgedVisualFixture: String, CaseIterable, Equatable {
             // HPA-672 evidence seeding: the completed campaign also owns
             // every catalog item at Lv1 (the first-full-completion shape)
             // through the initializer, because ownership is
-            // `private(set)`. Only this branch is seeded; `.map` and
-            // `.mapPartial` stay gear-free.
+            // `private(set)`. A real first completion auto-equips each
+            // type's first-earned drop, so the slots are seeded to match —
+            // an all-`None` Armory is a loadout no player can reach here.
+            // Only this branch is seeded; `.map` and `.mapPartial` stay
+            // gear-free.
             return KingdomGameState(
                 gold: DevJumpState.gold,
                 countryNumber: 1,
                 cityNumberInCountry: KingdomGameState.firstCountryCityCount,
                 completedCityCount: KingdomGameState.firstCountryCityCount,
                 stageStatus: .countryComplete,
-                ownedEquipmentIDs: EquipmentCatalog.items.map(\.id)
+                ownedEquipmentIDs: EquipmentCatalog.items.map(\.id),
+                equippedItemBySoldierType: Dictionary(
+                    uniqueKeysWithValues: SoldierType.allCases.compactMap { type in
+                        EquipmentCatalog.forType(type).first.map { (type.rawValue, $0.id) }
+                    }
+                )
             )
         default:
             preconditionFailure("mapFixtureState supports map fixtures only")

@@ -5,6 +5,27 @@
 
 import CoreGraphics
 
+/// HPA-671/672 ephemeral Kingdom tab sections. Never persisted:
+/// switching sections neither settles nor saves. Lives beside the layout
+/// (not the scene) — the layout sizes one selector per case, so the
+/// section list is layout-owned, never scene-owned.
+enum KingdomSection: Equatable, CaseIterable {
+    case treasury
+    case armory
+    case ascend
+
+    var displayName: String {
+        switch self {
+        case .treasury:
+            return "Treasury"
+        case .armory:
+            return "Armory"
+        case .ascend:
+            return "Ascend"
+        }
+    }
+}
+
 /// Pure CoreGraphics layout for the Kingdom Treasury/Armory/Ascend
 /// screen (HPA-670, HPA-671, HPA-672). No SpriteKit/UIKit: the scene only
 /// applies precomputed frames and the math is tested without a render
@@ -207,9 +228,13 @@ struct KingdomLayout: Equatable {
             width: textWidth,
             height: 44
         )
+        // The 8pt gold/Renown gap is part of the reservation: leave it
+        // inside the Renown column so the gold text keeps its documented
+        // `minimumGoldTextWidth` — subtracting the gap again in
+        // `goldTextMaxWidth` would shrink gold 8pt below the minimum.
         let renownWidth = min(
             renownLabelMaximumWidth,
-            max(renownLabelMinimumWidth, textWidth - minimumGoldTextWidth)
+            max(renownLabelMinimumWidth, textWidth - minimumGoldTextWidth - goldRenownGap)
         )
         let renownFrame = CGRect(
             x: goldFrame.maxX - renownWidth,

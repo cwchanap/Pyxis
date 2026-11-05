@@ -11,6 +11,14 @@ struct KingdomGameState: Codable, Equatable {
     static let idleBuildingProductionScale = 10.0
     static let firstCountryCityCount = Country1CityCatalog.cityRange.count
     static let manualSoldierCap = 10
+    /// Decode-safety bound on the persisted Ascension count, not a designed
+    /// prestige cap (HPA-672 leaves Renown uncapped): a corrupt huge count
+    /// would overflow `Int` inside the gold/attack roundings — and
+    /// `ascensionCount + 1` itself — so normalization clamps to a count no
+    /// real campaign run can reach. At the bound the quote, attack and
+    /// header-percent roundings stay far inside `Int` and `ascend()`
+    /// saturates instead of trapping.
+    static let maximumAscensionCount = 1_000
 
     enum StageStatus: String, Codable, Equatable {
         case battleActive
@@ -113,7 +121,10 @@ struct KingdomGameState: Codable, Equatable {
     /// HPA-672: owned-item gear level (1...3) keyed by catalog ID, plus the
     /// permanent Ascension count. Levels live on owned state only —
     /// normalization guarantees every owned ID carries exactly one entry.
-    var ascensionCount: Int
+    /// The count is `private(set)` like the other equipment fields: only
+    /// `ascend()` mutates it, so no caller can park a negative or absurd
+    /// count that `renownMultiplier` would fold into the economy.
+    private(set) var ascensionCount: Int
     private(set) var equipmentLevelsByID: [String: Int]
 
     private enum CodingKeys: String, CodingKey {
@@ -270,7 +281,7 @@ struct KingdomGameState: Codable, Equatable {
         self.completedCityCount = normalizedCompletedCityCount
         self.stageStatus = resolvedStatus
         self.treasury = treasury
-        self.ascensionCount = max(0, ascensionCount)
+        self.ascensionCount = min(max(0, ascensionCount), Self.maximumAscensionCount)
         self.ownedEquipmentIDs = Self.normalizedOwnedEquipmentIDs(ownedEquipmentIDs)
         self.equippedItemBySoldierType = Self.normalizedEquippedItemBySoldierType(
             equippedItemBySoldierType,
@@ -1239,7 +1250,15 @@ struct KingdomGameState: Codable, Equatable {
     /// Captain, spawn rates, gear levels or prices. Count 0 is exactly 1,
     /// reproducing every pre-HPA-672 value bit-for-bit.
     var renownMultiplier: Double {
-        1.0 + 0.25 * Double(ascensionCount)
+        Self.renownMultiplier(forAscensionCount: ascensionCount)
+    }
+
+    /// The same 0.25-per-count step for an arbitrary count — the scene's
+    /// current → next preview reads it instead of hard-coding +25. The
+    /// count normalizes to ≥ 0 so a stray negative can never fold the
+    /// multiplier below 1.
+    static func renownMultiplier(forAscensionCount count: Int) -> Double {
+        1.0 + 0.25 * Double(max(0, count))
     }
 
     /// The one first-round soldier attack factor (HPA-672): Drill Yard ×
@@ -2076,6 +2095,13 @@ struct KingdomGameState: Codable, Equatable {
         return equipmentLevelsByID[itemID] ?? 1
     }
 
+    /// The one Ascension eligibility rule (HPA-672): Country 1 complete
+    /// AND its final report acknowledged. `ascend()` enforces it and the
+    /// scene reads it — no second copy of the stage gate.
+    var canAscend: Bool {
+        stageStatus == .countryComplete && pendingBattleResult == nil
+    }
+
     /// The one Ascension mutation (HPA-672): eligible only when Country 1 is
     /// complete AND its final report is acknowledged. Rebuilds a fresh
     /// normalized City 1 `.battleActive` run through the normal initializer
@@ -2086,11 +2112,11 @@ struct KingdomGameState: Codable, Equatable {
     /// separate store and are never touched. A rejection mutates nothing.
     @discardableResult
     mutating func ascend() -> AscensionResult {
-        guard stageStatus == .countryComplete, pendingBattleResult == nil else {
+        guard canAscend else {
             return .unavailable
         }
 
-        let newCount = ascensionCount + 1
+        let newCount = min(Self.maximumAscensionCount, ascensionCount + 1)
         self = KingdomGameState(
             gold: 0,
             ownedEquipmentIDs: ownedEquipmentIDs,

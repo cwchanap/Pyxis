@@ -1549,9 +1549,9 @@ struct Country1SiegeSmokeTests {
                 atCity: 1,
                 keepRemaining: 500,
                 ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
-                equipmentLevelsByID: levels
+                equipmentLevelsByID: levels,
+                ascensionCount: 1
             )
-            state.ascensionCount = 1
             Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
             return state.equippedItemBySoldierType["infantry"]
         }
@@ -1571,9 +1571,9 @@ struct Country1SiegeSmokeTests {
                 atCity: 1,
                 keepRemaining: 500,
                 ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
-                equipmentLevelsByID: ["c01-infantry-attack": 3]
+                equipmentLevelsByID: ["c01-infantry-attack": 3],
+                ascensionCount: ascensionCount
             )
-            state.ascensionCount = ascensionCount
             Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
             return state.equippedItemBySoldierType["infantry"]
         }
