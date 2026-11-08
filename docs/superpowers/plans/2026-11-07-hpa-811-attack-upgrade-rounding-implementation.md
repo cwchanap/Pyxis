@@ -77,7 +77,7 @@ Use the existing `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1` seed-582 rail, not a ne
 
 **Checkpoint:** This PR contains real per-city and total numbers with an explicit pass/fail decision before UI work.
 
-**Measured outcome (recorded):** the every-rank rule at `5730d9a` **failed** this gate — boughtGear fresh/Renown 0/Renown 1 totals 950.2/861.9/771.4 vs controls 1648.0/1496.5/1069.8 (57.7%/57.6%/72.1%, plus bought 55.8% and freeSeeded 60.5%). The user chose to revise the rule; the first-rank-only rule at `a201b67` **passed every criterion** — 1261.8/1204.9/1023.4 (76.6%/80.5%/95.7%; baseline 100% inert, freeSeeded 87.4%, bought 79.9%), all six variants 15/15 with zero stalls, fresh City 1–5 7/7/6/9/15 s, Renown 1 < Renown 0. Verbatim traces and provenance live under `evidence/hpa-811/` (historical context, matched control, rejected and accepted runs); the spec's *Measured gate evidence* table summarizes them.
+**Measured outcome (recorded):** the every-rank rule at `5730d9a` **failed** this gate — boughtGear fresh/Renown 0/Renown 1 totals 950.2/861.9/771.4 vs controls 1648.0/1496.5/1069.8 (57.7%/57.6%/72.1%, plus bought 55.8% and freeSeeded 60.5%). The user chose to revise the rule; the first-rank-only rule at `a201b67` **passed every criterion** — 1261.8/1204.9/1023.4 (76.6%/80.5%/95.7%; baseline 100% inert, freeSeeded 87.4%, bought 79.8%), all six variants 15/15 with zero stalls, fresh City 1–5 7/7/6/9/15 s, Renown 1 < Renown 0. Verbatim traces and provenance live under `evidence/hpa-811/` (historical context, matched control, rejected and accepted runs); the spec's *Measured gate evidence* table summarizes them.
 
 ## Checkpoint 4 — Minimal Kingdom readouts and all UI test updates
 
@@ -97,6 +97,8 @@ Use the existing `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1` seed-582 rail, not a ne
 2. Run SwiftLint, Debug and Release builds, **serial** `PyxisTests` and `PyxisUITests` (`-parallel-testing-enabled NO`), plus the mandatory opt-in chained Country 1 suite again at the final diff. Record commands, macOS/Xcode/simulator environment, pass/fail, all per-city timings/stalls, replay City 1/2 and final totals; do not invent unrun results.
 3. Resolve review findings and adjust tests only for intentional gameplay behavior. Do not bypass the numeric balance gate or create another PR.
 
+**Measured outcome (recorded):** at PR HEAD `eb1dde8` (source code unchanged from last code commit `a66ba5c`; subsequent commits are docs-only), serial on Xcode 27.2 / iPhone 17 (iOS 26.5): `swiftlint lint --quiet` exit 0 with warnings — one new `function_parameter_count` for the 7-parameter static effective-attack helper plus pre-existing warnings; Debug build **succeeded** (16.3 s), Release build **succeeded** (49.7 s); `PyxisTests` 1663 passed, 6 intentional opt-in skips, 0 failures (158.7 s wall); `PyxisUITests` — iPhone 17: 0 failures with 2 logical-size skips, iPhone 16: seven XCTest cases, 0 skipped, 0 failures. Final opt-in seed-582 campaign: 35 passed, 1 opt-in alternate-lane skip, 0 failures, 210.1 s wall; all 96 records identical to the accepted `a201b67` run — `compare-campaigns.py` vs the matched no-floor control reports **BALANCE GATE: PASS**. Verbatim trace: `evidence/hpa-811/final-campaign.txt`.
+
 Reference commands (replace simulator destination with an installed device):
 
     swiftlint lint
@@ -114,7 +116,7 @@ Reference commands (replace simulator destination with an installed device):
 - [x] Mandatory pre-UI 15-city balance go/no-go documented using matched scorer baselines — every-rank rule FAILed, user-directed first-rank rule PASSed (Checkpoint 3 outcome above).
 - [x] Minimal Kingdom labels and **all** affected UI assertions updated after the balance gate (`eb53392`/`a66ba5c`).
 - [x] `CLAUDE.md` updated; raw campaign evidence posted under `evidence/hpa-811/`.
-- [ ] Final builds/lint/serial test suites and the final-commit campaign repeat — **pending**, runs at the final diff on this PR.
+- [x] Final builds/lint/serial test suites and the final-commit campaign repeat — all run at `eb1dde8`; see the Checkpoint 5 measured outcome and `evidence/hpa-811/final-campaign.txt`.
 - [x] Review fixes committed to **this PR**; keep Draft until tested.
 
-**Status:** Checkpoints 0–4 are implemented, reviewed and measured (see the Checkpoint 3 outcome and the spec's *Measured gate evidence*). Checkpoint 5's documentation half is done with this revision; its final builds/lint/serial suites and final-commit campaign repeat are **not** run or claimed here — they remain pending on this PR.
+**Status:** Checkpoints 0–5 are implemented, reviewed and measured (see the Checkpoint 3 and Checkpoint 5 outcomes and the spec's *Measured gate evidence*). Final verification at `eb1dde8` is complete and green — warnings and intentional skips are itemized in the Checkpoint 5 measured outcome; nothing is pending on this PR except final review/push.
