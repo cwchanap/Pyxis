@@ -236,22 +236,25 @@ struct TreasuryEffectSeamTests {
         ) == 3)
     }
 
-    @Test("Instance attack power applies the Drill Yard level on the current trait")
+    @Test("Instance attack power floors each bought Drill Yard rank at +1")
     func drillYardInstanceWrapper() {
         var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 20)
         state.treasury.drillYard = 4
 
-        let expected = KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .infantry,
-            level: 2,
-            defenseTrait: state.currentCityDefenseTrait,
-            multiplier: 1.2
+        // The static fold stays the raw single-round primitive — City 1 is
+        // Standard Watch: base 2 × 1.0 × 1.2 = 2.4 → 2.
+        #expect(
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .infantry,
+                level: 2,
+                defenseTrait: state.currentCityDefenseTrait,
+                multiplier: 1.2
+            ) == 2
         )
-        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 2) == expected)
-        // City 1 is Standard Watch: base 2 × 1.0 × 1.2 = 2.4 → 2 — a paid
-        // level with no visible gain yet, exactly the "no damage change yet"
-        // case the Kingdom row must surface.
-        #expect(expected == 2)
+
+        // The instance seam is the HPA-811 effective attack: each owned
+        // rank adds at least +1, so DY4 lifts the same read to 6.
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 2) == 6)
     }
 
     @Test("Idle settlement consumes the Drill Yard adjusted power at a reachable level")
@@ -275,18 +278,19 @@ struct TreasuryEffectSeamTests {
         // One level-5 infantry spawn (150 s idle → 15 s active-equivalent →
         // one 10 s barracks interval). City 1 is Standard Watch, so the only
         // difference is the Drill Yard fold. Both pins sit inside the tuned
-        // purchasable ranges (barracks level 5, DY 3 of 1...4) and the gain
-        // is visible: 4 × 1.15 = 4.6 → 5.
+        // purchasable ranges (barracks level 5, DY 3 of 1...4). The idle
+        // path now consumes the same effective attack as live spawns: raw
+        // round(4 × 1.15) = 5 is floored by the +1-per-rank rule to 7.
         let baseline = singleSpawnIdleDamage(drillYard: 0)
         let drilled = singleSpawnIdleDamage(drillYard: 3)
 
         #expect(baseline.conqueredCities == 0)
-        #expect(baseline.damageDealt == 4) // round(4 × 1.0) = 4
+        #expect(baseline.damageDealt == 4) // DY0: raw and effective agree at 4
         #expect(drilled.conqueredCities == 0)
-        #expect(drilled.damageDealt == 5) // round(4 × 1.15) = 5
+        #expect(drilled.damageDealt == 7) // effective: 4,5,6,7 across DY 0...3
     }
 
-    @Test("A new live spawn carries the single-round Drill Yard attack")
+    @Test("A new live spawn carries the effective Drill Yard attack")
     func liveSpawnAttackMatchesIdleSeam() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
         state.treasury.drillYard = 3
@@ -294,38 +298,53 @@ struct TreasuryEffectSeamTests {
         let key = state.currentCityKey
         var cityState = state.cityBattleState(for: key)
         cityState.setBuilding(CityBuilding(type: .barracks, level: 5), inSlot: 1)
+        cityState.setBuilding(CityBuilding(type: .barracks, level: 1), inSlot: 2)
         state.cityBattleStates[key.storageKey] = cityState
 
         // The live injection path (BattleScene's per-tick spawn) prices each
         // BuildingSpawn through the instance seam exactly once.
         let spawns = state.resolveActiveBuildingSpawns(deltaTime: 10)
-        let spawn = try #require(spawns.first)
-        #expect(spawn.soldierType == .infantry)
-        #expect(spawn.level == 5)
+        #expect(spawns.map(\.level) == [5, 1])
+        #expect(spawns.allSatisfy { $0.soldierType == .infantry })
 
         var combat = BattleCombatState(configuration: .live(cityLevel: state.cityLevel))
-        let id = combat.spawnSoldier(
-            type: spawn.soldierType,
-            source: .building,
-            level: spawn.level,
-            attackPower: state.traitAdjustedSoldierAttackPower(
-                for: spawn.soldierType,
-                level: spawn.level
-            ),
-            lane: state.siegeProgress.selectedLane
-        )
-        let soldier = try #require(combat.soldier(id: id))
-        // 4 × 1.15 = 4.6 → 5 in the single fold — the exact value the idle
-        // abstract path consumes for the same state, never a double round.
-        #expect(soldier.attackPower == 5)
+        var attackBySpawnLevel: [Int: Int] = [:]
+        for spawn in spawns {
+            let id = combat.spawnSoldier(
+                type: spawn.soldierType,
+                source: .building,
+                level: spawn.level,
+                attackPower: state.traitAdjustedSoldierAttackPower(
+                    for: spawn.soldierType,
+                    level: spawn.level
+                ),
+                lane: state.siegeProgress.selectedLane
+            )
+            attackBySpawnLevel[spawn.level] = try #require(combat.soldier(id: id)).attackPower
+        }
+
+        // DY3 effective attack: the raw single-round values (round(4 × 1.15)
+        // = 5; round(1 × 1.15) = 1 — the formerly rounded-away case) sit
+        // below the +1-per-rank floor, so the seam live and idle share
+        // reads 7 at level 5 and 4 at level 1.
+        #expect(attackBySpawnLevel[5] == 7)
+        #expect(attackBySpawnLevel[1] == 4)
+        // The static primitive keeps the raw percentage for test oracles.
         #expect(
-            soldier.attackPower
-                == KingdomGameState.traitAdjustedSoldierAttackPower(
-                    for: .infantry,
-                    level: 5,
-                    defenseTrait: state.currentCityDefenseTrait,
-                    multiplier: 1.15
-                )
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .infantry,
+                level: 5,
+                defenseTrait: state.currentCityDefenseTrait,
+                multiplier: 1.15
+            ) == 5
+        )
+        #expect(
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .infantry,
+                level: 1,
+                defenseTrait: state.currentCityDefenseTrait,
+                multiplier: 1.15
+            ) == 1
         )
     }
 
@@ -340,8 +359,19 @@ struct TreasuryEffectSeamTests {
             attackPower: state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5),
             lane: state.siegeProgress.selectedLane
         )
-        // DY 0: level-5 infantry vs Standard Watch → round(4 × 1.0) = 4.
+        // The level-1 case is the one that used to round a paid upgrade
+        // away entirely (1 × 1.15 → 1).
+        let lowID = combat.spawnSoldier(
+            type: .infantry,
+            source: .building,
+            level: 1,
+            attackPower: state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1),
+            lane: state.siegeProgress.selectedLane
+        )
+        // DY 0: level-5 infantry vs Standard Watch → round(4 × 1.0) = 4;
+        // level 1 → 1.
         #expect(combat.soldier(id: deployedID)?.attackPower == 4)
+        #expect(combat.soldier(id: lowID)?.attackPower == 1)
 
         // 100 gold buys three Drill Yard levels (16 + 29 + 52 = 97).
         for _ in 0..<3 {
@@ -352,10 +382,12 @@ struct TreasuryEffectSeamTests {
         }
         #expect(state.treasury.drillYard == 3)
 
-        // The on-field soldier keeps its spawn-time cached attack; only NEW
-        // spawns pick up the upgraded single-round power (4 × 1.15 → 5).
+        // On-field soldiers keep their spawn-time cached attack; only NEW
+        // spawns pick up the effective power (7 at level 5, 4 at level 1).
         #expect(combat.soldier(id: deployedID)?.attackPower == 4)
-        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 5)
+        #expect(combat.soldier(id: lowID)?.attackPower == 1)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 7)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1) == 4)
     }
 
     // MARK: - HPA-671 attack gear in the same first round
@@ -407,26 +439,51 @@ struct TreasuryEffectSeamTests {
         #expect(traitRoundedFirst == 2)
     }
 
-    @Test("Zero equipment leaves the pre-HPA-671 outputs bit-identical")
+    @Test("Zero equipment: raw at DY0, bounded effective floor above, capped out-of-range")
     func zeroEquipmentMatchesPreEquipmentFormula() {
-        // No gear owned, no Renown: the instance seam must equal the pure
-        // trait fold at every Drill Yard level — the exact HPA-670 formula.
+        // No gear owned, no Renown. At DY0 the effective value equals the
+        // pure trait fold exactly; from DY1 the +1-per-rank floor may lift
+        // it above raw; a directly assigned out-of-range level behaves
+        // like the purchasable cap instead of over-multiplying.
         var state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 500)
         for drillYard in 0...10 {
             state.treasury.drillYard = drillYard
-            let drillMultiplier = 1.0 + 0.05 * Double(drillYard)
+            let cappedDrillYard = min(drillYard, 4)
+            let rawMultiplier = 1.0 + 0.05 * Double(cappedDrillYard)
             for soldierType in SoldierType.allCases {
+                let effective = state.traitAdjustedSoldierAttackPower(
+                    for: soldierType, level: 5
+                )
+                let raw = KingdomGameState.traitAdjustedSoldierAttackPower(
+                    for: soldierType,
+                    level: 5,
+                    defenseTrait: state.currentCityDefenseTrait,
+                    multiplier: rawMultiplier
+                )
+                // Effective never drops below the raw percentage…
+                #expect(effective >= raw, "\(soldierType) at DY \(drillYard)")
+                // … equals it exactly at DY0 …
+                if drillYard == 0 {
+                    #expect(effective == raw, "\(soldierType) at DY 0")
+                }
+                // … and the +1-per-rank floor binds exactly: effective
+                // never exceeds raw + bought rank.
                 #expect(
-                    state.traitAdjustedSoldierAttackPower(for: soldierType, level: 5)
-                        == KingdomGameState.traitAdjustedSoldierAttackPower(
-                            for: soldierType,
-                            level: 5,
-                            defenseTrait: state.currentCityDefenseTrait,
-                            multiplier: drillMultiplier
-                        ),
+                    effective <= raw + cappedDrillYard,
                     "\(soldierType) at DY \(drillYard)"
                 )
             }
+        }
+        // Directly assigned DY10 behaves like DY4 (no 1.5× multiplier).
+        state.treasury.drillYard = 4
+        for soldierType in SoldierType.allCases {
+            let atCap = state.traitAdjustedSoldierAttackPower(for: soldierType, level: 5)
+            state.treasury.drillYard = 10
+            #expect(
+                state.traitAdjustedSoldierAttackPower(for: soldierType, level: 5) == atCap,
+                "\(soldierType) DY10 == DY4"
+            )
+            state.treasury.drillYard = 4
         }
     }
 
@@ -662,5 +719,202 @@ struct TreasuryEffectSeamTests {
         #expect(upgradeDebit == upgradeQuote)
         #expect(state.gold == 100 - buildQuote - upgradeQuote)
         #expect(upgradeRemaining == state.gold)
+    }
+
+    // MARK: - HPA-811 effective attack (rank-floor projection)
+
+    @Test("Effective attack pins: Soldier Lv1 gains, Lv10 percentage already dominates")
+    func effectiveAttackPins() {
+        let attackEffect: EquipmentEffect = .attackBonus(0.15)
+
+        // Soldier Lv1, Standard Watch, Renown 0 — the fresh-player case
+        // where the old formula rounded every paid upgrade back to 1.
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 1, defenseTrait: .standardWatch,
+                drillYardLevel: 0, attackEffect: nil, ownedGearLevel: 0,
+                renownMultiplier: 1
+            ) == 1
+        )
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 1, defenseTrait: .standardWatch,
+                drillYardLevel: 1, attackEffect: nil, ownedGearLevel: 0,
+                renownMultiplier: 1
+            ) == 2
+        )
+        for (gearRank, expected) in [(1, 2), (2, 3), (3, 4)] {
+            #expect(
+                KingdomGameState.effectiveSoldierAttackPower(
+                    for: .infantry, level: 1, defenseTrait: .standardWatch,
+                    drillYardLevel: 0, attackEffect: attackEffect,
+                    ownedGearLevel: gearRank, renownMultiplier: 1
+                ) == expected,
+                "gear rank \(gearRank)"
+            )
+        }
+        // DY1 + gear Lv1: two owned ranks → 3.
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 1, defenseTrait: .standardWatch,
+                drillYardLevel: 1, attackEffect: attackEffect, ownedGearLevel: 1,
+                renownMultiplier: 1
+            ) == 3
+        )
+
+        // Soldier Lv10 + DY4 + Lv3 attack item: the raw percentage already
+        // dominates — raw and effective agree at 30.
+        #expect(
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .infantry, level: 10, defenseTrait: .standardWatch,
+                multiplier: 1.2 * 1.30
+            ) == 30
+        )
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 10, defenseTrait: .standardWatch,
+                drillYardLevel: 4, attackEffect: attackEffect, ownedGearLevel: 3,
+                renownMultiplier: 1
+            ) == 30
+        )
+    }
+
+    @Test("Every adjacent Drill Yard or attack-gear rank adds at least +1 effective attack")
+    func effectiveAttackFloorMatrix() {
+        let attackEffect: EquipmentEffect = .attackBonus(0.15)
+        for type in SoldierType.allCases {
+            for level in 1...19 {
+                // All seven traits give every type the 1.25 / 1.0 / 0.80 factors.
+                for trait in CityDefenseTrait.allCases {
+                    for renown in [1.0, 1.25, 1.5, 2.0] {
+                        for drillYard in 0...4 {
+                            var previousGearValue = 0
+                            for gearRank in 0...3 {
+                                let effective = KingdomGameState.effectiveSoldierAttackPower(
+                                    for: type, level: level, defenseTrait: trait,
+                                    drillYardLevel: drillYard,
+                                    attackEffect: attackEffect,
+                                    ownedGearLevel: gearRank,
+                                    renownMultiplier: renown
+                                )
+                                if gearRank > 0 {
+                                    #expect(
+                                        effective > previousGearValue,
+                                        Comment(
+                                            rawValue: "\(type) Lv\(level) \(trait) renown \(renown) "
+                                                + "DY\(drillYard) gear \(gearRank - 1)→\(gearRank)"
+                                        )
+                                    )
+                                }
+                                previousGearValue = effective
+
+                                if drillYard > 0 {
+                                    let predecessor = KingdomGameState.effectiveSoldierAttackPower(
+                                        for: type, level: level, defenseTrait: trait,
+                                        drillYardLevel: drillYard - 1,
+                                        attackEffect: attackEffect,
+                                        ownedGearLevel: gearRank,
+                                        renownMultiplier: renown
+                                    )
+                                    #expect(
+                                        effective > predecessor,
+                                        Comment(
+                                            rawValue: "\(type) Lv\(level) \(trait) renown \(renown) "
+                                                + "gear \(gearRank) DY\(drillYard - 1)→\(drillYard)"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("A rank-0 attack effect is the no-gear baseline, never phantom Lv1")
+    func rankZeroAttackEffectIsNoGear() {
+        let attackEffect: EquipmentEffect = .attackBonus(0.15)
+        let noGear = KingdomGameState.effectiveSoldierAttackPower(
+            for: .infantry, level: 1, defenseTrait: .standardWatch,
+            drillYardLevel: 0, attackEffect: nil, ownedGearLevel: 0,
+            renownMultiplier: 1
+        )
+        for ownedLevel in [0, -1] {
+            #expect(
+                KingdomGameState.effectiveSoldierAttackPower(
+                    for: .infantry, level: 1, defenseTrait: .standardWatch,
+                    drillYardLevel: 0, attackEffect: attackEffect,
+                    ownedGearLevel: ownedLevel, renownMultiplier: 1
+                ) == noGear,
+                "ownedGearLevel \(ownedLevel)"
+            )
+        }
+        // The +15% exists only once a real rank does.
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 1, defenseTrait: .standardWatch,
+                drillYardLevel: 0, attackEffect: attackEffect, ownedGearLevel: 1,
+                renownMultiplier: 1
+            ) == 2
+        )
+    }
+
+    @Test("Non-attack effects never arm the gear dimension; out-of-band ranks clamp")
+    func effectiveAttackInputNormalization() {
+        // Toughness / specialist effects at any owned level: no gear
+        // dimension, so the value stays the no-gear baseline.
+        for effect in [
+            EquipmentEffect.maxHPBonus(0.25),
+            .specialistBonus(target: .gate, fraction: 0.40)
+        ] {
+            for ownedLevel in [1, 3] {
+                #expect(
+                    KingdomGameState.effectiveSoldierAttackPower(
+                        for: .infantry, level: 1, defenseTrait: .standardWatch,
+                        drillYardLevel: 0, attackEffect: effect,
+                        ownedGearLevel: ownedLevel, renownMultiplier: 1
+                    ) == 1,
+                    "\(effect) at owned level \(ownedLevel)"
+                )
+            }
+        }
+
+        let attackEffect: EquipmentEffect = .attackBonus(0.15)
+        // Gear rank >3 clamps to the authored Lv3 cell.
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 1, defenseTrait: .standardWatch,
+                drillYardLevel: 0, attackEffect: attackEffect, ownedGearLevel: 10,
+                renownMultiplier: 1
+            ) == KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 1, defenseTrait: .standardWatch,
+                drillYardLevel: 0, attackEffect: attackEffect, ownedGearLevel: 3,
+                renownMultiplier: 1
+            )
+        )
+        // Negative Drill Yard behaves like DY0; DY10 behaves like the DY4 cap.
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 2, defenseTrait: .standardWatch,
+                drillYardLevel: -3, attackEffect: nil, ownedGearLevel: 0,
+                renownMultiplier: 1
+            ) == KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 2, defenseTrait: .standardWatch,
+                drillYardLevel: 0, attackEffect: nil, ownedGearLevel: 0,
+                renownMultiplier: 1
+            )
+        )
+        #expect(
+            KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 2, defenseTrait: .standardWatch,
+                drillYardLevel: 10, attackEffect: nil, ownedGearLevel: 0,
+                renownMultiplier: 1
+            ) == KingdomGameState.effectiveSoldierAttackPower(
+                for: .infantry, level: 2, defenseTrait: .standardWatch,
+                drillYardLevel: 4, attackEffect: nil, ownedGearLevel: 0,
+                renownMultiplier: 1
+            )
+        )
     }
 }
