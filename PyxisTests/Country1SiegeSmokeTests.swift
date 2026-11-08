@@ -319,22 +319,30 @@ enum Country1SiegeSmoke {
     }
 
     /// Test-only `equipment=greedy` policy (HPA-671 Task 6; HPA-672 Task 3
-    /// scores leveled effects with Renown), run immediately after entering a
-    /// city and before the Treasury/Camp purchases: for each soldier type
-    /// independently at fixed level 1, evaluate `None`, each owned Attack
-    /// item and each owned Specialist item with the exact integer two-round
-    /// formula — first round trait × Drill Yard × the candidate's LEVELED
-    /// attack fraction × Renown, second round inherent role × the candidate's
-    /// LEVELED specialist fraction — against the first live objective on the
-    /// freshly reset default `selectedLane` (entry-time objective HP and
-    /// damage maps — Treasury/Camp purchases never change them). Choose the
-    /// best strictly positive integer gain over `None`; an equal-damage tie
-    /// prefers the general Attack item (attack candidates are evaluated first
-    /// and only a strictly greater score replaces them). If no damage option
-    /// improves the integer result, equip owned Toughness; if unavailable
-    /// select `None`. Only the real `equip`/`unequip` mutations are applied.
-    /// A bounded deterministic test policy — not runtime AI, not a
-    /// recommendation feature.
+    /// scores leveled effects with Renown; HPA-811 Checkpoint 0 moved the
+    /// call to after the city's Treasury/Camp purchases and scores real
+    /// soldier levels): for each soldier type independently at its
+    /// post-Camp `manualSoldierLevel` (fallback 1), evaluate `None`, each
+    /// owned Attack item and each owned Specialist item against the first
+    /// live objective on the freshly reset default `selectedLane`
+    /// (post-purchase objective HP and damage maps — Treasury/Camp
+    /// purchases never change them). Every candidate is scored by
+    /// equipping it on a COPY of the live state through the real
+    /// `equip`/`unequip` mutations and reading the state's own
+    /// projections — the state-aware first-round
+    /// `traitAdjustedSoldierAttackPower(for:level:)` (trait × Drill Yard ×
+    /// the equipped item's leveled attack fraction × Renown) and the
+    /// existing second-round `roleAdjustedDamage` (inherent role × the
+    /// equipped item's leveled specialist snapshot) — so the harness never
+    /// reimplements the raw or forthcoming effective-attack formula.
+    /// Choose the best strictly positive integer gain over `None`; an
+    /// equal-damage tie prefers the general Attack item (attack candidates
+    /// are evaluated first and only a strictly greater score replaces
+    /// them). If no damage option improves the integer result, equip owned
+    /// Toughness; if unavailable select `None`. Only the real
+    /// `equip`/`unequip` mutations land on the passed-in state — candidate
+    /// copies never leak back. A bounded deterministic test policy — not
+    /// runtime AI, not a recommendation feature.
     static func applyGreedyEquipmentPolicy(for state: inout KingdomGameState) {
         let layout = state.currentSiegeLayout
         let firstLiveID = layout.firstLiveObjectiveID(
@@ -349,34 +357,38 @@ enum Country1SiegeSmoke {
             return
         }
 
-        let drillYardMultiplier = 1.0 + 0.05 * Double(state.treasury.drillYard)
-        let context = CandidateContext(
-            defenseTrait: state.currentCityDefenseTrait,
-            drillYardMultiplier: drillYardMultiplier,
-            renownMultiplier: state.renownMultiplier
-        )
         for type in SoldierType.allCases {
+            let level = state.manualSoldierLevel(for: type) ?? 1
             let owned = EquipmentCatalog.forType(type).filter { state.ownedEquipmentIDs.contains($0.id) }
-            let noneDamage = greedyCandidateDamage(
-                of: nil,
-                ownedLevel: 1,
-                for: type,
-                at: targetKind,
-                context: context
-            ) ?? 0
+
+            // One candidate score: the candidate's slot mutation on a copy
+            // drives the state's own leveled first/second-round projections.
+            // A Toughness (or non-matching Specialist) candidate scores
+            // exactly like `None`, so it can never be a strict gain.
+            func candidateDamage(equipping itemID: String?) -> Int {
+                var copy = state
+                if let itemID {
+                    copy.equip(itemID: itemID)
+                } else {
+                    copy.unequip(soldierType: type)
+                }
+                let power = copy.traitAdjustedSoldierAttackPower(for: type, level: level)
+                return type.roleAdjustedDamage(
+                    power: power,
+                    against: targetKind,
+                    specialist: copy.equipmentSpecialistBonus(for: type)
+                )
+            }
+
+            let noneDamage = candidateDamage(equipping: nil)
 
             var best: (id: String, damage: Int)?
             // "Prefer Attack on ties" relies on every type's Attack item
             // preceding its Specialist item in catalog order: `>` keeps the
             // first equal-damage candidate, which is therefore the Attack one.
             for item in owned {
-                guard let damage = greedyCandidateDamage(
-                    of: item,
-                    ownedLevel: state.equipmentLevel(for: item.id) ?? 1,
-                    for: type,
-                    at: targetKind,
-                    context: context
-                ), damage > noneDamage, damage > (best?.damage ?? 0) else {
+                let damage = candidateDamage(equipping: item.id)
+                guard damage > noneDamage, damage > (best?.damage ?? 0) else {
                     continue
                 }
                 best = (item.id, damage)
@@ -397,65 +409,23 @@ enum Country1SiegeSmoke {
         }
     }
 
-    /// The exact integer two-round damage of one greedy candidate at fixed
-    /// level 1 against `targetKind`: `nil` is the `None` baseline (which
-    /// always yields a damage value), an Attack item takes the first-round
-    /// fold of its `scaled(toLevel:)` fraction, a Specialist item takes the
-    /// second-round role fold of its `scaled(toLevel:)` fraction on the
-    /// matching kind, and a Toughness item has no damage candidate at all.
-    /// The candidate's effective Renown × Treasury factor rides the same
-    /// single first round, so an evolved loadout is never judged with stale
-    /// Lv1 bonuses (HPA-672 Task 3).
-    private struct CandidateContext {
-        let defenseTrait: CityDefenseTrait
-        let drillYardMultiplier: Double
-        let renownMultiplier: Double
-    }
-
-    private static func greedyCandidateDamage(
-        of item: EquipmentItem?,
-        ownedLevel: Int,
-        for type: SoldierType,
-        at targetKind: CitySiegeLayout.ObjectiveKind,
-        context: CandidateContext
-    ) -> Int? {
-        let gearAttackMultiplier: Double
-        var specialist: SoldierSpecialistBonus?
-        switch item?.effect.scaled(toLevel: ownedLevel) {
-        case .attackBonus(let fraction):
-            gearAttackMultiplier = 1 + fraction
-        case .specialistBonus(let target, let fraction):
-            gearAttackMultiplier = 1
-            specialist = SoldierSpecialistBonus(target: target, multiplier: 1 + fraction)
-        case .maxHPBonus:
-            return nil
-        case nil:
-            gearAttackMultiplier = 1
-        }
-        let power = KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: type,
-            level: 1,
-            defenseTrait: context.defenseTrait,
-            multiplier: context.drillYardMultiplier * gearAttackMultiplier * context.renownMultiplier
-        )
-        return type.roleAdjustedDamage(power: power, against: targetKind, specialist: specialist)
-    }
-
     /// Chained 15-city campaign from the production fresh state (HPA-582 Task
     /// 0; HPA-670 Task 5 added the Treasury variants; HPA-671 Task 6 added the
     /// equipment anchor; HPA-672 Task 3 added the explicit initial state for
-    /// the matched ascension replays): per city, enter through the real
-    /// transitions, apply the variant's loadout policy right after entry
-    /// (controls strip every auto-equipped drop through the real `unequip`;
-    /// the gear variant runs the test-only greedy policy), optionally buy
-    /// Treasury levels first (bought variants, via the real purchase
-    /// mutation), buy the camp under the deterministic test-only greedy buyer
-    /// via the real purchase mutations at a fixed date, run the bounded siege
-    /// rail, and carry the actual final state — gold, rewards, gear,
-    /// progression — into the next city. Stops at the first stall so the
-    /// evidence is preserved; conquests are never fabricated and rewards are
-    /// never double-counted. `initialState` nil (every existing seed-582
-    /// control) keeps the exact fresh-state behavior.
+    /// the matched ascension replays; HPA-811 Checkpoint 0 moved loadout
+    /// selection after the purchases): per city, enter through the real
+    /// transitions, optionally buy Treasury levels first (bought variants,
+    /// via the real purchase mutation), buy the camp under the deterministic
+    /// test-only greedy buyer via the real purchase mutations at a fixed
+    /// date, apply the variant's loadout policy after those purchases and
+    /// before the siege (controls strip every auto-equipped drop through the
+    /// real `unequip`; the gear variant runs the test-only greedy policy at
+    /// post-Camp soldier levels), run the bounded siege rail, and carry the
+    /// actual final state — gold, rewards, gear, progression — into the next
+    /// city. Stops at the first stall so the evidence is preserved; conquests
+    /// are never fabricated and rewards are never double-counted.
+    /// `initialState` nil (every existing seed-582 control) keeps the exact
+    /// fresh-state behavior.
     static func runGreedyCampaign(
         seed: UInt64,
         variant: CampaignTreasuryVariant,
@@ -485,20 +455,6 @@ enum Country1SiegeSmoke {
                 }
             }
 
-            // HPA-671 loadout anchor: immediately after entry, before the
-            // Camp purchases and the siege. The controls still OWN every
-            // earned item, but each control siege runs with zero active
-            // equipment, keeping the runs numerically comparable to HPA-670;
-            // the gear variant selects through the real equip/unequip
-            // mutations instead.
-            if variant == .boughtGear {
-                applyGreedyEquipmentPolicy(for: &state)
-            } else {
-                for type in SoldierType.allCases {
-                    state.unequip(soldierType: type)
-                }
-            }
-
             let startGold = state.gold
             let treasurySpend = variant.buysTreasury
                 ? buyTreasuryUpgradesBeforeCamp(for: &state)
@@ -506,6 +462,22 @@ enum Country1SiegeSmoke {
             // Levels in force during this city's siege (after entry purchases).
             let treasury = state.treasury
             let campSpend = buyGreedyCamp(for: &state)
+
+            // HPA-671 loadout anchor, HPA-811 moved after the Treasury/Camp
+            // purchases and before the siege: the corrected scorer reads
+            // `manualSoldierLevel`, which only the bought camp raises, so a
+            // pre-purchase selection could never see a real level. The
+            // controls still OWN every earned item, but each control siege
+            // runs with zero active equipment, keeping the runs numerically
+            // comparable to HPA-670; the gear variant selects through the
+            // real equip/unequip mutations instead.
+            if variant == .boughtGear {
+                applyGreedyEquipmentPolicy(for: &state)
+            } else {
+                for type in SoldierType.allCases {
+                    state.unequip(soldierType: type)
+                }
+            }
 
             let camp = state.cityBattleStateForCurrentCity.slots
                 .sorted { $0.key < $1.key }
@@ -550,8 +522,8 @@ enum Country1SiegeSmoke {
     /// HPA-672 Task 3 matched Ascension-replay fixture: zero gold, empty
     /// Treasury, all 15 catalog items owned at level 1 (an empty levels map
     /// normalizes to 1 for every owned ID), no equipped slots — the greedy
-    /// policy selects the loadout at every city entry — and only the
-    /// permanent ascension count differs between the two variants.
+    /// policy selects the loadout after every city's entry purchases — and
+    /// only the permanent ascension count differs between the two variants.
     static func ascensionReplayInitialState(ascensionCount: Int) -> KingdomGameState {
         KingdomGameState(
             gold: 0,
@@ -661,7 +633,7 @@ enum CampaignTreasuryVariant: String, CaseIterable {
     /// purchases, through the real purchase mutation.
     case bought
     /// The bought Treasury policy plus the test-only `equipment=greedy`
-    /// loadout selection at each city entry.
+    /// loadout selection after each city's entry purchases.
     case boughtGear
 
     /// Whether the variant buys Treasury levels at each city entry.
@@ -1265,9 +1237,10 @@ struct Country1SiegeSmokeTests {
     /// `cityMaxPower` to a 1.85 growth curve). The baseline is the
     /// zero-Treasury HPA-582 regression rail; free 4/4/4 measures the power
     /// ceiling, never pricing; bought exercises real affordability. HPA-671:
-    /// every control city strips its auto-equipped drops at entry, so the
-    /// control numbers stay comparable with HPA-670's 570.5 s (baseline) and
-    /// 383.2 s (bought) seed-582 baselines.
+    /// every control city strips its auto-equipped drops before the siege
+    /// (after the entry purchases), so the control numbers stay comparable
+    /// with HPA-670's 570.5 s (baseline) and 383.2 s (bought) seed-582
+    /// baselines.
     @Test(
         "Chained greedy campaign (zero-Treasury baseline) conquers every Country 1 city inside the bound",
         .enabled(if: Country1SiegeSmoke.campaignEnabled)
@@ -1332,9 +1305,10 @@ struct Country1SiegeSmokeTests {
     }
 
     /// HPA-671 Task 6 balance rail: the bought-Treasury chain plus the
-    /// test-only `equipment=greedy` loadout policy at each city entry. Same
-    /// seed 582 and greedy Camp buyer as the `bought` control, so the two
-    /// totals isolate the equipment effect. Asserts the gear invariants:
+    /// test-only `equipment=greedy` loadout policy after each city's entry
+    /// purchases (HPA-811 post-Camp order). Same seed 582 and greedy Camp
+    /// buyer as the `bought` control, so the two totals isolate the
+    /// equipment effect. Asserts the gear invariants:
     /// one fixed drop per conquered city, all 15 catalog IDs owned by a
     /// completed run (including unequipped rewards), and five valid equipped
     /// slots — each owned and type-matching — after the final pre-siege
@@ -1582,6 +1556,53 @@ struct Country1SiegeSmokeTests {
         #expect(equippedAttackID(ascensionCount: 0) == "c03-infantry-toughness")
         // Renown 1: 1 × 1.25 × 1.30 = 1.625 → 2 beats None's 1 → attack.
         #expect(equippedAttackID(ascensionCount: 1) == "c01-infantry-attack")
+    }
+
+    /// HPA-811 Checkpoint 0: the scorer must consume the camp-derived
+    /// soldier level, not a fixed 1. A City 1 Barracks L5 (Barracks unlocks
+    /// at City 1) makes infantry level 5 — base 4 × the Lv1 Attack fraction
+    /// 1.15 = 4.6 rounds to 5 against None's 4, a strict integer gain the
+    /// fixed-level-1 scorer could never see (round(1.15) = 1 ties None and
+    /// falls back to Toughness). Willowford gate target, Standard Watch.
+    @Test("Greedy equipment policy scores candidates at the real camp soldier level")
+    func greedyEquipmentPolicyScoresAtRealCampSoldierLevel() {
+        var state = KingdomGameState(
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 1).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: 5)]
+                )
+            ],
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
+        )
+
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
+
+        #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+    }
+
+    /// HPA-811 Checkpoint 0: the loadout must be chosen AFTER the Camp
+    /// purchases, not at city entry — the entry-time camp is empty, so even
+    /// a level-aware scorer could only see level 1 there. This drives the
+    /// campaign's own order (the real greedy Camp buyer through the real
+    /// build/upgrade mutations, then the policy) and expects the selection
+    /// to change once the bought Barracks raises the infantry level.
+    @Test("Greedy equipment selection reflects the post-Camp soldier levels")
+    func greedyEquipmentPolicySelectionReflectsPostCampPurchases() {
+        var state = KingdomGameState(
+            gold: 1_000,
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
+        )
+
+        // Entry-time selection: empty camp → infantry level 1 → the Attack
+        // item ties None and the owned Toughness item is the fallback.
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
+        #expect(state.equippedItemBySoldierType["infantry"] == "c03-infantry-toughness")
+
+        // The campaign's own order: greedy Camp purchases first, then the
+        // loadout — the bought Barracks levels flip the choice to Attack.
+        _ = Country1SiegeSmoke.buyGreedyCamp(for: &state)
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
+        #expect(state.equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
     }
 
     /// Runs one matched comparison (an alternate or default lane on a committed camp and policy) and
