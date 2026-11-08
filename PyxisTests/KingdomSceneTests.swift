@@ -90,7 +90,6 @@ struct KingdomSceneTests {
         #expect(drillYard.effect == KingdomScene.drillYardExampleText(for: state))
         #expect(drillYard.effect == "Infantry Lv 1 vs this city's trait:\n2 → 2 attack (no damage change yet)")
 
-        // VoiceOver reads the same un-compacted disclosure.
         let row = try #require(
             (view.accessibilityElements as? [UIAccessibilityElement])?
                 .first { $0.accessibilityIdentifier == "kingdom-row-drillYard" }
@@ -117,8 +116,6 @@ struct KingdomSceneTests {
             let parent = try #require(label.parent)
             #expect(layout.textFrames[index].contains(parent.convert(label.frame, to: scene)))
         }
-        // The parenthesized no-change disclosure survives whichever
-        // abbreviations the compact row renders.
         #expect(labels[2].text?.contains("(no") == true)
         let row = try #require(
             (view.accessibilityElements as? [UIAccessibilityElement])?
@@ -1329,9 +1326,6 @@ struct KingdomSceneTests {
 
     @Test("Armory attack row discloses the realized bare → equipped attack")
     func armoryAttackRowDisclosesRealizedDelta() throws {
-        // The nominal +15% is joined by the realized integers the spawn
-        // path produces — the first equipped attack rank floors bare 1
-        // to 2 — and VoiceOver announces the same delta.
         let state = KingdomGameState(
             gold: 100,
             ownedEquipmentIDs: ["c01-infantry-attack"],
@@ -1424,9 +1418,6 @@ struct KingdomSceneTests {
         )
         state.treasury.setLevel(2, for: .drillYard)
 
-        // The equipped blade Lv1 lifts the example's own projection: the
-        // first gear rank floors +1 over bare at every DY rank, so both
-        // sides of this later-rank tie read one higher than unequipped.
         #expect(KingdomScene.drillYardExampleText(for: state)
             == "Infantry Lv 5 + gear, city trait:\n6 → 6 attack (no damage change yet)")
         state.unequip(soldierType: .infantry)
@@ -1817,6 +1808,65 @@ struct KingdomSceneTests {
                 .first { $0.accessibilityIdentifier == "kingdom-armory-row-archer" }
         )
         #expect(row.accessibilityValue?.contains("Drops at City 9") == true)
+    }
+
+    @Test("Portrait iPad 820×1180 keeps the attack delta and Drill Yard tie inside their rows")
+    func iPadRowsShowDeltaAndDrillYardDisclosureInsideBoxes() throws {
+        var drillYardState = KingdomGameState(gold: 100)
+        drillYardState.treasury.setLevel(1, for: .drillYard)
+        let size = CGSize(width: 820, height: 1180)
+        let insets = BattleChromeLayout.SafeAreaInsets(top: 24, left: 0, bottom: 20, right: 0)
+        let treasuryScene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: drillYardState),
+            safeAreaInsetsOverride: insets
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        treasuryScene.didMove(to: view)
+        let layout = try #require(treasuryScene.kingdomLayoutForTesting)
+        let drillYardIndex = try #require(TreasuryUpgrade.allCases.firstIndex(of: .drillYard))
+        let drillYardLabels = try #require(
+            treasuryScene.treasuryRowLabelNodesForTesting(.drillYard)
+        )
+        #expect(drillYardLabels[2].text == KingdomScene.drillYardExampleText(for: drillYardState))
+        #expect(drillYardLabels[2].text?.contains("(no damage change yet)") == true)
+        for label in drillYardLabels {
+            let parent = try #require(label.parent)
+            #expect(
+                layout.textFrames[drillYardIndex].contains(
+                    parent.convert(label.frame, to: treasuryScene)
+                ),
+                "iPad 820×1180 Drill Yard label outside its text frame"
+            )
+        }
+
+        let gearScene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: KingdomGameState(
+                gold: 100,
+                ownedEquipmentIDs: ["c01-infantry-attack"],
+                equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+            )),
+            safeAreaInsetsOverride: insets
+        )
+        gearScene.didMove(to: view)
+        selectArmory(gearScene)
+        let armoryLayout = try #require(gearScene.kingdomLayoutForTesting)
+        let infantryIndex = try #require(SoldierType.allCases.firstIndex(of: .infantry))
+        let infantry = try #require(gearScene.armoryRowLabelNodesForTesting(.infantry))
+        #expect(infantry.line2.text == "Attack Lv 1 · +15% (atk 1 → 2) · Drops at City 3")
+        for (box, label) in [
+            (armoryLayout.armoryLine1LabelFrames[infantryIndex], infantry.line1),
+            (armoryLayout.armoryLine2LabelFrames[infantryIndex], infantry.line2)
+        ] {
+            let parent = try #require(label.parent)
+            let rendered = parent.convert(label.frame, to: gearScene)
+            let tolerance: CGFloat = 0.05
+            #expect(
+                box.insetBy(dx: -tolerance, dy: -tolerance).contains(rendered),
+                "iPad 820×1180 armory label \(rendered) outside \(box)"
+            )
+        }
     }
 
     // MARK: - HPA-672 Ascend section
