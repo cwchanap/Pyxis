@@ -1205,11 +1205,18 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 for: effect,
                 level: state.equipmentLevel(for: equipped.id) ?? 1
             )
-            // The two-round integer math can round an equipped bonus back
-            // to the unequipped result at this type's current level — the
-            // row discloses it instead of claiming a gain the spawn path
-            // won't deliver (same honesty as the Drill Yard example).
-            if Self.equippedEffectRoundsAway(effect, for: type, state: state) {
+            if case .attackBonus = effect {
+                let level = state.manualSoldierLevel(for: type) ?? 1
+                var bare = state
+                bare.unequip(soldierType: type)
+                let bareAttack = bare.traitAdjustedSoldierAttackPower(for: type, level: level)
+                let equippedAttack = state.traitAdjustedSoldierAttackPower(for: type, level: level)
+                effectText += " (atk \(bareAttack) → \(equippedAttack))"
+            } else if Self.equippedEffectRoundsAway(effect, for: type, state: state) {
+                // The two-round integer math can round an equipped bonus back
+                // to the unequipped result at this type's current level — the
+                // row discloses it instead of claiming a gain the spawn path
+                // won't deliver (same honesty as the Drill Yard example).
                 effectText += " (no gain yet)"
             }
             line2Parts.append(effectText)
@@ -1237,10 +1244,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// True when the equipped item's realized integer equals the
     /// unequipped outcome at this type's current level — the bonus is
     /// applied but rounded away by the two-round integer math (the same
-    /// granularity the Drill Yard example discloses). The effect passed in
-    /// is the leveled `equippedEffect(for:)` value; the projections below
-    /// read the same scaled seams combat uses: the one-round attack fold,
-    /// the role×gear second round, and `spawnSoldier`'s max-HP formula.
+    /// granularity the Drill Yard example discloses). Only Specialist and
+    /// Toughness can land here: the first equipped attack-gear rank
+    /// guarantees an integer gain, so attack rows instead disclose the
+    /// realized bare → equipped delta. The effect passed in is the leveled
+    /// `equippedEffect(for:)` value; the projections below read the same
+    /// scaled seams combat uses: the role×gear second round and
+    /// `spawnSoldier`'s max-HP formula.
     static func equippedEffectRoundsAway(
         _ effect: EquipmentEffect,
         for type: SoldierType,
@@ -1249,10 +1259,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let level = state.manualSoldierLevel(for: type) ?? 1
         switch effect {
         case .attackBonus:
-            var bare = state
-            bare.unequip(soldierType: type)
-            return state.traitAdjustedSoldierAttackPower(for: type, level: level)
-                == bare.traitAdjustedSoldierAttackPower(for: type, level: level)
+            return false
         case .specialistBonus(let target, _):
             let power = state.traitAdjustedSoldierAttackPower(for: type, level: level)
             return type.roleAdjustedDamage(
