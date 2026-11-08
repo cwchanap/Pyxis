@@ -71,23 +71,68 @@ struct KingdomSceneTests {
 
     @Test("Drill Yard row shows the labeled rounded attack example with the no-change note")
     func drillYardRowShowsNoChangeExample() throws {
-        // Default state: no camp buildings, infantry fallback level 1, City 1
-        // standardWatch (neutral). 1 x 1.0 -> 1 and 1 x 1.05 -> 1, so the
-        // example must not imply a guaranteed gain.
-        let state = KingdomGameState(gold: 100)
-        let store = try makeStore(initialState: state)
-        let scene = makeScene(store: store)
+        // Only the first bought Drill Yard rank guarantees +1 — later
+        // ranks are nondecreasing and can still round away. At infantry
+        // Lv 1 the second rank is such a tie: the raw 1 x 1.10 -> 1 stays
+        // under the floored 2, so the example must not imply a gain.
+        var state = KingdomGameState(gold: 100)
+        state.treasury.setLevel(1, for: .drillYard)
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: state),
+            safeAreaInsetsOverride: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
 
         let drillYard = try #require(scene.treasuryRowTextForTesting(.drillYard))
         #expect(drillYard.effect == KingdomScene.drillYardExampleText(for: state))
-        #expect(drillYard.effect == "Infantry Lv 1 vs this city's trait:\n1 → 1 attack (no damage change yet)")
+        #expect(drillYard.effect == "Infantry Lv 1 vs this city's trait:\n2 → 2 attack (no damage change yet)")
+
+        // VoiceOver reads the same un-compacted disclosure.
+        let row = try #require(
+            (view.accessibilityElements as? [UIAccessibilityElement])?
+                .first { $0.accessibilityIdentifier == "kingdom-row-drillYard" }
+        )
+        #expect(row.accessibilityValue == drillYard.effect)
+    }
+
+    @Test("A later-rank Drill Yard tie stays disclosed on the narrowest row")
+    func laterRankDrillYardTieStaysDisclosedAtNarrowWidth() throws {
+        var state = KingdomGameState(gold: 100)
+        state.treasury.setLevel(1, for: .drillYard)
+        let size = CGSize(width: 264, height: 454)
+        let scene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: state),
+            safeAreaInsetsOverride: .zero
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+        let index = try #require(TreasuryUpgrade.allCases.firstIndex(of: .drillYard))
+        let labels = try #require(scene.treasuryRowLabelNodesForTesting(.drillYard))
+        for label in labels {
+            let parent = try #require(label.parent)
+            #expect(layout.textFrames[index].contains(parent.convert(label.frame, to: scene)))
+        }
+        // The parenthesized no-change disclosure survives whichever
+        // abbreviations the compact row renders.
+        #expect(labels[2].text?.contains("(no") == true)
+        let row = try #require(
+            (view.accessibilityElements as? [UIAccessibilityElement])?
+                .first { $0.accessibilityIdentifier == "kingdom-row-drillYard" }
+        )
+        #expect(row.accessibilityValue == KingdomScene.drillYardExampleText(for: state))
+        #expect(row.accessibilityValue?.contains("(no damage change yet)") == true)
     }
 
     @Test("Drill Yard example displays a real rounded gain when one exists")
     func drillYardExampleShowsRealGain() {
-        // Infantry level 5 (base 4) at DY 2 -> 3 crosses the visible-gain
-        // boundary inside the tuned 0...4 range: 4 x 1.10 -> 4, 4 x 1.15 -> 5,
-        // so P -> Q must show a visible gain.
+        // A later-rank gain needs the raw round to clear the nondecreasing
+        // floor: infantry level 10 (base 19) crosses the boundary at DY
+        // 2 -> 3 — 19 x 1.10 -> 21, 19 x 1.15 -> 22.
         var state = KingdomGameState(
             gold: 100,
             cityNumberInCountry: 1,
@@ -95,13 +140,13 @@ struct KingdomSceneTests {
                 countryNumber: 1,
                 cityNumber: 1
             ).storageKey: CityBattleState(
-                slots: [1: CityBuilding(type: .barracks, level: 5)]
+                slots: [1: CityBuilding(type: .barracks, level: 10)]
             )]
         )
         state.treasury.setLevel(2, for: .drillYard)
 
         let text = KingdomScene.drillYardExampleText(for: state)
-        #expect(text == "Infantry Lv 5 vs this city's trait:\n4 → 5 attack")
+        #expect(text == "Infantry Lv 10 vs this city's trait:\n21 → 22 attack")
     }
 
     @Test("Header and row text labels sit inside their KingdomLayout text frames")
@@ -839,13 +884,11 @@ struct KingdomSceneTests {
         #expect(KingdomScene.effectText(for: .quartermaster, state: state)
             == TreasuryUpgrade.quartermaster.effectName)
 
-        // Drill Yard at max reports the current attack with no "→" projection.
-        let current = KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .infantry,
-            level: 1,
-            defenseTrait: state.currentCityDefenseTrait,
-            multiplier: 1.0 + 0.05 * Double(TreasuryUpgrade.drillYard.maxLevel)
-        )
+        // Drill Yard at max reports the current attack with no "→"
+        // projection — quoted through the instance effective projection
+        // (first-rank floor included), never the raw static fold.
+        let current = state.traitAdjustedSoldierAttackPower(for: .infantry, level: 1)
+        #expect(current == 2)
         #expect(KingdomScene.effectText(for: .drillYard, state: state)
             == "Infantry Lv 1 vs this city's trait: \(current) attack")
     }
@@ -1081,7 +1124,7 @@ struct KingdomSceneTests {
 
         let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
         #expect(infantry.line1 == "Infantry · Willowford Blade")
-        #expect(infantry.line2 == "Attack Lv 1 · +15% (no gain yet) · Drops at City 6")
+        #expect(infantry.line2 == "Attack Lv 1 · +15% (atk 1 → 2) · Drops at City 6")
 
         // Nothing equipped and the type still locked at City 1: the row
         // still announces the earliest drop.
@@ -1266,8 +1309,9 @@ struct KingdomSceneTests {
 
     @Test("Armory drops the no-gain note once the bonus survives rounding")
     func armoryEffectNoteOnlyShowsWhenRoundedAway() throws {
-        // Level-5 barracks: base 4 × 1.15 = 4.6 → 5 vs the bare 4 — a real
-        // integer gain, so the row claims the bonus without a disclosure.
+        // Level-5 barracks: base 4 × 1.15 = 4.6 → 5 vs the bare 4 — the
+        // first equipped attack rank guarantees the gain, so the row
+        // reports the realized bare → equipped delta, no no-gain note.
         var state = KingdomGameState(
             gold: 100,
             ownedEquipmentIDs: ["c01-infantry-attack"],
@@ -1280,7 +1324,37 @@ struct KingdomSceneTests {
         selectArmory(scene)
 
         let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
-        #expect(infantry.line2 == "Attack Lv 1 · +15% · Drops at City 3")
+        #expect(infantry.line2 == "Attack Lv 1 · +15% (atk 4 → 5) · Drops at City 3")
+    }
+
+    @Test("Armory attack row discloses the realized bare → equipped attack")
+    func armoryAttackRowDisclosesRealizedDelta() throws {
+        // The nominal +15% is joined by the realized integers the spawn
+        // path produces — the first equipped attack rank floors bare 1
+        // to 2 — and VoiceOver announces the same delta.
+        let state = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: ["c01-infantry-attack"],
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"]
+        )
+        let size = CGSize(width: 393, height: 852)
+        let scene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: state),
+            safeAreaInsetsOverride: .init(top: 59, left: 0, bottom: 34, right: 0)
+        )
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        scene.didMove(to: view)
+        selectArmory(scene)
+
+        let infantry = try #require(scene.armoryRowTextForTesting(.infantry))
+        #expect(infantry.line2 == "Attack Lv 1 · +15% (atk 1 → 2) · Drops at City 3")
+        let row = try #require(
+            (view.accessibilityElements as? [UIAccessibilityElement])?
+                .first { $0.accessibilityIdentifier == "kingdom-armory-row-infantry" }
+        )
+        #expect(row.accessibilityValue?.contains("Attack Lv 1 · +15%") == true)
+        #expect(row.accessibilityValue?.contains("(atk 1 → 2)") == true)
     }
 
     @Test("Armory rows show the owned level and effective fractional percent")
@@ -1350,11 +1424,14 @@ struct KingdomSceneTests {
         )
         state.treasury.setLevel(2, for: .drillYard)
 
+        // The equipped blade Lv1 lifts the example's own projection: the
+        // first gear rank floors +1 over bare at every DY rank, so both
+        // sides of this later-rank tie read one higher than unequipped.
         #expect(KingdomScene.drillYardExampleText(for: state)
-            == "Infantry Lv 5 + gear, city trait:\n5 → 5 attack (no damage change yet)")
+            == "Infantry Lv 5 + gear, city trait:\n6 → 6 attack (no damage change yet)")
         state.unequip(soldierType: .infantry)
         #expect(KingdomScene.drillYardExampleText(for: state)
-            == "Infantry Lv 5 vs this city's trait:\n4 → 5 attack")
+            == "Infantry Lv 5 vs this city's trait:\n5 → 5 attack (no damage change yet)")
     }
 
     @Test("Drill Yard example labels Renown whenever it folds into the numbers")
@@ -1373,10 +1450,11 @@ struct KingdomSceneTests {
 
         // Renown alone folds ×1.25 into the first-round seam — the label
         // must credit it, not silently imply gear is the only modifier.
-        // Infantry Lv 5 = 4 × 1.05 × 1.25 = 5.25 → 5 at DY 1;
-        // 4 × 1.10 × 1.25 = 5.5 → 6 at DY 2 — a visible gain.
+        // Infantry Lv 5: 4 × 1.25 = 5 at DY 0, the first rank floors +1
+        // to 6 at DY 1, and DY 2's raw 4 × 1.10 × 1.25 = 5.5 → 6 can
+        // only tie it — a disclosed later-rank no-gain.
         #expect(KingdomScene.drillYardExampleText(for: state)
-            == "Infantry Lv 5 + Renown, city trait:\n5 → 6 attack")
+            == "Infantry Lv 5 + Renown, city trait:\n6 → 6 attack (no damage change yet)")
 
         // Gear + Renown: both modifiers named in order.
         state = KingdomGameState(
@@ -1602,11 +1680,13 @@ struct KingdomSceneTests {
             (view.accessibilityElements as? [UIAccessibilityElement])?
                 .first { $0.accessibilityIdentifier == "kingdom-armory-row-infantry" }
         )
-        // Complete value: item name, owned level and the effective
-        // fractional percent (never a rounded-up 23%).
+        // Complete value: item name, owned level, the effective
+        // fractional percent (never a rounded-up 23%) and the realized
+        // bare → equipped integer delta.
         #expect(row.accessibilityValue?.contains("Willowford Blade") == true)
         #expect(row.accessibilityValue?.contains("Lv 2") == true)
         #expect(row.accessibilityValue?.contains("+22.5%") == true)
+        #expect(row.accessibilityValue?.contains("(atk 1 → 2)") == true)
         #expect(row.accessibilityValue?.contains("23%") == false)
     }
 
