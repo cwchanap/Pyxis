@@ -286,6 +286,28 @@ struct TreasuryEffectSeamTests {
         #expect(drilled.damageDealt == 5) // round(4 × 1.15) = 5
     }
 
+    @Test("Idle settlement consumes effective attack with level-1 barracks at Drill Yard 1")
+    func idleSettlementUsesEffectiveAttackAtLevelOne() {
+        var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
+        SiegeTestSupport.destroySupportObjectives(of: &state)
+        state.siegeProgress.guardReinforcements = nil
+        state.treasury.drillYard = 1
+
+        let key = state.currentCityKey
+        var cityState = state.cityBattleState(for: key)
+        cityState.setBuilding(CityBuilding(type: .barracks, level: 1), inSlot: 1)
+        state.cityBattleStates[key.storageKey] = cityState
+
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        state.enterBackground(at: start)
+        // One level-1 infantry spawn (150 s idle → 15 s active-equivalent → one 10 s interval).
+        // Base attack 1, Drill Yard 1: raw formula gives round(1 × 1.05) = 1.
+        // HPA-811 effective attack floor guarantees +1 at Drill Yard 1, so power is 2.
+        let result = state.returnFromBackground(at: start.addingTimeInterval(150))
+        #expect(result.conqueredCities == 0)
+        #expect(result.damageDealt == 2)
+    }
+
     @Test("A new live spawn carries the single-round Drill Yard attack")
     func liveSpawnAttackMatchesIdleSeam() throws {
         var state = SiegeTestSupport.makeBattleState(atCity: 1, keepRemaining: 100_000)
@@ -339,6 +361,19 @@ struct TreasuryEffectSeamTests {
                 multiplier: 1.15
             ) == 1
         )
+
+        // Verify idle settlement also produces identical effective damage for the level-1 spawn
+        var idleState = state
+        SiegeTestSupport.destroySupportObjectives(of: &idleState)
+        idleState.siegeProgress.guardReinforcements = nil
+        var singleSlotCity = idleState.cityBattleState(for: key)
+        singleSlotCity.setBuilding(CityBuilding(type: .barracks, level: 1), inSlot: 1)
+        singleSlotCity.slots[2] = nil
+        idleState.cityBattleStates[key.storageKey] = singleSlotCity
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        idleState.enterBackground(at: start)
+        let idleResult = idleState.returnFromBackground(at: start.addingTimeInterval(150))
+        #expect(idleResult.damageDealt == 2)
     }
 
     @Test("Soldiers already on the field keep their cached attack after a Drill Yard purchase")
@@ -711,30 +746,30 @@ struct TreasuryEffectSeamTests {
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 0, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 0, attackEffect: nil, renownMultiplier: 1)
             ) == 1
         )
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 1, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 1, attackEffect: nil, renownMultiplier: 1)
             ) == 2
         )
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 4, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 4, attackEffect: nil, renownMultiplier: 1)
             ) == 2
         )
         for gearRank in 1...3 {
             #expect(
                 KingdomGameState.effectiveSoldierAttackPower(
                     for: .infantry, level: 1, defenseTrait: .standardWatch,
-                    drillYardLevel: 0, attackEffect: attackEffect,
-                    ownedGearLevel: gearRank, renownMultiplier: 1
+                    modifiers: .init(
+                        drillYardLevel: 0,
+                        attackEffect: attackEffect.scaled(toLevel: gearRank),
+                        renownMultiplier: 1
+                    )
                 ) == 2,
                 "gear rank \(gearRank)"
             )
@@ -742,15 +777,21 @@ struct TreasuryEffectSeamTests {
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 1, attackEffect: attackEffect, ownedGearLevel: 1,
-                renownMultiplier: 1
+                modifiers: .init(
+                    drillYardLevel: 1,
+                    attackEffect: attackEffect.scaled(toLevel: 1),
+                    renownMultiplier: 1
+                )
             ) == 3
         )
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 4, attackEffect: attackEffect, ownedGearLevel: 3,
-                renownMultiplier: 1
+                modifiers: .init(
+                    drillYardLevel: 4,
+                    attackEffect: attackEffect.scaled(toLevel: 3),
+                    renownMultiplier: 1
+                )
             ) == 3
         )
 
@@ -763,28 +804,40 @@ struct TreasuryEffectSeamTests {
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 10, defenseTrait: .standardWatch,
-                drillYardLevel: 4, attackEffect: attackEffect, ownedGearLevel: 3,
-                renownMultiplier: 1
+                modifiers: .init(
+                    drillYardLevel: 4,
+                    attackEffect: attackEffect.scaled(toLevel: 3),
+                    renownMultiplier: 1
+                )
             ) == 30
         )
     }
 
     @Test("The first bought Drill Yard or gear rank adds +1; later ranks never regress")
     func effectiveAttackFloorMatrix() {
-        let attackEffect: EquipmentEffect = .attackBonus(0.15)
+        let baseAttackEffect: EquipmentEffect = .attackBonus(0.15)
         for type in SoldierType.allCases {
+            // For each soldier type, test the 3 distinct defense trait multipliers:
+            // favorable (1.25), disadvantaged (0.80), and neutral (1.0).
+            let representativeTraits: [CityDefenseTrait] = [
+                CityDefenseTrait.allCases.first { $0.damageMultiplier(for: type) == 1.25 }!,
+                CityDefenseTrait.allCases.first { $0.damageMultiplier(for: type) == 0.80 }!,
+                CityDefenseTrait.allCases.first { $0.damageMultiplier(for: type) == 1.0 }!
+            ]
             for level in 1...19 {
-                for trait in CityDefenseTrait.allCases {
+                for trait in representativeTraits {
                     for renown in [1.0, 1.25, 1.5, 2.0] {
                         for drillYard in 0...4 {
                             var previousGearValue = 0
                             for gearRank in 0...3 {
+                                let scaledEffect = gearRank > 0 ? baseAttackEffect.scaled(toLevel: gearRank) : nil
                                 let effective = KingdomGameState.effectiveSoldierAttackPower(
                                     for: type, level: level, defenseTrait: trait,
-                                    drillYardLevel: drillYard,
-                                    attackEffect: attackEffect,
-                                    ownedGearLevel: gearRank,
-                                    renownMultiplier: renown
+                                    modifiers: .init(
+                                        drillYardLevel: drillYard,
+                                        attackEffect: scaledEffect,
+                                        renownMultiplier: renown
+                                    )
                                 )
                                 if gearRank == 1 {
                                     #expect(
@@ -808,10 +861,11 @@ struct TreasuryEffectSeamTests {
                                 if drillYard > 0 {
                                     let predecessor = KingdomGameState.effectiveSoldierAttackPower(
                                         for: type, level: level, defenseTrait: trait,
-                                        drillYardLevel: drillYard - 1,
-                                        attackEffect: attackEffect,
-                                        ownedGearLevel: gearRank,
-                                        renownMultiplier: renown
+                                        modifiers: .init(
+                                            drillYardLevel: drillYard - 1,
+                                            attackEffect: scaledEffect,
+                                            renownMultiplier: renown
+                                        )
                                     )
                                     if drillYard == 1 {
                                         #expect(
@@ -844,49 +898,25 @@ struct TreasuryEffectSeamTests {
         let attackEffect: EquipmentEffect = .attackBonus(0.15)
         let noGear = KingdomGameState.effectiveSoldierAttackPower(
             for: .infantry, level: 1, defenseTrait: .standardWatch,
-            drillYardLevel: 0, attackEffect: nil, ownedGearLevel: 0,
-            renownMultiplier: 1
+            modifiers: .init(drillYardLevel: 0, attackEffect: nil, renownMultiplier: 1)
         )
-        for ownedLevel in [0, -1] {
-            #expect(
-                KingdomGameState.effectiveSoldierAttackPower(
-                    for: .infantry, level: 1, defenseTrait: .standardWatch,
-                    drillYardLevel: 0, attackEffect: attackEffect,
-                    ownedGearLevel: ownedLevel, renownMultiplier: 1
-                ) == noGear,
-                "ownedGearLevel \(ownedLevel)"
-            )
-        }
+        #expect(noGear == 1)
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 0, attackEffect: attackEffect, ownedGearLevel: 1,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 0, attackEffect: attackEffect.scaled(toLevel: 1), renownMultiplier: 1)
             ) == 2
         )
 
-        #expect(
-            KingdomGameState.effectiveSoldierAttackPower(
-                for: .infantry, level: 5, defenseTrait: .standardWatch,
-                drillYardLevel: 0, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
-            ) == 4
+        let lv5NoGear = KingdomGameState.effectiveSoldierAttackPower(
+            for: .infantry, level: 5, defenseTrait: .standardWatch,
+            modifiers: .init(drillYardLevel: 0, attackEffect: nil, renownMultiplier: 1)
         )
-        for ownedLevel in [0, -1] {
-            #expect(
-                KingdomGameState.effectiveSoldierAttackPower(
-                    for: .infantry, level: 5, defenseTrait: .standardWatch,
-                    drillYardLevel: 0, attackEffect: attackEffect,
-                    ownedGearLevel: ownedLevel, renownMultiplier: 1
-                ) == 4,
-                "Lv5 ownedGearLevel \(ownedLevel)"
-            )
-        }
+        #expect(lv5NoGear == 4)
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 5, defenseTrait: .standardWatch,
-                drillYardLevel: 0, attackEffect: attackEffect, ownedGearLevel: 1,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 0, attackEffect: attackEffect.scaled(toLevel: 1), renownMultiplier: 1)
             ) == 5
         )
     }
@@ -897,50 +927,41 @@ struct TreasuryEffectSeamTests {
             EquipmentEffect.maxHPBonus(0.25),
             .specialistBonus(target: .gate, fraction: 0.40)
         ] {
-            for ownedLevel in [1, 3] {
-                #expect(
-                    KingdomGameState.effectiveSoldierAttackPower(
-                        for: .infantry, level: 1, defenseTrait: .standardWatch,
-                        drillYardLevel: 0, attackEffect: effect,
-                        ownedGearLevel: ownedLevel, renownMultiplier: 1
-                    ) == 1,
-                    "\(effect) at owned level \(ownedLevel)"
-                )
-            }
+            #expect(
+                KingdomGameState.effectiveSoldierAttackPower(
+                    for: .infantry, level: 1, defenseTrait: .standardWatch,
+                    modifiers: .init(drillYardLevel: 0, attackEffect: effect, renownMultiplier: 1)
+                ) == 1,
+                "\(effect)"
+            )
         }
 
         let attackEffect: EquipmentEffect = .attackBonus(0.15)
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 0, attackEffect: attackEffect, ownedGearLevel: 10,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 0, attackEffect: attackEffect.scaled(toLevel: 10), renownMultiplier: 1)
             ) == KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 1, defenseTrait: .standardWatch,
-                drillYardLevel: 0, attackEffect: attackEffect, ownedGearLevel: 3,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 0, attackEffect: attackEffect.scaled(toLevel: 3), renownMultiplier: 1)
             )
         )
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 2, defenseTrait: .standardWatch,
-                drillYardLevel: -3, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: -3, attackEffect: nil, renownMultiplier: 1)
             ) == KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 2, defenseTrait: .standardWatch,
-                drillYardLevel: 0, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 0, attackEffect: nil, renownMultiplier: 1)
             )
         )
         #expect(
             KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 2, defenseTrait: .standardWatch,
-                drillYardLevel: 10, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 10, attackEffect: nil, renownMultiplier: 1)
             ) == KingdomGameState.effectiveSoldierAttackPower(
                 for: .infantry, level: 2, defenseTrait: .standardWatch,
-                drillYardLevel: 4, attackEffect: nil, ownedGearLevel: 0,
-                renownMultiplier: 1
+                modifiers: .init(drillYardLevel: 4, attackEffect: nil, renownMultiplier: 1)
             )
         )
     }

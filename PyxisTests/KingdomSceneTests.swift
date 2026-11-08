@@ -1810,6 +1810,35 @@ struct KingdomSceneTests {
         #expect(row.accessibilityValue?.contains("Drops at City 9") == true)
     }
 
+    @Test("Late-campaign high-level attack gear fits 264pt Armory line box")
+    func lateCampaignHighLevelAttackGearFitsNarrowArmoryBox() throws {
+        var state = KingdomGameState(
+            gold: 100,
+            ownedEquipmentIDs: EquipmentCatalog.items.map(\.id),
+            equippedItemBySoldierType: ["infantry": "c01-infantry-attack"],
+            equipmentLevelsByID: ["c01-infantry-attack": 3]
+        )
+        let key = state.currentCityKey
+        var cityState = state.cityBattleState(for: key)
+        cityState.setBuilding(CityBuilding(type: .barracks, level: 19), inSlot: 1)
+        state.cityBattleStates[key.storageKey] = cityState
+
+        let size = CGSize(width: 264, height: 454)
+        let scene = makeScene(
+            size: size,
+            store: try makeStore(initialState: state),
+            safeAreaInsets: .zero
+        )
+        selectArmory(scene)
+        let layout = try #require(scene.kingdomLayoutForTesting)
+        let labels = try #require(scene.armoryRowLabelNodesForTesting(.infantry))
+        let parent = try #require(labels.line2.parent)
+        let rendered = parent.convert(labels.line2.frame, to: scene)
+        let box = layout.armoryLine2LabelFrames[0]
+        let tolerance: CGFloat = 0.05
+        #expect(box.insetBy(dx: -tolerance, dy: -tolerance).contains(rendered))
+    }
+
     @Test("Portrait iPad 820×1180 keeps the attack delta and Drill Yard tie inside their rows")
     func iPadRowsShowDeltaAndDrillYardDisclosureInsideBoxes() throws {
         var drillYardState = KingdomGameState(gold: 100)

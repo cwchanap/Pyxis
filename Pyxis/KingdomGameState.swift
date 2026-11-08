@@ -1271,9 +1271,10 @@ struct KingdomGameState: Codable, Equatable {
             * renown
     }
 
-    /// The one first-round soldier attack factor (HPA-672): Drill Yard ×
-    /// leveled equipped attack gear × Renown. The pure static trait fold
-    /// takes it as its single `multiplier` argument and rounds once.
+    /// Composite first-round soldier attack multiplier (HPA-672): Drill Yard
+    /// × leveled equipped attack gear × Renown. Used for raw baseline
+    /// evaluations; effective combat power routes through
+    /// `traitAdjustedSoldierAttackPower(for:level:)` (HPA-811).
     func firstRoundAttackMultiplier(for soldierType: SoldierType) -> Double {
         var attackFraction = 0.0
         if case .attackBonus(let fraction) = equippedEffect(for: soldierType) {
@@ -1286,54 +1287,66 @@ struct KingdomGameState: Codable, Equatable {
         )
     }
 
+    struct SoldierAttackModifiers: Equatable {
+        var drillYardLevel: Int
+        var attackEffect: EquipmentEffect?
+        var renownMultiplier: Double
+
+        init(
+            drillYardLevel: Int = 0,
+            attackEffect: EquipmentEffect? = nil,
+            renownMultiplier: Double = 1.0
+        ) {
+            self.drillYardLevel = drillYardLevel
+            self.attackEffect = attackEffect
+            self.renownMultiplier = renownMultiplier
+        }
+    }
+
     static func effectiveSoldierAttackPower(
         for soldierType: SoldierType,
         level: Int,
         defenseTrait: CityDefenseTrait,
-        drillYardLevel: Int,
-        attackEffect: EquipmentEffect?,
-        ownedGearLevel: Int,
-        renownMultiplier: Double
+        modifiers: SoldierAttackModifiers = SoldierAttackModifiers()
     ) -> Int {
-        let targetDrillYard = min(max(0, drillYardLevel), TreasuryUpgrade.drillYard.maxLevel)
-        let targetGear: Int
-        if let attackEffect, case .attackBonus = attackEffect, ownedGearLevel > 0 {
-            targetGear = min(3, ownedGearLevel)
+        let targetDrillYard = min(max(0, modifiers.drillYardLevel), TreasuryUpgrade.drillYard.maxLevel)
+        let attackFraction: Double
+        let hasAttackGear: Bool
+        if case .attackBonus(let fraction) = modifiers.attackEffect {
+            attackFraction = fraction
+            hasAttackGear = true
         } else {
-            targetGear = 0
+            attackFraction = 0.0
+            hasAttackGear = false
         }
 
-        var cells = [[Int]](
-            repeating: [Int](repeating: 0, count: targetGear + 1),
-            count: targetDrillYard + 1
-        )
-        for drillYard in 0...targetDrillYard {
-            for gear in 0...targetGear {
-                var attackFraction = 0.0
-                if gear > 0,
-                   case .attackBonus(let fraction)? = attackEffect?.scaled(toLevel: gear) {
-                    attackFraction = fraction
-                }
-                var value = traitAdjustedSoldierAttackPower(
-                    for: soldierType,
-                    level: level,
-                    defenseTrait: defenseTrait,
-                    multiplier: firstRoundAttackMultiplier(
-                        drillYard: drillYard,
-                        attackFraction: attackFraction,
-                        renown: renownMultiplier
-                    )
+        func rawPower(drillYard: Int, attackFraction: Double) -> Int {
+            traitAdjustedSoldierAttackPower(
+                for: soldierType,
+                level: level,
+                defenseTrait: defenseTrait,
+                multiplier: firstRoundAttackMultiplier(
+                    drillYard: drillYard,
+                    attackFraction: attackFraction,
+                    renown: modifiers.renownMultiplier
                 )
-                if drillYard > 0 {
-                    value = max(value, cells[drillYard - 1][gear] + (drillYard == 1 ? 1 : 0))
-                }
-                if gear > 0 {
-                    value = max(value, cells[drillYard][gear - 1] + (gear == 1 ? 1 : 0))
-                }
-                cells[drillYard][gear] = value
-            }
+            )
         }
-        return cells[targetDrillYard][targetGear]
+
+        let minD = targetDrillYard > 0 ? 1 : 0
+        let minG = hasAttackGear ? 1 : 0
+
+        let rawDG = rawPower(drillYard: targetDrillYard, attackFraction: attackFraction)
+        let raw0G = rawPower(drillYard: 0, attackFraction: attackFraction)
+        let rawD0 = rawPower(drillYard: targetDrillYard, attackFraction: 0.0)
+        let raw00 = rawPower(drillYard: 0, attackFraction: 0.0)
+
+        return max(
+            rawDG,
+            raw0G + minD,
+            rawD0 + minG,
+            raw00 + minD + minG
+        )
     }
 
     @discardableResult
@@ -1487,28 +1500,20 @@ struct KingdomGameState: Codable, Equatable {
         // Layout, max powers and the specialist loadout are invariant for
         // the whole spawn batch — only the damage map advances between
         // iterations. Snapshot each type's specialist projection once
-        // instead of a catalog lookup per spawn; the same invariance lets
-        // the effective-power rank grid fill once per (type, level).
+        // instead of a catalog lookup per spawn.
         let layout = currentSiegeLayout
         let maxPowers = currentSiegeMaxPowers
-        let specialistByType = Dictionary(
-            uniqueKeysWithValues: SoldierType.allCases.map { type in
-                (type, equipmentSpecialistBonus(for: type))
+        let specialistByType: [SoldierType: SoldierSpecialistBonus] = Dictionary(
+            uniqueKeysWithValues: SoldierType.allCases.compactMap { type in
+                equipmentSpecialistBonus(for: type).map { (type, $0) }
             }
         )
-        var effectivePowerCache: [SoldierType: [Int: Int]] = [:]
 
         for spawn in spawns {
-            let power: Int
-            if let cached = effectivePowerCache[spawn.soldierType]?[spawn.level] {
-                power = cached
-            } else {
-                power = traitAdjustedSoldierAttackPower(
-                    for: spawn.soldierType,
-                    level: spawn.level
-                )
-                effectivePowerCache[spawn.soldierType, default: [:]][spawn.level] = power
-            }
+            let power = traitAdjustedSoldierAttackPower(
+                for: spawn.soldierType,
+                level: spawn.level
+            )
             guard power > 0 else { continue }
 
             let leftover = spendDamageOnSelectedLaneGuards(power)
@@ -1528,7 +1533,7 @@ struct KingdomGameState: Codable, Equatable {
             let budget = spawn.soldierType.roleAdjustedDamage(
                 power: leftover,
                 against: firstLiveKind,
-                specialist: specialistByType[spawn.soldierType] ?? nil
+                specialist: specialistByType[spawn.soldierType]
             )
 
             let (spentDamage, appliedByObjectiveID) = layout.spendDamageBudget(
@@ -1985,13 +1990,12 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     /// The raw single-round attack primitive (HPA-670; HPA-672 collapses
-    /// the modifers into ONE explicit composite `multiplier` — Drill Yard
-    /// × leveled attack gear × Renown, exactly what
-    /// `firstRoundAttackMultiplier(for:)` composes): `baseAttack ×
-    /// cityDefenseTrait × multiplier`, rounded once. The default of 1
-    /// reproduces the pre-Treasury result exactly. Never round this result
-    /// again downstream — the separate role-multiplier hit round is the
-    /// only permitted second rounding.
+    /// the modifiers into ONE explicit composite `multiplier` — Drill Yard
+    /// × leveled attack gear × Renown): `baseAttack × cityDefenseTrait × multiplier`,
+    /// rounded once. The default of 1 reproduces the pre-Treasury result exactly.
+    /// Effective combat attack routes through `traitAdjustedSoldierAttackPower(for:level:)`
+    /// (HPA-811). Never round this result again downstream — the separate
+    /// role-multiplier hit round is the only permitted second rounding.
     static func traitAdjustedSoldierAttackPower(
         for soldierType: SoldierType,
         level: Int,
@@ -2013,15 +2017,15 @@ struct KingdomGameState: Codable, Equatable {
     }
 
     func traitAdjustedSoldierAttackPower(for soldierType: SoldierType, level: Int) -> Int {
-        let item = equippedItem(for: soldierType)
-        return Self.effectiveSoldierAttackPower(
+        Self.effectiveSoldierAttackPower(
             for: soldierType,
             level: level,
             defenseTrait: currentCityDefenseTrait,
-            drillYardLevel: treasury.drillYard,
-            attackEffect: item?.effect,
-            ownedGearLevel: item.flatMap { equipmentLevel(for: $0.id) } ?? 0,
-            renownMultiplier: renownMultiplier
+            modifiers: SoldierAttackModifiers(
+                drillYardLevel: treasury.drillYard,
+                attackEffect: equippedEffect(for: soldierType),
+                renownMultiplier: renownMultiplier
+            )
         )
     }
 
