@@ -704,8 +704,6 @@ struct TreasuryEffectSeamTests {
         #expect(upgradeRemaining == state.gold)
     }
 
-    // MARK: - HPA-811 effective attack (rank-floor projection)
-
     @Test("Effective attack pins: Soldier Lv1 gains, Lv10 percentage already dominates")
     func effectiveAttackPins() {
         let attackEffect: EquipmentEffect = .attackBonus(0.15)
