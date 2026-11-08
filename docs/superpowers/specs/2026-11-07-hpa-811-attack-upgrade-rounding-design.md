@@ -1,70 +1,64 @@
-# HPA-811 — Effective early Drill Yard and attack-gear gains: design specification
+# HPA-811 — Effective Drill Yard and attack-gear gains: design specification
 
 **Linear:** https://linear.app/cwchanap/issue/HPA-811/early-drill-yard-and-attack-gear-give-no-damage-gain  
-**Repository baseline:** cwchanap/Pyxis main at 98c9d358028d04ec8809a9e3efa5799aa1297422 (UAT baseline).  
-**Delivery:** One HPA-811 implementation PR, initially containing this design and the companion plan. Add code, tests, smoke evidence, and review fixes to **this same PR**. Do not merge documentation alone.
+**Baseline:** `cwchanap/Pyxis` `main@98c9d358028d04ec8809a9e3efa5799aa1297422` (UAT baseline, 2026-11-07).  
+**Delivery:** **One HPA-811 PR**. This doc and the [implementation plan](../plans/2026-11-07-hpa-811-attack-upgrade-rounding-implementation.md) are its first commits; implementation, tests, balance evidence and review fixes belong on the **same PR**. Do not merge planning docs alone.
 
-## Problem and evidence
+## Problem
 
-UAT found that the Drill Yard's first 16-gold purchase can display “2 → 2 attack (no damage change yet),” and even a level-2 +22.5% attack item can say “no gain yet.” Current attack power is an integer. The existing first round computes normal soldier attack × city-defense trait × Drill Yard (1 + 0.05 per level) × equipped attack-gear multiplier (level-scaled +15%/+22.5%/+30%) × Renown (1 + 0.25 per Ascension) and rounds once. Low attack bases therefore swallow purchased and earned bonuses. An honest “no gain yet” label does not make the purchase meaningful.
+At low integer attack power, buying Drill Yard (+5% per level) or equipping attack gear (+15% at Lv1, +22.5% at Lv2, +30% at Lv3) often adds **zero** damage after rounding. UAT observed a 16-gold Drill Yard upgrade showing `2 → 2 attack (no damage change yet)` and even leveled attack gear showing `(no gain yet)`. An honest warning still makes the purchase/reward unsatisfying.
 
-The shared state-aware attack projection powers **BattleScene** live spawns and the **KingdomScene** Drill Yard/Armory previews. In **KingdomGameState.applyAbstractBuildingSpawnDamage**, idle combat currently uses the pure static attack helper with a cached composite multiplier. The existing seed-582 campaign's test-only greedy equipment scorer also reimplements the first-round formula. These three paths must agree.
+The current first-round formula is `round(baseSoldierAttack × cityDefenseTrait × (1 + 0.05×DrillYard) × attackGearMultiplier × Renown)`, minimum 1. `KingdomGameState.traitAdjustedSoldierAttackPower(for:level:)` provides the state-aware projection for live spawns and Kingdom previews; the idle path instead uses the static percentage primitive with a cached multiplier. The test-only campaign equipment scorer reimplements the first round.
 
-## Product decision
+## Product decision and power tradeoff
 
-For ordinary soldiers, **every added Drill Yard level** and **every added level of an equipped attack item** grants at least +1 effective integer first-round attack, even when the authored percentage rounds away. Continue using the authored percentage result whenever it is stronger. This is intentionally an early-game minimum, **not** an extra flat +1 added after all percentages.
+**Each new Drill Yard rank and each newly equipped attack-gear rank must add at least +1 integer *first-round* ordinary-soldier attack**, even if the authored percentages round away. When the original rounded percentage produces a larger result, keep it. Do not simply add the ranks to every percentage result.
 
-This covers the reported first Drill Yard purchase, and ensures Lv1 → Lv2 → Lv3 gear rewards are perceptible on replay. A gear item in an intentional empty slot gives no effect. A toughness or specialist item does not acquire an attack minimum. Percentages and gear-level scaling remain authored exactly as today.
+This is a **strong low-power buff**, not merely a first-purchase nudge. At a base attack of 1, one new Drill Yard level can double attack (+100% incremental gain); several ranks together can make the level-1 first-run maximum **six times** its existing rounded value. The floor can dominate into approximately soldier level 9. This is intentional *only provisionally*: the early numeric campaign gate below must be passed before UI implementation.
 
-This choice necessarily makes low-power buffs proportionally stronger than their displayed nominal percentage. The nominal percentage is **not** the entire effective rule at low power. The Kingdom descriptions and accessibility values must explicitly describe the minimum and show actual projected integers. Do not pretend +5% always equals the integer gain.
+Examples with the current soldier curve `ceil(1.38^(level−1))`, a **neutral city trait and Renown 0** (these are calculated projections, **not measured campaign times**):
 
-### Exact bounded first-round rule
+| Soldier level (base) | Drill Yard 4 + Attack gear Lv1: raw → effective | Drill Yard 4 + Attack gear Lv3: raw → effective |
+| --- | --- | --- |
+| 1 (1) | 1 → **6** (6×) | 2 → **8** |
+| 2–3 (2) | 3 → **7** | 3 → **9** |
+| 4 (3) | 4 → **8** | 5 → **10** |
+| 5 (4) | 6 → **9** | 6 → **11** |
+| 8 (10) | 14 → **16** | 16 → **18** |
+| 10 (19) | **26 → 26** | **30 → 30** |
 
-For soldier type S and level L, with the current city defense trait and Renown:
+Lv3 equipment is earned on replay, but this table deliberately holds **Renown at 0** to isolate the rounding rule. An actual Renown 1+ replay will have different raw/effective values and must be measured separately. A high-base example (soldier Lv10, DY4, Lv3 attack gear, neutral, Renown 0) remains `raw == effective == 30`.
 
-- Let **d** be the current Drill Yard level (0–4).
-- Let **g** be the level of the **equipped attack item** (0 when no attack item is equipped; otherwise 1–3).
-- Define **raw(d,g)** as the existing one-round integer attack projection for normalSoldierAttackPower(S,L) × defenseTrait(S) × Renown × (1 + 0.05d) × gearMultiplier(g). The latter is 1 at g=0, or 1 + that item’s authored attack fraction scaled by EquipmentEffect.scaled(toLevel:g) at g=1–3. Preserve the existing minimum-1 and Swift rounding behavior.
-- Define **effective(0,0) = raw(0,0)**.
-- For each valid pair (d,g), define **effective(d,g)** as the maximum of: raw(d,g); effective(d−1,g)+1 when d>0; effective(d,g−1)+1 when g>0.
-- Return **effective(actual d, actual g)** for the soldier being spawned/represented. Compute this tiny at-most-5×4 table on demand; it is derived from existing state and never persisted.
+**Other consequence:** Attack gear will generally win more early loadout decisions. Specialist and Toughness gear can still round away their own effects and must keep their truthful `(no gain yet)` note; do not silently buff them. This is a product balance tradeoff, not a request for new systems.
 
-The two predecessor constraints prove that increasing **either** attack-upgrade rank yields at least +1 effective first-round attack, even when the other source is equipped. If normal percentage math already gives the increment, that result wins. No fractional HP, deferred damage bank, RNG, stat-upgrade registry, migration, or additional persisted state is needed.
+## Exact bounded effective-attack rule
 
-Examples for neutral-trait, no-Renown **level-1** infantry (normal attack 1):
+At one soldier level, city defense trait and Renown:
 
-| Drill Yard | Attack gear | Effective first-round attack |
-| --- | --- | ---: |
-| 0 | none | 1 |
-| 1 | none | 2 |
-| 0 | Lv 1 (+15%) | 2 |
-| 0 | Lv 2 (+22.5%) | 3 |
-| 0 | Lv 3 (+30%) | 4 |
-| 1 | Lv 1 | 3 |
+- `d` = Drill Yard rank 0…4, `g` = rank 0…3 of the **currently equipped attack item**, with `g = 0` if no attack item is equipped (including intentionally unequipped/Toughness/Specialist).
+- `raw(d,g)` = the existing static, single-round integer attack using the hypothetical ranks: base attack × defense trait × Renown × `(1 + 0.05×d)` × `(1 + attackFractionAtLevel(g))`; at `g=0` the gear factor is 1. Use `EquipmentEffect.scaled(toLevel:)` to obtain each nonzero gear fraction. Preserve existing Swift `.rounded()` and the minimum 1.
+- `effective(0,0) = raw(0,0)`.
+- `effective(d,g) = max(raw(d,g), effective(d−1,g)+1 if d>0, effective(d,g−1)+1 if g>0)`.
+- Return `effective(actual d, actual g)` from the state-aware attack method. Compute the tiny ≤5×4 table on demand; **no persisted modifier or separate attack state**.
 
-These are minimum-effective integers, not promises that the nominal percentage alone produces those deltas. For sufficiently large attack bases, the unchanged percentage calculation dominates the minimum.
+The two predecessor constraints guarantee strict growth in **each** rank dimension even with the other upgrade present. Important comparisons at neutral Renown 0 and level-1 base power: `(d,g)=(0,0)→1`, `(1,0)→2`, `(0,1)→2`, `(0,2)→3`, `(0,3)→4`, `(1,1)→3`.
 
-## Ownership and invariants
+The shortcut `max(raw(d,g),raw(0,0)+d+g)` is **not equivalent**; it can violate strict monotonicity where one raw curve overtakes another. The alternate rule `raw(d,g)+d+g` *is* monotonic, but inflates already-effective high-base percentages by a permanent +d+g (e.g. adds 7 to a Lv10 raw attack of 30). The 2-D predecessor recurrence retains the old high-base values whenever raw percentage increases suffice.
 
-1. **KingdomGameState** remains the only rules owner. Keep the pure static trait-adjusted function as the one-round percentage primitive; add only a focused state-aware effective-first-round projection (or a small private helper) to apply this bounded rule. Read the existing Treasure/Equipment/Renown authorities rather than introducing copied constants or bonus state. Keep the public state-aware traitAdjustedSoldierAttackPower entry point the runtime source of truth.
-2. **Live** spawns continue capturing the attack power once at spawn; changing loadouts or Treasury later does not rewrite active soldiers. **Idle** building-spawn damage must call the identical effective projection, not the old static percentage-only path. Keep its Guard absorption, objective-role second round, spill budget and at-most-one-conquest semantics.
-3. The separate **second-round** inherent objective-role and specialist multiplier remains unchanged; neither enemy Guards nor the Vanguard Captain receives a new bonus. HP, price curves, economy, conquest gold, Renown scaling, troop spawn rates and equipment drops are out of scope.
-4. **KingdomScene** Drill Yard next-level example continues projecting current and next state through the real attack API. An attainable level should no longer show “no damage change yet” for the example. An equipped attack item’s Armory description should show its effective level and truthful minimum; do not append the attack “no gain yet” note. Preserve that note for rounded-away specialist/toughness effects. Fit compact existing rows and VoiceOver labels.
-5. **Country1SiegeSmoke** greedy candidate scoring must project the real state after a hypothetical equip/unequip rather than recomputing percentage-only attack. This is a **test helper** change, not player AI. Correct any tests whose old expected choice depended on attack bonuses rounding away.
-6. No new art or SFX. HPA-812 owns general Camp/Map/Kingdom/Battle UI polish and must not be folded into this task. No additional Linear issue is needed for the existing, contained gameplay change.
+## Code ownership, small scope
 
-## Alternatives deliberately not chosen
+1. Keep `KingdomGameState` as the single combat-rule owner. Preserve the existing pure static `traitAdjustedSoldierAttackPower` as the **unchanged raw percentage primitive**. Add an **internal static, pure** `effectiveSoldierAttackPower` helper taking soldier type/level, defense trait, Drill Yard rank, the unscaled attack `EquipmentEffect?` and gear level, and Renown multiplier. The test matrix calls it directly, without building thousands of game states.
+2. Add **one static first-round multiplier composer** for `(drillYard, attackFraction, renown)` to evaluate hypothetical cells. The existing `firstRoundAttackMultiplier(for:)` becomes a thin instance wrapper around it; the existing state-aware `traitAdjustedSoldierAttackPower(for:level:)` calls the static effective helper using existing Treasury/Equipment/Renown state. Do not duplicate the 5% constant or authored gear fractions.
+3. **Live and idle parity:** `BattleScene` continues spawning ordinary soldiers using the state-aware method, caching stats once. In idle `applyAbstractBuildingSpawnDamage`, replace the static percentage call and cached `firstRound` factor with that same state-aware method; retain the specialist snapshot, Guard absorption, role/specialist second round, damage-spill rules and at-most-one-city conquest. Neither Guards nor Vanguard Captain use this projection; do not change them.
+4. **Kingdom UI, only after passing the balance gate:** keep the Drill Yard's real current→next attack example; remove the now-dead below-max `(no damage change yet)` branch. Remove the now-unreachable Attack branch of `equippedEffectRoundsAway`. For Attack gear, show actual `atk X → Y` using a copied, unequipped state alongside the **nominal** `+N%` and gear rank in the existing compact Armory row and VoiceOver. Keep non-Attack no-gain disclosures. **Do not change `TreasuryUpgrade.drillYard.effectName`** (not rendered in the Drill Yard row); no new layout, tabs, art, sound, or strings platform.
+5. **Test-only equipment scorer:** project candidates using a copied state and its real equip/unequip + effective attack method, then existing role/specialist second round. Score at `state.manualSoldierLevel(for: type) ?? 1` **after Treasury and Camp purchases**. Current `runGreedyCampaign` chooses gear before Camp, so merely replacing the hard-coded level 1 while keeping the old order would still evaluate level 1. Keep deterministic ties; it is not a runtime recommendation system. To isolate effects, compare against a scorer-corrected **no-new-floor** control as well as unchanged historical main.
+6. No new persistence, schema/version layer, migration, general-purpose buff registry, combat engine, feature flag, art/SFX or HPA-812 UI polish. Implementation and adjustments stay on this PR.
 
-- **Gate the Drill Yard until the displayed integer rises:** leaves already-earned attack gear with ineffective levels and requires non-obvious shop state restrictions across cities/Ascension.
-- **Increase attack percentages until low-level rounding changes:** cannot guarantee all +15% / +22.5% / +30% ranks change a base of 1 without extreme power inflation.
-- **Fractional attack/HP or an accumulated sub-integer damage system:** preserves fine-grained percent balance, but broadens live/idle combat, objective HP, HUD and persistence for a small hobby-project bug.
-- **Always add upgrade rank to a rounded total:** smaller implementation, but a large raw percentage result can mask a later rank; the bounded predecessor rule makes the ticket's guarantee testable.
+## Test acceptance and mandatory early balance gate
 
-## Acceptance and balance gate
+- **Pure matrix:** soldier levels 1–19, all five soldier types, neutral/advantaged/disadvantaged traits, Renown multipliers 1/1.25/1.5/2, DY 0–4, attack gear rank 0–3. Assert every adjacent rank raises effective integer attack ≥1. Pin `Lv10 + DY4 + Lv3 == raw == 30` (neutral, Renown 0) and `DY0 + no attack gear == old raw` for all representative scenarios. Add a few real-state and live/idle integration cases instead of creating 7,200 full `KingdomGameState` fixtures.
+- **Baseline controls before gameplay-rule changes:** on a macOS/Xcode runner, capture opt-in seed-582 campaign output from unchanged `main@98c9d35` for historical comparison; then, with *production combat math still unchanged*, apply only the test-only **post-Camp, real-level scorer** improvement and rerun it as the matched control. Record all actual `campaign=1`/`elapsed=`/`camp=` and `totalElapsed=` lines for fresh bought+gear and Renown 0/1 replay. Do not invent measurements or compare two different scorer policies as though only the floor changed.
+- **Early stop criterion, BEFORE any Kingdom UI edits:** run the same chained campaign with the effective attack rule and corrected scorer. **Stop and seek a product decision** if any variant fails to conquer 15/15 or stalls, if **any City 1–5 of the fresh bought+gear variant completes in under 5.0 simulated seconds**, or if **any matched 15-city total is below 65% of its scorer-corrected control** (>35% faster). Renown 1 must remain faster than Renown 0; explicitly record zero-gold replay City 1/2. These numbers are **provisional game-feel guardrails**, not empirically validated ideal pacing.
+- **Final checks:** after the early gate passes, validate the Kingdom projected integers and accessibility, existing cached-live-soldier behavior, unchanged conquest gold/HP/role/specialist semantics, serial Swift Testing/UI tests, Debug/Release build, SwiftLint, and repeat the required opt-in chained campaign at the final commit. Record empirical results in the same PR; do not tune unrelated balance constants or hide a failure.
 
-- Across reachable low troop levels (at minimum 1–8), every defense trait category (neutral/advantaged/disadvantaged), Drill Yard 0–4, equipped attack item levels 0–3, and Ascension 0/1/representative later count, **effective(d+1,g) > effective(d,g)** and **effective(d,g+1) > effective(d,g)**. Check all five soldier types, with gear only for their own type.
-- With Drill Yard 0 and no attack gear, the attack projection is **exactly** the current main value, including Renown. Unequipping restores it; other gear kinds, Guards, Captain and second-round role damage are unchanged.
-- Live spawn and idle abstract attacks report the same effective first-round power for matching soldier level, city trait and upgrades. Existing soldiers do not retroactively change.
-- Drill Yard and Armory previews and accessibility values agree with effective combat attack; all affected compact layouts remain readable.
-- Run serial unit/UI suites, lint and builds, and **the required opt-in chained Country 1 campaign smoke**. Compare seed-582 bought-Treasury/gear play and matched Renown 0/1 replay runs against the current evidence. Log all 15 cities, first-replay City 1/2, stalls and total time. A 15/15 pass alone does not prove acceptable pacing; review the duration shifts and stop for a product decision if early power makes progression trivial.
-- Do not alter balance constants or suppress a failing expectation just to get green tests. Record measurements and any product compromise in this same PR.
+**Planning status:** No gameplay implementation, Xcode simulator run or baseline timing measurement is claimed in this document.
