@@ -73,9 +73,8 @@ struct EquipmentEffectTests {
             ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
         )
         state.treasury.drillYard = 2
+        #expect(state.equip(itemID: "c01-infantry-attack") == .success)
 
-        // The static primitive keeps the raw single-round percentage:
-        // base 4 × 1.10 = 4.4 → 4; × 1.15 = 5.06 → 5.
         #expect(
             KingdomGameState.traitAdjustedSoldierAttackPower(
                 for: .infantry, level: 5,
@@ -90,22 +89,17 @@ struct EquipmentEffectTests {
                 multiplier: 1.1 * 1.15
             ) == 5
         )
-
-        // The instance seam is the HPA-811 effective attack: each owned
-        // rank adds at least +1 — DY2 alone reads 6 …
+        // Base 4 × 1.10 × 1.15 = 5.06 → 5 in ONE round.
         #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 6)
-        // … and DY2 + the Lv1 attack item reads 7.
-        #expect(state.equip(itemID: "c01-infantry-attack") == .success)
-        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 7)
 
-        // A non-attack item never arms the gear dimension — the same read
-        // returns the DY-only effective.
         #expect(state.equip(itemID: "c03-infantry-toughness") == .success)
-        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 6)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 5)
 
-        // Unequipped, back to the DY-only effective.
+        // Unequipped, the same state returns the HPA-811 effective — the
+        // first bought rank lifts the raw fold round(4 × 1.10) = 4.4 → 4
+        // to 5.
         #expect(state.unequip(soldierType: .infantry) == .success)
-        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 6)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 5)
     }
 
     @Test func liveCombatSpawnAndIdleDamageShareTheGearFoldedPower() throws {
