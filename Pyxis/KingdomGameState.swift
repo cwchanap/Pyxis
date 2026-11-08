@@ -1487,7 +1487,8 @@ struct KingdomGameState: Codable, Equatable {
         // Layout, max powers and the specialist loadout are invariant for
         // the whole spawn batch — only the damage map advances between
         // iterations. Snapshot each type's specialist projection once
-        // instead of a catalog lookup per spawn.
+        // instead of a catalog lookup per spawn; the same invariance lets
+        // the effective-power rank grid fill once per (type, level).
         let layout = currentSiegeLayout
         let maxPowers = currentSiegeMaxPowers
         let specialistByType = Dictionary(
@@ -1495,12 +1496,19 @@ struct KingdomGameState: Codable, Equatable {
                 (type, equipmentSpecialistBonus(for: type))
             }
         )
+        var effectivePowerCache: [SoldierType: [Int: Int]] = [:]
 
         for spawn in spawns {
-            let power = traitAdjustedSoldierAttackPower(
-                for: spawn.soldierType,
-                level: spawn.level
-            )
+            let power: Int
+            if let cached = effectivePowerCache[spawn.soldierType]?[spawn.level] {
+                power = cached
+            } else {
+                power = traitAdjustedSoldierAttackPower(
+                    for: spawn.soldierType,
+                    level: spawn.level
+                )
+                effectivePowerCache[spawn.soldierType, default: [:]][spawn.level] = power
+            }
             guard power > 0 else { continue }
 
             let leftover = spendDamageOnSelectedLaneGuards(power)
