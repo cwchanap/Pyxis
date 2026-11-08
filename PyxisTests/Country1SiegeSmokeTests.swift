@@ -1476,94 +1476,114 @@ struct Country1SiegeSmokeTests {
         #expect(state.equippedItemBySoldierType.isEmpty)
     }
 
-    /// City 1's first live objective (Willowford Gate) leaves every level-1
-    /// power at 1, so the Attack bonus rounds to a tie and the owned
-    /// Toughness item is the fallback.
+    /// City 1's first live objective is Willowford Gate and level-1
+    /// infantry power is 1, so the Gate Specialist's ×1.4 second round
+    /// rounds right back to 1 — no strict gain — and the owned Toughness
+    /// item is the fallback. HPA-811: the real Attack item is no longer a
+    /// tie case here; its rank floor reads 2 and wins.
     @Test("Greedy equipment policy falls back to owned Toughness when damage does not improve")
     func greedyEquipmentPolicyFallsBackToOwnedToughness() {
         var state = KingdomGameState(
-            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
+            ownedEquipmentIDs: ["c06-infantry-gate", "c03-infantry-toughness"]
         )
 
         Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
 
         #expect(state.equippedItemBySoldierType == ["infantry": "c03-infantry-toughness"])
+
+        // Companion: the same fixture with the Attack item — its +1 rank
+        // floor lifts the level-1 read to 2 > None's 1, a strict gain.
+        var attackState = KingdomGameState(
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
+        )
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &attackState)
+        #expect(attackState.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
     }
 
-    /// City 5's default lane (right) routes straight to the Keep, and siege's
-    /// inherent role vs a Keep is 2.0 — round(1×2)=2 against
-    /// round(1×2×1.4)=3 is a strict integer gain at level 1, so the matching
-    /// specialist is chosen over the attack and toughness items.
+    /// Willowford's first live objective is the Gate. At a seeded City 1
+    /// Barracks Lv5 (Barracks unlocks at City 1 — a City 5 Siege Workshop
+    /// fixture could never exist, the Workshop unlocks at City 11) the
+    /// level-5 infantry Attack item scores 5 against None's 4, while the
+    /// matching Gate Specialist's ×1.4 second round scores
+    /// round(4 × 1.4) = 6 — the strict integer gain that picks the
+    /// Specialist over both other items.
     @Test("Greedy equipment policy picks a matching specialist on a strict integer gain")
     func greedyEquipmentPolicyPicksMatchingSpecialistOnStrictGain() {
         var state = KingdomGameState(
-            cityNumberInCountry: 4,
-            completedCityCount: 4,
-            stageStatus: .cityConqueredPendingMap,
-            ownedEquipmentIDs: ["c11-siege-attack", "c13-siege-toughness", "c15-siege-keep"]
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: 1).storageKey: CityBattleState(
+                    slots: [1: CityBuilding(type: .barracks, level: 5)]
+                )
+            ],
+            ownedEquipmentIDs: [
+                "c01-infantry-attack", "c03-infantry-toughness", "c06-infantry-gate"
+            ]
         )
-        guard case .entered = state.startCityFromMap(5) else {
-            Issue.record("city 5 entry failed")
-            return
-        }
+
         Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
 
-        #expect(state.equippedItemBySoldierType == ["siege": "c15-siege-keep"])
+        #expect(state.equippedItemBySoldierType == ["infantry": "c06-infantry-gate"])
     }
 
-    /// HPA-672 Task 3: the scorer must consume `EquipmentEffect.scaled(toLevel:)`
-    /// — at Renown 1 a Lv2 attack item (×1.225: 1 × 1.25 × 1.225 = 1.53 → 2)
-    /// is a strict integer gain over None's round(1.25) = 1, while the Lv1
-    /// fraction (×1.15: 1.4375 → 1) still ties and falls back to Toughness.
-    /// Willowford gate target, Standard Watch, scorer base 1.
+    /// HPA-672 Task 3, rescoped for HPA-811 (the Attack rank floor already
+    /// wins at level 1, so the scaled-fraction proof moves to the
+    /// Specialist second round): the scorer must consume
+    /// `EquipmentEffect.scaled(toLevel:)` — at Willowford's Gate target the
+    /// Lv1 Specialist fraction ×1.4 rounds level-1 power's 1 × 1.4 back to
+    /// 1, a None tie that falls back to Toughness, while the scaled Lv2
+    /// ×1.6 gives a strict integer gain (round(1 × 1.6) = 2).
     @Test("Greedy scoring consumes the leveled effect, not the authored Lv1 fraction")
     func greedyScoringUsesTheLeveledEffect() {
-        func equippedAttackID(levels: [String: Int]) -> String? {
+        func equippedItemID(levels: [String: Int]) -> String? {
             var state = SiegeTestSupport.makeBattleState(
                 atCity: 1,
                 keepRemaining: 500,
-                ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
-                equipmentLevelsByID: levels,
-                ascensionCount: 1
+                ownedEquipmentIDs: ["c06-infantry-gate", "c03-infantry-toughness"],
+                equipmentLevelsByID: levels
             )
             Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
             return state.equippedItemBySoldierType["infantry"]
         }
 
-        #expect(equippedAttackID(levels: ["c01-infantry-attack": 1]) == "c03-infantry-toughness")
-        #expect(equippedAttackID(levels: ["c01-infantry-attack": 2]) == "c01-infantry-attack")
+        #expect(equippedItemID(levels: ["c06-infantry-gate": 1]) == "c03-infantry-toughness")
+        #expect(equippedItemID(levels: ["c06-infantry-gate": 2]) == "c06-infantry-gate")
     }
 
-    /// HPA-672 Task 3: the scorer must fold the state's effective Renown —
-    /// the same Lv3 attack item that rounds away at Renown 0 becomes a
-    /// strict integer gain at Renown 1 (base 1 × 1.25 × 1.30 = 1.625 → 2
-    /// vs None's round(1.25) = 1). Willowford gate target, Standard Watch.
+    /// HPA-672 Task 3, rescoped for HPA-811 (an attack item never rounds
+    /// away any more — its floor wins at every Renown — so the Renown proof
+    /// moves to the same level-1 Gate Specialist): Renown 0 leaves the
+    /// ×1.4 second round at 1, a None tie that falls back to Toughness;
+    /// Renown 1.5 (ascension 2) lifts the first-round power to
+    /// round(1 × 1.5) = 2, and the Specialist's round(2 × 1.4) = 3 is a
+    /// strict gain over None's 2. Willowford gate target, Standard Watch.
     @Test("Greedy scoring folds the run's effective Renown into the candidate")
     func greedyScoringUsesTheEffectiveRenown() {
-        func equippedAttackID(ascensionCount: Int) -> String? {
+        func equippedItemID(ascensionCount: Int) -> String? {
             var state = SiegeTestSupport.makeBattleState(
                 atCity: 1,
                 keepRemaining: 500,
-                ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"],
-                equipmentLevelsByID: ["c01-infantry-attack": 3],
+                ownedEquipmentIDs: ["c06-infantry-gate", "c03-infantry-toughness"],
+                equipmentLevelsByID: ["c06-infantry-gate": 1],
                 ascensionCount: ascensionCount
             )
             Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
             return state.equippedItemBySoldierType["infantry"]
         }
 
-        // Renown 0: attack ×1.30 rounds 1.30 → 1, a None tie → Toughness.
-        #expect(equippedAttackID(ascensionCount: 0) == "c03-infantry-toughness")
-        // Renown 1: 1 × 1.25 × 1.30 = 1.625 → 2 beats None's 1 → attack.
-        #expect(equippedAttackID(ascensionCount: 1) == "c01-infantry-attack")
+        // Renown 0: 1 × 1.4 → 1, a None tie → Toughness.
+        #expect(equippedItemID(ascensionCount: 0) == "c03-infantry-toughness")
+        // Renown 1.5: power 2, specialist round(2 × 1.4) = 3 > None's 2.
+        #expect(equippedItemID(ascensionCount: 2) == "c06-infantry-gate")
     }
 
-    /// HPA-811 Checkpoint 0: the scorer must consume the camp-derived
-    /// soldier level, not a fixed 1. A City 1 Barracks L5 (Barracks unlocks
-    /// at City 1) makes infantry level 5 — base 4 × the Lv1 Attack fraction
-    /// 1.15 = 4.6 rounds to 5 against None's 4, a strict integer gain the
-    /// fixed-level-1 scorer could never see (round(1.15) = 1 ties None and
-    /// falls back to Toughness). Willowford gate target, Standard Watch.
+    /// HPA-811 Checkpoint 0, rescoped for the rank floor (at level 1 the
+    /// Attack item now wins on its floor, so a fixed-level-1 scorer can no
+    /// longer be told apart by an attack-vs-None flip): the scorer must
+    /// consume the camp-derived soldier level. A seeded City 1 Barracks L5
+    /// makes infantry level 5 — the Gate Specialist's round(4 × 1.4) = 6
+    /// beats the Attack item's effective 5, a selection a fixed-level-1
+    /// scorer could never produce (at level 1 the Attack floor reads 2 and
+    /// wins). Willowford gate target, Standard Watch.
     @Test("Greedy equipment policy scores candidates at the real camp soldier level")
     func greedyEquipmentPolicyScoresAtRealCampSoldierLevel() {
         var state = KingdomGameState(
@@ -1572,37 +1592,46 @@ struct Country1SiegeSmokeTests {
                     slots: [1: CityBuilding(type: .barracks, level: 5)]
                 )
             ],
-            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
+            ownedEquipmentIDs: [
+                "c01-infantry-attack", "c03-infantry-toughness", "c06-infantry-gate"
+            ]
         )
 
         Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
 
-        #expect(state.equippedItemBySoldierType == ["infantry": "c01-infantry-attack"])
+        #expect(state.equippedItemBySoldierType == ["infantry": "c06-infantry-gate"])
     }
 
-    /// HPA-811 Checkpoint 0: the loadout must be chosen AFTER the Camp
-    /// purchases, not at city entry — the entry-time camp is empty, so even
-    /// a level-aware scorer could only see level 1 there. This drives the
-    /// campaign's own order (the real greedy Camp buyer through the real
-    /// build/upgrade mutations, then the policy) and expects the selection
-    /// to change once the bought Barracks raises the infantry level.
+    /// HPA-811 Checkpoint 0, rescoped for the rank floor: the loadout must
+    /// still be chosen AFTER the Camp purchases, not at city entry — the
+    /// entry-time camp is empty, so even a level-aware scorer reads level 1
+    /// there and the Attack item's floor (2 > None's 1) wins. This drives
+    /// the campaign's own order (the real greedy Camp buyer through the
+    /// real build/upgrade mutations, then the policy) and expects the
+    /// selection to flip once the bought Barracks lifts infantry high
+    /// enough that the Gate Specialist's ×1.4 overtakes the attack floor.
     @Test("Greedy equipment selection reflects the post-Camp soldier levels")
-    func greedyEquipmentPolicySelectionReflectsPostCampPurchases() {
+    func greedyEquipmentPolicySelectionReflectsPostCampPurchases() throws {
         var state = KingdomGameState(
             gold: 1_000,
-            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
+            ownedEquipmentIDs: [
+                "c01-infantry-attack", "c03-infantry-toughness", "c06-infantry-gate"
+            ]
         )
 
-        // Entry-time selection: empty camp → infantry level 1 → the Attack
-        // item ties None and the owned Toughness item is the fallback.
-        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
-        #expect(state.equippedItemBySoldierType["infantry"] == "c03-infantry-toughness")
-
-        // The campaign's own order: greedy Camp purchases first, then the
-        // loadout — the bought Barracks levels flip the choice to Attack.
-        _ = Country1SiegeSmoke.buyGreedyCamp(for: &state)
+        // Entry-time selection: empty camp → level 1 → the Attack floor
+        // (2) beats None (1) while the Gate Specialist ties at 1.
         Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
         #expect(state.equippedItemBySoldierType["infantry"] == "c01-infantry-attack")
+
+        // The campaign's own order: greedy Camp purchases first, then the
+        // loadout — the bought Barracks levels flip the choice to the Gate
+        // Specialist. Infantry must genuinely reach level ≥ 5: at lower
+        // bases the two candidates only tie and the premise silently dies.
+        _ = Country1SiegeSmoke.buyGreedyCamp(for: &state)
+        #expect(try #require(state.manualSoldierLevel(for: .infantry)) >= 5)
+        Country1SiegeSmoke.applyGreedyEquipmentPolicy(for: &state)
+        #expect(state.equippedItemBySoldierType["infantry"] == "c06-infantry-gate")
     }
 
     /// Runs one matched comparison (an alternate or default lane on a committed camp and policy) and

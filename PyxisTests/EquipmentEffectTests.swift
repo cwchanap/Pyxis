@@ -70,25 +70,42 @@ struct EquipmentEffectTests {
         var state = SiegeTestSupport.makeBattleState(
             atCity: 1,
             keepRemaining: 100_000,
-            ownedEquipmentIDs: ["c01-infantry-attack"]
+            ownedEquipmentIDs: ["c01-infantry-attack", "c03-infantry-toughness"]
         )
         state.treasury.drillYard = 2
-        #expect(state.equip(itemID: "c01-infantry-attack") == .success)
 
-        let expected = KingdomGameState.traitAdjustedSoldierAttackPower(
-            for: .infantry,
-            level: 5,
-            defenseTrait: state.currentCityDefenseTrait,
-            multiplier: 1.1 * 1.15
+        // The static primitive keeps the raw single-round percentage:
+        // base 4 × 1.10 = 4.4 → 4; × 1.15 = 5.06 → 5.
+        #expect(
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .infantry, level: 5,
+                defenseTrait: state.currentCityDefenseTrait,
+                multiplier: 1.1
+            ) == 4
         )
-        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == expected)
-        // Base 4 × 1.10 × 1.15 = 5.06 → 5 in ONE round.
-        #expect(expected == 5)
+        #expect(
+            KingdomGameState.traitAdjustedSoldierAttackPower(
+                for: .infantry, level: 5,
+                defenseTrait: state.currentCityDefenseTrait,
+                multiplier: 1.1 * 1.15
+            ) == 5
+        )
 
-        // Unequipped, the same state returns the exact HPA-670 fold:
-        // round(4 × 1.10) = 4.4 → 4.
+        // The instance seam is the HPA-811 effective attack: each owned
+        // rank adds at least +1 — DY2 alone reads 6 …
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 6)
+        // … and DY2 + the Lv1 attack item reads 7.
+        #expect(state.equip(itemID: "c01-infantry-attack") == .success)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 7)
+
+        // A non-attack item never arms the gear dimension — the same read
+        // returns the DY-only effective.
+        #expect(state.equip(itemID: "c03-infantry-toughness") == .success)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 6)
+
+        // Unequipped, back to the DY-only effective.
         #expect(state.unequip(soldierType: .infantry) == .success)
-        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 4)
+        #expect(state.traitAdjustedSoldierAttackPower(for: .infantry, level: 5) == 6)
     }
 
     @Test func liveCombatSpawnAndIdleDamageShareTheGearFoldedPower() throws {

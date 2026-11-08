@@ -1261,15 +1261,103 @@ struct KingdomGameState: Codable, Equatable {
         1.0 + 0.25 * Double(max(0, count))
     }
 
+    /// The one first-round soldier attack factor for a hypothetical
+    /// (Drill Yard rank, attack-gear fraction, Renown) cell (HPA-811):
+    /// `(1 + 0.05 × drillYard) × (1 + attackFraction) × renown`. The
+    /// instance wrapper and the effective-attack table both compose
+    /// through it — the 5% constant lives here exactly once.
+    static func firstRoundAttackMultiplier(
+        drillYard: Int,
+        attackFraction: Double,
+        renown: Double
+    ) -> Double {
+        (1.0 + 0.05 * Double(drillYard))
+            * (1.0 + attackFraction)
+            * renown
+    }
+
     /// The one first-round soldier attack factor (HPA-672): Drill Yard ×
-    /// leveled equipped attack gear × Renown. The state-aware live spawn
-    /// seam and the idle batch's cached per-type loadout both consume this
-    /// accessor; the pure static trait fold takes it as its single
-    /// `multiplier` argument and rounds once.
+    /// leveled equipped attack gear × Renown, composed through the static
+    /// cell primitive. The state's Drill Yard rank is normalized to the
+    /// authored band so a directly assigned out-of-range level behaves
+    /// like the cap (HPA-811).
     func firstRoundAttackMultiplier(for soldierType: SoldierType) -> Double {
-        (1.0 + 0.05 * Double(treasury.drillYard))
-            * equipmentAttackMultiplier(for: soldierType)
-            * renownMultiplier
+        var attackFraction = 0.0
+        if case .attackBonus(let fraction) = equippedEffect(for: soldierType) {
+            attackFraction = fraction
+        }
+        return Self.firstRoundAttackMultiplier(
+            drillYard: min(max(0, treasury.drillYard), TreasuryUpgrade.drillYard.maxLevel),
+            attackFraction: attackFraction,
+            renown: renownMultiplier
+        )
+    }
+
+    /// The HPA-811 effective first-round attack for one soldier: the raw
+    /// single-round percentage plus the bounded rank floor — every owned
+    /// Drill Yard rank and every active attack-gear rank adds at least +1
+    /// integer attack. Inputs normalize before the (≤5×4) table builds:
+    /// the target Drill Yard rank clamps to
+    /// `0...TreasuryUpgrade.drillYard.maxLevel` even for directly assigned
+    /// out-of-range levels, and the target gear rank clamps to `0...3`
+    /// only while the input effect is `.attackBonus` with a positive owned
+    /// level — a non-nil attack effect at rank 0 is still the no-gear
+    /// baseline because `scaled(toLevel:)` clamps 0 to 1 and would grant
+    /// a phantom +15%.
+    static func effectiveSoldierAttackPower(
+        for soldierType: SoldierType,
+        level: Int,
+        defenseTrait: CityDefenseTrait,
+        drillYardLevel: Int,
+        attackEffect: EquipmentEffect?,
+        ownedGearLevel: Int,
+        renownMultiplier: Double
+    ) -> Int {
+        let targetDrillYard = min(max(0, drillYardLevel), TreasuryUpgrade.drillYard.maxLevel)
+        let targetGear: Int
+        if let attackEffect, case .attackBonus = attackEffect, ownedGearLevel > 0 {
+            targetGear = min(3, ownedGearLevel)
+        } else {
+            targetGear = 0
+        }
+
+        // The bounded (≤5×4) table: each cell is the raw single-round
+        // value for that hypothetical rank pair, lifted above every
+        // already-owned predecessor + 1 so each bought Drill Yard rank and
+        // each active gear rank moves the integer at least +1.
+        var cells = [[Int]](
+            repeating: [Int](repeating: 0, count: targetGear + 1),
+            count: targetDrillYard + 1
+        )
+        for drillYard in 0...targetDrillYard {
+            for gear in 0...targetGear {
+                var attackFraction = 0.0
+                // g == 0 is always the no-gear cell — `scaled(toLevel:)`
+                // clamps 0 to 1 and would grant a phantom +15%.
+                if gear > 0,
+                   case .attackBonus(let fraction)? = attackEffect?.scaled(toLevel: gear) {
+                    attackFraction = fraction
+                }
+                var value = traitAdjustedSoldierAttackPower(
+                    for: soldierType,
+                    level: level,
+                    defenseTrait: defenseTrait,
+                    multiplier: firstRoundAttackMultiplier(
+                        drillYard: drillYard,
+                        attackFraction: attackFraction,
+                        renown: renownMultiplier
+                    )
+                )
+                if drillYard > 0 {
+                    value = max(value, cells[drillYard - 1][gear] + 1)
+                }
+                if gear > 0 {
+                    value = max(value, cells[drillYard][gear - 1] + 1)
+                }
+                cells[drillYard][gear] = value
+            }
+        }
+        return cells[targetDrillYard][targetGear]
     }
 
     @discardableResult
@@ -1420,29 +1508,23 @@ struct KingdomGameState: Codable, Equatable {
             _ = advanceActiveGuardReinforcements(deltaTime: elapsedSeconds)
         }
 
-        // Layout, max powers and the equipment loadout are invariant for
+        // Layout, max powers and the specialist loadout are invariant for
         // the whole spawn batch — only the damage map advances between
-        // iterations. Snapshot each type's attack/specialist projections
-        // once instead of two catalog lookups per spawn.
+        // iterations. Each spawn's attack reads the same state-aware
+        // effective projection the live spawn seam uses (HPA-811), so the
+        // specialist snapshot is the only per-type cache.
         let layout = currentSiegeLayout
         let maxPowers = currentSiegeMaxPowers
-        let defenseTrait = currentCityDefenseTrait
-        let loadoutByType = Dictionary(
+        let specialistByType = Dictionary(
             uniqueKeysWithValues: SoldierType.allCases.map { type in
-                (type, (
-                    firstRound: firstRoundAttackMultiplier(for: type),
-                    specialist: equipmentSpecialistBonus(for: type)
-                ))
+                (type, equipmentSpecialistBonus(for: type))
             }
         )
 
         for spawn in spawns {
-            guard let loadout = loadoutByType[spawn.soldierType] else { continue }
-            let power = Self.traitAdjustedSoldierAttackPower(
+            let power = traitAdjustedSoldierAttackPower(
                 for: spawn.soldierType,
-                level: spawn.level,
-                defenseTrait: defenseTrait,
-                multiplier: loadout.firstRound
+                level: spawn.level
             )
             guard power > 0 else { continue }
 
@@ -1463,7 +1545,7 @@ struct KingdomGameState: Codable, Equatable {
             let budget = spawn.soldierType.roleAdjustedDamage(
                 power: leftover,
                 against: firstLiveKind,
-                specialist: loadout.specialist
+                specialist: specialistByType[spawn.soldierType] ?? nil
             )
 
             let (spentDamage, appliedByObjectiveID) = layout.spendDamageBudget(
@@ -1919,14 +2001,17 @@ struct KingdomGameState: Codable, Equatable {
         normalSoldierAttackPower(for: level)
     }
 
-    /// The shared live/abstract attack seam (HPA-670; HPA-672 collapses the
-    /// modifers into ONE explicit composite `multiplier` — Drill Yard ×
-    /// leveled attack gear × Renown, exactly what
-    /// `firstRoundAttackMultiplier(for:)` composes): `baseAttack ×
-    /// cityDefenseTrait × multiplier`, rounded once. The default of 1
-    /// reproduces the pre-Treasury result exactly. Never round this result
-    /// again downstream — the separate role-multiplier hit round is the only
-    /// permitted second rounding.
+    /// The raw single-round attack primitive (HPA-670; HPA-672 collapses
+    /// the modifers into ONE explicit composite `multiplier` — Drill Yard
+    /// × leveled attack gear × Renown, exactly what the static
+    /// `firstRoundAttackMultiplier(drillYard:attackFraction:renown:)`
+    /// composes): `baseAttack × cityDefenseTrait × multiplier`, rounded
+    /// once. The default of 1 reproduces the pre-Treasury result exactly.
+    /// HPA-811: this fold stays the unchanged raw cell — the live/idle
+    /// authority is the instance effective projection below, which owns
+    /// the rank floor. Never round this result again downstream — the
+    /// separate role-multiplier hit round is the only permitted second
+    /// rounding.
     static func traitAdjustedSoldierAttackPower(
         for soldierType: SoldierType,
         level: Int,
@@ -1947,12 +2032,21 @@ struct KingdomGameState: Codable, Equatable {
         return max(1, adjustedDamage)
     }
 
+    /// The state-aware effective attack — the one authority live spawns,
+    /// idle abstract damage and Kingdom previews share (HPA-811): the
+    /// current city's trait, the Treasury Drill Yard rank, the equipped
+    /// item's unscaled effect and owned level, and Renown, read through
+    /// the bounded rank-floor projection.
     func traitAdjustedSoldierAttackPower(for soldierType: SoldierType, level: Int) -> Int {
-        Self.traitAdjustedSoldierAttackPower(
+        let item = equippedItem(for: soldierType)
+        return Self.effectiveSoldierAttackPower(
             for: soldierType,
             level: level,
             defenseTrait: currentCityDefenseTrait,
-            multiplier: firstRoundAttackMultiplier(for: soldierType)
+            drillYardLevel: treasury.drillYard,
+            attackEffect: item?.effect,
+            ownedGearLevel: item.flatMap { equipmentLevel(for: $0.id) } ?? 0,
+            renownMultiplier: renownMultiplier
         )
     }
 
