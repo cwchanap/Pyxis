@@ -908,6 +908,14 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                             .filter { !$0.hasPrefix("Drops at City ") }
                             .joined(separator: " · ")
                     }
+                    if bundle.line2Label.frame.width > layout.armoryTextFrames[index].width {
+                        // Late campaign / narrow widths: if the (atk X → Y) delta
+                        // suffix causes overflow, drop the suffix so the effect and
+                        // level stay legible; accessibility retains the full hint.
+                        if let parenRange = bundle.line2Label.text?.range(of: " (atk ") {
+                            bundle.line2Label.text = String(bundle.line2Label.text?[..<parenRange.lowerBound] ?? "")
+                        }
+                    }
                 }
             }
             let contentAlpha: CGFloat = dimmed ? GameUITheme.Alpha.lockedIcon : 1
@@ -1188,6 +1196,10 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
     /// Compact two-line Armory row copy: line 1 type + equipped short
     /// name/`None`; line 2 equipped effect + next unearned drop. Fuller
     /// flavor rides in the row's accessible value, not stacked text.
+    /// The attack delta projects at the camp's manual deploy soldier level
+    /// (`manualSoldierLevel(for: type) ?? 1`, i.e. highest building level),
+    /// matching live manual spawns and Captain scaling; visual text omits
+    /// an explicit level tag to prevent label overflow on 264/320pt screens.
     static func armoryRowText(
         for type: SoldierType,
         state: KingdomGameState
