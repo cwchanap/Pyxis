@@ -14,7 +14,7 @@
 | `firstRoundAttackMultiplier(for:)` (~1269), `EquipmentEffect.scaled(toLevel:)` | Add one pure static multiplier composer and a tiny pure recurrence. Scaling belongs to `scaled(toLevel:)` **only for gear rank ≥1**; rank 0 has no gear bonus. |
 | `applyAbstractBuildingSpawnDamage` (~1429–1446) | Replace cached raw `firstRound` factor + static call with state-aware attack. Retain specialist snapshot; delete unused `defenseTrait` local. |
 | `PyxisTests/Country1SiegeSmokeTests.swift` | Correct the test-only candidate scorer and post-Camp selection order, then reconcile **four always-on tests** before running the model gate. No runtime recommendation system. |
-| `KingdomScene.armoryRowText` and `drillYardExampleText` | **After balance gate only:** keep current real projections, remove unreachable no-gain branches and narrow-row replacement, append realized attack delta in row text; VoiceOver already consumes `line2`. |
+| `KingdomScene.armoryRowText` and `drillYardExampleText` | **After balance gate only:** keep current real projections **and** the Drill Yard no-gain `changeNote` + narrow-row replacement (reachable for later ranks under the revised rule); remove only the unreachable attack-gear no-gain case; append realized attack delta in row text; VoiceOver already consumes `line2`. |
 | `TreasuryEffectSeamTests`, `EquipmentEffectTests`, `KingdomSceneTests` | Keep pure static raw-rounding expectations; update **instance** attack assertions and existing UI cases where the new floor intentionally changes values. |
 | `CLAUDE.md` | Update live/idle attack-authority description when implementation lands. |
 
@@ -35,13 +35,13 @@ No new persisted fields, buff registry, migration, scene, Xcode project-file edi
 
 **Files:** `PyxisTests/TreasuryEffectSeamTests.swift`, `PyxisTests/EquipmentEffectTests.swift`, `PyxisTests/Country1SiegeSmokeTests.swift`. **Leave KingdomSceneTests unchanged until Checkpoint 4** (after the balance gate).
 
-1. Add a pure static matrix test (a temporary raw-only stub is acceptable until red): all soldier types, levels 1–19, three trait factors, Renown 1/1.25/1.5/2, Drill Yard 0–4, attack gear rank 0–3. Every adjacent DY or active gear level must increase the effective attack by ≥1. Do not instantiate thousands of full game states.
+1. Add a pure static matrix test (a temporary raw-only stub is acceptable until red): all soldier types, levels 1–19, three trait factors, Renown 1/1.25/1.5/2, Drill Yard 0–4, attack gear rank 0–3. The **first** bought rank of each dimension (DY1 vs 0, gear Lv1 vs 0) must increase the effective attack by ≥1 over its zero-rank predecessor; later ranks must be **nondecreasing** (≥, not strict) and may round away. Do not instantiate thousands of full game states.
 2. **Explicit rank-0 regression:** pass a **non-nil `.attackBonus(0.15)` with `ownedGearLevel = 0`** and assert the no-gear baseline, not +15%. Repeat for negative gear level; assert +15% applies only for rank ≥1. Test non-attack/nil effects, gear rank >3 and negative/directly assigned out-of-range Drill Yard (e.g. 10) are bounded: clamp target DY to `0...TreasuryUpgrade.drillYard.maxLevel`.
-3. Pin neutral Renown 0, soldier Lv1: no upgrade 1, DY1 2, Attack gear Lv1/Lv2/Lv3 = 2/3/4, DY1+Lv1=3. Pin **high-power identity**: soldier Lv10, neutral Renown0, DY4+Lv3 attack item has `raw == effective == 30`. Keep all existing **static** single-round tests unchanged: they are valid raw expectations.
+3. Pin neutral Renown 0, soldier Lv1: no upgrade 1, DY1 2, DY4 2, Attack gear Lv1/Lv2/Lv3 = 2/2/2, DY1+Lv1=3, DY4+Lv3=3. Pin **high-power identity**: soldier Lv10, neutral Renown0, DY4+Lv3 attack item has `raw == effective == 30`. Keep all existing **static** single-round tests unchanged: they are valid raw expectations.
 4. Update/extend existing **model-instance** tests that pin old zero-gain behavior (not new duplicate suites):
-   - `TreasuryEffectSeamTests.drillYardInstanceWrapper` (~240): Lv2 neutral DY4 changes from old raw 2 to effective **6**, while static raw stays **2**.
-   - `TreasuryEffectSeamTests.zeroEquipmentMatchesPreEquipmentFormula` (~410): retain static raw pins; DY0/no attack gear remains raw, but DY1–4 can exceed it. Its direct mutable DY loop runs 0…10, so replace the old instance==raw assertion with explicit capped effective semantics beyond DY4 (DY10 behaves like DY4).
-   - `EquipmentEffectTests.instanceAttackSeamFoldsEquippedAttackGearIntoTheSingleRound` (~69): Lv5 DY2 neutral, **unequipped effective 6**, Attack Lv1 **effective 7**; raw static checks remain **4/5**. Add specific no-gear/other-gear instance wiring.
+   - `TreasuryEffectSeamTests.drillYardInstanceWrapper` (~240): Lv2 neutral DY4 changes from old raw 2 to effective **3**, while static raw stays **2**.
+   - `TreasuryEffectSeamTests.zeroEquipmentMatchesPreEquipmentFormula` (~410): retain static raw pins; DY0/no attack gear remains raw, DY1 can exceed it by +1 while DY2–4 stay nondecreasing (no-gear bound `effective <= raw + 1`). Its direct mutable DY loop runs 0…10, so replace the old instance==raw assertion with explicit capped effective semantics beyond DY4 (DY10 behaves like DY4).
+   - `EquipmentEffectTests.instanceAttackSeamFoldsEquippedAttackGearIntoTheSingleRound` (~69): Lv5 DY2 neutral, **unequipped effective 5**, Attack Lv1 **effective 6**; raw static checks remain **4/5**. Add specific no-gear/other-gear instance wiring.
    - Extend existing `liveSpawnAttackMatchesIdleSeam` (~289) and `deployedSoldiersKeepCachedAttackAfterDrillYardPurchase` (~332) with a formerly rounded-away low-base example. Keep role/Guard/Captain, toughness and specialist invariants.
 5. Reconcile the **four always-on** `Country1SiegeSmokeTests` greedy-policy tests (~1509, ~1524, ~1546, ~1568) whose old expected choices relied on Attack gear rounding away:
    - **Toughness fallback:** use owned `c06-infantry-gate` + `c03-infantry-toughness` at City 1's first **Gate**, neutral level-1 infantry; Specialist Lv1 rounds `1×1.4` back to 1, so choose Toughness. Add a companion assertion that actual Attack `c01-infantry-attack` Lv1 now beats None.
@@ -59,7 +59,7 @@ No new persisted fields, buff registry, migration, scene, Xcode project-file edi
 1. Add an **internal static** effective attack function accepting soldier type/level, defense trait, `drillYardLevel`, unscaled `EquipmentEffect?`, `ownedGearLevel` and Renown multiplier. **Normalize inputs before building the table:**
    - `targetD = min(max(0, drillYardLevel), TreasuryUpgrade.drillYard.maxLevel)`.
    - `targetG = min(3, ownedGearLevel)` **only if** the effect is `.attackBonus` and `ownedGearLevel > 0`; otherwise `targetG = 0`. This must work even if the helper receives a non-nil Attack effect with zero gear level.
-2. Evaluate the bounded `0...targetD × 0...targetG` recurrence. For each cell with **`g == 0`, set `attackFraction = 0` directly**, even if unscaled Attack effect is provided. **Only call `EquipmentEffect.scaled(toLevel: g)` for `g >= 1`**, because that helper clamps 0 to 1 and would otherwise grant a phantom Lv1 bonus. Compose each cell's multiplier through one static `firstRoundAttackMultiplier(drillYard:attackFraction:renown:)` and the **unchanged static** `traitAdjustedSoldierAttackPower`; take the max of raw and relevant predecessor+1 cells. Return the effective current cell.
+2. Evaluate the bounded `0...targetD × 0...targetG` recurrence. For each cell with **`g == 0`, set `attackFraction = 0` directly**, even if unscaled Attack effect is provided. **Only call `EquipmentEffect.scaled(toLevel: g)` for `g >= 1`**, because that helper clamps 0 to 1 and would otherwise grant a phantom Lv1 bonus. Compose each cell's multiplier through one static `firstRoundAttackMultiplier(drillYard:attackFraction:renown:)` and the **unchanged static** `traitAdjustedSoldierAttackPower`; take the max of raw and the predecessor cells, adding +1 **only on the first-rank edges** (`d==1` / `g==1`) and propagating the predecessor value unchanged elsewhere so later ranks are nondecreasing. Return the effective current cell.
 3. Make `firstRoundAttackMultiplier(for:)` a thin wrapper around the same static composer, with the same normalized DY rank. Make the instance `traitAdjustedSoldierAttackPower(for:level:)` read existing city trait, Treasury, owned/equipped item and gear level, and Renown; delegate to the static effective projection.
 4. For idle `applyAbstractBuildingSpawnDamage`, replace the cached `firstRound` + static raw call with the **same state-aware instance effective attack** used by `BattleScene`. Remove now-unused `firstRound` from the idle loadout tuple **and** the now-unused local `let defenseTrait = currentCityDefenseTrait`. Retain specialist snapshot, Guard absorption, second-round role/specialist, damage spill and one-city conquest cap. Existing live soldiers still cache attack at spawn.
 5. Do **not** change Treasury/gear percentages, prices, renown, soldier levels, equipment drops, persistence, city HP, Guard/Captain attacks, or battle routing.
@@ -77,11 +77,13 @@ Use the existing `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1` seed-582 rail, not a ne
 
 **Checkpoint:** This PR contains real per-city and total numbers with an explicit pass/fail decision before UI work.
 
+**Measured outcome (recorded):** the every-rank rule at `5730d9a` **failed** this gate — boughtGear fresh/Renown 0/Renown 1 totals 950.2/861.9/771.4 vs controls 1648.0/1496.5/1069.8 (57.7%/57.6%/72.1%, plus bought 55.8% and freeSeeded 60.5%). The user chose to revise the rule; the first-rank-only rule at `a201b67` **passed every criterion** — 1261.8/1204.9/1023.4 (76.6%/80.5%/95.7%; baseline 100% inert, freeSeeded 87.4%, bought 79.9%), all six variants 15/15 with zero stalls, fresh City 1–5 7/7/6/9/15 s, Renown 1 < Renown 0. Verbatim traces and provenance live under `evidence/hpa-811/` (historical context, matched control, rejected and accepted runs); the spec's *Measured gate evidence* table summarizes them.
+
 ## Checkpoint 4 — Minimal Kingdom readouts and all UI test updates
 
 **Files:** `Pyxis/KingdomScene.swift` and `PyxisTests/KingdomSceneTests.swift`; leave `TreasuryUpgrade.swift` and `KingdomScene.equipmentEffectText(for:level:)` unchanged.
 
-1. Keep the Drill Yard's existing state-derived current→next values, but delete the now-dead `changeNote` / `(no damage change yet)` branch (around `KingdomScene.swift:1179`) and the compact-width fallback `.replacingOccurrences(of: " (no damage change yet)", with: " (no gain)")` (~963). Keep the other existing abbreviations.
+1. Keep the Drill Yard's existing state-derived current→next values **and** the `changeNote` / `(no damage change yet)` branch (around `KingdomScene.swift:1179`) plus the compact-width fallback `.replacingOccurrences(of: " (no damage change yet)", with: " (no gain)")` (~963) — under the revised first-rank-only rule these branches stay reachable (later Drill Yard ranks can still round away), so the disclosure remains necessary and truthful. Keep the other existing abbreviations.
 2. In `equippedEffectRoundsAway` (~1251), remove the now-impossible attack equality comparison; retain true Specialist/Toughness rounded-away disclosures.
 3. Leave the two-argument pure nominal `equipmentEffectText(for:level:)` formatter exactly as before (`"Attack Lv N · +P%"`). **Only in `KingdomScene.armoryRowText(for:state:)`**, use an unequipped copy and the same instance attack projection to append exactly `" (atk \(bareAttack) → \(equippedAttack))"` for `.attackBonus`. No new generic prose. VoiceOver already reads `armoryRowText.line2`, so it automatically announces the actual delta without another formatter. Retain next-drop text and row cycling.
 4. Update **all** old Kingdom assertions here, including `KingdomSceneTests.swift` around **73** (no-gain at Lv1), **87** (current→next DY levels), **834** (max-level Drill Yard must use **instance** effective projection rather than static raw), **1077** (Armory Attack row), **1268** (attack no-gain expectation), **1342** (DY+gear), **1361** (DY+Renown). Preserve `equipmentEffectTextUsesMaxOneDecimalPercent` pure formatter tests and honest non-Attack notes.
@@ -91,7 +93,7 @@ Use the existing `TEST_RUNNER_COUNTRY1_SMOKE_CAMPAIGN=1` seed-582 rail, not a ne
 
 ## Checkpoint 5 — Documentation and final verification on this same PR
 
-1. Update `CLAUDE.md`: after HPA-811 the static formula is the raw primitive; the **instance effective attack** is the live+idle authority, and the static multiplier composer only builds raw hypothetical cells. No cached raw `firstRound` factor in idle. Document that low-base rank floors can dominate the percentages.
+1. Update `CLAUDE.md`: after HPA-811 the static formula is the raw primitive; the **instance effective attack** is the live+idle authority, and the static multiplier composer only builds raw hypothetical cells. No cached raw `firstRound` factor in idle. Document that the bounded first-rank floor decides low-base results while later ranks can round away.
 2. Run SwiftLint, Debug and Release builds, **serial** `PyxisTests` and `PyxisUITests` (`-parallel-testing-enabled NO`), plus the mandatory opt-in chained Country 1 suite again at the final diff. Record commands, macOS/Xcode/simulator environment, pass/fail, all per-city timings/stalls, replay City 1/2 and final totals; do not invent unrun results.
 3. Resolve review findings and adjust tests only for intentional gameplay behavior. Do not bypass the numeric balance gate or create another PR.
 
@@ -106,12 +108,13 @@ Reference commands (replace simulator destination with an installed device):
 
 ## Single-PR checklist
 
-- [ ] Historical main and scorer-corrected no-floor campaign traces recorded.
-- [ ] Pure static recurrence red→green, with rank-zero non-nil effect, rank clamps and high-base raw identity pinned.
-- [ ] Existing model-instance and four always-on scorer tests reconciled, live/idle parity and cached soldiers proven.
-- [ ] Mandatory pre-UI 15-city balance go/no-go documented using matched scorer baselines.
-- [ ] Minimal Kingdom labels and **all** affected UI assertions updated after the balance gate.
-- [ ] `CLAUDE.md` updated, final builds/lint/serial test suites and campaign evidence posted.
-- [ ] Review fixes committed to **this PR**; keep Draft until tested.
+- [x] Historical main and scorer-corrected no-floor campaign traces recorded (`evidence/hpa-811/`).
+- [x] Pure static recurrence red→green, with rank-zero non-nil effect, rank clamps and high-base raw identity pinned (first-rank-only rule, `a201b67`/`ddde598`).
+- [x] Existing model-instance and four always-on scorer tests reconciled, live/idle parity and cached soldiers proven.
+- [x] Mandatory pre-UI 15-city balance go/no-go documented using matched scorer baselines — every-rank rule FAILed, user-directed first-rank rule PASSed (Checkpoint 3 outcome above).
+- [x] Minimal Kingdom labels and **all** affected UI assertions updated after the balance gate (`eb53392`/`a66ba5c`).
+- [x] `CLAUDE.md` updated; raw campaign evidence posted under `evidence/hpa-811/`.
+- [ ] Final builds/lint/serial test suites and the final-commit campaign repeat — **pending**, runs at the final diff on this PR.
+- [x] Review fixes committed to **this PR**; keep Draft until tested.
 
-**Planning-only status:** This document revision does **not** assert implementation, simulator measurements or passing tests.
+**Status:** Checkpoints 0–4 are implemented, reviewed and measured (see the Checkpoint 3 outcome and the spec's *Measured gate evidence*). Checkpoint 5's documentation half is done with this revision; its final builds/lint/serial suites and final-commit campaign repeat are **not** run or claimed here — they remain pending on this PR.
