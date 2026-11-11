@@ -62,13 +62,11 @@ struct CountryMapScoutCardAcceptanceTests {
             )
             #expect(freshLayout.sceneFrame.contains(cardFrame))
             #expect(cardFrame.contains(attackFrame))
-            if fixture.layoutClass == .pad {
-                #expect(freshLayout.informationRegionFrame.contains(cardFrame))
-            } else {
-                // Phone cards may exceed the compact region budget, but they
-                // must stay inside the scene and never run under the header.
-                #expect(!cardFrame.intersects(freshLayout.titleControlRegionFrame))
-            }
+            #expect(freshLayout.informationRegionFrame.contains(cardFrame))
+            #expect(!cardFrame.intersects(freshLayout.illustratedMapRegionFrame))
+            // Cards stay inside the reserved information region and never run
+            // under the header.
+            #expect(!cardFrame.intersects(freshLayout.titleControlRegionFrame))
             for cityNumber in Country1CityCatalog.cityRange {
                 let cityFrame = try #require(
                     fresh.scene.cityHitFrameForTesting(cityNumber)
@@ -227,7 +225,10 @@ struct CountryMapScoutCardAcceptanceTests {
             #expect(complete.scene.scoutCardAttackHitFrameForTesting == nil)
             #expect(
                 complete.scene.visibleScoutCardTextsForTesting
-                    == ["Country 1 conquered · Crownspire Keep"]
+                    == [
+                        "Country 1 conquered · Crownspire Keep",
+                        "Next: Kingdom → Ascend to begin again."
+                    ]
             )
         }
     }

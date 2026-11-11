@@ -84,6 +84,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private(set) var countryMapLayout: CountryMapLayout?
 
     private let backdropLayer = SKNode()
+    private let backdropTopBlend = SKSpriteNode()
+    private let backdropBottomBlend = SKSpriteNode()
     private let routeLayer = SKNode()
     private let livingKingdomLayer = SKNode()
     private let cityLayer = SKNode()
@@ -122,6 +124,9 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private var mapResourceFrame = CGRect.zero
     private var mapProgressText = ""
     private var mapProgressCompletedCount = 0
+    #if DEBUG
+    private var scoutCardTouchFrameOverride: (card: CGRect?, overlay: CGRect?)?
+    #endif
     private var layoutFrames = (
         scene: CGRect.zero,
         titlePanel: CGRect.zero,
@@ -251,9 +256,16 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     }
 
     private func handleScoutCardTouch(at point: CGPoint) -> Bool {
-        if scoutCardNode.overlayHitFrame?.contains(point) == true {
+        #if DEBUG
+        let overlayFrame = scoutCardTouchFrameOverride?.overlay ?? scoutCardNode.overlayHitFrame
+        let cardFrame = scoutCardTouchFrameOverride?.card ?? scoutCardNode.cardHitFrame
+        #else
+        let overlayFrame = scoutCardNode.overlayHitFrame
+        let cardFrame = scoutCardNode.cardHitFrame
+        #endif
+        if overlayFrame?.contains(point) == true {
             // The Scout-card overlay (flavor or blocking) can overlap the
-            // lowest city hit targets on the 393x852 fixture. City selection
+            // city hit targets in an overlap. City selection
             // is neither Attack nor scout entry, so yield to it for ALL
             // overlay kinds — the city stays tappable for the overlay's
             // lifetime. Blocking kinds still disable Attack (via
@@ -269,13 +281,10 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             requestSelectedCityAction()
             return true
         }
-        if scoutCardNode.cardHitFrame?.contains(point) == true {
-            // The expanded phone card body can overlap the lowest city hit
-            // targets (e.g. City 1/2 on the 393x852 fixture). Yield to city
-            // selection there so those cities keep their full 44pt selectable
-            // area; the visual overlap is preserved and flavor only fires on
-            // empty card area. Attack/overlay stay prioritized above cities
-            // because their frames do not overlap city hit targets.
+        if cardFrame?.contains(point) == true {
+            // If card body and city target overlap, yield to city selection
+            // so cities keep their full 44pt selectable area. Flavor only
+            // fires on empty card area; Attack retains its own priority.
             if cityNumber(at: point) != nil {
                 return false
             }
@@ -353,6 +362,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         backdrop.zPosition = 0
         backdropLayer.addChild(backdrop)
         backdropNode = backdrop
+        let backdropColor = SKColor(red: 0.07, green: 0.12, blue: 0.14, alpha: 1)
+        backdropTopBlend.name = "countryMapBackdropTopBlend"
+        backdropTopBlend.texture = PanelNode.gradientTexture(top: backdropColor, bottom: backdropColor.withAlphaComponent(0))
+        backdropTopBlend.zPosition = 1
+        backdropLayer.addChild(backdropTopBlend)
+        backdropBottomBlend.name = "countryMapBackdropBottomBlend"
+        backdropBottomBlend.texture = PanelNode.gradientTexture(top: backdropColor.withAlphaComponent(0), bottom: backdropColor)
+        backdropBottomBlend.zPosition = 1
+        backdropLayer.addChild(backdropBottomBlend)
 
         configureLabel(titleLabel, fontSize: 30, color: GameUITheme.Color.textPrimary)
         titlePanel.addChild(titleLabel)
@@ -621,6 +639,8 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         backdropNode?.isHidden = true
         backdropNode?.size = .zero
         backdropNode?.position = .zero
+        backdropTopBlend.isHidden = true
+        backdropBottomBlend.isHidden = true
         titlePanel.isHidden = true
         titlePanel.update(size: .zero)
         titlePanel.position = .zero
@@ -679,6 +699,15 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                 x: layout.displayedBackdropFrame.midX,
                 y: layout.displayedBackdropFrame.midY
             )
+            let blendHeight: CGFloat = 48
+            for (blend, y) in [
+                (backdropTopBlend, layout.displayedBackdropFrame.maxY - blendHeight / 2),
+                (backdropBottomBlend, layout.displayedBackdropFrame.minY + blendHeight / 2)
+            ] {
+                blend.size = CGSize(width: layout.displayedBackdropFrame.width, height: blendHeight)
+                blend.position = CGPoint(x: layout.displayedBackdropFrame.midX, y: y)
+                blend.isHidden = false
+            }
         }
 
         titlePanel.apply(
@@ -817,7 +846,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         )
         resourceLabel.isHidden = false
 
-        let progressFrame = layout.progressFrame
         mapProgressText = "\(state.completedCityCount)/\(KingdomGameState.firstCountryCityCount)"
         mapProgressCompletedCount = min(
             KingdomGameState.firstCountryCityCount,
@@ -825,42 +853,27 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         )
         progressLabel.text = mapProgressText
         progressLabel.fontSize = 11
-        progressLabel.position = CGPoint(x: progressFrame.maxX, y: progressFrame.midY)
+        progressLabel.position = CGPoint(x: layout.progressLabelFrame.maxX, y: layout.progressLabelFrame.midY)
         progressLabel.isHidden = false
 
-        let labelReservation: CGFloat = 32
-        let segmentGap: CGFloat = 2
-        let segmentRegionWidth = max(
-            0,
-            progressFrame.width - labelReservation
-        )
-        let segmentWidth = max(
-            2,
-            (segmentRegionWidth - segmentGap * CGFloat(progressSegments.count - 1))
-                / CGFloat(progressSegments.count)
-        )
-        let segmentHeight: CGFloat = 8
-        for (index, segment) in progressSegments.enumerated() {
-            let x = progressFrame.minX
-                + CGFloat(index) * (segmentWidth + segmentGap)
-                + segmentWidth / 2
+        for (index, (segment, frame)) in zip(progressSegments, layout.progressSegmentFrames).enumerated() {
             let rect = CGRect(
-                x: -segmentWidth / 2,
-                y: -segmentHeight / 2,
-                width: segmentWidth,
-                height: segmentHeight
+                x: -frame.width / 2,
+                y: -frame.height / 2,
+                width: frame.width,
+                height: frame.height
             )
             segment.path = CGPath(
                 roundedRect: rect,
-                cornerWidth: segmentHeight / 2,
-                cornerHeight: segmentHeight / 2,
+                cornerWidth: frame.height / 2,
+                cornerHeight: frame.height / 2,
                 transform: nil
             )
             segment.fillColor = index < mapProgressCompletedCount
                 ? GameUITheme.Color.gold
                 : GameUITheme.Color.locked.withAlphaComponent(0.75)
             segment.strokeColor = .clear
-            segment.position = CGPoint(x: x, y: progressFrame.midY)
+            segment.position = CGPoint(x: frame.midX, y: frame.midY)
             segment.isHidden = false
         }
     }
@@ -1607,6 +1620,10 @@ extension CountryMapScene {
     /// `handleScoutCardTouch`. Mirrors `showFeedback(.locked(cityNumber:))`.
     func presentLockedFeedbackForTesting(cityNumber: Int) {
         showFeedback(.locked(cityNumber: cityNumber))
+    }
+
+    func setScoutCardTouchFramesForTesting(card: CGRect?, overlay: CGRect?) {
+        scoutCardTouchFrameOverride = (card, overlay)
     }
 
     func enterCityForTesting(_ cityNumber: Int) {

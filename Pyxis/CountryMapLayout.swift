@@ -60,6 +60,10 @@ struct CountryMapLayout: Equatable {
         static let resourceWidth: CGFloat = 106
         static let resourceHeight: CGFloat = 44
         static let progressHeight: CGFloat = 22
+        static let progressLabelWidth: CGFloat = 36
+        static let progressLabelGap: CGFloat = 4
+        static let progressSegmentGap: CGFloat = 1.5
+        static let progressSegmentCount = 15
     }
 
     static let tabBarHeight: CGFloat = 72
@@ -79,6 +83,8 @@ struct CountryMapLayout: Equatable {
     let titleTextFrame: CGRect
     let resourceFrame: CGRect
     let progressFrame: CGRect
+    let progressLabelFrame: CGRect
+    let progressSegmentFrames: [CGRect]
     let informationRegionFrame: CGRect
     let illustratedMapRegionFrame: CGRect
     let cityPositions: [Int: CGPoint]
@@ -150,6 +156,25 @@ struct CountryMapLayout: Equatable {
             return .unsupported(.unsupportedGeometry)
         }
 
+        let progressLabelFrame = CGRect(
+            x: header.progress.maxX - TitleControlMetrics.progressLabelWidth,
+            y: header.progress.minY,
+            width: TitleControlMetrics.progressLabelWidth,
+            height: header.progress.height
+        )
+        let segmentGap = TitleControlMetrics.progressSegmentGap
+        let segmentCount = TitleControlMetrics.progressSegmentCount
+        let segmentWidth = (progressLabelFrame.minX - TitleControlMetrics.progressLabelGap - header.progress.minX
+            - segmentGap * CGFloat(segmentCount - 1)) / CGFloat(segmentCount)
+        let progressSegmentFrames = (0..<segmentCount).map { index in
+            CGRect(
+                x: header.progress.minX + CGFloat(index) * (segmentWidth + segmentGap),
+                y: header.progress.midY - 4,
+                width: segmentWidth,
+                height: 8
+            )
+        }
+
         return .supported(CountryMapLayout(
             sceneFrame: sceneFrame,
             displayedBackdropFrame: fitted.displayedBackdropFrame,
@@ -158,6 +183,8 @@ struct CountryMapLayout: Equatable {
             titleTextFrame: header.titleText,
             resourceFrame: header.resource,
             progressFrame: header.progress,
+            progressLabelFrame: progressLabelFrame,
+            progressSegmentFrames: progressSegmentFrames,
             informationRegionFrame: fitted.stack.informationRegion,
             illustratedMapRegionFrame: fitted.stack.illustratedMap,
             cityPositions: fitted.cityPositions,

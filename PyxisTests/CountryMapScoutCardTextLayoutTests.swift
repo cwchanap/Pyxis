@@ -170,11 +170,13 @@ struct CountryMapScoutCardTextLayoutTests {
             return
         }
         let traitWidth = cardLayout.traitLineFrames[0].width
-        let fontSize: CGFloat = isPhoneLayout(fixture) ? 9 : 12
+        let fontSize: CGFloat = isPhoneLayout(fixture) ? 11 : 12
         let measure = try productionMeasure(fontName: GameUITheme.Font.medium, size: fontSize)
 
         for trait in CityDefenseTrait.allCases {
-            let source = "\(trait.displayName) · \(trait.shortDescription)"
+            let source = isPhoneLayout(fixture)
+                ? trait.displayName.uppercased()
+                : "\(trait.displayName) · \(trait.shortDescription)"
             let lines = CountryMapScoutCardTextLayout.wrapIntoTwoLines(
                 source,
                 maximumWidth: traitWidth,

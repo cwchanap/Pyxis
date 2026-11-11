@@ -11,6 +11,73 @@ import UIKit
 
 @MainActor
 struct CountryMapSceneTests {
+    @Test(arguments: [0, 1, 2])
+    func syntheticCityOverlapStillYieldsToCity(kind: Int) throws {
+        let state = KingdomGameState(cityNumberInCountry: 1, completedCityCount: 0, stageStatus: .battleActive)
+        let store = try makeStore(initialState: state)
+        let router = RouteSpy()
+        let scene = makeScene(store: store, router: router)
+        if kind == 1 { scene.presentFlavorFeedbackForTesting("Flavor") }
+        if kind == 2 { scene.presentLockedFeedbackForTesting(cityNumber: 2) }
+        let city = try #require(scene.cityHitFrameForTesting(2))
+        let point = CGPoint(x: city.midX, y: city.midY)
+        scene.setScoutCardTouchFramesForTesting(card: kind == 0 ? city : nil, overlay: kind == 0 ? nil : city)
+        #expect(scene.cityNumberAtPointForTesting(point) == 2)
+        scene.handleTouchForTesting(at: point)
+        #expect(scene.selectedCityNumberForTesting == 2)
+        #expect(scene.visibleFeedbackTextForTesting == "Pinewatch is locked")
+        #expect(scene.scoutCardAttackHitFrameForTesting == nil)
+        #expect(router.battleRequestCount == 0)
+        #expect(store.load() == state)
+    }
+
+    @Test func mapBackdropHasEdgeBlendsWithoutChangingItsGeometry() throws {
+        let scene = makeScene(store: try makeStore(initialState: KingdomGameState()), router: RouteSpy())
+        let layout = try #require(scene.countryMapLayoutForTesting)
+        let backdrop = try #require(scene.childNode(withName: "//country-map-backdrop"))
+        let top = try #require(scene.childNode(withName: "//countryMapBackdropTopBlend") as? SKSpriteNode)
+        let bottom = try #require(scene.childNode(withName: "//countryMapBackdropBottomBlend") as? SKSpriteNode)
+        #expect(top.texture != nil)
+        #expect(bottom.texture != nil)
+        #expect(abs(top.frame.maxY - layout.displayedBackdropFrame.maxY) < 0.001)
+        #expect(abs(bottom.frame.minY - layout.displayedBackdropFrame.minY) < 0.001)
+        #expect(abs(backdrop.frame.minX - layout.displayedBackdropFrame.minX) < 0.001)
+        #expect(abs(backdrop.frame.minY - layout.displayedBackdropFrame.minY) < 0.001)
+        #expect(abs(backdrop.frame.width - layout.displayedBackdropFrame.width) < 0.001)
+        #expect(abs(backdrop.frame.height - layout.displayedBackdropFrame.height) < 0.001)
+    }
+
+    @Test(arguments: [0, 9, 15])
+    func renderedProgressPipsStayClearOfActualLabel(completed: Int) throws {
+        let state = KingdomGameState(
+            cityNumberInCountry: max(1, min(15, completed)),
+            completedCityCount: completed,
+            stageStatus: completed == 15 ? .countryComplete : .battleActive
+        )
+        let scene = makeScene(
+            size: CGSize(width: 375, height: 812),
+            store: try makeStore(initialState: state),
+            router: RouteSpy(),
+            environment: .init(
+                safeAreaInsets: .init(top: 50, left: 0, bottom: 34, right: 0),
+                layoutClass: .phone
+            )
+        )
+        let label = try #require(scene.childNode(withName: "countryMapProgressLabel") as? SKLabelNode)
+        let layout = try #require(scene.countryMapLayoutForTesting)
+        #expect(label.text == "\(completed)/15")
+        #expect(layout.progressLabelFrame.contains(label.frame))
+        let segments = try (1...15).map {
+            try #require(scene.childNode(withName: "countryMapProgressSegment-\($0)") as? SKShapeNode)
+        }
+        for (segment, frame) in zip(segments, layout.progressSegmentFrames) {
+            #expect(abs(segment.frame.minX - frame.minX) < 0.001)
+            #expect(abs(segment.frame.maxX - frame.maxX) < 0.001)
+            #expect(!segment.frame.intersects(label.frame))
+        }
+        #expect(try #require(segments.last).frame.maxX + 4 <= label.frame.minX)
+    }
+
     private enum CountryMapFeedbackCall: Equatable {
         case discrete(GameplayFeedbackEvent)
     }
@@ -64,8 +131,8 @@ struct CountryMapSceneTests {
         #expect(scout.status == .locked)
     }
 
-    @Test("Tapping a city under the expanded Scout card body selects the city, not flavor")
-    func tappingCityUnderScoutCardBodySelectsCityNotFlavor() throws {
+    @Test("Tapping a city above the Scout card body selects the city, not flavor")
+    func tappingCityAboveScoutCardBodySelectsCityNotFlavor() throws {
         let initialState = KingdomGameState(
             cityNumberInCountry: 1,
             completedCityCount: 0,
@@ -74,9 +141,10 @@ struct CountryMapSceneTests {
         let store = try makeStore(initialState: initialState)
         let scene = makeScene(store: store, router: RouteSpy())
 
-        // On load the Scout card shows City 1 (current), so its expanded body
-        // is present and overlaps the lowest city hit targets on the 393x852
-        // fixture. City 2 (Pinewatch) is locked and sits under the card body.
+        // On load the Scout card shows City 1 (current). The contained card
+        // body must stay clear of the lowest city hit targets on the 393x852
+        // fixture, so tap City 2 (Pinewatch) inside its target but outside
+        // the card.
         let cardHitFrame = try #require(scene.scoutCardHitFrameForTesting)
         let city2Position = try #require(scene.cityNodePositionForTesting(2))
         let city2Target = CGRect(
@@ -85,10 +153,12 @@ struct CountryMapSceneTests {
             width: 44,
             height: 44
         )
-        let overlap = city2Target.intersection(cardHitFrame)
-        #expect(overlap.width > 0 && overlap.height > 0)
+        #expect(!city2Target.intersects(cardHitFrame))
+        let tapPoint = CGPoint(x: city2Target.midX, y: city2Target.maxY - 2)
+        #expect(city2Target.contains(tapPoint))
+        #expect(!cardHitFrame.contains(tapPoint))
 
-        scene.handleTouchForTesting(at: overlap.center)
+        scene.handleTouchForTesting(at: tapPoint)
 
         // The city is selected (not consumed by the card-body flavor tap), and
         // the locked city shows its own feedback with no Attack button.
@@ -97,8 +167,8 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardAttackHitFrameForTesting == nil)
     }
 
-    @Test("Tapping a city under the flavor overlay selects the city, not the overlay")
-    func tappingCityUnderFlavorOverlaySelectsCityNotOverlay() throws {
+    @Test("Tapping a city above the flavor overlay selects the city, not the overlay")
+    func tappingCityAboveFlavorOverlaySelectsCityNotOverlay() throws {
         let initialState = KingdomGameState(
             cityNumberInCountry: 1,
             completedCityCount: 0,
@@ -108,9 +178,9 @@ struct CountryMapSceneTests {
         let scene = makeScene(store: store, router: RouteSpy())
 
         // Present a non-blocking flavor overlay. Its `overlayHitFrame` is
-        // `nonBlockingOverlayFrame`, which overlaps the lowest city hit
-        // targets on the 393x852 fixture. City 2 (Pinewatch) is locked and
-        // sits under that overlay region.
+        // `nonBlockingOverlayFrame`, which must stay clear of the lowest city
+        // hit targets on the 393x852 fixture. City 2 (Pinewatch) is locked
+        // and sits just above that overlay region.
         scene.presentFlavorFeedbackForTesting("Arrow towers command the ridge.")
         let overlayHitFrame = try #require(scene.scoutCardOverlayHitFrameForTesting)
         let city2Position = try #require(scene.cityNodePositionForTesting(2))
@@ -120,13 +190,15 @@ struct CountryMapSceneTests {
             width: 44,
             height: 44
         )
-        let overlap = city2Target.intersection(overlayHitFrame)
-        #expect(overlap.width > 0 && overlap.height > 0,
-                "Flavor overlay must overlap City 2 on the 393x852 fixture for this regression to be meaningful")
+        #expect(!city2Target.intersects(overlayHitFrame),
+                "Flavor overlay must stay clear of City 2 on the 393x852 fixture")
+        let tapPoint = CGPoint(x: city2Target.midX, y: city2Target.maxY - 2)
+        #expect(city2Target.contains(tapPoint))
+        #expect(!overlayHitFrame.contains(tapPoint))
 
-        scene.handleTouchForTesting(at: overlap.center)
+        scene.handleTouchForTesting(at: tapPoint)
 
-        // The flavor overlay yields to city selection, so City 2 is selected
+        // The flavor overlay does not swallow the tap, so City 2 is selected
         // and shows its own locked feedback (no Attack button). The flavor
         // text is replaced by the city's locked feedback.
         #expect(scene.selectedCityNumberForTesting == 2)
@@ -134,8 +206,8 @@ struct CountryMapSceneTests {
         #expect(scene.scoutCardAttackHitFrameForTesting == nil)
     }
 
-    @Test("Tapping a city under a blocking overlay selects the city, not the overlay")
-    func tappingCityUnderBlockingOverlaySelectsCityNotOverlay() throws {
+    @Test("Tapping a city above a blocking overlay selects the city, not the overlay")
+    func tappingCityAboveBlockingOverlaySelectsCityNotOverlay() throws {
         let initialState = KingdomGameState(
             cityNumberInCountry: 1,
             completedCityCount: 0,
@@ -145,9 +217,9 @@ struct CountryMapSceneTests {
         let scene = makeScene(store: store, router: RouteSpy())
 
         // Present a blocking locked overlay. Its `overlayHitFrame` is the
-        // whole card (`overlayFrame`), which overlaps the lowest city hit
-        // targets on the 393x852 fixture. City 2 (Pinewatch) is locked and
-        // sits under that overlay region.
+        // whole card (`overlayFrame`), which must stay clear of the lowest
+        // city hit targets on the 393x852 fixture. City 2 (Pinewatch) is
+        // locked and sits just above that overlay region.
         scene.presentLockedFeedbackForTesting(cityNumber: 1)
         let overlayHitFrame = try #require(scene.scoutCardOverlayHitFrameForTesting)
         let city2Position = try #require(scene.cityNodePositionForTesting(2))
@@ -157,19 +229,53 @@ struct CountryMapSceneTests {
             width: 44,
             height: 44
         )
-        let overlap = city2Target.intersection(overlayHitFrame)
-        #expect(overlap.width > 0 && overlap.height > 0,
-                "Blocking overlay must overlap City 2 on the 393x852 fixture for this regression to be meaningful")
+        #expect(!city2Target.intersects(overlayHitFrame),
+                "Blocking overlay must stay clear of City 2 on the 393x852 fixture")
+        let tapPoint = CGPoint(x: city2Target.midX, y: city2Target.maxY - 2)
+        #expect(city2Target.contains(tapPoint))
+        #expect(!overlayHitFrame.contains(tapPoint))
 
-        scene.handleTouchForTesting(at: overlap.center)
+        scene.handleTouchForTesting(at: tapPoint)
 
-        // The blocking overlay yields to city selection, so City 2 is
+        // The blocking overlay does not swallow the tap, so City 2 is
         // selected. Attack stays disabled (attackHitFrame is nil for blocking
         // feedback) and scout entry stays blocked (the card-body flavor tap
         // is gated by blocksScoutEntry), but city selection itself is
         // neither of those and must remain available.
         #expect(scene.selectedCityNumberForTesting == 2)
         #expect(scene.scoutCardAttackHitFrameForTesting == nil)
+    }
+
+    @Test("City 1/2 hit targets stay clear of the contained Scout card and its overlays")
+    func firstCitiesStayClearOfContainedScoutCardAndOverlays() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityNumberInCountry: 1,
+            completedCityCount: 0,
+            stageStatus: .battleActive
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+        let layout = try #require(scene.countryMapLayoutForTesting)
+        let cardHitFrame = try #require(scene.scoutCardHitFrameForTesting)
+        let cityFrames = try [1, 2].map {
+            try #require(scene.cityHitFrameForTesting($0))
+        }
+
+        for cityFrame in cityFrames {
+            #expect(layout.illustratedMapRegionFrame.contains(cityFrame))
+            #expect(!cityFrame.intersects(cardHitFrame))
+        }
+
+        scene.presentFlavorFeedbackForTesting("Arrow towers command the ridge.")
+        let flavorOverlay = try #require(scene.scoutCardOverlayHitFrameForTesting)
+        for cityFrame in cityFrames {
+            #expect(!cityFrame.intersects(flavorOverlay))
+        }
+
+        scene.presentLockedFeedbackForTesting(cityNumber: 3)
+        let blockingOverlay = try #require(scene.scoutCardOverlayHitFrameForTesting)
+        for cityFrame in cityFrames {
+            #expect(!cityFrame.intersects(blockingOverlay))
+        }
     }
 
     @Test func selectedCurrentCityReturnRoutesToBattleWithoutRestarting() throws {
@@ -851,6 +957,23 @@ struct CountryMapSceneTests {
         #expect(scene.visibleFeedbackTextForTesting == nil)
         #expect(scene.projectedScoutCardContentForTesting
             == .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"))
+    }
+
+    @Test("Completed country card's fitted second line points to Kingdom Ascend")
+    func completedCountryCardSecondLinePointsToKingdomAscend() throws {
+        let store = try makeStore(initialState: KingdomGameState(
+            cityLevel: 15,
+            cityNumberInCountry: 15,
+            completedCityCount: 15,
+            stageStatus: .countryComplete
+        ))
+        let scene = makeScene(store: store, router: RouteSpy())
+
+        #expect(scene.visibleScoutCardTextsForTesting
+            .contains("Country 1 conquered · Crownspire Keep"))
+        #expect(scene.visibleScoutCardTextsForTesting
+            .contains("Next: Kingdom → Ascend to begin again."))
+        #expect(scene.scoutCardAttackHitFrameForTesting == nil)
     }
 
     @Test func enteringCurrentCityResolvesIdleProgress() throws {
@@ -1555,7 +1678,7 @@ struct CountryMapSceneTests {
         #expect(scene.mapLayoutFramesForTesting.sceneFrame == layout.sceneFrame)
         #expect(scene.mapLayoutFramesForTesting.titlePanelFrame == layout.titleControlRegionFrame)
         #expect(scene.mapLayoutFramesForTesting.illustratedRegionFrame == layout.illustratedMapRegionFrame)
-        let scoutCardFrame = CGRect(x: 16, y: 90, width: 361, height: 236)
+        let scoutCardFrame = layout.informationRegionFrame
         #expect(scene.mapLayoutFramesForTesting.scoutCardFrame == scoutCardFrame)
         #expect(scene.scoutCardFrameForTesting == scoutCardFrame)
         #expect(scene.scoutCardHitFrameForTesting == scoutCardFrame)
@@ -1571,8 +1694,8 @@ struct CountryMapSceneTests {
         // the 34pt bottom home-indicator inset.
         #expect(mapHitFrame.minY >= 34)
         #expect(mapHitFrame.minY < tabBarFrame.maxY)
-        #expect(scoutCardFrame.minY == tabBarFrame.maxY + 8)
-        #expect(scoutCardFrame.intersects(layout.illustratedMapRegionFrame))
+        #expect(scoutCardFrame.minY >= tabBarFrame.maxY)
+        #expect(!scoutCardFrame.intersects(layout.illustratedMapRegionFrame))
     }
 
     @Test func mapLayoutKeepsTitleScoutCardAndAllCitiesVisible() throws {
@@ -1591,7 +1714,8 @@ struct CountryMapSceneTests {
         #expect(frames.illustratedRegionFrame == layout.illustratedMapRegionFrame)
         #expect(frames.scoutCardFrame == scene.scoutCardFrameForTesting)
         #expect(frames.titlePanelFrame.minY > frames.illustratedRegionFrame.maxY)
-        #expect(frames.scoutCardFrame.intersects(frames.illustratedRegionFrame))
+        #expect(layout.informationRegionFrame.contains(frames.scoutCardFrame))
+        #expect(!frames.scoutCardFrame.intersects(frames.illustratedRegionFrame))
 
         for cityNumber in 1...KingdomGameState.firstCountryCityCount {
             let position = try #require(scene.cityNodePositionForTesting(cityNumber))

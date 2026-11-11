@@ -6,6 +6,138 @@ import UIKit
 
 @MainActor
 struct CountryMapScoutCardNodeTests {
+    @Test(arguments: CountryMapLayoutTestFixtures.supported)
+    func completedCountryBothRenderedLinesFitWithoutOverlap(fixture: CountryMapLayoutTestFixture) throws {
+        let layout = try scoutCardLayout(for: fixture)
+        let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
+        #expect(node.apply(content: .countryComplete(countryNumber: 1, finalCityName: "Crownspire Keep"),
+                           layout: layout, isEntryEnabled: true) == .presented)
+        var labels = [SKLabelNode]()
+        func collect(_ parent: SKNode) {
+            guard !parent.isHidden else { return }
+            if let label = parent as? SKLabelNode, label.text?.isEmpty == false { labels.append(label) }
+            parent.children.forEach(collect)
+        }
+        collect(node)
+        #expect(labels.count == 2)
+        for label in labels {
+            #expect(layout.cardFrame.contains(label.frame), "\(fixture.name): \(label.text ?? "")")
+            #expect(label.fontSize >= 8)
+        }
+        if labels.count == 2 { #expect(!labels[0].frame.intersects(labels[1].frame)) }
+        #expect(node.attackHitFrame == nil)
+    }
+
+    @Test(arguments: ["iPhone 12/13 mini", "narrow iPad", "smallest compact",
+                      "short 49", "short 54", "short 60", "short 81", "short 100", "short 131"])
+    func renderedTextFitsAndDoesNotOverlapOnCompactAndPad(fixture: String) throws {
+        let layout: CountryMapScoutCardLayout
+        if fixture == "smallest compact" || fixture.hasPrefix("short ") {
+            let height = fixture == "smallest compact" ? 48 : try #require(Int(fixture.dropFirst(6)))
+            layout = CountryMapScoutCardLayout.compute(
+                in: CGRect(x: 16, y: 34, width: 343, height: height), layoutClass: .phone)
+        } else {
+            layout = try scoutCardLayout(named: fixture)
+        }
+        let node = CountryMapScoutCardNode(imageLoader: { completeImageSet()[$0] })
+        if fixture == "short 49" {
+            #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true)
+                == .requiredContentDoesNotFit)
+            #expect(node.attackHitFrame == nil)
+            return
+        }
+        #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true) == .presented)
+        func visibleLabels(_ parent: SKNode) -> [SKLabelNode] {
+            guard !parent.isHidden, parent.alpha > 0 else { return [] }
+            let own = (parent as? SKLabelNode).flatMap { $0.text?.isEmpty == false ? $0 : nil }
+            return (own.map { [$0] } ?? []) + parent.children.flatMap(visibleLabels)
+        }
+        let labels = visibleLabels(node)
+        func frameInCard(_ label: SKLabelNode) -> CGRect {
+            let frame = label.frame
+            return CGRect(origin: node.convert(frame.origin, from: label.parent!), size: frame.size)
+        }
+        for label in labels {
+            let frame = frameInCard(label)
+            #expect(layout.cardFrame.contains(frame), "\(fixture): \(label.text ?? "") \(frame)")
+        }
+        for index in labels.indices {
+            for other in labels.indices.dropFirst(index + 1) {
+                #expect(!frameInCard(labels[index]).intersects(frameInCard(labels[other])),
+                        "\(fixture): \(labels[index].text ?? "") / \(labels[other].text ?? "")")
+            }
+        }
+    }
+
+    @Test(arguments: [49, 54, 60, 81, 100, 131])
+    func shortPhoneKeepsRichScoutContentAndFailsClosedWhenTextCannotFit(height: Int) throws {
+        let layout = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 100, width: 343, height: height), layoutClass: .phone)
+        for hasImages in [true, false] {
+            let node = CountryMapScoutCardNode(imageLoader: { hasImages ? completeImageSet()[$0] : nil })
+            if height == 49 {
+                #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true)
+                    == .requiredContentDoesNotFit)
+                #expect(node.attackHitFrame == nil)
+                continue
+            }
+            #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true) == .presented)
+            #expect(node.titleTextForTesting == "Falconridge")
+            #expect(!node.traitLineTextsForTesting.isEmpty)
+            #expect(node.favorableTextForTesting != nil)
+            #expect(node.disadvantagedTextForTesting != nil)
+            #expect(node.rewardTextForTesting != nil)
+            #expect(node.laneTextForTesting != nil)
+            #expect(node.attackHitFrame == layout.attackFrame)
+            let starving = replacing(layout, exposedLaneFrame: CGRect(
+                x: layout.exposedLaneFrame.minX, y: layout.exposedLaneFrame.minY,
+                width: 1, height: layout.exposedLaneFrame.height))
+            #expect(node.apply(content: .scout(testScout()), layout: starving, isEntryEnabled: true)
+                == .requiredContentDoesNotFit)
+            #expect(node.attackHitFrame == nil)
+        }
+    }
+
+    @Test(arguments: [54, 60, 81, 100, 131])
+    func shortPhonePresentsCatalogAndTraitsAtTheFitFloor(height: Int) throws {
+        let layout = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 100, width: 343, height: height), layoutClass: .phone)
+        for hasImages in [true, false] {
+            let node = CountryMapScoutCardNode(imageLoader: { hasImages ? completeImageSet()[$0] : nil })
+            for trait in CityDefenseTrait.allCases {
+                for city in Country1CityCatalog.cityRange {
+                    let definition = Country1CityCatalog.definition(for: city)
+                    let scout = CountryMapScoutCardContent.Scout(
+                        cityNumber: city, displayTitle: definition.displayTitle, defenseTrait: trait,
+                        exposedLane: .center, goldReward: KingdomGameState.baseGoldReward(for: city),
+                        flavorText: definition.flavorText,
+                        tacticalFooter: CountryMapScoutCardContent.tacticalFooter(for: definition.siegeLayout)
+                    )
+                    #expect(node.apply(content: .scout(scout), layout: layout, isEntryEnabled: true)
+                        == .presented, "height \(height), city \(city), trait \(trait), images \(hasImages)")
+                    var labels = [SKLabelNode]()
+                    func collect(_ parent: SKNode) {
+                        guard !parent.isHidden else { return }
+                        if let label = parent as? SKLabelNode, label.text?.isEmpty == false { labels.append(label) }
+                        parent.children.forEach(collect)
+                    }
+                    collect(node)
+                    let frames = labels.map { label in
+                        CGRect(origin: node.convert(label.frame.origin, from: label.parent!),
+                               size: label.frame.size)
+                    }
+                    for index in frames.indices {
+                        #expect(layout.cardFrame.contains(frames[index]))
+                        for other in frames.indices.dropFirst(index + 1) {
+                            #expect(!frames[index].intersects(frames[other]),
+                                    "height \(height), city \(city), \(labels[index].text ?? "") / \(labels[other].text ?? "")")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     @Test func compactCardRendersIdentityLaneFooterAndStatusAction() throws {
         let node = CountryMapScoutCardNode(imageLoader: { _ in nil })
         let layout = CountryMapScoutCardLayout.compute(
@@ -214,9 +346,9 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.cityArtIsVisibleForTesting)
         #expect(node.cityArtTargetFrameForTesting == CGRect(
             x: layout.cardFrame.minX + 8,
-            y: layout.cardFrame.maxY - 98,
-            width: 80,
-            height: 88
+            y: layout.cardFrame.maxY - 52,
+            width: 48,
+            height: 44
         ))
         #expect(node.titleTextForTesting == "Falconridge")
         #expect(node.attackTextForTesting == "MARCH")
@@ -812,7 +944,7 @@ struct CountryMapScoutCardNodeTests {
         #expect(node.fontsForTesting == .init(
             boldName: GameUITheme.Font.bold,
             mediumName: GameUITheme.Font.medium,
-            title: 19,
+            title: 14,
             badge: 10,
             reward: 10,
             trait: 11,
