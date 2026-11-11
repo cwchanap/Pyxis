@@ -1766,10 +1766,10 @@ struct BattleSceneTests {
     @Test("Formation rows are clamped to the battlefield floor during long battles")
     func formationRowsClampToBattlefieldFloorDuringLongBattles() throws {
         // Building-driven spawns have no global live-soldier cap, so formation
-        // slots grow without bound. Without wrapping, enough same-lane soldiers
+        // slots grow without bound. Without compression, enough same-lane soldiers
         // at the attack position would push back rows below the battlefield
         // frame, where they keep dealing combat damage with invisible bodies
-        // and HP bars. `syncSoldierNodes` wraps rows within the available depth
+        // and HP bars. `syncSoldierNodes` compresses rows within the available depth
         // and keeps each root at or above `battlefieldLayout.frame.minY`, so
         // overflow soldiers do not all stack at the bottom edge.
         //
@@ -1831,7 +1831,10 @@ struct BattleSceneTests {
         scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
             if let bar = node.children.compactMap({ $0 as? SKShapeNode }).first(where: { $0.zPosition == 2 }),
                let path = bar.path {
-                hpFrames.append(path.boundingBox.offsetBy(dx: node.position.x, dy: node.position.y))
+                let bounds = path.boundingBox
+                let min = node.convert(CGPoint(x: bounds.minX, y: bounds.minY), to: scene)
+                let max = node.convert(CGPoint(x: bounds.maxX, y: bounds.maxY), to: scene)
+                hpFrames.append(CGRect(x: min.x, y: min.y, width: max.x - min.x, height: max.y - min.y))
             }
         }
         #expect(hpFrames.count >= placements.count)
@@ -4109,15 +4112,121 @@ struct BattleSceneTests {
             for root in roots {
                 let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }.first { $0.zPosition == 2 })
                 let path = try #require(bar.path)
-                let frame = path.boundingBox.offsetBy(dx: root.position.x, dy: root.position.y)
+                func sceneFrame(_ bounds: CGRect) -> CGRect {
+                    let min = root.convert(CGPoint(x: bounds.minX, y: bounds.minY), to: scene)
+                    let max = root.convert(CGPoint(x: bounds.maxX, y: bounds.maxY), to: scene)
+                    return CGRect(x: min.x, y: min.y, width: max.x - min.x, height: max.y - min.y)
+                }
+                let frame = sceneFrame(path.boundingBox)
                 #expect(battlefield.contains(frame))
                 let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
-                let bodyFrame = SoldierAnimationGeometry(type: .infantry)
-                    .logicalBodyFrame(frameSize: body.size)
-                    .offsetBy(dx: root.position.x, dy: root.position.y)
+                let bodyFrame = sceneFrame(
+                    SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: body.size)
+                )
                 #expect(battlefield.contains(bodyFrame))
             }
         }
+    }
+
+    @Test func denseFormationDoesNotTeleportWhileMarchingToGate() throws {
+        let state = try durableRightGateState(buildingCount: 5)
+        for size in [CGSize(width: 393, height: 700), CGSize(width: 393, height: 852)] {
+            let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1, size: size)
+            scene.advanceCombatSingleStepForTesting(
+                deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+            )
+            var previous = scene.soldierLanePlacementsForTesting
+            #expect(previous.count == 20)
+            var greatestStep: CGFloat = 0
+            for _ in 0..<60 {
+                scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+                let current = scene.soldierLanePlacementsForTesting
+                #expect(current.count == previous.count)
+                for (before, after) in zip(previous, current) {
+                    #expect(before.lane == after.lane)
+                    greatestStep = max(greatestStep, hypot(
+                        after.nodePosition.x - before.nodePosition.x,
+                        after.nodePosition.y - before.nodePosition.y
+                    ))
+                }
+                previous = current
+            }
+            #expect(greatestStep < scene.soldierTargetHeightForTesting * 0.2)
+        }
+    }
+
+    @Test func denseGateFormationKeepsBodiesAndHPBarsReadable() throws {
+        let state = try durableRightGateState(buildingCount: 0)
+        let gateID = try #require(state.currentSiegeLayout.objectives.first {
+            $0.kind == .gate && $0.visualLane == .right
+        }?.id)
+        for size in [CGSize(width: 393, height: 700), CGSize(width: 393, height: 852)] {
+            let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1, size: size)
+            scene.spawnManualSoldiersDirectlyForTesting(9)
+            advanceCombatUntil(scene) {
+                scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] > 0
+            }
+            #expect(scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] > 0)
+            let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+            let gate = try #require(scene.childNode(withName: "//siegeObjective-\(gateID)"))
+            let gateBar = try #require(gate.childNode(withName: "siegeHPBackground") as? SKShapeNode)
+            let gateBounds = try #require(gateBar.path).boundingBox
+            let gateMin = gateBar.convert(CGPoint(x: gateBounds.minX, y: gateBounds.minY), to: scene)
+            let gateMax = gateBar.convert(CGPoint(x: gateBounds.maxX, y: gateBounds.maxY), to: scene)
+            let gateBarFrame = CGRect(
+                x: gateMin.x, y: gateMin.y, width: gateMax.x - gateMin.x, height: gateMax.y - gateMin.y
+            )
+            var roots: [SKNode] = []
+            scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+                if node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }) {
+                    roots.append(node)
+                }
+            }
+            #expect(roots.count == 9)
+            var bodies: [CGRect] = []
+            var bars: [CGRect] = []
+            for root in roots {
+                let sprite = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+                let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }.first { $0.zPosition == 2 })
+                let barPath = try #require(bar.path)
+                func sceneFrame(_ local: CGRect) -> CGRect {
+                    let min = root.convert(CGPoint(x: local.minX, y: local.minY), to: scene)
+                    let max = root.convert(CGPoint(x: local.maxX, y: local.maxY), to: scene)
+                    return CGRect(x: min.x, y: min.y, width: max.x - min.x, height: max.y - min.y)
+                }
+                bodies.append(sceneFrame(SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(
+                    frameSize: sprite.size
+                )))
+                bars.append(sceneFrame(barPath.boundingBox))
+            }
+            for index in bars.indices {
+                #expect(battlefield.contains(bars[index]))
+                #expect(battlefield.contains(bodies[index]))
+                #expect(bars[index].width >= 22)
+                #expect(bodies[index].height >= 30)
+                #expect(!bars[index].insetBy(dx: -0.5, dy: -0.5).intersects(gateBarFrame))
+                for other in bars.indices where other != index {
+                    #expect(!bars[index].intersects(bars[other]))
+                    #expect(!bars[index].intersects(bodies[other]))
+                }
+            }
+        }
+    }
+
+    private func durableRightGateState(buildingCount: Int) throws -> KingdomGameState {
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let maxPowers = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: city))
+        var state = captainless(stateWithBuildings(
+            Array(repeating: .barracks, count: buildingCount),
+            keepRemaining: maxPowers[layout.keepObjective.id, default: 0],
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            selectedLane: .right
+        ))
+        let towerID = try #require(layout.objectives.first { $0.kind == .arrowTower }?.id)
+        state.siegeProgress.damageByObjectiveID[towerID] = maxPowers[towerID, default: 0]
+        return state
     }
 
     @Test func soldiersSharingALaneDoNotRenderAtTheSamePoint() throws {
