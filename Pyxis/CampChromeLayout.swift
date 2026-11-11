@@ -77,6 +77,7 @@ struct CampChromeLayout: Equatable {
     static let tabBarHeight: CGFloat = 72
     static let minimumInteractiveSize: CGFloat = 44
     static let lotTargetSize: CGFloat = 44
+    static let selectionBudget: CGFloat = 114
 
     let sceneFrame: CGRect
     let safeFrame: CGRect
@@ -172,23 +173,12 @@ struct CampChromeLayout: Equatable {
             )
         })
 
-        let selectionHeight: CGFloat
-        switch input.selection {
-        case .none:
-            selectionHeight = 0
-        case .emptyLot:
-            selectionHeight = 174
-        case .occupiedLot:
-            selectionHeight = 114
-        }
-        let selectionFrame = selectionHeight > 0
-            ? CGRect(
-                x: safeFrame.midX - contentWidth / 2,
-                y: tabBarFrame.maxY + 10,
-                width: contentWidth,
-                height: selectionHeight
-            )
-            : nil
+        let selectionFrame = CGRect(
+            x: safeFrame.midX - contentWidth / 2,
+            y: tabBarFrame.maxY + 10,
+            width: contentWidth,
+            height: selectionBudget
+        )
 
         let headerFrame = CGRect(
             x: safeFrame.midX - contentWidth / 2,
@@ -229,7 +219,7 @@ struct CampChromeLayout: Equatable {
             return nil
         }
 
-        let lotRegionMinY = (selectionFrame?.maxY ?? tabBarFrame.maxY) + 10
+        let lotRegionMinY = selectionFrame.maxY + 10
         let lotRegionMaxY = progressFrame.minY - 12
         let lotRegionFrame = CGRect(
             x: safeFrame.minX,
@@ -250,7 +240,7 @@ struct CampChromeLayout: Equatable {
         )
         guard lotRegionFrame.contains(feedbackFrame),
               !feedbackFrame.intersects(tabBarFrame),
-              selectionFrame.map({ !feedbackFrame.intersects($0) }) ?? true else {
+              !feedbackFrame.intersects(selectionFrame) else {
             return nil
         }
 
@@ -287,41 +277,38 @@ struct CampChromeLayout: Equatable {
         var inspectorActionFrame: CGRect?
         var builderOptionFrames: [BuildingType: CGRect] = [:]
 
-        if let selectionFrame {
-            switch input.selection {
-            case .emptyLot:
-                builderFrame = selectionFrame
-                let gap: CGFloat = 6
-                let optionWidth = min(62, (selectionFrame.width - gap * 4 - 20) / 5)
-                let optionHeight = min(64, selectionFrame.height - 38)
-                let totalWidth = optionWidth * 5 + gap * 4
-                let startX = selectionFrame.midX - totalWidth / 2 + optionWidth / 2
-                let yOffsets: [CGFloat] = [0, 8, 12, 8, 0]
-                for (index, type) in BuildingType.allCases.enumerated() {
-                    let center = CGPoint(
-                        x: startX + CGFloat(index) * (optionWidth + gap),
-                        y: selectionFrame.midY - 4 + yOffsets[index]
-                    )
-                    builderOptionFrames[type] = CGRect(
-                        x: center.x - optionWidth / 2,
-                        y: center.y - optionHeight / 2,
-                        width: optionWidth,
-                        height: optionHeight
-                    )
-                }
-            case .occupiedLot:
-                inspectorFrame = selectionFrame
-                let actionWidth: CGFloat = min(92, max(80, selectionFrame.width * 0.25))
-                let actionHeight: CGFloat = max(minimumInteractiveSize, selectionFrame.height - 28)
-                inspectorActionFrame = CGRect(
-                    x: selectionFrame.maxX - actionWidth - 12,
-                    y: selectionFrame.midY - actionHeight / 2,
-                    width: actionWidth,
-                    height: actionHeight
+        switch input.selection {
+        case .emptyLot:
+            builderFrame = selectionFrame
+            let gap: CGFloat = 6
+            let optionWidth = min(62, (selectionFrame.width - gap * 4 - 20) / 5)
+            let optionHeight = min(86, selectionFrame.height - 28)
+            let totalWidth = optionWidth * 5 + gap * 4
+            let startX = selectionFrame.midX - totalWidth / 2 + optionWidth / 2
+            for (index, type) in BuildingType.allCases.enumerated() {
+                let center = CGPoint(
+                    x: startX + CGFloat(index) * (optionWidth + gap),
+                    y: selectionFrame.midY
                 )
-            case .none:
-                break
+                builderOptionFrames[type] = CGRect(
+                    x: center.x - optionWidth / 2,
+                    y: center.y - optionHeight / 2,
+                    width: optionWidth,
+                    height: optionHeight
+                )
             }
+        case .occupiedLot:
+            inspectorFrame = selectionFrame
+            let actionWidth: CGFloat = min(92, max(80, selectionFrame.width * 0.25))
+            let actionHeight: CGFloat = max(minimumInteractiveSize, selectionFrame.height - 28)
+            inspectorActionFrame = CGRect(
+                x: selectionFrame.maxX - actionWidth - 12,
+                y: selectionFrame.midY - actionHeight / 2,
+                width: actionWidth,
+                height: actionHeight
+            )
+        case .none:
+            break
         }
 
         let allInteractiveFrames = Array(tabHitFrames.values)

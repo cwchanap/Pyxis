@@ -186,6 +186,7 @@ final class CampSelectionNode: SKNode {
     private let inspectorProducedLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let inspectorActionPanel = PanelNode(size: .zero)
     private let inspectorActionLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let inspectorRecommendationMark = SKShapeNode(circleOfRadius: 4)
     private let inspectorLevelPips: [SKShapeNode]
     private let optionBundles: [BuildingType: OptionBundle]
     private let tabBar = GameplayTabBarNode(appearance: .forged)
@@ -287,6 +288,11 @@ final class CampSelectionNode: SKNode {
         }
         addChild(inspectorActionPanel)
         addChild(inspectorActionLabel)
+        inspectorRecommendationMark.name = "campInspectorRecommendation"
+        inspectorRecommendationMark.fillColor = GameUITheme.Color.gold
+        inspectorRecommendationMark.strokeColor = .clear
+        inspectorRecommendationMark.isHidden = true
+        addChild(inspectorRecommendationMark)
         for type in BuildingType.allCases {
             addChild(optionBundles[type]!.root)
         }
@@ -346,6 +352,7 @@ final class CampSelectionNode: SKNode {
         inspectorProducedLabel.isHidden = inspectorPanel.isHidden
         inspectorActionPanel.isHidden = inspectorPanel.isHidden
         inspectorActionLabel.isHidden = inspectorPanel.isHidden
+        inspectorRecommendationMark.isHidden = true
         inspectorLevelPips.forEach { $0.isHidden = inspectorPanel.isHidden }
 
         if let builderFrame = layout.builderFrame {
@@ -364,9 +371,11 @@ final class CampSelectionNode: SKNode {
                 bundle.root.position = CGPoint(x: frame.midX, y: frame.midY)
                 bundle.panel.apply(
                     size: frame.size,
-                    style: option.isRecommended
-                        ? .selected
-                        : Self.panelStyle(for: option.state),
+                    style: Self.actionStyle(
+                        isRecommended: option.isRecommended,
+                        isActionable: option.state.isAvailable,
+                        actionableStyle: .normal
+                    ),
                     showsRivets: false,
                     appearance: .forged
                 )
@@ -374,11 +383,15 @@ final class CampSelectionNode: SKNode {
                     for: bundle.icon.texture,
                     maximumSize: CGSize(width: frame.width * 0.46, height: frame.height * 0.46)
                 )
-                bundle.icon.position = CGPoint(x: 0, y: 8)
+                bundle.icon.position = CGPoint(x: 0, y: frame.height * 0.15)
                 bundle.nameLabel.text = option.buildingType.shortDisplayName.uppercased()
-                bundle.nameLabel.position = CGPoint(x: 0, y: -frame.height * 0.27)
+                bundle.nameLabel.fontSize = 9
+                bundle.nameLabel.shrinkFontSize(toFitWidth: frame.width - 8, floor: 6)
+                bundle.nameLabel.position = CGPoint(x: 0, y: -frame.height * 0.19)
                 bundle.statusLabel.text = Self.statusText(for: option.state)
-                bundle.statusLabel.position = CGPoint(x: 0, y: -frame.height * 0.43)
+                bundle.statusLabel.fontSize = 8
+                bundle.statusLabel.shrinkFontSize(toFitWidth: frame.width - 8, floor: 6)
+                bundle.statusLabel.position = CGPoint(x: 0, y: -frame.height * 0.37)
                 let enabled = option.state.isAvailable
                 bundle.icon.alpha = enabled ? 1 : 0.42
                 bundle.nameLabel.alpha = enabled ? 1 : 0.60
@@ -434,13 +447,20 @@ final class CampSelectionNode: SKNode {
             )
             inspectorActionPanel.apply(
                 size: actionFrame.size,
-                style: inspector.isRecommended
-                    ? .selected
-                    : inspector.canUpgrade ? .primaryAction : .disabled,
+                style: Self.actionStyle(
+                    isRecommended: inspector.isRecommended,
+                    isActionable: inspector.canUpgrade,
+                    actionableStyle: .primaryAction
+                ),
                 showsRivets: true,
                 appearance: .forged
             )
             inspectorActionPanel.position = CGPoint(x: actionFrame.midX, y: actionFrame.midY)
+            inspectorRecommendationMark.isHidden = !inspector.isRecommended
+            inspectorRecommendationMark.position = CGPoint(
+                x: actionFrame.maxX - 20,
+                y: actionFrame.maxY - 9
+            )
             inspectorActionLabel.text = "↑\n\(CompactNumberFormatter.string(from: inspector.upgradeCost))"
             inspectorActionLabel.numberOfLines = 2
             inspectorActionLabel.position = CGPoint(x: actionFrame.midX, y: actionFrame.midY)
@@ -494,13 +514,13 @@ final class CampSelectionNode: SKNode {
         return .requiredContentDoesNotFit
     }
 
-    private static func panelStyle(for state: CampSelectionContent.OptionState) -> PanelNode.Style {
-        switch state {
-        case .available:
-            return .normal
-        case .unaffordable, .locked, .capped:
-            return .disabled
-        }
+    static func actionStyle(
+        isRecommended: Bool,
+        isActionable: Bool,
+        actionableStyle: PanelNode.Style
+    ) -> PanelNode.Style {
+        guard isActionable else { return .disabled }
+        return isRecommended ? .selected : actionableStyle
     }
 
     private static func statusText(for state: CampSelectionContent.OptionState) -> String {
@@ -578,6 +598,37 @@ extension CampSelectionNode {
 
     func optionPanelStyleForTesting(_ type: BuildingType) -> PanelNode.Style? {
         optionBundles[type]?.panel.styleForTesting
+    }
+
+    func optionNameLabelFrameForTesting(_ type: BuildingType) -> CGRect? {
+        guard let bundle = optionBundles[type] else { return nil }
+        return convert(bundle.nameLabel.frame, from: bundle.root)
+    }
+
+    func optionStatusLabelFrameForTesting(_ type: BuildingType) -> CGRect? {
+        guard let bundle = optionBundles[type] else { return nil }
+        return convert(bundle.statusLabel.frame, from: bundle.root)
+    }
+
+    func optionRecommendationMarkIsHiddenForTesting(_ type: BuildingType) -> Bool? {
+        optionBundles[type]?.recommendationMark.isHidden
+    }
+
+    func optionRecommendationMarkFrameForTesting(_ type: BuildingType) -> CGRect? {
+        guard let bundle = optionBundles[type] else { return nil }
+        return convert(bundle.recommendationMark.frame, from: bundle.root)
+    }
+
+    var inspectorActionPanelStyleForTesting: PanelNode.Style {
+        inspectorActionPanel.styleForTesting
+    }
+
+    var inspectorRecommendationMarkIsHiddenForTesting: Bool {
+        inspectorRecommendationMark.isHidden
+    }
+
+    var inspectorRecommendationMarkFrameForTesting: CGRect {
+        inspectorRecommendationMark.frame
     }
 
     func optionIconAssetNameForTesting(_ type: BuildingType) -> String? {
