@@ -151,6 +151,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let frontLimit: CGFloat
     }
 
+    /// A live-objective damage presentation sink (HPA-812 final review):
+    /// ordinary soldier attacks and Captain attacks are the only two, and
+    /// tracking which of them contributed to a same-tick aggregate is what
+    /// makes the aggregate label's color deterministic instead of
+    /// inheriting whatever color the later-running sink happened to pass.
+    private enum ObjectiveDamageSource {
+        case ordinary
+        case captain
+    }
+
     private let store: KingdomGameStore
     private weak var router: BattleSceneRouting?
     private let feedback: GameplayFeedbackProviding
@@ -185,6 +195,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private let effectsLayer = SKNode()
     private var objectiveDamageLabels: [String: SKLabelNode] = [:]
     private var objectiveDamageThisTick: [String: Int] = [:]
+    /// Which damage sinks contributed live damage to each objective's
+    /// same-tick aggregate (HPA-812 final review). Cleared beside
+    /// `objectiveDamageThisTick` at the same two tick boundaries so the
+    /// aggregate-color policy sees every contributing source.
+    private var objectiveDamageSourcesThisTick: [String: Set<ObjectiveDamageSource>] = [:]
     private var playerCastleNode: SKNode?
     private var enemyCityNode: SKNode?
     private var battlefieldBackdropNode: SKSpriteNode?
@@ -2217,9 +2232,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // a short-circuit would skip Captain/Guard sync whenever an earlier
         // sink already reported a durable change.
         objectiveDamageThisTick.removeAll()
+        objectiveDamageSourcesThisTick.removeAll()
         let attacksMutatedState = applyCombatResult(result)
         let captainMutatedState = synchronizeAndPersistCaptain(result, deltaTime: clampedDeltaTime)
         objectiveDamageThisTick.removeAll()
+        objectiveDamageSourcesThisTick.removeAll()
         let guardsMutatedState = synchronizeAndPersistCountry1Guards(deltaTime: clampedDeltaTime)
         tickNeedsSave = tickNeedsSave
             || attacksMutatedState
@@ -3635,6 +3652,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 orderedObjectiveIDs.append(event.objectiveID)
             }
             damageByObjectiveID[event.objectiveID, default: 0] += event.appliedDamage
+            if event.appliedDamage > 0 {
+                objectiveDamageSourcesThisTick[event.objectiveID, default: []]
+                    .insert(event.isCaptain ? .captain : .ordinary)
+            }
             if event.depletedObjective {
                 destroyedObjectiveIDs.insert(event.objectiveID)
             }
@@ -3670,7 +3691,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             playFloatingFeedback(
                 text: "-\(CompactNumberFormatter.string(from: tickDamage))",
                 at: target.impactPoint,
-                color: color,
+                color: objectiveAggregateDamageColor(
+                    for: objectiveID,
+                    singleSourceColor: color
+                ),
                 reduceMotion: isReduceMotionEnabled(),
                 objectiveID: objectiveID
             )
@@ -3680,6 +3704,22 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 playCityHitFeedback(on: target.node, impactPoint: target.impactPoint)
             }
         }
+    }
+
+    /// Same-tick aggregate color policy (HPA-812 final review): while only
+    /// one sink contributed to an objective's aggregate this tick the label
+    /// keeps that sink's color — advantaged ordinary hits stay green;
+    /// unadvantaged hits and Captain hits stay white. Once BOTH an ordinary
+    /// and a Captain hit landed on the same objective in one tick the
+    /// combined label is deterministic neutral white — never whichever
+    /// color the later-running sink happened to pass.
+    private func objectiveAggregateDamageColor(
+        for objectiveID: String,
+        singleSourceColor: SKColor
+    ) -> SKColor {
+        (objectiveDamageSourcesThisTick[objectiveID]?.count ?? 0) > 1
+            ? .white
+            : singleSourceColor
     }
 
     /// Plays the one-shot fall response for a support objective destroyed by

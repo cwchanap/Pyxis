@@ -2881,6 +2881,12 @@ struct BattleSceneTests {
     }
 
     @Test func sameTickCaptainAndSoldierDamageUsesOneAggregate() throws {
+        // The level-1 Captain applies 2 per gate hit and the fresh
+        // infantry 1, so a same-tick delta of 3+ proves BOTH sinks fed the
+        // aggregate. The label still reads as one combined figure and —
+        // per the explicit same-tick color policy (HPA-812 final review) —
+        // renders deterministic neutral white, never whichever color the
+        // later-running sink happened to pass.
         let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26, selectedLane: .center)
         let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
         let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1)
@@ -2890,14 +2896,58 @@ struct BattleSceneTests {
             let before = scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0]
             scene.advanceCombatForTesting(deltaTime: 0.1)
             let delta = scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] - before
-            if delta > 1 && scene.structureFallRequestsForTesting.isEmpty {
-                sawCombinedHit = true
-                let label = try #require(scene.childNode(withName: "//floatingFeedback") as? SKLabelNode)
-                #expect(label.text == "-\(CompactNumberFormatter.string(from: delta))")
-                #expect(scene.floatingFeedbackCountForTesting == 1)
-            }
+            guard delta >= 3, scene.structureFallRequestsForTesting.isEmpty else { continue }
+            sawCombinedHit = true
+            let label = try #require(scene.childNode(withName: "//floatingFeedback") as? SKLabelNode)
+            #expect(label.text == "-\(CompactNumberFormatter.string(from: delta))")
+            #expect(scene.floatingFeedbackCountForTesting == 1)
+            var red: CGFloat = 0
+            var green: CGFloat = 0
+            var blue: CGFloat = 0
+            try #require(label.fontColor).getRed(&red, green: &green, blue: &blue, alpha: nil)
+            #expect(abs(red - 1) < 0.01)
+            #expect(abs(green - 1) < 0.01)
+            #expect(abs(blue - 1) < 0.01)
         }
         #expect(sawCombinedHit)
+
+        // Single-source arms keep their own colors — the policy only
+        // neutralizes an aggregate BOTH sinks contributed to. A Captain
+        // fighting alone stays flat white...
+        let (captainOnlyScene, _) = try makeCaptainScene(
+            state: makeCaptainState(keepRemaining: 26, selectedLane: .center)
+        )
+        advanceCombatUntil(captainOnlyScene) {
+            captainOnlyScene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] > 0
+        }
+        let captainOnlyLabel = try #require(
+            captainOnlyScene.childNode(withName: "//floatingFeedback") as? SKLabelNode
+        )
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        try #require(captainOnlyLabel.fontColor).getRed(&red, green: &green, blue: &blue, alpha: nil)
+        #expect(abs(red - 1) < 0.01)
+        #expect(abs(green - 1) < 0.01)
+        #expect(abs(blue - 1) < 0.01)
+
+        // ...and an ordinary advantaged tick keeps its green — Falconridge's
+        // Arrow Tower trait favors infantry (x1.25). The mixed rule must
+        // never recolor a single-source tick.
+        let ordinaryScene = makeScene(store: try makeStore(initialState: captainless(
+            SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26, selectedLane: .center)
+        )), combatSeed: 1)
+        ordinaryScene.spawnSoldierForTesting()
+        advanceCombatUntil(ordinaryScene) {
+            ordinaryScene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] > 0
+        }
+        let ordinaryLabel = try #require(
+            ordinaryScene.childNode(withName: "//floatingFeedback") as? SKLabelNode
+        )
+        try #require(ordinaryLabel.fontColor).getRed(&red, green: &green, blue: &blue, alpha: nil)
+        #expect(abs(red - 142 / 255) < 0.01)
+        #expect(abs(green - 247 / 255) < 0.01)
+        #expect(abs(blue - 173 / 255) < 0.01)
     }
 
     @Test func keepHitFeedbackReturnsToTheKeepOnceTheFalconridgeGateFalls() throws {
