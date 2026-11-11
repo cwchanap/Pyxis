@@ -766,6 +766,26 @@ struct BuildingViewSceneTests {
         #expect(scene.goldTextForTesting == "1M")
     }
 
+    @Test("Camp gold HUD keeps the longest compact count inside the compact panel")
+    func campGoldHUDCompactViewportContainsLongCount() throws {
+        let scene = makeScene(
+            size: CGSize(width: 320, height: 568),
+            store: try makeStore(
+                initialState: KingdomGameState(gold: 1_000_000_000_000_000_000)
+            ),
+            router: RouteSpy()
+        )
+        let frames = try #require(scene.campLayoutFramesForTesting)
+        let iconFrame = try #require(scene.goldIconFrameForTesting)
+        let textFrame = try #require(scene.goldTextFrameForTesting)
+
+        #expect(frames.gold.width < 100)
+        #expect(scene.goldTextForTesting == "1000000T")
+        #expect(frames.gold.contains(iconFrame))
+        #expect(frames.gold.contains(textFrame))
+        #expect(!iconFrame.intersects(textFrame))
+    }
+
     // MARK: Highcrest Guard lifecycle through Camp (HPA-469 Task 5)
 
     /// Highcrest battle state with durable Guard progress and an armed
