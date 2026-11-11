@@ -11,6 +11,64 @@ import UIKit
 
 @MainActor
 struct CountryMapSceneTests {
+    @Test(arguments: [667.0, 667.01, 667.5, 668.0, 669.0, 670.0, 671.0, 672.0, 672.99, 673.0])
+    func boundaryPhoneKeepsAllInteractionTargetsLive(sceneHeight: Double) throws {
+        let size = CGSize(width: 375, height: sceneHeight)
+        let environment = CountryMapLayoutEnvironment(safeAreaInsets: .zero, layoutClass: .phone)
+        let result = CountryMapLayout.compute(.init(
+            sceneSize: size, environment: environment, definition: .country1
+        ))
+        guard case .supported(let expectedLayout) = result else {
+            Issue.record("Expected supported pure layout at \(sceneHeight)")
+            return
+        }
+        #expect(abs(expectedLayout.informationRegionFrame.height - CGFloat(sceneHeight - 619)) < 0.001)
+
+        let store = try makeStore(initialState: KingdomGameState(stageStatus: .battleActive))
+        let router = RouteSpy()
+        let scene = makeScene(size: size, store: store, router: router, environment: environment)
+        #expect(router.requestedGateReason == nil)
+        #expect(!scene.isScoutCardFitFailedForTesting)
+        #expect(!scene.isMapUnavailableForTesting)
+        #expect(scene.countryMapLayoutForTesting == expectedLayout)
+        #expect(scene.routeLayoutCountForTesting == 18)
+        for city in 1...15 {
+            let hit = try #require(scene.cityHitFrameForTesting(city))
+            let position = try #require(scene.cityNodePositionForTesting(city))
+            #expect(hit.width >= 44 && hit.height >= 44)
+            #expect(hit.contains(position))
+            #expect(scene.cityNumberAtPointForTesting(position) == city)
+        }
+        let attack = try #require(scene.scoutCardAttackHitFrameForTesting)
+        let gear = try #require(scene.feedbackSettingsGearFrameForTesting)
+        #expect(attack.width >= 44 && attack.height >= 44)
+        #expect(gear.width >= 44 && gear.height >= 44)
+        for tab in GameplayTab.allCases {
+            let hit = try #require(scene.gameplayTabBarForTesting.hitFrameForTesting(for: tab))
+            #expect(hit.width >= 44 && hit.height >= 44)
+        }
+        scene.handleTouchForTesting(at: gear.center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+
+        let actionRouter = RouteSpy()
+        let actionScene = makeScene(size: size, store: store, router: actionRouter, environment: environment)
+        let city2 = try #require(actionScene.cityNodePositionForTesting(2))
+        actionScene.handleTouchForTesting(at: city2)
+        #expect(actionScene.selectedCityNumberForTesting == 2)
+        #expect(actionScene.scoutCardAttackHitFrameForTesting == nil)
+
+        let returnScene = makeScene(size: size, store: store, router: actionRouter, environment: environment)
+        let returnAttack = try #require(returnScene.scoutCardAttackHitFrameForTesting)
+        returnScene.handleTouchForTesting(at: returnAttack.center)
+        #expect(actionRouter.battleRequestCount == 1)
+
+        let tabRouter = RouteSpy()
+        let tabScene = makeScene(size: size, store: store, router: tabRouter, environment: environment)
+        let kingdomTab = try #require(tabScene.gameplayTabBarForTesting.hitFrameForTesting(for: .kingdom))
+        tabScene.handleTouchForTesting(at: kingdomTab.center)
+        #expect(tabRouter.requestedTabs == [.kingdom])
+    }
+
     @Test(arguments: [0, 1, 2])
     func syntheticCityOverlapStillYieldsToCity(kind: Int) throws {
         let state = KingdomGameState(cityNumberInCountry: 1, completedCityCount: 0, stageStatus: .battleActive)

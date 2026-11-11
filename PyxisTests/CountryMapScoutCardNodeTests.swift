@@ -29,23 +29,18 @@ struct CountryMapScoutCardNodeTests {
     }
 
     @Test(arguments: ["iPhone 12/13 mini", "narrow iPad", "smallest compact",
-                      "short 49", "short 54", "short 60", "short 81", "short 100", "short 131"])
+                      "short 48.01", "short 48.5", "short 49", "short 50", "short 51", "short 52",
+                      "short 53", "short 53.99", "short 54", "short 60", "short 81", "short 100", "short 131"])
     func renderedTextFitsAndDoesNotOverlapOnCompactAndPad(fixture: String) throws {
         let layout: CountryMapScoutCardLayout
         if fixture == "smallest compact" || fixture.hasPrefix("short ") {
-            let height = fixture == "smallest compact" ? 48 : try #require(Int(fixture.dropFirst(6)))
+            let height = fixture == "smallest compact" ? 48 : try #require(Double(fixture.dropFirst(6)))
             layout = CountryMapScoutCardLayout.compute(
                 in: CGRect(x: 16, y: 34, width: 343, height: height), layoutClass: .phone)
         } else {
             layout = try scoutCardLayout(named: fixture)
         }
         let node = CountryMapScoutCardNode(imageLoader: { completeImageSet()[$0] })
-        if fixture == "short 49" {
-            #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true)
-                == .requiredContentDoesNotFit)
-            #expect(node.attackHitFrame == nil)
-            return
-        }
         #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true) == .presented)
         func visibleLabels(_ parent: SKNode) -> [SKLabelNode] {
             guard !parent.isHidden, parent.alpha > 0 else { return [] }
@@ -69,18 +64,12 @@ struct CountryMapScoutCardNodeTests {
         }
     }
 
-    @Test(arguments: [49, 54, 60, 81, 100, 131])
-    func shortPhoneKeepsRichScoutContentAndFailsClosedWhenTextCannotFit(height: Int) throws {
+    @Test(arguments: [48.01, 48.5, 49.0, 50.0, 51.0, 52.0, 53.0, 53.99, 54.0, 60.0, 81.0, 100.0, 131.0])
+    func shortPhoneKeepsRichScoutContentAndFailsClosedWhenTextCannotFit(height: Double) throws {
         let layout = CountryMapScoutCardLayout.compute(
             in: CGRect(x: 16, y: 100, width: 343, height: height), layoutClass: .phone)
         for hasImages in [true, false] {
             let node = CountryMapScoutCardNode(imageLoader: { hasImages ? completeImageSet()[$0] : nil })
-            if height == 49 {
-                #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true)
-                    == .requiredContentDoesNotFit)
-                #expect(node.attackHitFrame == nil)
-                continue
-            }
             #expect(node.apply(content: .scout(testScout()), layout: layout, isEntryEnabled: true) == .presented)
             #expect(node.titleTextForTesting == "Falconridge")
             #expect(!node.traitLineTextsForTesting.isEmpty)
@@ -95,11 +84,17 @@ struct CountryMapScoutCardNodeTests {
             #expect(node.apply(content: .scout(testScout()), layout: starving, isEntryEnabled: true)
                 == .requiredContentDoesNotFit)
             #expect(node.attackHitFrame == nil)
+            let heightStarved = replacing(layout, favorableFrame: CGRect(
+                x: layout.favorableFrame.minX, y: layout.favorableFrame.minY,
+                width: layout.favorableFrame.width, height: 1))
+            #expect(node.apply(content: .scout(testScout()), layout: heightStarved, isEntryEnabled: true)
+                == .requiredContentDoesNotFit)
+            #expect(node.attackHitFrame == nil)
         }
     }
 
-    @Test(arguments: [54, 60, 81, 100, 131])
-    func shortPhonePresentsCatalogAndTraitsAtTheFitFloor(height: Int) throws {
+    @Test(arguments: [48.01, 48.5, 49.0, 50.0, 51.0, 52.0, 53.0, 53.99, 54.0, 60.0, 81.0, 100.0, 131.0])
+    func shortPhonePresentsCatalogAndTraitsAtTheFitFloor(height: Double) throws {
         let layout = CountryMapScoutCardLayout.compute(
             in: CGRect(x: 16, y: 100, width: 343, height: height), layoutClass: .phone)
         for hasImages in [true, false] {
@@ -115,6 +110,12 @@ struct CountryMapScoutCardNodeTests {
                     )
                     #expect(node.apply(content: .scout(scout), layout: layout, isEntryEnabled: true)
                         == .presented, "height \(height), city \(city), trait \(trait), images \(hasImages)")
+                    #expect(node.badgeTextForTesting == "CITY \(city)")
+                    #expect(node.traitLineTextsForTesting.joined(separator: " ") == trait.displayName.uppercased())
+                    #expect(node.favorableItemsForTesting.compactMap(\.type) == trait.favorableSoldierTypes)
+                    #expect(node.disadvantagedItemsForTesting.compactMap(\.type) == trait.disadvantagedSoldierTypes)
+                    #expect(node.laneTextForTesting == (scout.tacticalFooter ?? "Open: Center"))
+                    #expect(node.rewardTextForTesting == (hasImages ? "\(scout.goldReward)" : "Gold \(scout.goldReward)"))
                     var labels = [SKLabelNode]()
                     func collect(_ parent: SKNode) {
                         guard !parent.isHidden else { return }
