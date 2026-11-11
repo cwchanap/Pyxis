@@ -2911,12 +2911,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             let maxBodyTop = bundles.map {
                 soldierLogicalBodyFrame(for: $0).maxY - animatedSoldierFootMargin(for: $0)
             }.max() ?? 0
-            let maxBarWidth = max(36, min(56, maxBodyWidth * 0.72))
+            let maxBarWidth = soldierHPBarWidth(forBodyWidth: maxBodyWidth)
             let maxWidth = max(maxBodyWidth, maxBarWidth)
             let laneWidth = battlefieldLayout.frame.width / 3
+            let singleBounds = bundles.first.map { soldierHorizontalBounds(for: $0) } ?? 0...0
+            let singleWidth = singleBounds.upperBound - singleBounds.lowerBound
             let scale = soldiers.count > 1
                 ? min(SoldierFormation.crowdedScale, max(0, laneWidth - 6) / (3 * max(1, maxWidth)))
-                : 1
+                : min(1, max(0, laneWidth - SoldierFormation.spacing) / max(1, singleWidth))
             let gateBarBottom = state.currentSiegeLayout.objectives
                 .filter { $0.kind == .gate && state.currentSiegeLayout.routes[lane]?.contains($0.id) == true }
                 .compactMap { objective -> CGFloat? in
@@ -2962,8 +2964,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 rowSpacing: formation.row
             )
             let unclampedY = frontY + formationOffset.y - footMargin * formation.scale
+            var visualX = lanePoint.x + formationOffset.x
+            if soldiersByLane[soldier.lane]?.count == 1 {
+                let bounds = soldierHorizontalBounds(for: bundle)
+                let laneWidth = battlefieldLayout.frame.width / 3
+                let padding = min(SoldierFormation.spacing / 2, laneWidth / 2)
+                let minX = lanePoint.x - laneWidth / 2 + padding - bounds.lowerBound * formation.scale
+                let maxX = lanePoint.x + laneWidth / 2 - padding - bounds.upperBound * formation.scale
+                visualX = min(max(visualX, minX), maxX)
+            }
             bundle.root.position = CGPoint(
-                x: lanePoint.x + formationOffset.x,
+                x: visualX,
                 y: max(battlefieldFloorY, unclampedY)
             )
             bundle.root.setScale(formation.scale)
@@ -3294,7 +3305,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private func layoutSoldierHPBar(_ bundle: SoldierNodeBundle, soldier: BattleCombatState.Soldier) {
         let bodyFrame = soldierLogicalBodyFrame(for: bundle)
-        let width = max(36, min(56, bodyFrame.width * 0.72))
+        let width = soldierHPBarWidth(forBodyWidth: bodyFrame.width)
         let height: CGFloat = 5
         let y = bodyFrame.maxY + 1.5
         let percent = min(max(CGFloat(soldier.currentHP) / CGFloat(max(1, soldier.maxHP)), 0), 1)
@@ -3311,6 +3322,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             cornerHeight: height / 2,
             transform: nil
         )
+    }
+
+    private func soldierHPBarWidth(forBodyWidth bodyWidth: CGFloat) -> CGFloat {
+        max(36, min(56, bodyWidth * 0.72))
+    }
+
+    private func soldierHorizontalBounds(for bundle: SoldierNodeBundle) -> ClosedRange<CGFloat> {
+        let bodyFrame = bundle.body.calculateAccumulatedFrame()
+        let barWidth = soldierHPBarWidth(forBodyWidth: soldierLogicalBodyFrame(for: bundle).width)
+        let barHalfWidth = (barWidth + bundle.hpBarBackground.lineWidth) / 2
+        return min(bodyFrame.minX, -barHalfWidth)...max(bodyFrame.maxX, barHalfWidth)
     }
 
     private func soldierLogicalBodyFrame(for bundle: SoldierNodeBundle) -> CGRect {

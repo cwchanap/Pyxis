@@ -4128,6 +4128,73 @@ struct BattleSceneTests {
         }
     }
 
+    @Test func outwardFormationSurvivorsRemainInsideBattlefieldAfterTowerCasualties() throws {
+        for size in [CGSize(width: 393, height: 700), CGSize(width: 393, height: 852)] {
+            for lane in [BattleLane.left, .right] {
+                let state = captainless(stateWithBuildings(
+                    [],
+                    keepRemaining: 100,
+                    cityNumberInCountry: 9,
+                    completedCityCount: 8,
+                    selectedLane: lane
+                ))
+                let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1, size: size)
+                let initialCount = lane == .left ? 2 : 3
+                scene.spawnManualSoldiersDirectlyForTesting(initialCount)
+                #expect(scene.liveSoldierCountForTesting == initialCount)
+                var roots: [SKNode] = []
+                scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+                    if node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }) {
+                        roots.append(node)
+                    }
+                }
+                #expect(roots.count == initialCount)
+                let survivor = try #require(lane == .left
+                    ? roots.min { $0.position.x < $1.position.x }
+                    : roots.max { $0.position.x < $1.position.x })
+                let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+                let screen = CGRect(origin: .zero, size: size)
+                var previousX = survivor.position.x
+                for _ in 0..<100 where scene.liveSoldierCountForTesting > 1 {
+                    previousX = survivor.position.x
+                    scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+                }
+                #expect(scene.liveSoldierCountForTesting == 1)
+                let liveBody = try #require(scene.firstLiveSoldierBodySpriteForTesting)
+                #expect(liveBody.parent === survivor)
+                #expect(scene.pendingAnimatedRemovalSoldierIDsForTesting.count == initialCount - 1)
+                #expect(survivor.action(forKey: "soldierDelayedRemoval") == nil)
+                for root in roots where root !== survivor {
+                    #expect(root.action(forKey: "soldierDelayedRemoval") != nil)
+                }
+                #expect(abs(survivor.position.x - previousX) < scene.soldierTargetHeightForTesting * 0.5)
+                let bar = try #require(survivor.children.compactMap { $0 as? SKShapeNode }
+                    .first { $0.zPosition == 2 })
+                let barPath = try #require(bar.path)
+                func sceneFrame(_ local: CGRect) -> CGRect {
+                    let min = survivor.convert(CGPoint(x: local.minX, y: local.minY), to: scene)
+                    let max = survivor.convert(CGPoint(x: local.maxX, y: local.maxY), to: scene)
+                    return CGRect(x: min.x, y: min.y, width: max.x - min.x, height: max.y - min.y)
+                }
+                for _ in 0..<10 {
+                    let body = sceneFrame(SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(
+                        frameSize: liveBody.size
+                    ))
+                    let canvas = sceneFrame(liveBody.frame)
+                    let hp = sceneFrame(barPath.boundingBox.insetBy(dx: -0.5, dy: -0.5))
+                    #expect(battlefield.contains(body), "\(lane) \(size) body \(body) battlefield \(battlefield)")
+                    #expect(battlefield.contains(canvas), "\(lane) \(size) canvas \(canvas) battlefield \(battlefield)")
+                    #expect(battlefield.contains(hp), "\(lane) \(size) HP \(hp) battlefield \(battlefield)")
+                    #expect(screen.contains(body))
+                    #expect(screen.contains(canvas))
+                    #expect(screen.contains(hp))
+                    scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+                    #expect(scene.liveSoldierCountForTesting == 1)
+                }
+            }
+        }
+    }
+
     @Test func denseFormationDoesNotTeleportWhileMarchingToGate() throws {
         let state = try durableRightGateState(buildingCount: 5)
         for size in [CGSize(width: 393, height: 700), CGSize(width: 393, height: 852)] {
