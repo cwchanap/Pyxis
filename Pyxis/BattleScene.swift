@@ -140,8 +140,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private enum SoldierFormation {
         static let columns = [0, -1, 1]
-        static let lateralSpacingScale: CGFloat = 0.48
-        static let rowSpacingScale: CGFloat = 0.42
+        static let crowdedScale: CGFloat = 0.8
+        static let spacing: CGFloat = 2
+    }
+
+    private struct SoldierFormationLayout {
+        let scale: CGFloat
+        let column: CGFloat
+        let row: CGFloat
+        let frontLimit: CGFloat
     }
 
     private let store: KingdomGameStore
@@ -2858,16 +2865,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return slot
     }
 
-    private func soldierFormationOffset(for slot: Int, availableDepth: CGFloat) -> CGPoint {
+    private func soldierFormationOffset(
+        for slot: Int,
+        availableDepth: CGFloat,
+        columnSpacing: CGFloat,
+        rowSpacing: CGFloat
+    ) -> CGPoint {
         let clampedSlot = max(0, slot)
         let column = SoldierFormation.columns[clampedSlot % SoldierFormation.columns.count]
-        let bodyHeight = soldierTargetHeight()
-        let rowSpacing = bodyHeight * SoldierFormation.rowSpacingScale
-        let rowCount = max(1, Int(max(0, availableDepth) / rowSpacing) + 1)
-        let row = (clampedSlot / SoldierFormation.columns.count) % rowCount
+        let row = CGFloat(clampedSlot / SoldierFormation.columns.count)
+        let compressedDepth = max(0, availableDepth) * row / (row + 1)
         return CGPoint(
-            x: CGFloat(column) * bodyHeight * SoldierFormation.lateralSpacingScale,
-            y: -CGFloat(row) * rowSpacing
+            x: CGFloat(column) * columnSpacing,
+            y: -min(row * rowSpacing, compressedDepth)
         )
     }
 
@@ -2884,10 +2894,50 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             if soldierNodes[soldier.id] == nil {
                 createSoldierNode(id: soldier.id)
             }
+            guard let bundle = soldierNodes[soldier.id] else { continue }
+            fitSoldierBodyNode(
+                bundle.body,
+                type: bundle.type,
+                targetHeight: soldierTargetHeight(),
+                isAnimatedCanvas: bundle.isAnimatedCanvas
+            )
+        }
 
+        let soldiersByLane = Dictionary(grouping: liveSoldiers, by: \.lane)
+        var formationByLane: [BattleLane: SoldierFormationLayout] = [:]
+        for (lane, soldiers) in soldiersByLane {
+            let bundles = soldiers.compactMap { soldierNodes[$0.id] }
+            let maxBodyWidth = bundles.map { soldierLogicalBodyFrame(for: $0).width }.max() ?? 0
+            let maxBodyTop = bundles.map {
+                soldierLogicalBodyFrame(for: $0).maxY - animatedSoldierFootMargin(for: $0)
+            }.max() ?? 0
+            let maxBarWidth = max(36, min(56, maxBodyWidth * 0.72))
+            let maxWidth = max(maxBodyWidth, maxBarWidth)
+            let laneWidth = battlefieldLayout.frame.width / 3
+            let scale = soldiers.count > 1
+                ? min(SoldierFormation.crowdedScale, max(0, laneWidth - 6) / (3 * max(1, maxWidth)))
+                : 1
+            let gateBarBottom = state.currentSiegeLayout.objectives
+                .filter { $0.kind == .gate && state.currentSiegeLayout.routes[lane]?.contains($0.id) == true }
+                .compactMap { objective -> CGFloat? in
+                    guard let bar = siegeObjectiveNodes[objective.id]?.childNode(withName: "siegeHPBackground")
+                    else { return nil }
+                    return sceneFrame(for: bar)?.minY
+                }
+                .min()
+            formationByLane[lane] = SoldierFormationLayout(
+                scale: scale,
+                column: maxWidth * scale + SoldierFormation.spacing,
+                row: (maxBodyTop + 6.5) * scale + SoldierFormation.spacing,
+                frontLimit: gateBarBottom.map { $0 - (maxBodyTop + 6.5) * scale - 2 } ?? .greatestFiniteMagnitude
+            )
+        }
+
+        for soldier in liveSoldiers {
             guard let bundle = soldierNodes[soldier.id] else {
                 continue
             }
+            guard let formation = formationByLane[soldier.lane] else { continue }
 
             let lanePoint = point(forLane: soldier.lane, position: soldier.position)
             // Animated sprites use full-canvas frames with a transparent foot
@@ -2896,30 +2946,27 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // by that margin. Shift the root down by the scaled margin so the
             // feet land on the lane baseline.
             let footMargin = animatedSoldierFootMargin(for: bundle)
-            // Formation rows wrap within the available depth (there is no global
-            // live-soldier cap for building-driven spawns). During a long battle
-            // overflow soldiers share the lane rather than all being clamped at
+            // Formation rows compress continuously into the available depth
+            // (there is no global live-soldier cap for building-driven spawns).
+            // Overflow soldiers share the lane rather than all being clamped at
             // the battlefield floor, where their bodies and HP bars would pile up.
             // Clamp the root y as a final guard against rounding at the floor.
-            // The front-row soldier stays at the attack position and overflow
+            // The front row stays near the attack position and overflow
             // remains visual only; the combat lane and position are unchanged.
             let battlefieldFloorY = battlefieldLayout.frame.minY
+            let frontY = min(lanePoint.y, formation.frontLimit)
             let formationOffset = soldierFormationOffset(
                 for: bundle.formationSlot,
-                availableDepth: lanePoint.y - footMargin - battlefieldFloorY
+                availableDepth: frontY - footMargin * formation.scale - battlefieldFloorY,
+                columnSpacing: formation.column,
+                rowSpacing: formation.row
             )
-            let unclampedY = lanePoint.y + formationOffset.y - footMargin
+            let unclampedY = frontY + formationOffset.y - footMargin * formation.scale
             bundle.root.position = CGPoint(
                 x: lanePoint.x + formationOffset.x,
                 y: max(battlefieldFloorY, unclampedY)
             )
-            bundle.root.setScale(1)
-            fitSoldierBodyNode(
-                bundle.body,
-                type: bundle.type,
-                targetHeight: soldierTargetHeight(),
-                isAnimatedCanvas: bundle.isAnimatedCanvas
-            )
+            bundle.root.setScale(formation.scale)
             layoutSoldierHPBar(bundle, soldier: soldier)
             startSoldierWalkAnimation(for: soldier.id)
             syncRallyProtectionAccent(for: soldier)
@@ -4981,7 +5028,7 @@ extension BattleScene {
     }
 
     var soldierFormationMaximumLateralOffsetForTesting: CGFloat {
-        soldierTargetHeight() * SoldierFormation.lateralSpacingScale
+        battlefieldLayout.frame.width / 9
     }
 
     func soldierAnimationFrameDurationsForTesting(
