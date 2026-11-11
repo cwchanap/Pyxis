@@ -3,6 +3,25 @@ import Testing
 @testable import Pyxis
 
 struct CountryMapScoutCardLayoutTests {
+    @Test(arguments: [48.01, 48.5, 49.0, 50.0, 51.0, 52.0, 53.0, 53.99, 54.0])
+    func narrowPhoneRowsStayInsideCardAndSeparate(height: Double) {
+        let region = CGRect(x: 16, y: 80, width: 343, height: height)
+        let card = CountryMapScoutCardLayout.compute(in: region, layoutClass: .phone)
+        let frames = [card.badgeFrame, card.titleFrame, card.goldIconFrame, card.rewardFrame,
+                      card.favorableFrame, card.disadvantagedFrame, card.exposedLaneFrame,
+                      card.attackFrame] + card.traitLineFrames
+        #expect(card.cardFrame == region)
+        #expect(card.attackFrame.width >= 44)
+        #expect(card.attackFrame.height >= 44)
+        #expect(!card.nonBlockingOverlayFrame.intersects(card.attackFrame))
+        for index in frames.indices {
+            #expect(region.contains(frames[index]))
+            for other in frames.indices.dropFirst(index + 1) {
+                #expect(!frames[index].intersects(frames[other]), "height \(height): \(index) / \(other)")
+            }
+        }
+    }
+
     @Test func intermediatePhoneHeightKeepsRequiredFramesSeparate() throws {
         let fixture = CountryMapLayoutTestFixture(
             name: "intermediate phone", size: CGSize(width: 375, height: 700),

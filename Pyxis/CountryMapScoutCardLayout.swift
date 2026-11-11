@@ -52,21 +52,24 @@ struct CountryMapScoutCardLayout: Equatable {
         let left = cardFrame.minX + 8
         let attack = CGRect(x: cardFrame.maxX - 84, y: cardFrame.midY - 22, width: 76, height: 44)
         let infoMaxX = attack.minX - 8
-        let row = min(14, (cardFrame.height - 4) / 5)
+        let usesSingleTraitRow = cardFrame.height < 54
+        let row = min(14, (cardFrame.height - 4) / (usesSingleTraitRow ? 4 : 5))
         let top = cardFrame.maxY - 2
         let badge = CGRect(x: left, y: top - row, width: 36, height: row)
         let gold = CGRect(x: infoMaxX - 54, y: top - row, width: min(14, row), height: row)
         let reward = CGRect(x: infoMaxX - 39, y: top - row, width: 39, height: row)
         let title = CGRect(x: badge.maxX + 4, y: top - row,
                            width: gold.minX - 4 - (badge.maxX + 4), height: row)
-        let lane = CGRect(x: infoMaxX - 90, y: top - 3 * row, width: 90, height: row)
+        let lane = CGRect(x: infoMaxX - 90, y: top - (usesSingleTraitRow ? 2 : 3) * row, width: 90, height: row)
         let traitWidth = lane.minX - 4 - left
-        let traits = [
-            CGRect(x: left, y: top - 2 * row, width: traitWidth, height: row),
-            CGRect(x: left, y: top - 3 * row, width: traitWidth, height: row)
-        ]
-        let favorable = CGRect(x: left, y: top - 4 * row, width: infoMaxX - left, height: row)
-        let disadvantaged = CGRect(x: left, y: top - 5 * row, width: infoMaxX - left, height: row)
+        var traits = [CGRect(x: left, y: top - 2 * row, width: traitWidth, height: row)]
+        if !usesSingleTraitRow {
+            traits.append(CGRect(x: left, y: top - 3 * row, width: traitWidth, height: row))
+        }
+        let favorable = CGRect(
+            x: left, y: top - (usesSingleTraitRow ? 3 : 4) * row, width: infoMaxX - left, height: row)
+        let disadvantaged = CGRect(
+            x: left, y: top - (usesSingleTraitRow ? 4 : 5) * row, width: infoMaxX - left, height: row)
         return Self(
             layoutClass: .phone, cardFrame: cardFrame, badgeFrame: badge, titleFrame: title,
             goldIconFrame: gold, rewardFrame: reward, traitLineFrames: traits,
