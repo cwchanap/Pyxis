@@ -10,6 +10,38 @@ import Testing
 
 @MainActor
 struct GameplayTabBarNodeTests {
+    @Test func forgedLockedTabsAreVisiblyDistinctAcrossStages() throws {
+        let node = GameplayTabBarNode(appearance: .forged)
+        let frame = CGRect(x: 16, y: 0, width: 361, height: 82)
+        for stage in [
+            KingdomGameState.StageStatus.battleActive,
+            .cityConqueredPendingMap,
+            .countryComplete
+        ] {
+            let state = KingdomGameState(gold: 0, stageStatus: stage)
+            let content = GameplayTabBarNode.Content.makeForNonBattleScene(selected: .map, state: state)
+            node.apply(content: content, frame: frame)
+            let selectedIcon = try #require(node.childNode(withName: "//gameplayTabIcon-map"))
+            let enabledIcon = try #require(node.childNode(withName: "//gameplayTabIcon-kingdom"))
+            let battleIcon = try #require(node.childNode(withName: "//gameplayTabIcon-battle"))
+            let battleTitle = try #require(node.childNode(withName: "//gameplayTabTitle-battle"))
+            let battleTile = try #require(node.childNode(withName: "//gameplayTabPanel-battle"))
+            let enabledTile = try #require(node.childNode(withName: "//gameplayTabPanel-kingdom"))
+            #expect(selectedIcon.alpha > enabledIcon.alpha)
+            if stage == .battleActive {
+                #expect(battleIcon.alpha == enabledIcon.alpha)
+                #expect(battleTile.alpha == enabledTile.alpha)
+                #expect(node.hitFrameForTesting(for: .battle) != nil)
+            } else {
+                #expect(battleIcon.alpha < enabledIcon.alpha)
+                #expect(battleTitle.alpha < enabledIcon.alpha)
+                #expect(battleTile.alpha < enabledTile.alpha)
+                #expect(node.hitFrameForTesting(for: .battle) == nil)
+                #expect(node.hitFrameForTesting(for: .camp) == nil)
+            }
+        }
+    }
+
     @Test func battleTabUsesRenderableGlyph() {
         let node = GameplayTabBarNode()
 

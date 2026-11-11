@@ -364,7 +364,8 @@ final class GameplayTabBarNode: SKNode {
             appearance: .forged,
             forgedTreatment: tab == content.selected ? .selectedTab : .standard
         )
-        bundle.panel.alpha = tab == content.selected ? 0 : 1
+        let isEnabled = content.enabledTabs.contains(tab)
+        bundle.panel.alpha = tab == content.selected ? 0 : (isEnabled ? 1 : 0.5)
         bundle.panel.position = CGPoint(x: cellFrame.midX, y: tileCenterY)
         bundle.icon.position = CGPoint(x: cellFrame.midX, y: tileCenterY + 10)
         bundle.title.position = CGPoint(x: cellFrame.midX, y: tileCenterY - 16)
@@ -380,7 +381,7 @@ final class GameplayTabBarNode: SKNode {
             sprite.color = color
         }
         bundle.title.fontColor = color
-        let iconAlpha: CGFloat = tab == content.selected ? 1 : 0.45
+        let iconAlpha: CGFloat = tab == content.selected ? 1 : (isEnabled ? 0.45 : 0.22)
         bundle.icon.alpha = iconAlpha
         bundle.title.alpha = iconAlpha
     }
