@@ -50,6 +50,60 @@ struct ConquestReportNodeTests {
         #expect(node.continueControlCountForTesting == 1)
     }
 
+    @Test func takenCrestScalesWithCompactAndReferenceMedallions() throws {
+        let node = ConquestReportNode()
+        let compact = try reportLayout(tiles: 3, chips: 2, sceneSize: CGSize(width: 393, height: 499))
+        #expect(compact.takenMedallionFrame == nil)
+        let reference = try reportLayout(tiles: 3, chips: 2, sceneSize: CGSize(width: 393, height: 852))
+        let compactFrame = CGRect(x: reference.safeFrame.midX - 48, y: reference.panelFrame.maxY, width: 96, height: 96)
+        let compactPresentation = ConquestReportLayout(
+            safeFrame: reference.safeFrame,
+            panelFrame: reference.panelFrame,
+            takenMedallionFrame: compactFrame,
+            titleFrame: reference.titleFrame,
+            rewardFrame: reference.rewardFrame,
+            gearLabelFrame: reference.gearLabelFrame,
+            tileFrames: reference.tileFrames,
+            chipStripFrame: reference.chipStripFrame,
+            chipFrames: reference.chipFrames,
+            continueFrame: reference.continueFrame,
+            countryCompleteFrame: reference.countryCompleteFrame,
+            panelCornerRadius: reference.panelCornerRadius,
+            titleStartingFontSize: reference.titleStartingFontSize,
+            titleMinimumFontSize: reference.titleMinimumFontSize,
+            rewardStartingFontSize: reference.rewardStartingFontSize,
+            rewardMinimumFontSize: reference.rewardMinimumFontSize,
+            tileValueStartingFontSize: reference.tileValueStartingFontSize,
+            tileValueMinimumFontSize: reference.tileValueMinimumFontSize,
+            tileLabelStartingFontSize: reference.tileLabelStartingFontSize,
+            tileLabelMinimumFontSize: reference.tileLabelMinimumFontSize,
+            chipStartingFontSize: reference.chipStartingFontSize,
+            chipMinimumFontSize: reference.chipMinimumFontSize,
+            continueStartingFontSize: reference.continueStartingFontSize,
+            continueMinimumFontSize: reference.continueMinimumFontSize,
+            gearStartingFontSize: reference.gearStartingFontSize,
+            gearMinimumFontSize: reference.gearMinimumFontSize
+        )
+        for layout in [compactPresentation, reference] {
+            let frame = try #require(layout.takenMedallionFrame)
+            #expect(node.apply(content: fullContent(), layout: layout, isContinueEnabled: true) == .presented)
+            let medallion = try #require(node.childNode(withName: "conquestTakenMedallion"))
+            let icon = try #require(medallion.childNode(withName: "conquestTakenMedallionIcon") as? SKSpriteNode)
+            let label = try #require(medallion.childNode(withName: "conquestTakenMedallionLabel") as? SKLabelNode)
+            let outer = try #require(medallion.childNode(withName: "conquestTakenMedallionOuter") as? SKShapeNode)
+            let inner = try #require(medallion.childNode(withName: "conquestTakenMedallionInner") as? SKShapeNode)
+            #expect(!medallion.isHidden)
+            #expect(icon.size.width >= frame.width * 0.45)
+            #expect(icon.size.width <= frame.width * 0.50)
+            #expect(icon.size.height == icon.size.width)
+            #expect(!icon.frame.intersects(label.frame))
+            #expect(try #require(inner.path).boundingBox.contains(icon.frame))
+            #expect(try #require(outer.path).boundingBox.width == frame.width)
+            #expect(label.text == "TAKEN")
+            #expect(layout.safeFrame.contains(frame))
+        }
+    }
+
     @Test func twoTilesHideUnusedBundlesAndNoChipsHideBoth() throws {
         let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
         let content = ConquestReportContent(

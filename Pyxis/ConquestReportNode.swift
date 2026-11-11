@@ -272,7 +272,8 @@ final class ConquestReportNode: SKNode {
         takenMedallionInner.fillColor = .clear
         takenMedallionInner.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.52)
         takenMedallionInner.lineWidth = 1
-        takenMedallionIcon.size = CGSize(width: 32, height: 32)
+        let iconDiameter = frame.width * 0.46
+        takenMedallionIcon.size = CGSize(width: iconDiameter, height: iconDiameter)
         takenMedallionIcon.position = CGPoint(x: 0, y: frame.height * 0.10)
         takenMedallionLabel.text = "TAKEN"
         takenMedallionLabel.fontSize = min(10, max(8, frame.width / 12))

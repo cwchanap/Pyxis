@@ -140,8 +140,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private enum SoldierFormation {
         static let columns = [0, -1, 1]
-        static let lateralSpacingScale: CGFloat = 0.42
-        static let rowSpacingScale: CGFloat = 0.30
+        static let lateralSpacingScale: CGFloat = 0.48
+        static let rowSpacingScale: CGFloat = 0.42
     }
 
     private let store: KingdomGameStore
@@ -176,6 +176,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private let battlefieldActionLayer = SKNode()
     private let soldierLayer = SKNode()
     private let effectsLayer = SKNode()
+    private var objectiveDamageLabels: [String: SKLabelNode] = [:]
+    private var objectiveDamageThisTick: [String: Int] = [:]
     private var playerCastleNode: SKNode?
     private var enemyCityNode: SKNode?
     private var battlefieldBackdropNode: SKSpriteNode?
@@ -2207,8 +2209,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // Named locals — not `||` chaining — so all three sinks always run;
         // a short-circuit would skip Captain/Guard sync whenever an earlier
         // sink already reported a durable change.
+        objectiveDamageThisTick.removeAll()
         let attacksMutatedState = applyCombatResult(result)
         let captainMutatedState = synchronizeAndPersistCaptain(result, deltaTime: clampedDeltaTime)
+        objectiveDamageThisTick.removeAll()
         let guardsMutatedState = synchronizeAndPersistCountry1Guards(deltaTime: clampedDeltaTime)
         tickNeedsSave = tickNeedsSave
             || attacksMutatedState
@@ -2854,14 +2858,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return slot
     }
 
-    private func soldierFormationOffset(for slot: Int) -> CGPoint {
+    private func soldierFormationOffset(for slot: Int, availableDepth: CGFloat) -> CGPoint {
         let clampedSlot = max(0, slot)
         let column = SoldierFormation.columns[clampedSlot % SoldierFormation.columns.count]
-        let row = clampedSlot / SoldierFormation.columns.count
         let bodyHeight = soldierTargetHeight()
+        let rowSpacing = bodyHeight * SoldierFormation.rowSpacingScale
+        let rowCount = max(1, Int(max(0, availableDepth) / rowSpacing) + 1)
+        let row = (clampedSlot / SoldierFormation.columns.count) % rowCount
         return CGPoint(
             x: CGFloat(column) * bodyHeight * SoldierFormation.lateralSpacingScale,
-            y: -CGFloat(row) * bodyHeight * SoldierFormation.rowSpacingScale
+            y: -CGFloat(row) * rowSpacing
         )
     }
 
@@ -2884,23 +2890,25 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             }
 
             let lanePoint = point(forLane: soldier.lane, position: soldier.position)
-            let formationOffset = soldierFormationOffset(for: bundle.formationSlot)
             // Animated sprites use full-canvas frames with a transparent foot
             // margin (bodyRegion.minY). With anchorPoint.y == 0 the canvas
             // bottom sits at the root, so the visible feet float above the lane
             // by that margin. Shift the root down by the scaled margin so the
             // feet land on the lane baseline.
             let footMargin = animatedSoldierFootMargin(for: bundle)
-            // Formation rows extend downward without bound (there is no global
+            // Formation rows wrap within the available depth (there is no global
             // live-soldier cap for building-driven spawns). During a long battle
-            // enough same-lane soldiers would push the back rows below the
-            // battlefield frame, where they keep dealing combat damage with
-            // invisible bodies and HP bars. Clamp the root y to the battlefield
-            // floor so overflow soldiers stack at the bottom edge instead of
-            // disappearing — the front-row soldier stays at the attack position
-            // and only the overflow tail is pulled in.
-            let unclampedY = lanePoint.y + formationOffset.y - footMargin
+            // overflow soldiers share the lane rather than all being clamped at
+            // the battlefield floor, where their bodies and HP bars would pile up.
+            // Clamp the root y as a final guard against rounding at the floor.
+            // The front-row soldier stays at the attack position and overflow
+            // remains visual only; the combat lane and position are unchanged.
             let battlefieldFloorY = battlefieldLayout.frame.minY
+            let formationOffset = soldierFormationOffset(
+                for: bundle.formationSlot,
+                availableDepth: lanePoint.y - footMargin - battlefieldFloorY
+            )
+            let unclampedY = lanePoint.y + formationOffset.y - footMargin
             bundle.root.position = CGPoint(
                 x: lanePoint.x + formationOffset.x,
                 y: max(battlefieldFloorY, unclampedY)
@@ -3292,6 +3300,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guardNodes.removeAll()
         pendingAnimatedRemovalSoldierIDs.removeAll()
         soldierHitAnimationRemaining.removeAll()
+        for label in objectiveDamageLabels.values {
+            label.removeAllActions()
+            label.removeFromParent()
+        }
+        objectiveDamageLabels.removeAll()
 
         applyBattleHUD()
     }
@@ -3554,10 +3567,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 )
                 continue
             }
+            objectiveDamageThisTick[objectiveID, default: 0] += damage
+            let tickDamage = objectiveDamageThisTick[objectiveID, default: 0]
             playFloatingFeedback(
-                text: "-\(CompactNumberFormatter.string(from: damage))",
+                text: "-\(CompactNumberFormatter.string(from: tickDamage))",
                 at: target.impactPoint,
-                color: color
+                color: color,
+                reduceMotion: isReduceMotionEnabled(),
+                objectiveID: objectiveID
             )
             if isConquest, objectiveID == keepID {
                 playCityConquestFeedback(on: target.node, impactPoint: target.impactPoint)
@@ -3735,13 +3752,25 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         text: String,
         at position: CGPoint,
         color: SKColor = GameUITheme.Color.gold,
-        reduceMotion: Bool = false
+        reduceMotion: Bool = false,
+        objectiveID: String? = nil
     ) {
         #if DEBUG
         floatingFeedbackTextsForTestingStorage.append(text)
         #endif
 
-        let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        objectiveDamageLabels = objectiveDamageLabels.filter { $0.value.parent === effectsLayer }
+        let label: SKLabelNode
+        if let objectiveID, let existing = objectiveDamageLabels[objectiveID] {
+            label = existing
+            label.removeAction(forKey: EffectName.floatingFeedback)
+        } else {
+            label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+            effectsLayer.addChild(label)
+            if let objectiveID {
+                objectiveDamageLabels[objectiveID] = label
+            }
+        }
         let shadow = NSShadow()
         shadow.shadowColor = SKColor(white: 0, alpha: 0.85)
         shadow.shadowOffset = CGSize(width: 0, height: 2)
@@ -3765,7 +3794,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         label.zPosition = EffectStyle.floatingFeedbackZ
         label.alpha = 0
         label.setScale(reduceMotion ? 1 : 0.7)
-        effectsLayer.addChild(label)
 
         // Reduce Motion keeps the text but drops the movement: fade in
         // place, then fade out — no rise, no scale.
@@ -3785,9 +3813,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 SKAction.scale(to: 0.94, duration: 0.9)
             ])
         floatAway.timingMode = .easeOut
+        let clearReference = SKAction.run { [weak self, weak label] in
+            guard let self, let objectiveID, let label,
+                  self.objectiveDamageLabels[objectiveID] === label else { return }
+            self.objectiveDamageLabels.removeValue(forKey: objectiveID)
+        }
         let remove = SKAction.removeFromParent()
         label.run(
-            SKAction.sequence([appear, floatAway, remove]),
+            SKAction.sequence([appear, floatAway, clearReference, remove]),
             withKey: EffectName.floatingFeedback
         )
     }

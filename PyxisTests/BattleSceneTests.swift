@@ -1766,12 +1766,12 @@ struct BattleSceneTests {
     @Test("Formation rows are clamped to the battlefield floor during long battles")
     func formationRowsClampToBattlefieldFloorDuringLongBattles() throws {
         // Building-driven spawns have no global live-soldier cap, so formation
-        // slots and row offsets grow without bound. Without a clamp, enough
-        // same-lane soldiers at the attack position would push back rows below
-        // the battlefield frame, where they keep dealing combat damage with
-        // invisible bodies and HP bars. `syncSoldierNodes` clamps each root's
-        // y to `battlefieldLayout.frame.minY` so overflow soldiers stack at the
-        // bottom edge instead of disappearing.
+        // slots grow without bound. Without wrapping, enough same-lane soldiers
+        // at the attack position would push back rows below the battlefield
+        // frame, where they keep dealing combat damage with invisible bodies
+        // and HP bars. `syncSoldierNodes` wraps rows within the available depth
+        // and keeps each root at or above `battlefieldLayout.frame.minY`, so
+        // overflow soldiers do not all stack at the bottom edge.
         //
         // This test fills the roster with 25 buildings (5 of each type) and
         // drives ~200s of building spawns via single-step stalls (each call
@@ -1821,10 +1821,21 @@ struct BattleSceneTests {
                 "Test must produce enough soldiers to overflow unclamped formation rows")
 
         let floorY = battlefieldFrame.minY
+        let floorCount = placements.filter { $0.nodePosition.y <= floorY + 0.5 }.count
+        #expect(floorCount * 4 < placements.count)
         for placement in placements {
             #expect(placement.nodePosition.y >= floorY,
                     "Soldier y (\(placement.nodePosition.y)) below floor (\(floorY)), lane \(placement.lane)")
         }
+        var hpFrames: [CGRect] = []
+        scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+            if let bar = node.children.compactMap({ $0 as? SKShapeNode }).first(where: { $0.zPosition == 2 }),
+               let path = bar.path {
+                hpFrames.append(path.boundingBox.offsetBy(dx: node.position.x, dy: node.position.y))
+            }
+        }
+        #expect(hpFrames.count >= placements.count)
+        #expect(hpFrames.allSatisfy { battlefieldFrame.contains($0) })
     }
 
     @Test("Soldier animation textures are memoized across calls (no per-call UIImage lookup)")
@@ -2550,16 +2561,16 @@ struct BattleSceneTests {
 
     @Test func cityDamageCreatesFloatingFeedbackNode() throws {
         let store = try makeStore(
-            initialState: stateWithBarracks(
+            initialState: captainless(stateWithBarracks(
                 keepRemaining: 50,
                 cityNumberInCountry: 3,
                 completedCityCount: 2
-            )
+            ))
         )
         let scene = makeScene(store: store)
 
         scene.spawnSoldierForTesting()
-        scene.advanceCombatForTesting(deltaTime: 3.0)
+        advanceCombatUntil(scene) { scene.floatingFeedbackCountForTesting > 0 }
 
         #expect(scene.floatingFeedbackCountForTesting > 0)
         #expect(scene.feedbackTextForTesting.isEmpty)
@@ -2737,6 +2748,101 @@ struct BattleSceneTests {
             #expect(abs(point.x - gateFrame.midX) < 1)
             #expect(abs(point.y - (gateFrame.midY - 20)) < 1)
         }
+    }
+
+    @Test func repeatedGateDamageReusesAndResetsTheLatestTickLabel() throws {
+        let state = captainless(SiegeTestSupport.makeBattleState(
+            atCity: 3, keepRemaining: 26, selectedLane: .center
+        ))
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1)
+        scene.isReduceMotionEnabled = { false }
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) {
+            scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] > 0
+        }
+
+        func damageLabels() -> [SKLabelNode] {
+            var labels: [SKLabelNode] = []
+            scene.enumerateChildNodes(withName: "//floatingFeedback") { node, _ in
+                if let label = node as? SKLabelNode, label.text?.hasPrefix("-") == true {
+                    labels.append(label)
+                }
+            }
+            return labels
+        }
+
+        let first = try #require(damageLabels().first)
+        let origin = first.position
+        for reducedMotion in [false, true] {
+            let previousDamage = scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0]
+            first.position.y += 47
+            first.alpha = 0.6
+            first.setScale(1.4)
+            scene.isReduceMotionEnabled = { reducedMotion }
+            advanceCombatUntil(scene) {
+                scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] > previousDamage
+            }
+            let delta = scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] - previousDamage
+            let labels = damageLabels()
+            #expect(delta > 0)
+            #expect(labels.count == 1)
+            #expect(labels.first === first)
+            #expect(first.text == "-\(CompactNumberFormatter.string(from: delta))")
+            #expect(first.position == origin)
+            #expect(first.alpha == 0)
+            #expect(abs(first.xScale - (reducedMotion ? 1 : 0.7)) < 0.001)
+            #expect(abs(first.yScale - (reducedMotion ? 1 : 0.7)) < 0.001)
+            #expect(first.action(forKey: "floatingFeedback") != nil)
+        }
+
+        first.removeFromParent()
+        let previousDamage = scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0]
+        advanceCombatUntil(scene) {
+            scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] > previousDamage
+        }
+        let replacement = try #require(damageLabels().first)
+        #expect(damageLabels().count == 1)
+        #expect(replacement !== first)
+        #expect(replacement.position == origin)
+    }
+
+    @Test func separateObjectivesKeepSeparateDamageAndFallFeedback() throws {
+        let state = captainless(SiegeTestSupport.makeBattleState(
+            atCity: 3, keepRemaining: 26, supportDamage: [.gate: 5, .arrowTower: 34],
+            selectedLane: .center
+        ))
+        let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1)
+        scene.spawnSoldierForTesting()
+        advanceCombatUntil(scene) { scene.gameStateForTesting.currentKeepRemainingPower < 26 }
+        var labels: [SKLabelNode] = []
+        scene.enumerateChildNodes(withName: "//floatingFeedback") { node, _ in
+            if let label = node as? SKLabelNode { labels.append(label) }
+        }
+        let damage = labels.filter { $0.text?.hasPrefix("-") == true }
+        #expect(damage.count == 2)
+        #expect(Set(damage.map(\.position.x)).count == 2)
+        #expect(labels.filter { $0.text == "Gate down" }.count == 1)
+    }
+
+    @Test func sameTickCaptainAndSoldierDamageUsesOneAggregate() throws {
+        let state = SiegeTestSupport.makeBattleState(atCity: 3, keepRemaining: 26, selectedLane: .center)
+        let gateID = try #require(SiegeTestSupport.objectiveID(for: .gate, in: state))
+        let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1)
+        scene.spawnSoldierForTesting()
+        var sawCombinedHit = false
+        for _ in 0..<120 where !sawCombinedHit {
+            let before = scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0]
+            scene.advanceCombatForTesting(deltaTime: 0.1)
+            let delta = scene.gameStateForTesting.siegeProgress.damageByObjectiveID[gateID, default: 0] - before
+            if delta > 1 && scene.structureFallRequestsForTesting.isEmpty {
+                sawCombinedHit = true
+                let label = try #require(scene.childNode(withName: "//floatingFeedback") as? SKLabelNode)
+                #expect(label.text == "-\(CompactNumberFormatter.string(from: delta))")
+                #expect(scene.floatingFeedbackCountForTesting == 1)
+            }
+        }
+        #expect(sawCombinedHit)
     }
 
     @Test func keepHitFeedbackReturnsToTheKeepOnceTheFalconridgeGateFalls() throws {
@@ -3975,6 +4081,42 @@ struct BattleSceneTests {
                 abs(placement.nodePosition.x - expectedX)
                     <= scene.soldierFormationMaximumLateralOffsetForTesting + 0.5
             )
+        }
+    }
+
+    @Test func denseFormationKeepsDistinctSoldiersAndHPBarsWithinBattlefield() throws {
+        for size in [CGSize(width: 393, height: 700), CGSize(width: 393, height: 852)] {
+            let state = stateWithBarracks(gold: 100, keepRemaining: 1_000, selectedLane: .center)
+            let scene = makeScene(store: try makeStore(initialState: state), size: size)
+            scene.spawnManualSoldiersDirectlyForTesting(10)
+            let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+            let placements = scene.soldierLanePlacementsForTesting
+            #expect(placements.count == 10)
+            for i in placements.indices {
+                for j in placements.indices where j > i {
+                    let a = placements[i].nodePosition
+                    let b = placements[j].nodePosition
+                    #expect(hypot(a.x - b.x, a.y - b.y) >= scene.soldierTargetHeightForTesting * 0.16)
+                }
+            }
+            var roots: [SKNode] = []
+            scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+                if node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }) {
+                    roots.append(node)
+                }
+            }
+            #expect(roots.count == 10)
+            for root in roots {
+                let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }.first { $0.zPosition == 2 })
+                let path = try #require(bar.path)
+                let frame = path.boundingBox.offsetBy(dx: root.position.x, dy: root.position.y)
+                #expect(battlefield.contains(frame))
+                let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+                let bodyFrame = SoldierAnimationGeometry(type: .infantry)
+                    .logicalBodyFrame(frameSize: body.size)
+                    .offsetBy(dx: root.position.x, dy: root.position.y)
+                #expect(battlefield.contains(bodyFrame))
+            }
         }
     }
 
