@@ -355,8 +355,11 @@ struct CountryMapScoutCardTextLayoutTests {
         )
 
         #expect(footerWidth > cardLayout.favorableFrame.width)
+        // The synthetic title must stay an overflow input even against the
+        // contained card's wider title row (HPA-812) — still rejected at the
+        // 8pt floor.
         #expect(CountryMapScoutCardTextLayout.fittedFontSize(
-            "An exceptionally long future city title that cannot fit",
+            "An exceptionally long future city title that cannot possibly fit inside the authored scout card title row",
             startingAt: 11,
             minimum: 8,
             maximumWidth: cardLayout.titleFrame.width,

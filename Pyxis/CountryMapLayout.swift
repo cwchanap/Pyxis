@@ -60,6 +60,17 @@ struct CountryMapLayout: Equatable {
         static let resourceWidth: CGFloat = 106
         static let resourceHeight: CGFloat = 44
         static let progressHeight: CGFloat = 22
+        /// The label reserves room for the widest rendered count ("15/15" at
+        /// the 11pt bold header size) so the pips never reflow as the count
+        /// changes.
+        static let progressLabelWidth: CGFloat = 36
+        /// Minimum separation between the last pip and the reserved label.
+        static let progressLabelGap: CGFloat = 4
+        /// One pip per authored country city (15 on Country 1).
+        static let progressSegmentCount: Int = 15
+        static let progressSegmentGap: CGFloat = 1.5
+        static let progressSegmentHeight: CGFloat = 8
+        static let minimumProgressSegmentWidth: CGFloat = 2
     }
 
     static let tabBarHeight: CGFloat = 72
@@ -79,6 +90,12 @@ struct CountryMapLayout: Equatable {
     let titleTextFrame: CGRect
     let resourceFrame: CGRect
     let progressFrame: CGRect
+    /// Right-aligned label reservation inside `progressFrame`; the scene
+    /// applies it without re-deriving the split.
+    let progressLabelFrame: CGRect
+    /// Per-pip frames inside `progressFrame`, ordered City 1...15 left to
+    /// right. Always `TitleControlMetrics.progressSegmentCount` entries.
+    let progressSegmentFrames: [CGRect]
     let informationRegionFrame: CGRect
     let illustratedMapRegionFrame: CGRect
     let cityPositions: [Int: CGPoint]
@@ -158,6 +175,8 @@ struct CountryMapLayout: Equatable {
             titleTextFrame: header.titleText,
             resourceFrame: header.resource,
             progressFrame: header.progress,
+            progressLabelFrame: header.progressLabel,
+            progressSegmentFrames: header.progressSegments,
             informationRegionFrame: fitted.stack.informationRegion,
             illustratedMapRegionFrame: fitted.stack.illustratedMap,
             cityPositions: fitted.cityPositions,
@@ -236,6 +255,8 @@ struct CountryMapLayout: Equatable {
         let titleText: CGRect
         let resource: CGRect
         let progress: CGRect
+        let progressLabel: CGRect
+        let progressSegments: [CGRect]
     }
 
     private static func makeHeaderFrames(
@@ -294,12 +315,46 @@ struct CountryMapLayout: Equatable {
             width: settings.minX - 10 - progressStartX,
             height: TitleControlMetrics.progressHeight
         )
+        let progressLabel = CGRect(
+            x: progress.maxX - TitleControlMetrics.progressLabelWidth,
+            y: progress.minY,
+            width: TitleControlMetrics.progressLabelWidth,
+            height: progress.height
+        )
+        // Pips fill the remaining width ahead of the reserved label, keeping
+        // at least `progressLabelGap` clear of it and at least
+        // `minimumProgressSegmentWidth` apiece (HPA-812: this split used to
+        // live in the scene).
+        let segmentRegionWidth = max(
+            0,
+            progress.width
+                - TitleControlMetrics.progressLabelWidth
+                - TitleControlMetrics.progressLabelGap
+        )
+        let segmentCount = CGFloat(TitleControlMetrics.progressSegmentCount)
+        let segmentWidth = max(
+            TitleControlMetrics.minimumProgressSegmentWidth,
+            (segmentRegionWidth
+                - TitleControlMetrics.progressSegmentGap * (segmentCount - 1))
+                / segmentCount
+        )
+        let progressSegments = (0..<TitleControlMetrics.progressSegmentCount).map { index in
+            CGRect(
+                x: progress.minX
+                    + CGFloat(index) * (segmentWidth + TitleControlMetrics.progressSegmentGap),
+                y: progress.midY - TitleControlMetrics.progressSegmentHeight / 2,
+                width: segmentWidth,
+                height: TitleControlMetrics.progressSegmentHeight
+            )
+        }
         return HeaderFrames(
             region: region,
             settings: settings,
             titleText: titleText,
             resource: resource,
-            progress: progress
+            progress: progress,
+            progressLabel: progressLabel,
+            progressSegments: progressSegments
         )
     }
 
