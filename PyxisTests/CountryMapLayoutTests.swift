@@ -3,6 +3,25 @@ import Testing
 @testable import Pyxis
 
 struct CountryMapLayoutTests {
+    @Test(arguments: CountryMapLayoutTestFixtures.supported)
+    func progressGeometrySeparatesLabelAndFifteenPips(fixture: CountryMapLayoutTestFixture) throws {
+        let layout = try supportedLayout(
+            size: fixture.size,
+            insets: fixture.insets,
+            layoutClass: fixture.layoutClass
+        )
+        #expect(layout.progressFrame.contains(layout.progressLabelFrame))
+        #expect(layout.progressLabelFrame.width == 36)
+        #expect(layout.progressSegmentFrames.count == 15)
+        for segment in layout.progressSegmentFrames {
+            #expect(layout.progressFrame.contains(segment))
+            #expect(segment.width >= 2)
+            #expect(!segment.intersects(layout.progressLabelFrame))
+        }
+        let last = try #require(layout.progressSegmentFrames.last)
+        #expect(last.maxX + 4 <= layout.progressLabelFrame.minX + 0.0001)
+    }
+
     @Test func computedPhoneBudgetUsesCompactFloorAndMinimumIllustratedHeight() throws {
         let small = try supportedLayout(
             size: CGSize(width: 375, height: 667),

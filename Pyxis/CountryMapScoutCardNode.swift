@@ -63,7 +63,7 @@ final class CountryMapScoutCardNode: SKNode {
 
     private enum PreparedPresentation {
         case scout(PreparedScout)
-        case countryComplete(text: String, fontSize: CGFloat)
+        case countryComplete(text: String, fontSize: CGFloat, nextFontSize: CGFloat)
     }
 
     private let imageLoader: ImageLoader
@@ -74,6 +74,7 @@ final class CountryMapScoutCardNode: SKNode {
     private let badgePanel = PanelNode(size: .zero)
     private let badgeLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+    private let completionNextLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let goldIcon = SKSpriteNode()
     private let rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let traitLabels = [
@@ -260,6 +261,7 @@ final class CountryMapScoutCardNode: SKNode {
         contentLayer.addChild(cityArt)
         contentLayer.addChild(badgeLabel)
         contentLayer.addChild(titleLabel)
+        contentLayer.addChild(completionNextLabel)
         contentLayer.addChild(goldIcon)
         contentLayer.addChild(rewardLabel)
         traitLabels.forEach(contentLayer.addChild)
@@ -275,6 +277,7 @@ final class CountryMapScoutCardNode: SKNode {
 
         configureLabel(badgeLabel, horizontal: .center)
         configureLabel(titleLabel, horizontal: .left)
+        configureLabel(completionNextLabel, horizontal: .center)
         configureLabel(rewardLabel, horizontal: .right)
         traitLabels.forEach { configureLabel($0, horizontal: .left) }
         configureLabel(laneLabel, horizontal: .right)
@@ -283,6 +286,7 @@ final class CountryMapScoutCardNode: SKNode {
 
         badgeLabel.fontColor = GameUITheme.Color.textPrimary
         titleLabel.fontColor = GameUITheme.Color.textPrimary
+        completionNextLabel.fontColor = GameUITheme.Color.textSecondary
         rewardLabel.fontColor = GameUITheme.Color.gold
         traitLabels.forEach { $0.fontColor = GameUITheme.Color.textSecondary }
         laneLabel.fontColor = GameUITheme.Color.textSecondary
@@ -311,11 +315,15 @@ final class CountryMapScoutCardNode: SKNode {
             guard let fontSize = fittedFontSize(
                 text,
                 startingAt: metrics.titleSize,
-                frameWidth: layout.cardFrame.width
+                frameWidth: layout.cardFrame.width - 24
+            ), let nextFontSize = fittedFontSize(
+                "Next: Kingdom → Ascend to begin again.",
+                startingAt: min(metrics.titleSize, 13),
+                frameWidth: layout.cardFrame.width - 24
             ) else {
                 return nil
             }
-            return .countryComplete(text: text, fontSize: fontSize)
+            return .countryComplete(text: text, fontSize: fontSize, nextFontSize: nextFontSize)
 
         case .scout(let scout):
             return prepareScout(scout, layout: layout, metrics: metrics).map {
@@ -329,6 +337,10 @@ final class CountryMapScoutCardNode: SKNode {
         layout: CountryMapScoutCardLayout,
         metrics: Metrics
     ) -> PreparedScout? {
+        if layout.layoutClass == .phone && !layout.isCompact
+            && layout.cardFrame.height < 132 && layout.favorableFrame.height < 10 {
+            return nil
+        }
         if layout.isCompact {
             guard let titleFontSize = fittedFontSize(
                 scout.displayTitle,
@@ -553,7 +565,7 @@ final class CountryMapScoutCardNode: SKNode {
         measure: (String) -> CGFloat,
         reservesTrailingMultiplier: Bool
     ) -> CGFloat {
-        let usesPhoneFallback = metrics.iconSize == 30 && items.contains {
+        let usesPhoneFallback = reservesTrailingMultiplier && items.contains {
             $0.type != nil && $0.image == nil
         }
         let itemGap = usesPhoneFallback ? 4 : metrics.itemGap
@@ -632,14 +644,17 @@ final class CountryMapScoutCardNode: SKNode {
         cardHitFrame = layout.cardFrame
 
         switch presentation {
-        case .countryComplete(let text, let fontSize):
+        case .countryComplete(let text, let fontSize, let nextFontSize):
             currentPresentationIsScout = false
             currentReservesTrailingMultiplier = false
             currentMetrics = metrics(for: layout)
             titleLabel.text = text
             titleLabel.fontSize = fontSize
             titleLabel.horizontalAlignmentMode = .center
-            titleLabel.position = CGPoint(x: layout.cardFrame.midX, y: layout.cardFrame.midY)
+            titleLabel.position = CGPoint(x: layout.cardFrame.midX, y: layout.cardFrame.midY + 9)
+            completionNextLabel.text = "Next: Kingdom → Ascend to begin again."
+            completionNextLabel.fontSize = nextFontSize
+            completionNextLabel.position = CGPoint(x: layout.cardFrame.midX, y: layout.cardFrame.midY - 9)
             currentCountryCompleteTitleFrame = layout.cardFrame
             attackHitFrame = nil
 
@@ -772,6 +787,7 @@ final class CountryMapScoutCardNode: SKNode {
         layout: CountryMapScoutCardLayout
     ) {
         guard !layout.isCompact,
+              layout.cardFrame.height >= 132 || layout.layoutClass == .pad,
               let image = prepared.cityImage,
               let assetName = prepared.cityAssetName else {
             cityArt.isHidden = true
@@ -784,11 +800,11 @@ final class CountryMapScoutCardNode: SKNode {
         if case .phone = layout.layoutClass {
             // Clamp the art inside the card exactly like the generic branch:
             // a short (compact) card must not push the art below cardFrame.
-            let artHeight = min(88, layout.cardFrame.height - 20)
+            let artHeight = min(44, layout.cardFrame.height - 20)
             targetFrame = CGRect(
                 x: layout.cardFrame.minX + 8,
-                y: layout.cardFrame.maxY - 10 - artHeight,
-                width: 80,
+                y: layout.cardFrame.maxY - 8 - artHeight,
+                width: 48,
                 height: artHeight
             )
         } else {
@@ -861,7 +877,7 @@ final class CountryMapScoutCardNode: SKNode {
         container: SKNode
     ) -> [RenderedFooterItem] {
         container.removeAllChildren()
-        let usesPhoneFallback = metrics.iconSize == 30 && items.contains {
+        let usesPhoneFallback = currentReservesTrailingMultiplier && items.contains {
             $0.type != nil && $0.image == nil
         }
         let fontSize: CGFloat = usesPhoneFallback ? 8 : metrics.footerSize
@@ -972,6 +988,7 @@ final class CountryMapScoutCardNode: SKNode {
         cityArt.size = .zero
         badgeLabel.text = nil
         titleLabel.text = nil
+        completionNextLabel.text = nil
         goldIcon.isHidden = true
         goldIcon.texture = nil
         goldIcon.size = .zero
@@ -1093,22 +1110,34 @@ final class CountryMapScoutCardNode: SKNode {
             )
         }
 
+        if layout.layoutClass == .phone && layout.cardFrame.height < 132 {
+            let row = min(14, (layout.cardFrame.height - 4) / 5)
+            let textSize = max(8, min(11, row - 2))
+            return Metrics(
+                titleSize: textSize, badgeSize: textSize, rewardSize: textSize,
+                fallbackRewardSize: 8, traitSize: textSize, footerSize: textSize,
+                attackSize: 13, feedbackSize: 13, feedbackHorizontalInset: 6,
+                iconSize: min(10, row), prefixGap: 2, iconLabelGap: 2,
+                itemGap: 4, fixedPadLabelWidth: nil
+            )
+        }
+
         switch layout.layoutClass {
         case .phone:
             return Metrics(
-                titleSize: 19,
+                titleSize: 14,
                 badgeSize: 10,
                 rewardSize: 14,
                 fallbackRewardSize: 10,
                 traitSize: 11,
-                footerSize: 13,
+                footerSize: 11,
                 attackSize: 16,
                 feedbackSize: 13,
                 feedbackHorizontalInset: 6,
-                iconSize: 30,
-                prefixGap: 9,
-                iconLabelGap: 3,
-                itemGap: 8,
+                iconSize: 14,
+                prefixGap: 4,
+                iconLabelGap: 2,
+                itemGap: 4,
                 fixedPadLabelWidth: nil
             )
         case .pad:
