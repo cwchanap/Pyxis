@@ -1999,6 +1999,58 @@ struct BattleSceneTests {
         #expect(abs(target.y - placement.nodePosition.y) > 1)
     }
 
+    @Test func towerShotTargetsScaledFormationSoldierBodyCenters() throws {
+        // A lane holding more than one soldier scales every formation root
+        // (at most 0.8, less when bodies are wide). The tower-shot endpoint
+        // must convert the logical body midpoint through that root
+        // transform — adding the unscaled midpoint instead would float the
+        // endpoint visibly above the rendered body center (HPA-812 final
+        // review: ~8pt for infantry, ~19pt for siege at this size).
+        for (soldierType, buildings) in [
+            (SoldierType.infantry, [BuildingType.barracks]),
+            (.siege, [.siegeWorkshop])
+        ] {
+            let store = try makeStore(initialState: stateWithBuildings(
+                buildings,
+                gold: 100,
+                keepRemaining: 1_000,
+                selectedLane: .center
+            ))
+            let scene = makeScene(store: store)
+            scene.selectManualSoldierTypeForTesting(soldierType)
+            scene.spawnManualSoldiersDirectlyForTesting(4)
+
+            let targets = scene.liveSoldierTowerShotTargetsForTesting
+            #expect(targets.count == 4)
+            #expect(targets.allSatisfy { $0.type == soldierType })
+            // The scenario is only meaningful when the roots really are
+            // scaled down; pin that precondition explicitly.
+            #expect(targets.allSatisfy { $0.rootScale < 1 })
+
+            let geometry = SoldierAnimationGeometry(type: soldierType)
+            let frameSize = geometry.frameSize(forBodyHeight: scene.soldierTargetHeightForTesting)
+            let bodyFrame = geometry.logicalBodyFrame(frameSize: frameSize)
+            for entry in targets {
+                // Root-local midpoint converted through the root's scale:
+                // root.position + scale * midpoint in this origin-aligned
+                // flat layer hierarchy.
+                let scaled = CGPoint(
+                    x: entry.rootPosition.x + bodyFrame.midX * entry.rootScale,
+                    y: entry.rootPosition.y + bodyFrame.midY * entry.rootScale
+                )
+                #expect(abs(entry.target.x - scaled.x) < 0.5)
+                #expect(abs(entry.target.y - scaled.y) < 0.5)
+                // And it must not be the unscaled midpoint — that is the
+                // regression this test guards.
+                let unscaled = CGPoint(
+                    x: entry.rootPosition.x + bodyFrame.midX,
+                    y: entry.rootPosition.y + bodyFrame.midY
+                )
+                #expect(hypot(entry.target.x - unscaled.x, entry.target.y - unscaled.y) > 1)
+            }
+        }
+    }
+
     @Test func infantryAttackFramesKeepMotionInsideCanvasInset() throws {
         let fullCanvas = CGRect(x: 0, y: 0, width: 1, height: 1)
 
