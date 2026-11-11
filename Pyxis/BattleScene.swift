@@ -3970,12 +3970,16 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// Scene-space point where a tower projectile should connect with a
     /// soldier. Targets the body center (via `soldierLogicalBodyFrame`) rather
     /// than the raw root position, which — after the foot-margin offset is
-    /// applied to animated soldiers — sits below the lane baseline.
+    /// applied to animated soldiers — sits below the lane baseline. The
+    /// root-local midpoint is converted through the root's own transform so
+    /// crowded scaled-down formation roots (`root.setScale(formation.scale)`
+    /// in `syncSoldierNodes`) land the endpoint on the rendered body center;
+    /// adding the unscaled midpoint would float it above the soldier.
     private func towerShotTargetPoint(for bundle: SoldierNodeBundle) -> CGPoint {
         let bodyFrame = soldierLogicalBodyFrame(for: bundle)
-        return CGPoint(
-            x: bundle.root.position.x + bodyFrame.midX,
-            y: bundle.root.position.y + bodyFrame.midY
+        return bundle.root.convert(
+            CGPoint(x: bodyFrame.midX, y: bodyFrame.midY),
+            to: effectsLayer
         )
     }
 
@@ -5063,6 +5067,30 @@ extension BattleScene {
         }
 
         return towerShotTargetPoint(for: bundle)
+    }
+
+    /// Every live soldier's tower-shot endpoint in effects-layer space, in
+    /// combat roster order, paired with the root transform terms the
+    /// conversion must respect. Lets tests prove a crowded scaled
+    /// formation (`root.setScale(formation.scale)` in `syncSoldierNodes`)
+    /// shrinks the endpoint onto the rendered body midpoint instead of
+    /// landing at the unscaled logical midpoint (HPA-812 final review).
+    var liveSoldierTowerShotTargetsForTesting: [(
+        type: SoldierType,
+        rootPosition: CGPoint,
+        rootScale: CGFloat,
+        target: CGPoint
+    )] {
+        combat.soldiers.filter(\.isAlive).compactMap { soldier in
+            soldierNodes[soldier.id].map { bundle in
+                (
+                    type: bundle.type,
+                    rootPosition: bundle.root.position,
+                    rootScale: bundle.root.xScale,
+                    target: towerShotTargetPoint(for: bundle)
+                )
+            }
+        }
     }
 
     var firstLiveSoldierBodyNameForTesting: String? {
