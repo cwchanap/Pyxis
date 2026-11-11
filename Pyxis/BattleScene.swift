@@ -5109,21 +5109,25 @@ extension BattleScene {
         return towerShotTargetPoint(for: bundle)
     }
 
+    /// One live soldier's tower-shot endpoint paired with the root
+    /// transform terms the conversion must respect. Lets tests prove a
+    /// crowded scaled formation (`root.setScale(formation.scale)` in
+    /// `syncSoldierNodes`) shrinks the endpoint onto the rendered body
+    /// midpoint instead of landing at the unscaled logical midpoint
+    /// (HPA-812 final review).
+    struct LiveSoldierTowerShotTargetForTesting {
+        let type: SoldierType
+        let rootPosition: CGPoint
+        let rootScale: CGFloat
+        let target: CGPoint
+    }
+
     /// Every live soldier's tower-shot endpoint in effects-layer space, in
-    /// combat roster order, paired with the root transform terms the
-    /// conversion must respect. Lets tests prove a crowded scaled
-    /// formation (`root.setScale(formation.scale)` in `syncSoldierNodes`)
-    /// shrinks the endpoint onto the rendered body midpoint instead of
-    /// landing at the unscaled logical midpoint (HPA-812 final review).
-    var liveSoldierTowerShotTargetsForTesting: [(
-        type: SoldierType,
-        rootPosition: CGPoint,
-        rootScale: CGFloat,
-        target: CGPoint
-    )] {
+    /// combat roster order.
+    var liveSoldierTowerShotTargetsForTesting: [LiveSoldierTowerShotTargetForTesting] {
         combat.soldiers.filter(\.isAlive).compactMap { soldier in
             soldierNodes[soldier.id].map { bundle in
-                (
+                LiveSoldierTowerShotTargetForTesting(
                     type: bundle.type,
                     rootPosition: bundle.root.position,
                     rootScale: bundle.root.xScale,
