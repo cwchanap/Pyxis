@@ -633,6 +633,139 @@ struct BuildingViewSceneTests {
         ) == valid)
     }
 
+    @Test("Camp keeps all 25 lots fixed from no selection through build and upgrade")
+    func campLotsStayFixedAcrossSelectionFlow() throws {
+        let store = try makeStore(initialState: KingdomGameState(gold: 100))
+        let scene = makeScene(
+            size: CGSize(width: 393, height: 852),
+            store: store,
+            router: RouteSpy()
+        )
+        let initial = try #require(scene.campChromeLayoutForTesting)
+        #expect(initial.builderFrame == nil)
+        #expect(initial.inspectorFrame == nil)
+        let initialCenters = scene.slotCenterPointsForTesting
+
+        scene.selectSlotForTesting(2)
+        let builderLayout = try #require(scene.campChromeLayoutForTesting)
+        #expect(builderLayout.builderFrame != nil)
+        #expect(builderLayout.lotPositions == initial.lotPositions)
+        #expect(builderLayout.lotHitFrames == initial.lotHitFrames)
+        #expect(scene.slotCenterPointsForTesting == initialCenters)
+
+        scene.buildSelectedSlotForTesting(.barracks)
+        let inspectorLayout = try #require(scene.campChromeLayoutForTesting)
+        #expect(inspectorLayout.inspectorFrame != nil)
+        #expect(inspectorLayout.lotPositions == initial.lotPositions)
+        #expect(inspectorLayout.lotHitFrames == initial.lotHitFrames)
+
+        scene.upgradeSelectedSlotForTesting()
+        let upgradedLayout = try #require(scene.campChromeLayoutForTesting)
+        #expect(upgradedLayout.lotPositions == initial.lotPositions)
+        #expect(upgradedLayout.lotHitFrames == initial.lotHitFrames)
+        #expect(scene.slotCenterPointsForTesting == initialCenters)
+        #expect(store.load().cityBattleStateForCurrentCity.building(inSlot: 2)?.level == 2)
+    }
+
+    @Test("Camp builder keeps unavailable options disabled, including saveFor recommendations")
+    func campBuilderUnavailableOptionsStayDisabled() throws {
+        let state = KingdomGameState(gold: 0, cityNumberInCountry: 15, completedCityCount: 14)
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(
+            size: CGSize(width: 393, height: 852),
+            store: store,
+            router: RouteSpy()
+        )
+        scene.selectSlotForTesting(1)
+        let content = try #require(scene.campSelectionContentForTesting)
+        let recommendedType = try #require(
+            content.options.first(where: { $0.isRecommended })?.buildingType
+        )
+        let selectionNode = scene.campSelectionNodeForTesting
+        for option in content.options {
+            #expect(selectionNode.optionPanelStyleForTesting(option.buildingType) == .disabled)
+        }
+        #expect(selectionNode.optionRecommendationMarkIsHiddenForTesting(recommendedType) == false)
+
+        scene.buildSelectedSlotForTesting(recommendedType)
+        #expect(store.load() == state)
+        #expect(scene.feedbackTextForTesting.contains("gold"))
+    }
+
+    @Test("Camp inspector disables the unaffordable recommended upgrade without mutating state")
+    func campInspectorUnaffordableRecommendedUpgradeStaysDisabled() throws {
+        var state = KingdomGameState(gold: 100)
+        _ = state.buildBuilding(.barracks, inSlot: 1)
+        state.gold = 0
+        let store = try makeStore(initialState: state)
+        let scene = makeScene(
+            size: CGSize(width: 393, height: 852),
+            store: store,
+            router: RouteSpy()
+        )
+        scene.selectSlotForTesting(1)
+        let content = try #require(scene.campSelectionContentForTesting)
+        #expect(content.inspector?.isRecommended == true)
+        #expect(content.inspector?.canUpgrade == false)
+        #expect(scene.campSelectionNodeForTesting.inspectorActionPanelStyleForTesting == .disabled)
+        #expect(!scene.campSelectionNodeForTesting.inspectorRecommendationMarkIsHiddenForTesting)
+
+        scene.upgradeSelectedSlotForTesting()
+        #expect(store.load().gold == 0)
+        #expect(store.load().cityBattleStateForCurrentCity.building(inSlot: 1)?.level == 1)
+        #expect(scene.feedbackTextForTesting.contains("gold"))
+    }
+
+    @Test("Camp transient feedback text rides a compact dark backplate")
+    func campFeedbackBackplateTracksStatusText() throws {
+        let scene = makeScene(
+            size: CGSize(width: 393, height: 852),
+            store: try makeStore(initialState: KingdomGameState(gold: 100)),
+            router: RouteSpy()
+        )
+        #expect(scene.isFeedbackBackplateHiddenForTesting)
+
+        scene.selectSlotForTesting(1)
+        let frames = try #require(scene.campLayoutFramesForTesting)
+        let labelFrame = try #require(scene.feedbackLabelFrameForTesting)
+        let plateFrame = try #require(scene.feedbackBackplateFrameForTesting)
+        let fill = try #require(scene.feedbackBackplateFillColorForTesting)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        #expect(!scene.isFeedbackBackplateHiddenForTesting)
+        #expect(plateFrame.contains(labelFrame))
+        #expect(plateFrame.width <= labelFrame.width + 24)
+        #expect(plateFrame.height <= labelFrame.height + 16)
+        #expect(plateFrame.width < frames.feedback.width)
+        #expect(abs(plateFrame.midX - frames.feedback.midX) < 0.5)
+        #expect(fill.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        #expect(red < 0.5 && green < 0.5 && blue < 0.5)
+        #expect(alpha > 0.5)
+        #expect(scene.feedbackBackplateZPositionForTesting < scene.feedbackLabelZPositionForTesting)
+    }
+
+    @Test("Camp gold HUD fits the gold-burst icon and count inside the panel")
+    func campGoldHUDFitsIconAndCount() throws {
+        let scene = makeScene(
+            size: CGSize(width: 393, height: 852),
+            store: try makeStore(initialState: KingdomGameState(gold: 1_000_000)),
+            router: RouteSpy()
+        )
+        let frames = try #require(scene.campLayoutFramesForTesting)
+        let iconFrame = try #require(scene.goldIconFrameForTesting)
+        let textFrame = try #require(scene.goldTextFrameForTesting)
+
+        #expect(scene.goldIconAssetNameForTesting == "gold-burst")
+        #expect(iconFrame.width > 0 && iconFrame.height > 0)
+        #expect(frames.gold.contains(iconFrame))
+        #expect(frames.gold.contains(textFrame))
+        #expect(!iconFrame.intersects(textFrame))
+        #expect(scene.goldTextForTesting == "1M")
+    }
+
     // MARK: Highcrest Guard lifecycle through Camp (HPA-469 Task 5)
 
     /// Highcrest battle state with durable Guard progress and an armed

@@ -22,6 +22,7 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private enum AssetName {
         static let backdrop = "building-view-countryside-backdrop"
         static let emptyPad = "building-pad-empty"
+        static let goldBurst = "gold-burst"
     }
 
     private struct SlotNodeBundle {
@@ -61,11 +62,13 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
     private var renderedCampContent: CampSelectionContent?
 
     private let goldPanel = PanelNode(size: .zero)
+    private let goldIcon = SKSpriteNode(imageNamed: AssetName.goldBurst)
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let goldLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let cityProgressLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let cityProgressBar = ProgressBarNode(size: .zero)
     private let feedbackLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
+    private let feedbackBackplate = SKShapeNode()
     private let backdropNode = SKSpriteNode(imageNamed: AssetName.backdrop)
     private let gridLayer = SKNode()
     private let campSelectionNode = CampSelectionNode()
@@ -269,6 +272,18 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         goldPanel.zPosition = GameUITheme.Z.hud
         addChild(goldPanel)
 
+        goldIcon.name = AssetName.goldBurst
+        goldIcon.zPosition = GameUITheme.Z.hud + 1
+        addChild(goldIcon)
+
+        feedbackBackplate.name = "campFeedbackBackplate"
+        feedbackBackplate.fillColor = GameUITheme.Color.panelFill
+        feedbackBackplate.strokeColor = GameUITheme.Color.panelStroke
+        feedbackBackplate.lineWidth = 1
+        feedbackBackplate.zPosition = GameUITheme.Z.hud + 0.5
+        feedbackBackplate.isHidden = true
+        addChild(feedbackBackplate)
+
         configureLabel(titleLabel, fontSize: 24, color: GameUITheme.Color.textPrimary)
         configureLabel(goldLabel, fontSize: 17, color: GameUITheme.Color.textPrimary)
         configureLabel(cityProgressLabel, fontSize: 11, color: GameUITheme.Color.textPrimary)
@@ -416,12 +431,26 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         titleLabel.text = "Camp"
         titleLabel.position = CGPoint(x: layout.titleFrame.minX, y: layout.titleFrame.midY)
         titleLabel.horizontalAlignmentMode = .left
+        goldIcon.size = aspectFitSize(
+            for: goldIcon.texture,
+            maximumSize: CGSize(width: 28, height: 28)
+        )
+        goldIcon.position = CGPoint(
+            x: layout.goldFrame.minX + 22,
+            y: layout.goldFrame.midY
+        )
+        goldIcon.isHidden = goldIcon.texture == nil
         goldLabel.text = CompactNumberFormatter.string(from: state.gold)
+        goldLabel.fontSize = 17
         goldLabel.position = CGPoint(
             x: layout.goldFrame.minX + 42,
             y: layout.goldFrame.midY
         )
         goldLabel.horizontalAlignmentMode = .left
+        goldLabel.shrinkFontSize(
+            toFitWidth: layout.goldFrame.maxX - goldLabel.position.x - 4,
+            floor: 10
+        )
         let occupied = state.cityBattleStateForCurrentCity.occupiedSlotCount
         cityProgressLabel.text = "\(occupied) / \(CityBattleState.slotRange.count)"
         cityProgressLabel.position = CGPoint(
@@ -441,6 +470,23 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         // restart from the authored size instead of inheriting the previous fit.
         feedbackLabel.fontSize = 14
         feedbackLabel.shrinkFontSize(toFitWidth: layout.safeFrame.width - 32, floor: 8)
+        feedbackBackplate.isHidden = feedbackLabel.isHidden
+        if !feedbackLabel.isHidden {
+            let textFrame = feedbackLabel.frame
+            let backplateRect = textFrame.insetBy(dx: -10, dy: -6)
+            feedbackBackplate.path = CGPath(
+                roundedRect: CGRect(
+                    x: -backplateRect.width / 2,
+                    y: -backplateRect.height / 2,
+                    width: backplateRect.width,
+                    height: backplateRect.height
+                ),
+                cornerWidth: 6,
+                cornerHeight: 6,
+                transform: nil
+            )
+            feedbackBackplate.position = CGPoint(x: textFrame.midX, y: textFrame.midY)
+        }
 
         for slot in CityBattleState.slotRange {
             guard let bundle = slotNodes[slot],
@@ -912,6 +958,38 @@ extension BuildingViewScene {
 
     var isFeedbackLabelHiddenForTesting: Bool {
         feedbackLabel.isHidden
+    }
+
+    var feedbackBackplateFrameForTesting: CGRect? {
+        sceneFrame(for: feedbackBackplate)
+    }
+
+    var isFeedbackBackplateHiddenForTesting: Bool {
+        feedbackBackplate.isHidden
+    }
+
+    var feedbackBackplateFillColorForTesting: SKColor? {
+        feedbackBackplate.fillColor
+    }
+
+    var feedbackBackplateZPositionForTesting: CGFloat {
+        feedbackBackplate.zPosition
+    }
+
+    var feedbackLabelZPositionForTesting: CGFloat {
+        feedbackLabel.zPosition
+    }
+
+    var goldIconFrameForTesting: CGRect? {
+        sceneFrame(for: goldIcon)
+    }
+
+    var goldIconAssetNameForTesting: String? {
+        goldIcon.name
+    }
+
+    var goldTextFrameForTesting: CGRect? {
+        sceneFrame(for: goldLabel)
     }
 
     var isCampLayoutSupportedForTesting: Bool { campChromeLayout != nil }

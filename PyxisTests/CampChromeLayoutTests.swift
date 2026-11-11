@@ -60,4 +60,78 @@ struct CampChromeLayoutTests {
             selection: .occupiedLot(slot: 12)
         )) != nil)
     }
+
+    @Test func selectionStatesReserveOne114PointBudgetAndKeepLotsFixed() throws {
+        let insets = CampSafeAreaInsets(top: 59, left: 0, bottom: 34, right: 0)
+        let size = CGSize(width: 393, height: 852)
+        let none = try #require(CampChromeLayout.compute(.init(
+            sceneSize: size,
+            safeAreaInsets: insets,
+            selection: .none
+        )))
+        let empty = try #require(CampChromeLayout.compute(.init(
+            sceneSize: size,
+            safeAreaInsets: insets,
+            selection: .emptyLot(slot: 1)
+        )))
+        let occupied = try #require(CampChromeLayout.compute(.init(
+            sceneSize: size,
+            safeAreaInsets: insets,
+            selection: .occupiedLot(slot: 1)
+        )))
+
+        #expect(none.builderFrame == nil)
+        #expect(none.inspectorFrame == nil)
+        #expect(empty.builderFrame == CGRect(x: 16, y: 92, width: 361, height: 114))
+        #expect(occupied.inspectorFrame == CGRect(x: 16, y: 92, width: 361, height: 114))
+        #expect(none.lotRegionFrame == CGRect(x: 0, y: 216, width: 393, height: 469))
+        #expect(empty.lotRegionFrame == none.lotRegionFrame)
+        #expect(occupied.lotRegionFrame == none.lotRegionFrame)
+        #expect(empty.feedbackFrame == none.feedbackFrame)
+        #expect(occupied.feedbackFrame == none.feedbackFrame)
+        #expect(none.lotPositions.count == CityBattleState.slotRange.count)
+        for slot in CityBattleState.slotRange {
+            #expect(empty.lotPositions[slot] == none.lotPositions[slot])
+            #expect(occupied.lotPositions[slot] == none.lotPositions[slot])
+            #expect(empty.lotHitFrames[slot] == none.lotHitFrames[slot])
+            #expect(occupied.lotHitFrames[slot] == none.lotHitFrames[slot])
+        }
+    }
+
+    @Test func builderOptionCardsShareOneBaselineInsideThe114PointPanel() throws {
+        let layout = try #require(CampChromeLayout.compute(.init(
+            sceneSize: CGSize(width: 393, height: 852),
+            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            selection: .emptyLot(slot: 1)
+        )))
+        let builderFrame = try #require(layout.builderFrame)
+        let optionFrames = try BuildingType.allCases.map { type in
+            try #require(layout.builderOptionFrames[type])
+        }
+
+        #expect(builderFrame.height == 114)
+        for frame in optionFrames {
+            #expect(builderFrame.contains(frame))
+            #expect(frame.minY == optionFrames[0].minY)
+            #expect(frame.maxY == optionFrames[0].maxY)
+            #expect(frame.width >= CampChromeLayout.minimumInteractiveSize)
+            #expect(frame.height >= CampChromeLayout.minimumInteractiveSize)
+        }
+    }
+
+    @Test func smallestPhoneKeepsLotsAboveTheRegionFloorForEverySelection() throws {
+        for selection in [
+            CampChromeLayout.Selection.none,
+            .emptyLot(slot: 1),
+            .occupiedLot(slot: 1)
+        ] {
+            let layout = try #require(CampChromeLayout.compute(.init(
+                sceneSize: CGSize(width: 320, height: 568),
+                safeAreaInsets: .zero,
+                selection: selection
+            )))
+            #expect(layout.lotRegionFrame.height >= 180)
+            #expect(layout.lotRegionFrame.minY > layout.tabBarFrame.maxY)
+        }
+    }
 }
