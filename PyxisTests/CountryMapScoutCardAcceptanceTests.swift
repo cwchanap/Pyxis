@@ -62,13 +62,10 @@ struct CountryMapScoutCardAcceptanceTests {
             )
             #expect(freshLayout.sceneFrame.contains(cardFrame))
             #expect(cardFrame.contains(attackFrame))
-            if fixture.layoutClass == .pad {
-                #expect(freshLayout.informationRegionFrame.contains(cardFrame))
-            } else {
-                // Phone cards may exceed the compact region budget, but they
-                // must stay inside the scene and never run under the header.
-                #expect(!cardFrame.intersects(freshLayout.titleControlRegionFrame))
-            }
+            // HPA-812: every layout class (compact phone, ordinary phone,
+            // pad) keeps the card contained by the information region, so
+            // the card can never run under the header or over the map.
+            #expect(freshLayout.informationRegionFrame.contains(cardFrame))
             for cityNumber in Country1CityCatalog.cityRange {
                 let cityFrame = try #require(
                     fresh.scene.cityHitFrameForTesting(cityNumber)
@@ -223,11 +220,17 @@ struct CountryMapScoutCardAcceptanceTests {
                 complete.scene.scoutCardBaseContentForTesting
             )
             #expect(completeBase.title == "Country 1 conquered · Crownspire Keep")
+            // HPA-812: the completed card points at Kingdom → Ascend with a
+            // fitted second line — still no Attack target.
+            #expect(completeBase.detail == "Next: Kingdom → Ascend to begin again.")
             #expect(completeBase.attack == nil)
             #expect(complete.scene.scoutCardAttackHitFrameForTesting == nil)
             #expect(
                 complete.scene.visibleScoutCardTextsForTesting
-                    == ["Country 1 conquered · Crownspire Keep"]
+                    == [
+                        "Country 1 conquered · Crownspire Keep",
+                        "Next: Kingdom → Ascend to begin again."
+                    ]
             )
         }
     }

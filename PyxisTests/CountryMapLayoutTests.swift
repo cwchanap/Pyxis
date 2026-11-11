@@ -161,6 +161,62 @@ struct CountryMapLayoutTests {
         #expect(layout.titleTextFrame == CGRect(x: 30, y: 567, width: 168, height: 22))
     }
 
+    @Test func referencePhoneProgressGeometryOwnsTheLabelAndSegmentSplit() throws {
+        let layout = try supportedLayout(
+            size: CGSize(width: 393, height: 852),
+            insets: .init(top: 59, left: 0, bottom: 34, right: 0),
+            layoutClass: .phone
+        )
+
+        // HPA-812: the pure layout owns the label reservation, pip sizes and
+        // pip positions — the scene only applies them.
+        #expect(layout.progressFrame == CGRect(x: 198, y: 717, width: 111, height: 22))
+        #expect(layout.progressLabelFrame == CGRect(x: 273, y: 717, width: 36, height: 22))
+        #expect(layout.progressSegmentFrames.count == 15)
+
+        let segmentWidth = layout.progressSegmentFrames[0].width
+        #expect(segmentWidth >= 2)
+        for (index, frame) in layout.progressSegmentFrames.enumerated() {
+            #expect(layout.progressFrame.contains(frame))
+            #expect(frame.height == 8)
+            #expect(frame.width == segmentWidth)
+            #expect(!frame.intersects(layout.progressLabelFrame))
+            if index > 0 {
+                let previous = layout.progressSegmentFrames[index - 1]
+                #expect(abs(frame.minX - previous.maxX - 1.5) <= 0.001)
+            }
+        }
+        // The pip run ends exactly 4pt before the reserved label.
+        #expect(abs(layout.progressLabelFrame.minX
+            - layout.progressSegmentFrames[14].maxX - 4) <= 0.001)
+    }
+
+    @Test(arguments: supportedFixtures)
+    private func progressGeometryKeepsLabelAndAllFifteenPipsInsideProgressFrame(
+        fixture: CountryMapLayoutTestFixture
+    ) throws {
+        let layout = try supportedLayout(
+            size: fixture.size,
+            insets: fixture.insets,
+            layoutClass: fixture.layoutClass
+        )
+
+        #expect(layout.progressFrame.contains(layout.progressLabelFrame))
+        #expect(layout.progressLabelFrame.maxX == layout.progressFrame.maxX)
+        // The reservation fits the widest 11pt bold count ("15/15").
+        #expect(layout.progressLabelFrame.width >= 36)
+        #expect(layout.progressSegmentFrames.count == 15)
+        #expect(layout.progressSegmentFrames.first?.minX == layout.progressFrame.minX)
+        for frame in layout.progressSegmentFrames {
+            #expect(layout.progressFrame.contains(frame))
+            #expect(frame.width >= 2)
+            #expect(frame.height == 8)
+            #expect(!frame.intersects(layout.progressLabelFrame))
+        }
+        let last = try #require(layout.progressSegmentFrames.last)
+        #expect(layout.progressLabelFrame.minX - last.maxX >= 4 - 0.001)
+    }
+
     @Test func country1DefinitionMatchesCampaignAndRouteContract() {
         let definition = CountryMapLayoutDefinition.country1
 
