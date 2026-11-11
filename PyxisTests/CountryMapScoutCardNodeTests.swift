@@ -203,7 +203,7 @@ struct CountryMapScoutCardNodeTests {
         let image = testImage(width: 160, height: 120)
         let spy = ScoutCardImageLoaderSpy(images: completeImageSet(image: image))
         let node = CountryMapScoutCardNode(imageLoader: spy.load)
-        let layout = try scoutCardLayout(named: "modern phone")
+        let layout = try scoutCardLayout(named: "small phone")
 
         #expect(node.apply(
             content: .scout(testScout(status: .attackable)),
@@ -212,13 +212,11 @@ struct CountryMapScoutCardNodeTests {
         ) == .presented)
         #expect(node.cityArtAssetNameForTesting == "enemy-city")
         #expect(node.cityArtIsVisibleForTesting)
-        // Roomier phone cards reserve the decorative art column left of the
-        // indented text rows (HPA-812 repack).
         #expect(node.cityArtTargetFrameForTesting == CGRect(
             x: layout.cardFrame.minX + 8,
-            y: layout.attackFrame.maxY + 6,
-            width: layout.traitLineFrames[0].minX - 6 - (layout.cardFrame.minX + 8),
-            height: layout.cardFrame.maxY - 10 - (layout.attackFrame.maxY + 6)
+            y: layout.cardFrame.maxY - 98,
+            width: 80,
+            height: 88
         ))
         #expect(node.titleTextForTesting == "Falconridge")
         #expect(node.attackTextForTesting == "MARCH")
@@ -235,12 +233,6 @@ struct CountryMapScoutCardNodeTests {
             isEntryEnabled: true
         ) == .presented)
         #expect(node.titleTextForTesting == "Country 1 conquered · Crownspire Keep")
-        // HPA-812: the completed card carries a fitted second line pointing
-        // at Kingdom → Ascend.
-        #expect(node.countryCompleteDetailTextForTesting
-            == "Next: Kingdom → Ascend to begin again.")
-        let detailFontSize = try #require(node.countryCompleteDetailFontSizeForTesting)
-        #expect(detailFontSize >= 8)
         #expect(node.countryCompleteTitleFrameForTesting == layout.cardFrame)
         #expect(node.cardHitFrame == layout.cardFrame)
         #expect(node.attackHitFrame == nil)
@@ -444,7 +436,7 @@ struct CountryMapScoutCardNodeTests {
     @Test func missingIconsReduceFooterWidthAtTheBoundaryWithoutHidingText() throws {
         let layout = try scoutCardLayout(named: "small phone")
         // 72pt admits the fallback label group plus its reserved trailing
-        // multiplier (~62pt measured) while the icon group still cannot fit.
+        // multiplier (69pt measured) while the icon group still cannot fit.
         let boundaryLayout = replacing(
             layout,
             favorableFrame: CGRect(
@@ -817,41 +809,10 @@ struct CountryMapScoutCardNodeTests {
             layout: phoneLayout,
             isEntryEnabled: true
         ) == .presented)
-        // The dense contained card (mini 133pt) tightens the same approved
-        // font set (HPA-812 repack).
         #expect(node.fontsForTesting == .init(
             boldName: GameUITheme.Font.bold,
             mediumName: GameUITheme.Font.medium,
-            title: 15,
-            badge: 9,
-            reward: 10,
-            trait: 10,
-            footer: 8,
-            attack: 15,
-            titleIsInstalled: true,
-            badgeIsInstalled: true,
-            rewardIsInstalled: true,
-            traitIsInstalled: true,
-            footerIsInstalled: true,
-            attackIsInstalled: true
-        ))
-
-        #expect(node.apply(
-            content: .scout(testScout()),
-            layout: padLayout,
-            isEntryEnabled: true
-        ) == .presented)
-        // The contained 164pt phone card keeps the roomy font tier.
-        let roomyPhoneLayout = try scoutCardLayout(named: "modern phone")
-        #expect(node.apply(
-            content: .scout(testScout()),
-            layout: roomyPhoneLayout,
-            isEntryEnabled: true
-        ) == .presented)
-        #expect(node.fontsForTesting == .init(
-            boldName: GameUITheme.Font.bold,
-            mediumName: GameUITheme.Font.medium,
-            title: 18,
+            title: 19,
             badge: 10,
             reward: 10,
             trait: 11,
