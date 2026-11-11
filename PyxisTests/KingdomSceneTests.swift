@@ -17,6 +17,117 @@ private extension CGRect {
 @MainActor
 struct KingdomSceneTests {
 
+    @Test func renderedHeaderControlsStayInsidePanel() throws {
+        for width in [CGFloat(264), 320, 393] {
+            let scene = makeScene(
+                size: CGSize(width: width, height: 568),
+                store: try makeStore(initialState: makeCountryCompleteState(ascensionCount: 1)),
+                safeAreaInsets: .zero
+            )
+            let layout = try #require(scene.kingdomLayoutForTesting)
+            let gold = scene.goldLabelNodeForTesting
+            let goldParent = try #require(gold.parent)
+            let goldFrame = goldParent.convert(gold.frame, to: scene)
+            #expect(goldFrame.minX >= layout.headerFrame.minX + 8)
+            let gearPlate = try #require(
+                scene.childNode(withName: "//settingsGearTile/panelPlate") as? SKShapeNode
+            )
+            let gearParent = try #require(gearPlate.parent)
+            let gearFrame = gearParent.convert(gearPlate.frame, to: scene)
+            #expect(gearFrame.maxX < layout.headerFrame.maxX - 1)
+            let selector = try #require(
+                scene.childNode(withName: "//kingdomSectionTreasury/panelShadow") as? SKShapeNode
+            )
+            let selectorParent = try #require(selector.parent)
+            let selectorFrame = selectorParent.convert(selector.frame, to: scene)
+            #expect(selectorFrame.minX >= layout.headerFrame.minX)
+            #expect(selectorFrame.maxY <= layout.headerFrame.maxY)
+            #expect(scene.feedbackSettingsGearFrameForTesting == layout.settingsFrame)
+        }
+    }
+
+    @Test func ownedArmoryRowsShowTrailingCycleMarker() throws {
+        for width in [CGFloat(264), 320, 393, 820] {
+            let scene = makeScene(
+                size: CGSize(width: width, height: 568),
+                store: try makeStore(initialState: makeGearOwningState()),
+                safeAreaInsets: .zero
+            )
+            selectArmory(scene)
+            let layout = try #require(scene.kingdomLayoutForTesting)
+            for (index, type) in SoldierType.allCases.enumerated() {
+                let row = try #require(scene.armoryRowNodeForTesting(type))
+                let marker = try #require(row.childNode(withName: "kingdomArmoryChevron-\(type.rawValue)"))
+                #expect(marker.isHidden == (type != .infantry))
+                if type == .infantry {
+                    let markerFrame = row.convert(marker.calculateAccumulatedFrame(), to: scene)
+                    #expect(layout.armoryRowFrames[index].contains(markerFrame))
+                    #expect(layout.armoryChevronFrames[index].contains(markerFrame))
+                    #expect(markerFrame.minX >= layout.armoryTextFrames[index].maxX)
+                    #expect(markerFrame.width <= 10)
+                    scene.handleTouchForTesting(at: layout.armoryRowFrames[index].center)
+                    #expect(!marker.isHidden)
+                    scene.handleTouchForTesting(at: layout.armoryRowFrames[index].center)
+                    #expect(scene.armoryRowTextForTesting(.infantry)?.line1 == "Infantry · None")
+                    #expect(!marker.isHidden)
+                }
+            }
+        }
+    }
+
+    @Test func armoryCyclingHintIsOnExistingAction() throws {
+        let size = CGSize(width: 393, height: 852)
+        let view = SKView(frame: CGRect(origin: .zero, size: size))
+        let adapter = FeedbackSettingsAccessibilityAdapter(
+            containerView: view,
+            sceneToScreenFrame: { $0 },
+            postNotification: { _, _ in }
+        )
+        let scene = KingdomScene(
+            size: size,
+            store: try makeStore(initialState: makeGearOwningState()),
+            safeAreaInsetsOverride: .zero,
+            feedbackSettingsAccessibilityAdapter: adapter
+        )
+        scene.didMove(to: view)
+        selectArmory(scene)
+        let elements = try #require(adapter.sceneElementsProvider?())
+        let owned = try #require(elements.first { $0.accessibilityIdentifier == "kingdom-armory-row-infantry" })
+        let unowned = try #require(elements.first { $0.accessibilityIdentifier == "kingdom-armory-row-siege" })
+        #expect(owned.accessibilityHint?.lowercased().contains("cycle") == true)
+        #expect(unowned.accessibilityHint == nil)
+        #expect(elements.filter { $0.accessibilityIdentifier?.hasPrefix("kingdom-armory-row-") == true }.count == 5)
+        #expect(owned.accessibilityActivate())
+        #expect(scene.armoryRowTextForTesting(.infantry)?.line1.contains("Falconridge Bulwark") == true)
+    }
+
+    @Test func armedAscendVisualIsInsetWithoutChangingActionTarget() throws {
+        for width in [CGFloat(264), 320, 393] {
+            let scene = makeScene(
+                size: CGSize(width: width, height: 568),
+                store: try makeStore(initialState: makeCountryCompleteState()),
+                safeAreaInsets: .zero
+            )
+            try selectAscend(scene)
+            let target = try #require(scene.ascendPrimaryActionHitFrameForTesting())
+            let panel = try #require(scene.childNode(withName: "//kingdomAscendAction") as? PanelNode)
+            #expect(panel.contentSizeForTesting == target.size)
+            scene.handleTouchForTesting(at: target.center)
+            #expect(scene.isAscendConfirmationArmedForTesting)
+            #expect(scene.ascendPrimaryActionHitFrameForTesting() == target)
+            #expect(target.width >= 44 && target.height >= 44)
+            #expect(panel.contentSizeForTesting.width <= target.width - 8)
+            #expect(panel.contentSizeForTesting.height <= target.height - 8)
+            let layout = try #require(scene.kingdomLayoutForTesting)
+            let shadow = try #require(panel.childNode(withName: "panelShadow") as? SKShapeNode)
+            let shadowFrame = panel.convert(shadow.frame, to: scene)
+            #expect(layout.ascendPanelFrame.contains(shadowFrame))
+            let cancel = try #require(scene.ascendCancelHitFrameForTesting())
+            scene.handleTouchForTesting(at: cancel.center)
+            #expect(!scene.isAscendConfirmationArmedForTesting)
+        }
+    }
+
     @Test func kingdomSceneShowsPersistedGold() throws {
         let store = try makeStore(initialState: KingdomGameState(gold: 123))
         let scene = makeScene(store: store)

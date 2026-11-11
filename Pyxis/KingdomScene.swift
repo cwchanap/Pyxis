@@ -57,6 +57,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let iconHolder: SKNode
         let line1Label: SKLabelNode
         let line2Label: SKLabelNode
+        let chevron: SKShapeNode
     }
 
     /// HPA-672 Ascend content: one panel sharing the Treasury/Armory band.
@@ -281,11 +282,25 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             line2Label.zPosition = 1
             panel.addChild(line2Label)
 
+            let chevronPath = CGMutablePath()
+            chevronPath.move(to: CGPoint(x: -2, y: 2))
+            chevronPath.addLine(to: CGPoint(x: 1, y: 0))
+            chevronPath.addLine(to: CGPoint(x: -2, y: -2))
+            let chevron = SKShapeNode(path: chevronPath)
+            chevron.name = "kingdomArmoryChevron-\(type.rawValue)"
+            chevron.strokeColor = GameUITheme.Color.textSecondary
+            chevron.lineWidth = 1.5
+            chevron.lineCap = .round
+            chevron.lineJoin = .round
+            chevron.zPosition = 1
+            panel.addChild(chevron)
+
             armoryRowBundles[type] = ArmoryRowBundle(
                 panel: panel,
                 iconHolder: iconHolder,
                 line1Label: line1Label,
-                line2Label: line2Label
+                line2Label: line2Label,
+                chevron: chevron
             )
         }
 
@@ -652,7 +667,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             y: layout.headerFrame.midY
         )
         goldLabel.position = CGPoint(
-            x: layout.goldFrame.minX - layout.headerFrame.midX + 2,
+            x: layout.goldFrame.minX - layout.headerFrame.midX,
             y: layout.goldFrame.midY - layout.headerFrame.midY
         )
         renownLabel.position = CGPoint(
@@ -681,6 +696,11 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             bundle.iconHolder.position = CGPoint(
                 x: iconFrame.midX - rowFrame.midX,
                 y: iconFrame.midY - rowFrame.midY
+            )
+            let chevronFrame = layout.armoryChevronFrames[index]
+            bundle.chevron.position = CGPoint(
+                x: chevronFrame.midX - rowFrame.midX,
+                y: chevronFrame.midY - rowFrame.midY
             )
             for (frame, label) in [
                 (layout.armoryLine1LabelFrames[index], bundle.line1Label),
@@ -922,6 +942,9 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
             bundle.line1Label.alpha = contentAlpha
             bundle.line2Label.alpha = contentAlpha
             bundle.iconHolder.alpha = contentAlpha
+            bundle.chevron.isHidden = !EquipmentCatalog.forType(type).contains {
+                state.ownedEquipmentIDs.contains($0.id)
+            }
 
             // Redraw runs on every purchase/equip/section switch — the
             // texture or glyph only needs rebuilding when this row's
@@ -1006,13 +1029,13 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
         let isSelected = selectedSection == section
         if let frame {
             panel.apply(
-                size: frame.size,
+                size: CGSize(width: frame.width - 10, height: frame.height - 10),
                 style: isSelected ? .selected : .normal,
                 showsRivets: false,
                 appearance: .forged
             )
             label.fontSize = 13
-            label.shrinkFontSize(toFitWidth: frame.width - 8, floor: 9)
+            label.shrinkFontSize(toFitWidth: frame.width - 18, floor: 9)
         }
         label.alpha = isSelected ? 1 : GameUITheme.Alpha.unaffordableIcon
     }
@@ -1062,13 +1085,18 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 floor: 9
             )
             ascend.primaryPanel.apply(
-                size: layout.ascendPrimaryActionFrame.size,
+                size: armed
+                    ? CGSize(
+                        width: layout.ascendPrimaryActionFrame.width - 8,
+                        height: layout.ascendPrimaryActionFrame.height - 8
+                    )
+                    : layout.ascendPrimaryActionFrame.size,
                 style: armed ? .primaryAction : (actionEnabled ? .normal : .disabled),
                 showsRivets: false,
                 appearance: .forged
             )
             ascend.primaryLabel.shrinkFontSize(
-                toFitWidth: layout.ascendPrimaryActionFrame.width - 8,
+                toFitWidth: layout.ascendPrimaryActionFrame.width - (armed ? 16 : 8),
                 floor: 9
             )
             ascend.cancelPanel.isHidden = !armed
@@ -1994,6 +2022,7 @@ final class KingdomScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefre
                 state.ownedEquipmentIDs.contains(item.id)
             }
             row?.accessibilityTraits = hasOwnedGear ? .button : [.button, .notEnabled]
+            row?.accessibilityHint = hasOwnedGear ? "Double tap to cycle equipment." : nil
             row?.accessibilityFrame = adapter.screenAccessibilityFrame(
                 for: layout.armoryRowFrames[index]
             ) ?? .zero

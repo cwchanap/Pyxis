@@ -47,8 +47,8 @@ struct KingdomLayout: Equatable {
     /// → Ascend. With the visible title gone (the tab bar identifies the
     /// screen; accessibility keeps a constant `Kingdom` header) the free
     /// width distributes across the cluster: (available − 2 gaps) / 3,
-    /// capped at 88pt. At 320pt that is ~73pt per selector; at the 232pt
-    /// content floor ~54.7pt — the rows starve before the cluster does.
+    /// capped at 88pt. At 320pt that is ~70.7pt per selector; at the 232pt
+    /// content floor ~52pt — the rows starve before the cluster does.
     static let sectionSelectorMinimumWidth: CGFloat = 44
     static let sectionSelectorMaximumWidth: CGFloat = 88
     static let sectionSelectorHeight: CGFloat = 44
@@ -141,6 +141,7 @@ struct KingdomLayout: Equatable {
     let armoryRowFrames: [CGRect]
     let armoryIconFrames: [CGRect]
     let armoryTextFrames: [CGRect]
+    let armoryChevronFrames: [CGRect]
     /// Two compact stacked lines per Armory row (type/equipped, then
     /// effect/next drop) inside `armoryTextFrames`.
     let armoryLine1LabelFrames: [CGRect]
@@ -200,10 +201,8 @@ struct KingdomLayout: Equatable {
             width: contentWidth,
             height: headerHeight
         )
-        let textWidth = headerFrame.width - minimumBuyHitSize - 8
-        guard textWidth > 0 else { return nil }
         let settingsFrame = CGRect(
-            x: headerFrame.maxX - minimumBuyHitSize,
+            x: headerFrame.maxX - minimumBuyHitSize - 4,
             y: headerFrame.midY - minimumBuyHitSize / 2,
             width: minimumBuyHitSize,
             height: minimumBuyHitSize
@@ -212,8 +211,8 @@ struct KingdomLayout: Equatable {
         // HPA-672: three adaptive section controls share the header's top
         // 44pt line — no visible title (the selected tab identifies the
         // screen; accessibility keeps a constant `Kingdom` header label).
-        // Zero new header height; the bottom 44pt gold line keeps the full
-        // width with a right-aligned Renown reservation.
+        // Zero new header height; the bottom 44pt gold line keeps an inset
+        // column with a right-aligned Renown reservation.
         let headerTopLine = Self.headerTopLineFrames(
             headerFrame: headerFrame,
             settingsFrame: settingsFrame
@@ -223,11 +222,13 @@ struct KingdomLayout: Equatable {
         let armorySelectorFrame = headerTopLine.armorySelectorFrame
         let ascendSelectorFrame = headerTopLine.ascendSelectorFrame
         let goldFrame = CGRect(
-            x: headerFrame.minX,
+            x: headerFrame.minX + 8,
             y: headerFrame.minY,
-            width: textWidth,
+            width: settingsFrame.minX - headerFrame.minX - 8,
             height: 44
         )
+        let textWidth = goldFrame.width
+        guard textWidth > 0 else { return nil }
         // The 8pt gold/Renown gap is part of the reservation: leave it
         // inside the Renown column so the gold text keeps its documented
         // `minimumGoldTextWidth` — subtracting the gap again in
@@ -278,7 +279,8 @@ struct KingdomLayout: Equatable {
         let treasuryBand = Self.treasuryBandFrames(
             contentX: contentX,
             contentWidth: contentWidth,
-            rowsTop: rowsTop,
+            rowsTop: rowsTop - (rowsTop - rowsBottom
+                - CGFloat(TreasuryUpgrade.allCases.count) * rowHeight - 2 * rowGap) / 2,
             rowHeight: rowHeight
         )
         guard let treasuryBand else { return nil }
@@ -331,6 +333,7 @@ struct KingdomLayout: Equatable {
             armoryRowFrames: armoryBand.rowFrames,
             armoryIconFrames: armoryBand.iconFrames,
             armoryTextFrames: armoryBand.textFrames,
+            armoryChevronFrames: armoryBand.chevronFrames,
             armoryLine1LabelFrames: armoryBand.line1LabelFrames,
             armoryLine2LabelFrames: armoryBand.line2LabelFrames,
             ascendPanelFrame: ascendBand.panelFrame,
@@ -368,7 +371,7 @@ struct KingdomLayout: Equatable {
         settingsFrame: CGRect
     ) -> HeaderTopLine? {
         let topLineMinY = headerFrame.maxY - sectionSelectorHeight
-        let available = settingsFrame.minX - sectionSelectorGap - headerFrame.minX
+        let available = settingsFrame.minX - sectionSelectorGap - headerFrame.minX - 4
         let count = CGFloat(KingdomSection.allCases.count)
         let width = min(
             sectionSelectorMaximumWidth,
@@ -511,6 +514,7 @@ struct KingdomLayout: Equatable {
         let rowFrames: [CGRect]
         let iconFrames: [CGRect]
         let textFrames: [CGRect]
+        let chevronFrames: [CGRect]
         let line1LabelFrames: [CGRect]
         let line2LabelFrames: [CGRect]
     }
@@ -530,12 +534,15 @@ struct KingdomLayout: Equatable {
         var rowFrames: [CGRect] = []
         var iconFrames: [CGRect] = []
         var textFrames: [CGRect] = []
+        var chevronFrames: [CGRect] = []
         var line1LabelFrames: [CGRect] = []
         var line2LabelFrames: [CGRect] = []
+        let centeredTop = rowsTop - (rowsTop - rowsBottom
+            - CGFloat(armoryRowCount) * rowHeight - CGFloat(armoryRowCount - 1) * armoryRowGap) / 2
         for index in 0..<armoryRowCount {
             let rowFrame = CGRect(
                 x: contentX,
-                y: rowsTop - CGFloat(index + 1) * rowHeight - CGFloat(index) * armoryRowGap,
+                y: centeredTop - CGFloat(index + 1) * rowHeight - CGFloat(index) * armoryRowGap,
                 width: contentWidth,
                 height: rowHeight
             )
@@ -575,6 +582,7 @@ struct KingdomLayout: Equatable {
             rowFrames.append(rowFrame)
             iconFrames.append(iconFrame)
             textFrames.append(textFrame)
+            chevronFrames.append(CGRect(x: rowFrame.maxX - 9, y: rowFrame.midY - 4, width: 8, height: 8))
             line1LabelFrames.append(line1Frame)
             line2LabelFrames.append(line2Frame)
         }
@@ -582,6 +590,7 @@ struct KingdomLayout: Equatable {
             rowFrames: rowFrames,
             iconFrames: iconFrames,
             textFrames: textFrames,
+            chevronFrames: chevronFrames,
             line1LabelFrames: line1LabelFrames,
             line2LabelFrames: line2LabelFrames
         )

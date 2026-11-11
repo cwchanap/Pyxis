@@ -18,6 +18,48 @@ struct KingdomLayoutTests {
         top: 24, left: 0, bottom: 20, right: 0
     )
 
+    @Test func bothRowGroupsCenterIndependentlyInTheirBand() throws {
+        for size in [
+            CGSize(width: 320, height: 454),
+            CGSize(width: 320, height: 568),
+            CGSize(width: 393, height: 852),
+            CGSize(width: 820, height: 1180)
+        ] {
+            let layout = try #require(KingdomLayout.compute(.init(sceneSize: size, safeAreaInsets: .zero)))
+            let band = layout.ascendPanelFrame
+            for rows in [layout.rowFrames, layout.armoryRowFrames] {
+                let first = try #require(rows.first)
+                let last = try #require(rows.last)
+                #expect(abs((band.maxY - first.maxY) - (last.minY - band.minY)) < 0.01)
+                #expect(rows.allSatisfy { band.contains($0) && $0.height >= 44 })
+            }
+            for hit in layout.buyHitFrames {
+                #expect(hit.width >= 44 && hit.height >= 44)
+            }
+            for (index, (row, text)) in zip(layout.armoryRowFrames, layout.armoryTextFrames).enumerated() {
+                #expect(text.width == row.width - 62)
+                let chevron = layout.armoryChevronFrames[index]
+                #expect(row.contains(chevron))
+                #expect(chevron.minX >= text.maxX)
+                #expect(chevron.width == 8)
+            }
+        }
+    }
+
+    @Test func headerReservesVisibleInletsWithoutSacrificingTargets() throws {
+        for width in [CGFloat(264), 320, 393, 820] {
+            let layout = try #require(KingdomLayout.compute(.init(
+                sceneSize: CGSize(width: width, height: 568), safeAreaInsets: .zero
+            )))
+            #expect(layout.goldFrame.minX >= layout.headerFrame.minX + 8)
+            #expect(layout.settingsFrame.maxX <= layout.headerFrame.maxX - 4)
+            #expect(layout.treasurySelectorFrame.minX >= layout.headerFrame.minX + 4)
+            #expect(layout.settingsFrame.width >= 44 && layout.settingsFrame.height >= 44)
+            #expect(layout.goldTextMaxWidth(showingRenown: true) >= 80)
+            #expect(layout.renownFrame.width >= 88)
+        }
+    }
+
     @Test("Reference phone lays out header, three rows, Buy targets and shared tab frames")
     func referencePhoneProducesThreeRowsHeaderTabsAndBuyTargets() throws {
         let layout = try #require(KingdomLayout.compute(.init(
@@ -222,11 +264,11 @@ struct KingdomLayoutTests {
             safeAreaInsets: .zero
         )))
 
-        // The binding arithmetic: 288pt content − 44pt Settings − 8pt gap
-        // leaves 236pt for the cluster; minus two 8pt selector gaps that
-        // is ~73pt per selector — readable, not the unreadable 44pt floor.
+        // The binding arithmetic: 288pt content − 44pt Settings − insets and gap
+        // leaves 228pt for the cluster; minus two 8pt selector gaps that
+        // is ~71pt per selector — readable, not the unreadable 44pt floor.
         #expect(layout.headerFrame == CGRect(x: 16, y: 366, width: 288, height: 88))
-        #expect(layout.goldFrame == CGRect(x: 16, y: 366, width: 236, height: 44))
+        #expect(layout.goldFrame == CGRect(x: 24, y: 366, width: 232, height: 44))
 
         let selectors = [
             layout.treasurySelectorFrame,
@@ -238,7 +280,7 @@ struct KingdomLayoutTests {
             #expect(frame.maxY == layout.headerFrame.maxY)
             #expect(layout.headerFrame.contains(frame))
             #expect(frame.width >= 44)
-            #expect(abs(frame.width - 73.33) < 0.5)
+            #expect(abs(frame.width - 70.67) < 0.5)
         }
         // Treasury → Armory → Ascend left to right, the cluster ending
         // 8pt left of Settings with an 8pt gap between selectors.
@@ -306,7 +348,10 @@ struct KingdomLayoutTests {
         for row in layout.armoryRowFrames {
             #expect(row.height == KingdomLayout.armoryMaximumRowHeight)
         }
-        #expect(layout.armoryRowFrames[0].maxY == layout.headerFrame.minY - 12)
+        #expect(abs(
+            layout.ascendPanelFrame.maxY - layout.armoryRowFrames[0].maxY
+                - (layout.armoryRowFrames[4].minY - layout.ascendPanelFrame.minY)
+        ) < 0.01)
         for (row, next) in zip(layout.armoryRowFrames, layout.armoryRowFrames.dropFirst()) {
             #expect(row.minY - next.maxY == KingdomLayout.armoryRowGap)
         }
@@ -360,7 +405,7 @@ struct KingdomLayoutTests {
     func rowFloorWidthKeepsSectionControls() throws {
         // The header must never fail where the rows still fit: 232pt of
         // content is the row-text floor, and the selector cluster shrinks
-        // to ~(180 − 16) / 3 ≈ 54.7pt per control — still ≥44pt.
+        // to ~52pt per control — still ≥44pt.
         let layout = try #require(KingdomLayout.compute(.init(
             sceneSize: CGSize(width: 264, height: 454),
             safeAreaInsets: .zero
@@ -461,7 +506,7 @@ struct KingdomLayoutTests {
             #expect(layout.headerFrame.contains(layout.renownFrame))
             #expect(layout.renownFrame.height == 44)
             #expect(layout.renownFrame.minY == layout.headerFrame.minY)
-            #expect(layout.renownFrame.maxX + 8 <= layout.settingsFrame.minX)
+            #expect(layout.renownFrame.maxX <= layout.settingsFrame.minX)
             #expect(layout.renownFrame.width >= KingdomLayout.renownLabelMinimumWidth)
             // With Renown visible gold keeps a usable measured column...
             #expect(layout.goldTextMaxWidth(showingRenown: true) >= 80)
