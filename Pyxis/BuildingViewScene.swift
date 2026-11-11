@@ -431,25 +431,25 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         titleLabel.text = "Camp"
         titleLabel.position = CGPoint(x: layout.titleFrame.minX, y: layout.titleFrame.midY)
         titleLabel.horizontalAlignmentMode = .left
+        let goldInset: CGFloat = min(6, max(4, layout.goldFrame.width * 0.06))
+        let goldIconSide = min(28, max(16, layout.goldFrame.width * 0.24))
         goldIcon.size = aspectFitSize(
             for: goldIcon.texture,
-            maximumSize: CGSize(width: 28, height: 28)
+            maximumSize: CGSize(width: goldIconSide, height: goldIconSide)
         )
         goldIcon.position = CGPoint(
-            x: layout.goldFrame.minX + 22,
+            x: layout.goldFrame.minX + goldInset + goldIcon.size.width / 2,
             y: layout.goldFrame.midY
         )
         goldIcon.isHidden = goldIcon.texture == nil
         goldLabel.text = CompactNumberFormatter.string(from: state.gold)
         goldLabel.fontSize = 17
-        goldLabel.position = CGPoint(
-            x: layout.goldFrame.minX + 42,
-            y: layout.goldFrame.midY
-        )
+        let goldTextX = layout.goldFrame.minX + goldInset + goldIcon.size.width + 3
+        goldLabel.position = CGPoint(x: goldTextX, y: layout.goldFrame.midY)
         goldLabel.horizontalAlignmentMode = .left
         goldLabel.shrinkFontSize(
-            toFitWidth: layout.goldFrame.maxX - goldLabel.position.x - 4,
-            floor: 10
+            toFitWidth: layout.goldFrame.maxX - goldTextX - 4,
+            floor: 8
         )
         let occupied = state.cityBattleStateForCurrentCity.occupiedSlotCount
         cityProgressLabel.text = "\(occupied) / \(CityBattleState.slotRange.count)"

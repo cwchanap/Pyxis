@@ -85,41 +85,106 @@ struct CampSelectionNodeTests {
         ) == .normal)
     }
 
-    @Test func builderCardsAlignContainLongerTextAndDisableRecommendations() throws {
-        let layout = try #require(CampChromeLayout.compute(.init(
-            sceneSize: CGSize(width: 393, height: 852),
-            safeAreaInsets: .init(top: 59, left: 0, bottom: 34, right: 0),
-            selection: .emptyLot(slot: 1)
-        )))
-        let builderFrame = try #require(layout.builderFrame)
-        let content = CampSelectionContent.project(
-            from: KingdomGameState(gold: 0, cityNumberInCountry: 15, completedCityCount: 14),
-            selectedSlot: 1
-        )
-        let recommendedType = try #require(
-            content.options.first(where: { $0.isRecommended })?.buildingType
-        )
-        let node = CampSelectionNode()
-
-        #expect(node.apply(content: content, layout: layout) == .presented)
-
-        for option in content.options {
-            let frame = try #require(layout.builderOptionFrames[option.buildingType])
-            #expect(builderFrame.contains(frame))
-            #expect(frame.minY == layout.builderOptionFrames[.barracks]?.minY)
-            #expect(frame.maxY == layout.builderOptionFrames[.barracks]?.maxY)
-            let nameFrame = try #require(node.optionNameLabelFrameForTesting(option.buildingType))
-            let statusFrame = try #require(node.optionStatusLabelFrameForTesting(option.buildingType))
-            #expect(frame.contains(nameFrame))
-            #expect(frame.contains(statusFrame))
-            #expect(node.optionPanelStyleForTesting(option.buildingType) == .disabled)
-            #expect(node.action(at: center(of: frame)) == .requirement(option.buildingType))
+    @Test func builderCardsContainStatusTextAcrossStatesAndViewports() throws {
+        struct Viewport {
+            let size: CGSize
+            let insets: CampSafeAreaInsets
         }
-        #expect(node.optionRecommendationMarkIsHiddenForTesting(recommendedType) == false)
-        let markFrame = try #require(
-            node.optionRecommendationMarkFrameForTesting(recommendedType)
-        )
-        #expect(layout.builderOptionFrames[recommendedType]?.contains(markFrame) == true)
+        let viewports = [
+            Viewport(
+                size: CGSize(width: 393, height: 852),
+                insets: .init(top: 59, left: 0, bottom: 34, right: 0)
+            ),
+            Viewport(
+                size: CGSize(width: 320, height: 568),
+                insets: .init(top: 0, left: 0, bottom: 0, right: 0)
+            )
+        ]
+
+        for viewport in viewports {
+            let layout = try #require(CampChromeLayout.compute(.init(
+                sceneSize: viewport.size,
+                safeAreaInsets: viewport.insets,
+                selection: .emptyLot(slot: 1)
+            )))
+            let builderFrame = try #require(layout.builderFrame)
+            let content = CampSelectionContent(
+                selectedSlot: 1,
+                options: [
+                    .init(
+                        buildingType: .barracks,
+                        state: .available(cost: 15),
+                        isRecommended: true
+                    ),
+                    .init(
+                        buildingType: .archeryRange,
+                        state: .available(cost: 999_999_999),
+                        isRecommended: false
+                    ),
+                    .init(
+                        buildingType: .stable,
+                        state: .unaffordable(cost: 999_999_999, currentGold: 0),
+                        isRecommended: false
+                    ),
+                    .init(
+                        buildingType: .mageTower,
+                        state: .locked(unlocksAtCity: 8),
+                        isRecommended: false
+                    ),
+                    .init(
+                        buildingType: .siegeWorkshop,
+                        state: .locked(unlocksAtCity: 11),
+                        isRecommended: false
+                    )
+                ],
+                inspector: nil,
+                enabledTabs: Set(GameplayTab.allCases)
+            )
+
+            #expect(content.options.filter(\.isRecommended).count == 1)
+            #expect(content.options.filter(\.state.isAvailable).count == 2)
+            #expect(content.options.contains {
+                if case .unaffordable = $0.state { return true }
+                return false
+            })
+            #expect(content.options.filter {
+                if case .locked = $0.state { return true }
+                return false
+            }.count == 2)
+
+            let node = CampSelectionNode()
+            #expect(node.apply(content: content, layout: layout) == .presented)
+
+            for option in content.options {
+                let frame = try #require(layout.builderOptionFrames[option.buildingType])
+                #expect(builderFrame.contains(frame))
+                #expect(frame.minY == layout.builderOptionFrames[.barracks]?.minY)
+                #expect(frame.maxY == layout.builderOptionFrames[.barracks]?.maxY)
+                let nameFrame = try #require(
+                    node.optionNameLabelFrameForTesting(option.buildingType)
+                )
+                let statusFrame = try #require(
+                    node.optionStatusLabelFrameForTesting(option.buildingType)
+                )
+                #expect(frame.contains(nameFrame))
+                #expect(frame.contains(statusFrame))
+                let expectedAction: CampSelectionNode.Action = option.state.isAvailable
+                    ? .build(option.buildingType)
+                    : .requirement(option.buildingType)
+                #expect(node.action(at: center(of: frame)) == expectedAction)
+            }
+            #expect(node.optionPanelStyleForTesting(.barracks) == .selected)
+            #expect(node.optionPanelStyleForTesting(.archeryRange) == .normal)
+            #expect(node.optionPanelStyleForTesting(.stable) == .disabled)
+            #expect(node.optionPanelStyleForTesting(.mageTower) == .disabled)
+            #expect(node.optionPanelStyleForTesting(.siegeWorkshop) == .disabled)
+            #expect(node.optionRecommendationMarkIsHiddenForTesting(.barracks) == false)
+            #expect(node.optionRecommendationMarkIsHiddenForTesting(.stable) == true)
+            let markFrame = try #require(
+                node.optionRecommendationMarkFrameForTesting(.barracks)
+            )
+            #expect(layout.builderOptionFrames[.barracks]?.contains(markFrame) == true)
+        }
     }
 
     @Test func inspectorUpgradeDisablesUnaffordableRecommendationAndKeepsMarker() throws {
