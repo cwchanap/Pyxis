@@ -3344,6 +3344,35 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return SoldierAnimationGeometry(type: bundle.type).logicalBodyFrame(frameSize: sprite.size)
     }
 
+    /// Axis-aligned frame of `node` in scene coordinates, or nil while the
+    /// node is detached. Production geometry (the dense-formation gate-bar
+    /// clearance in `syncSoldierNodes`) and the DEBUG test probes share this
+    /// one conversion, so it lives outside the `#if DEBUG` extension.
+    private func sceneFrame(for node: SKNode) -> CGRect? {
+        guard let parent = node.parent else {
+            return nil
+        }
+
+        let frame = node.calculateAccumulatedFrame()
+        let points = [
+            CGPoint(x: frame.minX, y: frame.minY),
+            CGPoint(x: frame.maxX, y: frame.minY),
+            CGPoint(x: frame.minX, y: frame.maxY),
+            CGPoint(x: frame.maxX, y: frame.maxY)
+        ].map { parent.convert($0, to: self) }
+
+        guard
+            let minX = points.map(\.x).min(),
+            let maxX = points.map(\.x).max(),
+            let minY = points.map(\.y).min(),
+            let maxY = points.map(\.y).max()
+        else {
+            return nil
+        }
+
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
     private func clearLiveCombat() {
         // Charges refill only from valid active-tick time (HPA-582): carry
         // the banked counters across the combat rebuild so a
@@ -5692,31 +5721,6 @@ extension BattleScene {
         centers.append(CGPoint(x: layout.incomeFrame.midX, y: layout.incomeFrame.midY))
         centers.append(CGPoint(x: layout.cityProgressFrame.midX, y: layout.cityProgressFrame.midY))
         return centers
-    }
-
-    private func sceneFrame(for node: SKNode) -> CGRect? {
-        guard let parent = node.parent else {
-            return nil
-        }
-
-        let frame = node.calculateAccumulatedFrame()
-        let points = [
-            CGPoint(x: frame.minX, y: frame.minY),
-            CGPoint(x: frame.maxX, y: frame.minY),
-            CGPoint(x: frame.minX, y: frame.maxY),
-            CGPoint(x: frame.maxX, y: frame.maxY)
-        ].map { parent.convert($0, to: self) }
-
-        guard
-            let minX = points.map(\.x).min(),
-            let maxX = points.map(\.x).max(),
-            let minY = points.map(\.y).min(),
-            let maxY = points.map(\.y).max()
-        else {
-            return nil
-        }
-
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     private func soldierBodyColor(_ node: SKNode) -> SKColor {
