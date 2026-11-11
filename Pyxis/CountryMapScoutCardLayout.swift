@@ -15,14 +15,9 @@ struct CountryMapScoutCardLayout: Equatable {
     let overlayFrame: CGRect
     let nonBlockingOverlayFrame: CGRect
 
-    /// The smallest card height that can carry the full ordinary-phone Scout
-    /// repack (header, title, trait row, footer row and a >=44pt action).
-    /// Shorter information regions degrade to the compact strip rather than
-    /// expanding into the illustrated map.
-    static let ordinaryPhoneMinimumCardHeight: CGFloat = 114
-
     var isCompact: Bool {
-        layoutClass == .phone && traitLineFrames.isEmpty
+        layoutClass == .phone
+            && cardFrame.height <= CountryMapLayout.minimumCompactInformationHeight
     }
 
     static func compute(
@@ -38,7 +33,7 @@ struct CountryMapScoutCardLayout: Equatable {
         }
 
         if layoutClass == .phone,
-           informationRegionFrame.height < ordinaryPhoneMinimumCardHeight {
+           informationRegionFrame.height <= CountryMapLayout.minimumCompactInformationHeight {
             return compactPhone(in: informationRegionFrame)
         }
 
@@ -107,103 +102,72 @@ struct CountryMapScoutCardLayout: Equatable {
     }
 
     private static func phone(in informationRegionFrame: CGRect) -> Self {
-        // The ordinary-phone card stays inside the information region like the
-        // compact strip and the pad card do (HPA-812): it no longer expands
-        // into the illustrated map. The Scout content is repacked into rows
-        // sized from the available height — header, title+lane, trait row(s),
-        // the favorable/disadvantaged footer halves and a full-width action.
-        let cardFrame = informationRegionFrame
-        let roomy = cardFrame.height >= 150
-        let contentX = cardFrame.minX + 14
-        let contentWidth = cardFrame.width - 28
-        let attackHeight: CGFloat = roomy ? 46 : 44
-        let footerHeight: CGFloat = roomy ? 20 : 16
-        let traitRowHeight: CGFloat = roomy ? 12 : 10
-        let titleHeight: CGFloat = roomy ? 18 : 15
-        let headerHeight: CGFloat = roomy ? 18 : 14
-        let rowGap: CGFloat = roomy ? 3 : 2
-        let traitRowCount = cardFrame.height >= 124 ? 2 : 1
-        // Roomier cards keep a decorative city-art column to the left of the
-        // indented text rows; denser cards spend the width on the text itself.
-        let artIndent: CGFloat = cardFrame.height >= 140 ? 56 : 0
-
-        let rowsHeight = headerHeight + titleHeight
-            + traitRowHeight * CGFloat(traitRowCount)
-            + footerHeight + attackHeight + rowGap * 4
-        let verticalPad = max(3, floor((cardFrame.height - rowsHeight) / 2))
-
+        let cardFrame = CGRect(
+            x: informationRegionFrame.minX,
+            y: max(0, informationRegionFrame.minY - 24),
+            width: informationRegionFrame.width,
+            height: informationRegionFrame.height + 72
+        )
+        let contentFrame = cardFrame.insetBy(dx: 14, dy: 10)
         let attackFrame = CGRect(
-            x: contentX,
-            y: cardFrame.minY + verticalPad,
-            width: contentWidth,
-            height: attackHeight
+            x: contentFrame.minX,
+            y: cardFrame.minY + 20,
+            width: contentFrame.width,
+            height: 46
         )
-        let footerMinY = attackFrame.maxY + rowGap
-        let footerHalfWidth = floor((contentWidth - 8) / 2)
-        let favorableFrame = CGRect(
-            x: contentX,
-            y: footerMinY,
-            width: footerHalfWidth,
-            height: footerHeight
+        let topTraitLine = CGRect(
+            x: cardFrame.minX + 96,
+            y: cardFrame.maxY - 73,
+            width: cardFrame.width - 110,
+            height: 14
         )
-        let disadvantagedFrame = CGRect(
-            x: contentX + contentWidth - footerHalfWidth,
-            y: footerMinY,
-            width: footerHalfWidth,
-            height: footerHeight
-        )
-        let textX = contentX + artIndent
-        let textWidth = contentWidth - artIndent
         let bottomTraitLine = CGRect(
-            x: textX,
-            y: footerMinY + footerHeight + rowGap,
-            width: textWidth,
-            height: traitRowHeight
+            x: topTraitLine.minX,
+            y: topTraitLine.minY - 14,
+            width: topTraitLine.width,
+            height: 14
         )
-        var traitLineFrames = [bottomTraitLine]
-        if traitRowCount == 2 {
-            traitLineFrames.insert(
-                CGRect(
-                    x: textX,
-                    y: bottomTraitLine.maxY,
-                    width: textWidth,
-                    height: traitRowHeight
-                ),
-                at: 0
-            )
-        }
-        let titleMinY = traitLineFrames[0].maxY + rowGap
-        let exposedLaneWidth: CGFloat = 115
-        let titleFrame = CGRect(
-            x: textX,
-            y: titleMinY,
-            width: textWidth - exposedLaneWidth - 8,
-            height: titleHeight
-        )
-        let exposedLaneFrame = CGRect(
-            x: contentX + contentWidth - exposedLaneWidth,
-            y: titleMinY,
-            width: exposedLaneWidth,
-            height: titleHeight
-        )
-        let headerMinY = titleMinY + titleHeight + rowGap
         let badgeFrame = CGRect(
-            x: textX,
-            y: headerMinY + (headerHeight - 10) / 2,
+            x: cardFrame.minX + 96,
+            y: cardFrame.maxY - 20,
             width: 80,
-            height: 10
+            height: 12
         )
         let goldIconFrame = CGRect(
-            x: contentX + contentWidth - 59,
-            y: headerMinY + (headerHeight - 15) / 2,
+            x: cardFrame.maxX - 73,
+            y: cardFrame.maxY - 27,
             width: 15,
             height: 15
         )
         let rewardFrame = CGRect(
-            x: contentX + contentWidth - 39,
-            y: headerMinY,
+            x: goldIconFrame.maxX + 5,
+            y: cardFrame.maxY - 34,
             width: 39,
-            height: headerHeight
+            height: 28
+        )
+        let titleFrame = CGRect(
+            x: badgeFrame.minX,
+            y: cardFrame.maxY - 52,
+            width: 128,
+            height: 24
+        )
+        let favorableFrame = CGRect(
+            x: contentFrame.minX,
+            y: cardFrame.minY + 108,
+            width: contentFrame.width,
+            height: 30
+        )
+        let disadvantagedFrame = CGRect(
+            x: contentFrame.minX,
+            y: cardFrame.minY + 70,
+            width: contentFrame.width,
+            height: 30
+        )
+        let exposedLaneFrame = CGRect(
+            x: cardFrame.maxX - 129,
+            y: titleFrame.minY,
+            width: 115,
+            height: titleFrame.height
         )
         let nonBlockingOverlayFrame = CGRect(
             x: cardFrame.minX,
@@ -219,7 +183,7 @@ struct CountryMapScoutCardLayout: Equatable {
             titleFrame: titleFrame,
             goldIconFrame: goldIconFrame,
             rewardFrame: rewardFrame,
-            traitLineFrames: traitLineFrames,
+            traitLineFrames: [topTraitLine, bottomTraitLine],
             favorableFrame: favorableFrame,
             disadvantagedFrame: disadvantagedFrame,
             exposedLaneFrame: exposedLaneFrame,

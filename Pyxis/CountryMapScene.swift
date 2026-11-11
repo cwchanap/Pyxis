@@ -31,9 +31,6 @@ struct CountryMapLayoutFrames {
     let titlePanelFrame: CGRect
     let illustratedRegionFrame: CGRect
     let scoutCardFrame: CGRect
-    let informationRegionFrame: CGRect
-    let progressLabelFrame: CGRect
-    let progressSegmentFrames: [CGRect]
 }
 #endif
 
@@ -52,13 +49,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         static let livingKingdomSecuredCity = "lk-map-secured-city"
         static let livingKingdomCaravan = "lk-map-caravan"
     }
-
-    private static let sceneBackgroundColor = SKColor(
-        red: 0.07,
-        green: 0.12,
-        blue: 0.14,
-        alpha: 1.0
-    )
 
     private enum ActionKey {
         static let unlockedPulse = "countryMapUnlockedPulse"
@@ -110,8 +100,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     }
     private let scoutCardNode: CountryMapScoutCardNode
     private var backdropNode: SKSpriteNode?
-    private var backdropTopBlend: SKSpriteNode?
-    private var backdropBottomBlend: SKSpriteNode?
     private var cityNodes: [Int: SKShapeNode] = [:]
     private var cityHitTargets: [Int: SKShapeNode] = [:]
     private var cityLabels: [Int: SKLabelNode] = [:]
@@ -138,10 +126,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         scene: CGRect.zero,
         titlePanel: CGRect.zero,
         illustratedRegion: CGRect.zero,
-        scoutCard: CGRect.zero,
-        informationRegion: CGRect.zero,
-        progressLabel: CGRect.zero,
-        progressSegments: [CGRect]()
+        scoutCard: CGRect.zero
     )
 
     init(
@@ -198,7 +183,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     }
 
     override func didMove(to view: SKView) {
-        backgroundColor = Self.sceneBackgroundColor
+        backgroundColor = SKColor(red: 0.07, green: 0.12, blue: 0.14, alpha: 1.0)
         state = store.load()
         previousUpdateTime = nil
 
@@ -267,16 +252,14 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
 
     private func handleScoutCardTouch(at point: CGPoint) -> Bool {
         if scoutCardNode.overlayHitFrame?.contains(point) == true {
-            // The contained card keeps its overlays inside the information
-            // region, so they no longer cover city hit targets on supported
-            // geometry (HPA-812). The yield stays as defense-in-depth: if a
-            // city hit target ever lands inside the overlay (e.g. a compact
-            // band or a relocated frame), city selection is neither Attack
-            // nor scout entry, so it wins for ALL overlay kinds. Blocking
-            // kinds still disable Attack (via `attackHitFrame = nil` in
-            // `applyFeedback`) and block scout entry (via the
-            // `blocksScoutEntry` gate on the card-body tap below), so
-            // yielding here does not re-enable either.
+            // The Scout-card overlay (flavor or blocking) can overlap the
+            // lowest city hit targets on the 393x852 fixture. City selection
+            // is neither Attack nor scout entry, so yield to it for ALL
+            // overlay kinds — the city stays tappable for the overlay's
+            // lifetime. Blocking kinds still disable Attack (via
+            // `attackHitFrame = nil` in `applyFeedback`) and block scout
+            // entry (via the `blocksScoutEntry` gate on the card-body tap
+            // below), so yielding here does not re-enable either.
             if cityNumber(at: point) != nil {
                 return false
             }
@@ -287,11 +270,12 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             return true
         }
         if scoutCardNode.cardHitFrame?.contains(point) == true {
-            // If a city hit target ever lands inside the card body, yield to
-            // city selection there so the city keeps its full 44pt selectable
-            // area; flavor only fires on empty card area. Attack/overlay
-            // stay prioritized above cities because their frames are checked
-            // first.
+            // The expanded phone card body can overlap the lowest city hit
+            // targets (e.g. City 1/2 on the 393x852 fixture). Yield to city
+            // selection there so those cities keep their full 44pt selectable
+            // area; the visual overlap is preserved and flavor only fires on
+            // empty card area. Attack/overlay stay prioritized above cities
+            // because their frames do not overlap city hit targets.
             if cityNumber(at: point) != nil {
                 return false
             }
@@ -369,37 +353,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         backdrop.zPosition = 0
         backdropLayer.addChild(backdrop)
         backdropNode = backdrop
-
-        // Soft gradient strips fade the authored backdrop's top/bottom edges
-        // into the scene background so the flat bands blend instead of
-        // ending on a hard horizontal line (HPA-812). Pure decoration: they
-        // live in the backdrop layer, never resize the art, and no hit frame
-        // depends on them.
-        let topBlend = SKSpriteNode(
-            texture: PanelNode.gradientTexture(
-                top: Self.sceneBackgroundColor,
-                bottom: .clear
-            )
-        )
-        topBlend.name = "countryMapBackdropTopBlend"
-        topBlend.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        topBlend.zPosition = 1
-        topBlend.isHidden = true
-        backdropLayer.addChild(topBlend)
-        backdropTopBlend = topBlend
-
-        let bottomBlend = SKSpriteNode(
-            texture: PanelNode.gradientTexture(
-                top: .clear,
-                bottom: Self.sceneBackgroundColor
-            )
-        )
-        bottomBlend.name = "countryMapBackdropBottomBlend"
-        bottomBlend.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        bottomBlend.zPosition = 1
-        bottomBlend.isHidden = true
-        backdropLayer.addChild(bottomBlend)
-        backdropBottomBlend = bottomBlend
 
         configureLabel(titleLabel, fontSize: 30, color: GameUITheme.Color.textPrimary)
         titlePanel.addChild(titleLabel)
@@ -660,7 +613,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
     private func clearLayoutGeometry() {
         countryMapLayout = nil
         scoutCardLayout = nil
-        layoutFrames = (.zero, .zero, .zero, .zero, .zero, .zero, [])
+        layoutFrames = (.zero, .zero, .zero, .zero)
         routeLayer.removeAllChildren()
         livingKingdomLayer.removeAllChildren()
         lastLivingKingdomMapRenderKey = nil
@@ -668,12 +621,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         backdropNode?.isHidden = true
         backdropNode?.size = .zero
         backdropNode?.position = .zero
-        backdropTopBlend?.isHidden = true
-        backdropTopBlend?.size = .zero
-        backdropTopBlend?.position = .zero
-        backdropBottomBlend?.isHidden = true
-        backdropBottomBlend?.size = .zero
-        backdropBottomBlend?.position = .zero
         titlePanel.isHidden = true
         titlePanel.update(size: .zero)
         titlePanel.position = .zero
@@ -733,7 +680,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
                 y: layout.displayedBackdropFrame.midY
             )
         }
-        layoutBackdropEdgeBlends(layout)
 
         titlePanel.apply(
             size: layout.titleControlRegionFrame.size,
@@ -750,10 +696,7 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
             scene: layout.sceneFrame,
             titlePanel: layout.titleControlRegionFrame,
             illustratedRegion: layout.illustratedMapRegionFrame,
-            scoutCard: scoutCardLayout?.cardFrame ?? layout.informationRegionFrame,
-            informationRegion: layout.informationRegionFrame,
-            progressLabel: layout.progressLabelFrame,
-            progressSegments: layout.progressSegmentFrames
+            scoutCard: scoutCardLayout?.cardFrame ?? layout.informationRegionFrame
         )
         layoutGameplayTabBar(bottomSafeInset: environment.safeAreaInsets.bottom)
 
@@ -792,43 +735,6 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         }
 
         return true
-    }
-
-    /// Positions the decorative gradient strips that blend the backdrop's
-    /// top/bottom edges into the scene background. Each strip covers the flat
-    /// band plus a fixed overlap into the art; hidden when the backdrop
-    /// already reaches the scene edge. Geometry only — no hit frames.
-    private func layoutBackdropEdgeBlends(_ layout: CountryMapLayout) {
-        let overlap: CGFloat = 40
-        let backdropFrame = layout.displayedBackdropFrame
-
-        if let topBlend = backdropTopBlend {
-            let topHeight = layout.sceneFrame.maxY - (backdropFrame.maxY - overlap)
-            if backdropFrame.maxY < layout.sceneFrame.maxY, topHeight > 0 {
-                topBlend.size = CGSize(width: layout.sceneFrame.width, height: topHeight)
-                topBlend.position = CGPoint(
-                    x: layout.sceneFrame.midX,
-                    y: layout.sceneFrame.maxY - topHeight / 2
-                )
-                topBlend.isHidden = false
-            } else {
-                topBlend.isHidden = true
-            }
-        }
-
-        if let bottomBlend = backdropBottomBlend {
-            let bottomHeight = (backdropFrame.minY + overlap) - layout.sceneFrame.minY
-            if backdropFrame.minY > layout.sceneFrame.minY, bottomHeight > 0 {
-                bottomBlend.size = CGSize(width: layout.sceneFrame.width, height: bottomHeight)
-                bottomBlend.position = CGPoint(
-                    x: layout.sceneFrame.midX,
-                    y: layout.sceneFrame.minY + bottomHeight / 2
-                )
-                bottomBlend.isHidden = false
-            } else {
-                bottomBlend.isHidden = true
-            }
-        }
     }
 
     private func layoutGameplayTabBar(bottomSafeInset: CGFloat) {
@@ -911,42 +817,50 @@ final class CountryMapScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRe
         )
         resourceLabel.isHidden = false
 
+        let progressFrame = layout.progressFrame
         mapProgressText = "\(state.completedCityCount)/\(KingdomGameState.firstCountryCityCount)"
         mapProgressCompletedCount = min(
             KingdomGameState.firstCountryCityCount,
             max(0, state.completedCityCount)
         )
-        // The pure layout owns the label/pip split (HPA-812); the scene only
-        // applies the computed frames plus the state-derived completion
-        // coloring and count text.
         progressLabel.text = mapProgressText
         progressLabel.fontSize = 11
-        progressLabel.position = CGPoint(
-            x: layout.progressLabelFrame.maxX,
-            y: layout.progressLabelFrame.midY
-        )
+        progressLabel.position = CGPoint(x: progressFrame.maxX, y: progressFrame.midY)
         progressLabel.isHidden = false
 
+        let labelReservation: CGFloat = 32
+        let segmentGap: CGFloat = 2
+        let segmentRegionWidth = max(
+            0,
+            progressFrame.width - labelReservation
+        )
+        let segmentWidth = max(
+            2,
+            (segmentRegionWidth - segmentGap * CGFloat(progressSegments.count - 1))
+                / CGFloat(progressSegments.count)
+        )
+        let segmentHeight: CGFloat = 8
         for (index, segment) in progressSegments.enumerated() {
-            let frame = layout.progressSegmentFrames[index]
+            let x = progressFrame.minX
+                + CGFloat(index) * (segmentWidth + segmentGap)
+                + segmentWidth / 2
             let rect = CGRect(
-                x: -frame.width / 2,
-                y: -frame.height / 2,
-                width: frame.width,
-                height: frame.height
+                x: -segmentWidth / 2,
+                y: -segmentHeight / 2,
+                width: segmentWidth,
+                height: segmentHeight
             )
             segment.path = CGPath(
                 roundedRect: rect,
-                cornerWidth: frame.height / 2,
-                cornerHeight: frame.height / 2,
+                cornerWidth: segmentHeight / 2,
+                cornerHeight: segmentHeight / 2,
                 transform: nil
             )
             segment.fillColor = index < mapProgressCompletedCount
                 ? GameUITheme.Color.gold
                 : GameUITheme.Color.locked.withAlphaComponent(0.75)
             segment.strokeColor = .clear
-            segment.lineWidth = 0
-            segment.position = CGPoint(x: frame.midX, y: frame.midY)
+            segment.position = CGPoint(x: x, y: progressFrame.midY)
             segment.isHidden = false
         }
     }
@@ -1541,14 +1455,6 @@ extension CountryMapScene {
         progressSegments.filter { !$0.isHidden }.count
     }
 
-    var mapProgressLabelSceneFrameForTesting: CGRect? {
-        progressLabel.isHidden ? nil : progressLabel.frame
-    }
-
-    var mapProgressSegmentSceneFramesForTesting: [CGRect] {
-        progressSegments.filter { !$0.isHidden }.map(\.frame)
-    }
-
     var mapProgressCompletedCountForTesting: Int {
         mapProgressCompletedCount
     }
@@ -1610,10 +1516,7 @@ extension CountryMapScene {
             sceneFrame: layoutFrames.scene,
             titlePanelFrame: layoutFrames.titlePanel,
             illustratedRegionFrame: layoutFrames.illustratedRegion,
-            scoutCardFrame: layoutFrames.scoutCard,
-            informationRegionFrame: layoutFrames.informationRegion,
-            progressLabelFrame: layoutFrames.progressLabel,
-            progressSegmentFrames: layoutFrames.progressSegments
+            scoutCardFrame: layoutFrames.scoutCard
         )
     }
 

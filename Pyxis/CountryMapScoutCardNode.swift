@@ -19,17 +19,11 @@ final class CountryMapScoutCardNode: SKNode {
         let attackSize: CGFloat
         let feedbackSize: CGFloat
         let feedbackHorizontalInset: CGFloat
-        /// Starting size for the country-complete "Next:" second line.
-        let countryCompleteDetailSize: CGFloat
         let iconSize: CGFloat
         let prefixGap: CGFloat
         let iconLabelGap: CGFloat
         let itemGap: CGFloat
         let fixedPadLabelWidth: CGFloat?
-        /// Forged phone cards measure missing soldier icons with compact
-        /// 8pt labels and tighter gaps instead of the icon-slot arithmetic
-        /// the pad layout uses.
-        let usesCompactPhoneFallback: Bool
     }
 
     private struct PreparedFooterItem {
@@ -69,12 +63,7 @@ final class CountryMapScoutCardNode: SKNode {
 
     private enum PreparedPresentation {
         case scout(PreparedScout)
-        case countryComplete(
-            text: String,
-            fontSize: CGFloat,
-            detailText: String,
-            detailFontSize: CGFloat
-        )
+        case countryComplete(text: String, fontSize: CGFloat)
     }
 
     private let imageLoader: ImageLoader
@@ -85,7 +74,6 @@ final class CountryMapScoutCardNode: SKNode {
     private let badgePanel = PanelNode(size: .zero)
     private let badgeLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let titleLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
-    private let countryCompleteDetailLabel = SKLabelNode(fontNamed: GameUITheme.Font.medium)
     private let goldIcon = SKSpriteNode()
     private let rewardLabel = SKLabelNode(fontNamed: GameUITheme.Font.bold)
     private let traitLabels = [
@@ -131,7 +119,6 @@ final class CountryMapScoutCardNode: SKNode {
     struct BaseContentReadback: Equatable {
         let badge: String?
         let title: String?
-        let detail: String?
         let traitLines: [String]
         let favorable: String?
         let disadvantaged: String?
@@ -273,7 +260,6 @@ final class CountryMapScoutCardNode: SKNode {
         contentLayer.addChild(cityArt)
         contentLayer.addChild(badgeLabel)
         contentLayer.addChild(titleLabel)
-        contentLayer.addChild(countryCompleteDetailLabel)
         contentLayer.addChild(goldIcon)
         contentLayer.addChild(rewardLabel)
         traitLabels.forEach(contentLayer.addChild)
@@ -289,7 +275,6 @@ final class CountryMapScoutCardNode: SKNode {
 
         configureLabel(badgeLabel, horizontal: .center)
         configureLabel(titleLabel, horizontal: .left)
-        configureLabel(countryCompleteDetailLabel, horizontal: .center)
         configureLabel(rewardLabel, horizontal: .right)
         traitLabels.forEach { configureLabel($0, horizontal: .left) }
         configureLabel(laneLabel, horizontal: .right)
@@ -298,7 +283,6 @@ final class CountryMapScoutCardNode: SKNode {
 
         badgeLabel.fontColor = GameUITheme.Color.textPrimary
         titleLabel.fontColor = GameUITheme.Color.textPrimary
-        countryCompleteDetailLabel.fontColor = GameUITheme.Color.textSecondary
         rewardLabel.fontColor = GameUITheme.Color.gold
         traitLabels.forEach { $0.fontColor = GameUITheme.Color.textSecondary }
         laneLabel.fontColor = GameUITheme.Color.textSecondary
@@ -324,27 +308,14 @@ final class CountryMapScoutCardNode: SKNode {
         switch content {
         case .countryComplete(let countryNumber, let finalCityName):
             let text = "Country \(countryNumber) conquered · \(finalCityName)"
-            // The second line points the player at the post-country loop —
-            // Kingdom → Ascend restarts the campaign (HPA-812).
-            let detailText = "Next: Kingdom → Ascend to begin again."
             guard let fontSize = fittedFontSize(
                 text,
                 startingAt: metrics.titleSize,
                 frameWidth: layout.cardFrame.width
-            ), let detailFontSize = fittedFontSize(
-                detailText,
-                startingAt: metrics.countryCompleteDetailSize,
-                frameWidth: layout.cardFrame.width - 24,
-                fontName: GameUITheme.Font.medium
             ) else {
                 return nil
             }
-            return .countryComplete(
-                text: text,
-                fontSize: fontSize,
-                detailText: detailText,
-                detailFontSize: detailFontSize
-            )
+            return .countryComplete(text: text, fontSize: fontSize)
 
         case .scout(let scout):
             return prepareScout(scout, layout: layout, metrics: metrics).map {
@@ -582,7 +553,7 @@ final class CountryMapScoutCardNode: SKNode {
         measure: (String) -> CGFloat,
         reservesTrailingMultiplier: Bool
     ) -> CGFloat {
-        let usesPhoneFallback = metrics.usesCompactPhoneFallback && items.contains {
+        let usesPhoneFallback = metrics.iconSize == 30 && items.contains {
             $0.type != nil && $0.image == nil
         }
         let itemGap = usesPhoneFallback ? 4 : metrics.itemGap
@@ -661,27 +632,14 @@ final class CountryMapScoutCardNode: SKNode {
         cardHitFrame = layout.cardFrame
 
         switch presentation {
-        case .countryComplete(let text, let fontSize, let detailText, let detailFontSize):
+        case .countryComplete(let text, let fontSize):
             currentPresentationIsScout = false
             currentReservesTrailingMultiplier = false
             currentMetrics = metrics(for: layout)
-            // Two centered lines: the conquest headline above, the
-            // "Next: Kingdom → Ascend" pointer below. The pair stays inside
-            // the card, and the card still exposes no Attack target.
-            let lineGap = min(14, max(9, layout.cardFrame.height * 0.14))
             titleLabel.text = text
             titleLabel.fontSize = fontSize
             titleLabel.horizontalAlignmentMode = .center
-            titleLabel.position = CGPoint(
-                x: layout.cardFrame.midX,
-                y: layout.cardFrame.midY + lineGap
-            )
-            countryCompleteDetailLabel.text = detailText
-            countryCompleteDetailLabel.fontSize = detailFontSize
-            countryCompleteDetailLabel.position = CGPoint(
-                x: layout.cardFrame.midX,
-                y: layout.cardFrame.midY - lineGap
-            )
+            titleLabel.position = CGPoint(x: layout.cardFrame.midX, y: layout.cardFrame.midY)
             currentCountryCompleteTitleFrame = layout.cardFrame
             attackHitFrame = nil
 
@@ -824,25 +782,15 @@ final class CountryMapScoutCardNode: SKNode {
 
         let targetFrame: CGRect
         if case .phone = layout.layoutClass {
-            // Roomier phone cards reserve a decorative art column to the left
-            // of the indented text rows. Denser cards set no indent, so the
-            // zone collapses and the art stays hidden (HPA-812 repack).
-            let indentedMinX = ([layout.badgeFrame, layout.titleFrame]
-                + layout.traitLineFrames).map(\.minX).min() ?? layout.cardFrame.minX
-            let artZoneMaxX = indentedMinX - 6
-            let artZone = CGRect(
+            // Clamp the art inside the card exactly like the generic branch:
+            // a short (compact) card must not push the art below cardFrame.
+            let artHeight = min(88, layout.cardFrame.height - 20)
+            targetFrame = CGRect(
                 x: layout.cardFrame.minX + 8,
-                y: layout.attackFrame.maxY + 6,
-                width: artZoneMaxX - (layout.cardFrame.minX + 8),
-                height: layout.cardFrame.maxY - 10 - (layout.attackFrame.maxY + 6)
+                y: layout.cardFrame.maxY - 10 - artHeight,
+                width: 80,
+                height: artHeight
             )
-            guard artZone.width >= 20, artZone.height >= 20 else {
-                cityArt.isHidden = true
-                cityArt.texture = nil
-                cityArt.size = .zero
-                return
-            }
-            targetFrame = artZone
         } else {
             targetFrame = CGRect(
                 x: layout.cardFrame.minX + 8,
@@ -913,7 +861,7 @@ final class CountryMapScoutCardNode: SKNode {
         container: SKNode
     ) -> [RenderedFooterItem] {
         container.removeAllChildren()
-        let usesPhoneFallback = metrics.usesCompactPhoneFallback && items.contains {
+        let usesPhoneFallback = metrics.iconSize == 30 && items.contains {
             $0.type != nil && $0.image == nil
         }
         let fontSize: CGFloat = usesPhoneFallback ? 8 : metrics.footerSize
@@ -1024,7 +972,6 @@ final class CountryMapScoutCardNode: SKNode {
         cityArt.size = .zero
         badgeLabel.text = nil
         titleLabel.text = nil
-        countryCompleteDetailLabel.text = nil
         goldIcon.isHidden = true
         goldIcon.texture = nil
         goldIcon.size = .zero
@@ -1077,8 +1024,7 @@ final class CountryMapScoutCardNode: SKNode {
     private func fittedFontSize(
         _ text: String,
         startingAt size: CGFloat,
-        frameWidth: CGFloat,
-        fontName: String = GameUITheme.Font.bold
+        frameWidth: CGFloat
     ) -> CGFloat? {
         CountryMapScoutCardTextLayout.fittedFontSize(
             text,
@@ -1086,7 +1032,7 @@ final class CountryMapScoutCardNode: SKNode {
             minimum: 8,
             maximumWidth: frameWidth,
             measure: { [weak self] text, size in
-                self?.measure(fontName: fontName, size: size)?(text)
+                self?.measure(fontName: GameUITheme.Font.bold, size: size)?(text)
                     ?? .greatestFiniteMagnitude
             }
         )
@@ -1139,59 +1085,31 @@ final class CountryMapScoutCardNode: SKNode {
                 attackSize: 13,
                 feedbackSize: 13,
                 feedbackHorizontalInset: 6,
-                countryCompleteDetailSize: 10,
                 iconSize: 10,
                 prefixGap: 2,
                 iconLabelGap: 2,
                 itemGap: 4,
-                fixedPadLabelWidth: nil,
-                usesCompactPhoneFallback: true
+                fixedPadLabelWidth: nil
             )
         }
 
         switch layout.layoutClass {
         case .phone:
-            // The contained ordinary-phone card repacks the same Scout
-            // information into stacked rows. Its sizes scale with the card
-            // height: the roomy >=150pt tier keeps the original weight, the
-            // dense tier tightens to the smaller reserved card (HPA-812).
-            if layout.cardFrame.height >= 150 {
-                return Metrics(
-                    titleSize: 18,
-                    badgeSize: 10,
-                    rewardSize: 14,
-                    fallbackRewardSize: 10,
-                    traitSize: 11,
-                    footerSize: 12,
-                    attackSize: 16,
-                    feedbackSize: 13,
-                    feedbackHorizontalInset: 6,
-                    countryCompleteDetailSize: 12,
-                    iconSize: 19,
-                    prefixGap: 6,
-                    iconLabelGap: 2,
-                    itemGap: 7,
-                    fixedPadLabelWidth: nil,
-                    usesCompactPhoneFallback: true
-                )
-            }
             return Metrics(
-                titleSize: 15,
-                badgeSize: 9,
+                titleSize: 19,
+                badgeSize: 10,
                 rewardSize: 14,
                 fallbackRewardSize: 10,
-                traitSize: 10,
-                footerSize: 11,
-                attackSize: 15,
+                traitSize: 11,
+                footerSize: 13,
+                attackSize: 16,
                 feedbackSize: 13,
                 feedbackHorizontalInset: 6,
-                countryCompleteDetailSize: 11,
-                iconSize: 15,
-                prefixGap: 5,
-                iconLabelGap: 2,
-                itemGap: 6,
-                fixedPadLabelWidth: nil,
-                usesCompactPhoneFallback: true
+                iconSize: 30,
+                prefixGap: 9,
+                iconLabelGap: 3,
+                itemGap: 8,
+                fixedPadLabelWidth: nil
             )
         case .pad:
             return Metrics(
@@ -1204,13 +1122,11 @@ final class CountryMapScoutCardNode: SKNode {
                 attackSize: 16,
                 feedbackSize: 16,
                 feedbackHorizontalInset: 12,
-                countryCompleteDetailSize: 13,
                 iconSize: 14,
                 prefixGap: 4,
                 iconLabelGap: 4,
                 itemGap: 8,
-                fixedPadLabelWidth: 52,
-                usesCompactPhoneFallback: false
+                fixedPadLabelWidth: 52
             )
         }
     }
@@ -1348,14 +1264,6 @@ extension CountryMapScoutCardNode {
         currentCountryCompleteTitleFrame
     }
 
-    var countryCompleteDetailTextForTesting: String? {
-        countryCompleteDetailLabel.text
-    }
-
-    var countryCompleteDetailFontSizeForTesting: CGFloat? {
-        countryCompleteDetailLabel.text == nil ? nil : countryCompleteDetailLabel.fontSize
-    }
-
     var cityArtAssetNameForTesting: String? {
         currentCityArtAssetName
     }
@@ -1413,7 +1321,6 @@ extension CountryMapScoutCardNode {
         .init(
             badge: badgeLabel.text,
             title: titleLabel.text,
-            detail: countryCompleteDetailLabel.text,
             traitLines: traitLineTextsForTesting,
             favorable: favorableTextForTesting,
             disadvantaged: disadvantagedTextForTesting,
