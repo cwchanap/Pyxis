@@ -170,13 +170,24 @@ iOS 26.5, 393×852 pt, derived data `/tmp/pyxis-hpa812-build`):
   launch args, combat unfrozen. `dense-gate-round2-early.png` (~19 s) shows
   ten distinct soldiers with individual HP bars and a `+1` pill;
   `dense-gate-round2-dense.png` (~68 s) shows the pile bounded with a `+25`
-  pill and a visible hit flash on the actual tower target.
+  pill and a hit flash visible on one soldier. The Arrow Tower is destroyed
+  in this scenario, so that flash is not tower fire — its source is not
+  independently established.
   `crownspire-round2-after-capture.plist` confirms live combat
-  (`east-gate` damage 2404 — absent from the seed — `arrow-tower` intact,
-  `battleActive`, 333 s) — not a staged render.
+  (`east-gate` damage 2404 — absent from the seed — `arrow-tower` still at
+  its seeded 6286, i.e. destroyed; `battleActive`, 333 s; 30 infantry
+  deployed on lane 2, 870 soldier damage applied, 1420 idle damage) — not
+  a staged render.
+
+Round-3 note: the reserved-footprint path mechanism described in this
+section was subsequently replaced by a bounded stable-seat presentation —
+disjoint seats on a per-lane grid pitched on the readable body∪bar unit,
+with overflow folded truthfully into the same `+N` badge. The captures
+above remain valid evidence of the desired end state; the described
+mechanism is historical.
 
 Limitations: simulator-only captures; no physical device, VoiceOver, iPad,
-or real-device performance claims. Footprint reservation is a presentation
-invariant — combat, targeting, spawning, economy and persistence are
-unchanged. Audio/CoreSimulator warnings seen during runs are environmental
-and not test failures.
+or real-device performance claims. Seat/fade/corpse reservations are a
+presentation invariant — combat, targeting, spawning, economy and
+persistence are unchanged. Audio/CoreSimulator warnings seen during runs
+are environmental and not test failures.
