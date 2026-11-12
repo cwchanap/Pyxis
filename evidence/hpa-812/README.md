@@ -44,8 +44,34 @@ attachment, resized to 590 px wide. It is a **static offscreen SKView render**
 of nine infantry against a durable gate after controlled combat; tower fire is
 disabled and the Captain is recovering. It is not a live busy-gate capture.
 
-No Camp no-selection or unaffordable-recommended screenshot was obtained;
-those states have test coverage. The baseline Confirm was already contained
-at 393×852. The narrow Confirm evidence is an offscreen SKView render, not
-a physical compact-device capture. iPad visuals and live crowded-gate behavior
-remain unverified by these images.
+The follow-up phone check adds two captures from a newly created, isolated
+iPhone 16 simulator running iOS 26.5 at 393×852, using code at `f2f9dfc`:
+
+- `camp-no-selection.png`: launched the existing `camp-empty` fixture, switched
+  to Battle and back to Camp, and captured the grid before selecting a lot.
+- `camp-unaffordable.png`: built a Barracks and upgraded it to level 8 through
+  the Camp UI. With 388 gold, the recommended 400-gold upgrade is dimmed;
+  tapping it shows the insufficient-gold message without changing the gold or
+  level. This capture shows the message after the tap.
+
+The follow-up also found the phone Scout card's troop portraits substantially
+smaller than in the baseline comparison: the ordinary-phone icon metric fell
+from 30pt to 14pt. Their legibility merits review.
+
+`dense-gate-live.png` and `dense-gate-live-contact.png` are from a new
+unfrozen Crownspire run on the same isolated simulator. Five level-1 Barracks
+were built through the Camp UI. To create the scenario without altering game
+code, the disposable simulator's test save was seeded with the Arrow Tower
+destroyed and the right lane selected; both gates and the Keep were initially
+intact. Soldiers then spawned and fought using the running game. At high
+density, HP bars and bodies overlap near the back of the lane, forming solid
+green blocks. The 47-second source recording averaged approximately 3.2 fps
+under heavy host load; the contact sheet samples it every eight seconds. The
+full video and pre-seeding test save are retained in the ignored task
+workspace, not committed here.
+
+The baseline Confirm was already contained at 393×852. The narrow Confirm
+evidence is an offscreen SKView render, not a physical compact-device capture.
+iPad was skipped for the follow-up. The simulator's Accessibility settings
+did not offer a VoiceOver control, so real VoiceOver traversal remains
+unverified and needs a supported device.
