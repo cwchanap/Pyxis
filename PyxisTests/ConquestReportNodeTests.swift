@@ -40,16 +40,23 @@ private func fullContent(newGearLineText: String? = nil) -> ConquestReportConten
     )
 }
 
+private enum RenderedPixelSamplingError: Error {
+    case imageDrawFailed
+    case emptySampleRegion
+}
+
 /// Draws the rendered scene image into an RGBA8 buffer and counts the pixels
 /// matching `isMatch` inside `sceneRect`, a rect in bottom-left-origin scene
-/// coordinates.
+/// coordinates. Throws instead of returning a vacuous (0, 0) when the bitmap
+/// cannot be drawn or the sampled region is empty, so a failed sample can
+/// never satisfy the callers' thresholds.
 private func renderedPixelStats(
     in image: CGImage,
     sceneRect: CGRect,
     sceneSize: CGSize,
     isMatch: (Int, Int, Int) -> Bool
-) -> (matchingPixels: Int, totalPixels: Int) {
-    guard image.width > 0, image.height > 0 else { return (0, 0) }
+) throws -> (matchingPixels: Int, totalPixels: Int) {
+    guard image.width > 0, image.height > 0 else { throw RenderedPixelSamplingError.imageDrawFailed }
     var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
     let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
         guard let context = CGContext(
@@ -66,7 +73,7 @@ private func renderedPixelStats(
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return true
     }
-    guard drawn else { return (0, 0) }
+    guard drawn else { throw RenderedPixelSamplingError.imageDrawFailed }
 
     let scaleX = CGFloat(image.width) / sceneSize.width
     let scaleY = CGFloat(image.height) / sceneSize.height
@@ -75,7 +82,7 @@ private func renderedPixelStats(
     let maxX = min(image.width, Int((sceneRect.maxX * scaleX).rounded(.up)))
     let minY = max(0, Int(((sceneSize.height - sceneRect.maxY) * scaleY).rounded(.down)))
     let maxY = min(image.height, Int(((sceneSize.height - sceneRect.minY) * scaleY).rounded(.up)))
-    guard minX < maxX, minY < maxY else { return (0, 0) }
+    guard minX < maxX, minY < maxY else { throw RenderedPixelSamplingError.emptySampleRegion }
 
     var matchingPixels = 0
     var totalPixels = 0
@@ -102,8 +109,8 @@ private func renderedLightPixelStats(
     in image: CGImage,
     sceneRect: CGRect,
     sceneSize: CGSize
-) -> (lightPixels: Int, totalPixels: Int) {
-    let stats = renderedPixelStats(in: image, sceneRect: sceneRect, sceneSize: sceneSize) {
+) throws -> (lightPixels: Int, totalPixels: Int) {
+    let stats = try renderedPixelStats(in: image, sceneRect: sceneRect, sceneSize: sceneSize) {
         $0 > 150 && $1 > 150 && $2 > 150
     }
     return (stats.matchingPixels, stats.totalPixels)
@@ -126,8 +133,8 @@ private func renderedColorPixelStats(
     sceneRect: CGRect,
     sceneSize: CGSize,
     expected: ExpectedGlyphColor
-) -> (matchingPixels: Int, totalPixels: Int) {
-    renderedPixelStats(in: image, sceneRect: sceneRect, sceneSize: sceneSize) { r, g, b in
+) throws -> (matchingPixels: Int, totalPixels: Int) {
+    try renderedPixelStats(in: image, sceneRect: sceneRect, sceneSize: sceneSize) { r, g, b in
         abs(r - expected.red) <= 80
             && abs(g - expected.green) <= 80
             && abs(b - expected.blue) <= 80
@@ -427,7 +434,7 @@ struct ConquestReportNodeTests {
             )
             let parent = try #require(icon.parent)
             let iconFrame = scene.convert(icon.frame, from: parent)
-            let stats = renderedLightPixelStats(
+            let stats = try renderedLightPixelStats(
                 in: image,
                 sceneRect: iconFrame,
                 sceneSize: scene.size
@@ -479,7 +486,7 @@ struct ConquestReportNodeTests {
             // Inset so the sample cannot clip the chip's same-colored border
             // ring, which passes within ~2pt of the 13pt icon at midY.
             let iconFrame = scene.convert(icon.frame, from: parent).insetBy(dx: 2, dy: 2)
-            let stats = renderedColorPixelStats(
+            let stats = try renderedColorPixelStats(
                 in: image,
                 sceneRect: iconFrame,
                 sceneSize: scene.size,
