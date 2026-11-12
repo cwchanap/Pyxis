@@ -425,9 +425,7 @@ final class ConquestReportNode: SKNode {
             bundle.background.fillColor = color.withAlphaComponent(0.16)
             bundle.background.strokeColor = color
             bundle.background.lineWidth = 1
-            bundle.icon.texture = UIImage(systemName: Self.symbol(for: achievement)).map {
-                SKTexture(image: $0)
-            }
+            bundle.icon.texture = Self.monochromeSymbolTexture(named: Self.symbol(for: achievement))
             bundle.icon.color = color
             bundle.icon.colorBlendFactor = 1
             bundle.icon.size = CGSize(width: 13, height: 13)
@@ -605,9 +603,23 @@ final class ConquestReportNode: SKNode {
                 in: SKTexture(image: image)
             )
         }
-        return UIImage(systemName: tile.symbolName).map {
-            SKTexture(image: $0)
+        return Self.monochromeSymbolTexture(named: tile.symbolName)
+    }
+
+    /// Monochrome SF Symbols rasterize black, and `colorBlendFactor` tinting
+    /// can only darken texels — the configured tint never reaches the
+    /// framebuffer (HPA-812). `withTintColor` alone only tags the UIImage;
+    /// `SKTexture(image:)` still ingests the black CGImage, so the tint must
+    /// be baked by drawing through `UIGraphicsImageRenderer`. Rasterizing
+    /// white lets the sprite's existing `color`/`colorBlendFactor` colorize
+    /// the glyph, matching the pre-tinted captain-portrait fallback in
+    /// `BattleHUDNode`.
+    private static func monochromeSymbolTexture(named symbolName: String) -> SKTexture? {
+        guard let symbol = UIImage(systemName: symbolName) else { return nil }
+        let image = UIGraphicsImageRenderer(size: symbol.size).image { _ in
+            symbol.withTintColor(.white, renderingMode: .alwaysOriginal).draw(at: .zero)
         }
+        return SKTexture(image: image)
     }
 
     private static func symbol(for achievement: ConquestReportContent.Achievement) -> String {

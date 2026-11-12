@@ -1,5 +1,6 @@
 import SpriteKit
 import Testing
+import UIKit
 @testable import Pyxis
 
 private enum ConquestReportNodeTestError: Error { case layoutUnavailable }
@@ -37,6 +38,100 @@ private func fullContent(newGearLineText: String? = nil) -> ConquestReportConten
         ],
         achievements: [.favorableUnit, .exposedLane]
     )
+}
+
+/// Draws the rendered scene image into an RGBA8 buffer and counts the pixels
+/// matching `isMatch` inside `sceneRect`, a rect in bottom-left-origin scene
+/// coordinates.
+private func renderedPixelStats(
+    in image: CGImage,
+    sceneRect: CGRect,
+    sceneSize: CGSize,
+    isMatch: (Int, Int, Int) -> Bool
+) -> (matchingPixels: Int, totalPixels: Int) {
+    guard image.width > 0, image.height > 0 else { return (0, 0) }
+    var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+    let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+        guard let context = CGContext(
+            data: buffer.baseAddress,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: image.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return false
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return true
+    }
+    guard drawn else { return (0, 0) }
+
+    let scaleX = CGFloat(image.width) / sceneSize.width
+    let scaleY = CGFloat(image.height) / sceneSize.height
+    // CGImage rows run top-down; scene Y runs bottom-up.
+    let minX = max(0, Int((sceneRect.minX * scaleX).rounded(.down)))
+    let maxX = min(image.width, Int((sceneRect.maxX * scaleX).rounded(.up)))
+    let minY = max(0, Int(((sceneSize.height - sceneRect.maxY) * scaleY).rounded(.down)))
+    let maxY = min(image.height, Int(((sceneSize.height - sceneRect.minY) * scaleY).rounded(.up)))
+    guard minX < maxX, minY < maxY else { return (0, 0) }
+
+    var matchingPixels = 0
+    var totalPixels = 0
+    for y in minY..<maxY {
+        for x in minX..<maxX {
+            let offset = (y * image.width + x) * 4
+            totalPixels += 1
+            if isMatch(
+                Int(pixels[offset]),
+                Int(pixels[offset + 1]),
+                Int(pixels[offset + 2])
+            ) {
+                matchingPixels += 1
+            }
+        }
+    }
+    return (matchingPixels, totalPixels)
+}
+
+/// "Light" pixels — every channel above 150, the floor a readable light glyph
+/// on the dark forged tiles clears (`textPrimary` renders ≈ 250/240/214 while
+/// the tile fill and its top-light stay below ≈ 115).
+private func renderedLightPixelStats(
+    in image: CGImage,
+    sceneRect: CGRect,
+    sceneSize: CGSize
+) -> (lightPixels: Int, totalPixels: Int) {
+    let stats = renderedPixelStats(in: image, sceneRect: sceneRect, sceneSize: sceneSize) {
+        $0 > 150 && $1 > 150 && $2 > 150
+    }
+    return (stats.matchingPixels, stats.totalPixels)
+}
+
+/// Expected sRGB tint for a rendered-glyph pixel match.
+private struct ExpectedGlyphColor {
+    let red: Int
+    let green: Int
+    let blue: Int
+}
+
+/// Pixels close to an expected sRGB color (±80 per channel) — used to verify
+/// a tinted glyph actually renders its configured color, not a generic
+/// "bright" pixel, since the achievement chips tint green/gold rather than
+/// `textPrimary`. The ±80 band accepts antialiased glyph edges while the
+/// dark chip fill (≈ 16% tint over the panel) stays outside it.
+private func renderedColorPixelStats(
+    in image: CGImage,
+    sceneRect: CGRect,
+    sceneSize: CGSize,
+    expected: ExpectedGlyphColor
+) -> (matchingPixels: Int, totalPixels: Int) {
+    renderedPixelStats(in: image, sceneRect: sceneRect, sceneSize: sceneSize) { r, g, b in
+        abs(r - expected.red) <= 80
+            && abs(g - expected.green) <= 80
+            && abs(b - expected.blue) <= 80
+    }
 }
 
 struct ConquestReportNodeTests {
@@ -293,6 +388,105 @@ struct ConquestReportNodeTests {
             x: roomyLayout.continueFrame.midX,
             y: roomyLayout.continueFrame.midY
         )))
+    }
+
+    /// HPA-812 Task 1: the SIEGE (`timer`) and SENT/LOST (`person.3.fill`)
+    /// icons are monochrome SF Symbol textures tinted `textPrimary` via
+    /// `colorBlendFactor = 1`. On the dark forged tiles the rendered glyph
+    /// must actually reach light pixels — the Forged mock shows light icons —
+    /// so this samples the real rendered output rather than the configured
+    /// `color`/`colorBlendFactor`.
+    @Test @MainActor func symbolStatIconsRenderReadablePixelsOnDarkTiles() throws {
+        let scene = SKScene(size: CGSize(width: 393, height: 852))
+        scene.backgroundColor = SKColor(red: 0.10, green: 0.08, blue: 0.05, alpha: 1)
+        let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
+        scene.addChild(node)
+        let layout = try reportLayout(tiles: 3, chips: 2, sceneSize: scene.size)
+        #expect(node.apply(
+            content: fullContent(),
+            layout: layout,
+            isContinueEnabled: true,
+            cityNumber: 3,
+            cityName: "Falconridge"
+        ) == .presented)
+
+        let window = UIWindow(frame: CGRect(origin: .zero, size: scene.size))
+        let view = SKView(frame: window.bounds)
+        window.addSubview(view)
+        window.isHidden = false
+        view.presentScene(scene)
+        defer { window.isHidden = true }
+
+        let texture = try #require(view.texture(from: scene))
+        let image = texture.cgImage()
+
+        // fullContent tiles: [mvp(cavalry), battleTime("timer"), sentLost("person.3.fill")].
+        for index in [1, 2] {
+            let icon = try #require(
+                node.childNode(withName: "//conquestStatTileIcon-\(index)") as? SKSpriteNode
+            )
+            let parent = try #require(icon.parent)
+            let iconFrame = scene.convert(icon.frame, from: parent)
+            let stats = renderedLightPixelStats(
+                in: image,
+                sceneRect: iconFrame,
+                sceneSize: scene.size
+            )
+            // A readable glyph paints a visible share of its sprite area in
+            // light pixels; a glyph stuck dark contributes none.
+            #expect(stats.lightPixels >= stats.totalPixels / 20)
+        }
+    }
+
+    /// HPA-812 Task 1: the achievement chip icons (`checkmark.shield.fill`
+    /// green, `shield.slash.fill` gold) are the same monochrome SF Symbol +
+    /// `colorBlendFactor = 1` path as the stat icons — assert each chip's
+    /// rendered pixels reach its configured tint color, not generic white.
+    @Test @MainActor func achievementChipIconsRenderTheirTintedColors() throws {
+        let scene = SKScene(size: CGSize(width: 393, height: 852))
+        scene.backgroundColor = SKColor(red: 0.10, green: 0.08, blue: 0.05, alpha: 1)
+        let node = ConquestReportNode(textWidth: { text, _, size in CGFloat(text.count) * size * 0.45 })
+        scene.addChild(node)
+        let layout = try reportLayout(tiles: 3, chips: 2, sceneSize: scene.size)
+        #expect(node.apply(
+            content: fullContent(),
+            layout: layout,
+            isContinueEnabled: true,
+            cityNumber: 3,
+            cityName: "Falconridge"
+        ) == .presented)
+
+        let window = UIWindow(frame: CGRect(origin: .zero, size: scene.size))
+        let view = SKView(frame: window.bounds)
+        window.addSubview(view)
+        window.isHidden = false
+        view.presentScene(scene)
+        defer { window.isHidden = true }
+
+        let texture = try #require(view.texture(from: scene))
+        let image = texture.cgImage()
+
+        // fullContent achievements: [favorableUnit (61,204,97), exposedLane (gold 255,204,56)].
+        let expected: [(index: Int, color: ExpectedGlyphColor)] = [
+            (0, ExpectedGlyphColor(red: 61, green: 204, blue: 97)),
+            (1, ExpectedGlyphColor(red: 255, green: 204, blue: 56))
+        ]
+        for chip in expected {
+            let icon = try #require(
+                node.childNode(withName: "//conquestAchievementChipIcon-\(chip.index)") as? SKSpriteNode
+            )
+            let parent = try #require(icon.parent)
+            // Inset so the sample cannot clip the chip's same-colored border
+            // ring, which passes within ~2pt of the 13pt icon at midY.
+            let iconFrame = scene.convert(icon.frame, from: parent).insetBy(dx: 2, dy: 2)
+            let stats = renderedColorPixelStats(
+                in: image,
+                sceneRect: iconFrame,
+                sceneSize: scene.size,
+                expected: chip.color
+            )
+            #expect(stats.matchingPixels >= stats.totalPixels / 20)
+        }
     }
 
     @Test("The smallest supported roomy viewport presents with the longest level-aware gear line")
