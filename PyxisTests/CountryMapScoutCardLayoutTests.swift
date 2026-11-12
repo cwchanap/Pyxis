@@ -195,9 +195,23 @@ struct CountryMapScoutCardLayoutTests {
         #expect(topTraitLine.height == 14)
         #expect(bottomTraitLine.height == 14)
         #expect(bottomTraitLine.maxY == topTraitLine.minY)
-        #expect(cardLayout.favorableFrame.size == CGSize(width: contentFrame.width, height: 14))
-        #expect(cardLayout.disadvantagedFrame.size == CGSize(width: contentFrame.width, height: 14))
-        #expect(cardLayout.favorableFrame.minY == cardLayout.disadvantagedFrame.maxY)
+        // Adaptive portrait rows (HPA-812 follow-up): the slack band between
+        // the lane row and Attack buys the authored 8pt inter-row gap first,
+        // then grows the rows evenly toward the authored 30pt scale (≥4pt
+        // left under the lane row, 2pt above Attack). The tightest supported
+        // card keeps the original 14pt adjacent rows.
+        let footerBand = bottomTraitLine.minY - cardLayout.attackFrame.maxY - 2
+        let expectedRowHeight = min(30, max(14, floor((footerBand - 12) / 2)))
+        let expectedRowGap: CGFloat = footerBand >= 2 * expectedRowHeight + 12 ? 8 : 0
+        #expect(cardLayout.favorableFrame.size
+            == CGSize(width: contentFrame.width, height: expectedRowHeight))
+        #expect(cardLayout.disadvantagedFrame.size
+            == CGSize(width: contentFrame.width, height: expectedRowHeight))
+        #expect(cardLayout.disadvantagedFrame.minY == cardLayout.attackFrame.maxY + 2)
+        #expect(cardLayout.favorableFrame.minY
+            == cardLayout.disadvantagedFrame.maxY + expectedRowGap)
+        #expect(bottomTraitLine.minY - cardLayout.favorableFrame.maxY
+            == footerBand - 2 * expectedRowHeight - expectedRowGap)
         #expect(cardLayout.attackFrame == CGRect(
             x: contentFrame.minX,
             y: cardLayout.cardFrame.minY + 6,
