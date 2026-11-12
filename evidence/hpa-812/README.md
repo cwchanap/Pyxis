@@ -104,3 +104,79 @@ not pixel-perfect or feature parity claims.
   glyphs appear black against the dark tiles rather than light as in the mock-up.
   This is also visible in the HPA-812 baseline capture, so it is not a newly
   introduced regression.
+
+## Mock-up follow-up: Map and Conquest
+
+The original mock-up comparison above predates the following corrections.
+The three-column images preserve the Forged reference, the HPA-812 fixture
+before follow-up, and the updated simulator result; the columns are resized
+to 393×852 and the reference does not use the same game state.
+
+| Image | Follow-up result |
+| --- | --- |
+| `map-scout-mockup-followup.png` | Scout portraits use 24pt slots on the 393×852 fixture, up from 14pt, while keeping the card and Attack in their existing regions. At the tighter 133pt card height the slots remain 14pt. |
+| `conquest-icons-mockup-followup.png` | Timer and sent/lost glyphs are cream; achievement glyphs use green and gold. The MVP soldier retains its colored artwork. |
+
+The final columns are iPhone 16 simulator captures of the `map` and
+`conquest-live` fixtures, respectively; these do not establish physical
+device, VoiceOver, or iPad behavior. The updated Scout node and layout suites
+passed; four Map scene accessibility tests also failed in the same way as
+the previously recorded intermittent baseline failures, with cause unresolved.
+
+## Round 2 — bounded dense formation presentation
+
+The round-2 change (the scoped commit on the PR #55 branch above `f9eff6a1`)
+reworks `syncSoldierNodes` so rendered soldier footprints — body plus HP bar —
+are reserved ground: members march, re-slot and spawn only into swept
+footprints clear of every rendered reservation, pending casualties keep the
+actual ground they died on through the authored fade, folded overflow is
+counted truthfully in the lane's `+N` badge, and a battlefield-frame change
+re-places every root in the new coordinates immediately.
+
+Verified numbers (all serial, dedicated iPhone 16 simulator `6577F3F4`,
+iOS 26.5, 393×852 pt, derived data `/tmp/pyxis-hpa812-build`):
+
+- **RED vs old implementation** (temporary HEAD `f9eff6a1` checkout, same
+  4-test selection): `denseGateRenderedFootprintsStayDisjointThroughGlide…`
+  failed with 77 issues, `denseGateGenuinelyStaggeredSpawnsStayDisjoint…`
+  failed with 91 issues, `pausedResizeReplacesSoldierGroundInNewCoordinates`
+  failed with 8 issues (176 issues across the three); the perf smoke
+  `denseGateHiddenRosterSyncCostStaysRepresentative` passed under both. The
+  other new tests could not run against HEAD — they use DEBUG seams that
+  only exist in the round-2 build, so the old tree does not compile them;
+  no RED is claimed for those tests.
+- **Targeted GREEN** (round-2 build): all 7 new/strengthened tests pass —
+  disjoint rendered footprints through glide/march/deploy, casualty actual
+  footprint through the authored fade, paused-resize remapping, genuinely
+  staggered spawns, mixed-type Captain + tower-target truthfulness with a
+  real Rally accent check, truthful huge-count badge containment
+  (`+123`, `+4567`, `+98765`, `+Int.max` inside lane and field), and the
+  hidden-roster perf smoke (30 sync ticks under the 2.5 s bound — a bound
+  check, not a microbenchmark).
+- **Full-suite regression**: the first full `BattleSceneTests` run on the
+  round-2 build exposed two genuine regressions (83 issues): a lone
+  survivor's sprite canvas drifted outside the battlefield after tower
+  casualties, and an unseeded member re-snapping to a shifting ideal
+  produced an 18.27 pt node step in `denseFormationDoesNotTeleport…`.
+  Both are fixed (exact lone placement gated on a free in-field landing
+  ordered by smallest lateral drift; seed-on-first-placement bounding all
+  later motion to `presentationStep`). Final serial run: **329 tests,
+  0 failures, ~40 s**.
+- **Live capture** (`round2/`): the retained Crownspire seed
+  (`crownspire-task3-seed.plist`: city 15, `selectedLane=2`, five level-1
+  Barracks, Arrow Tower pre-destroyed at 6286) was installed into the app
+  container's defaults after `simctl terminate` + `launchctl kickstart -k
+  …/cfprefsd.xpc.daemon`, then the app was launched normally — no fixture
+  launch args, combat unfrozen. `dense-gate-round2-early.png` (~19 s) shows
+  ten distinct soldiers with individual HP bars and a `+1` pill;
+  `dense-gate-round2-dense.png` (~68 s) shows the pile bounded with a `+25`
+  pill and a visible hit flash on the actual tower target.
+  `crownspire-round2-after-capture.plist` confirms live combat
+  (`east-gate` damage 2404 — absent from the seed — `arrow-tower` intact,
+  `battleActive`, 333 s) — not a staged render.
+
+Limitations: simulator-only captures; no physical device, VoiceOver, iPad,
+or real-device performance claims. Footprint reservation is a presentation
+invariant — combat, targeting, spawning, economy and persistence are
+unchanged. Audio/CoreSimulator warnings seen during runs are environmental
+and not test failures.

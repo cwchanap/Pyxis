@@ -139,14 +139,32 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         /// `soldierTargetHeight()` the accent was authored at; a resize
         /// rebuilds it so the glow tracks the refit body.
         var rallyAccentHeight: CGFloat = 0
-        /// HPA-812: `true` once the root has been placed on its ideal
-        /// formation point at least once — the first placement lands
-        /// directly (spawning IS appearing) while later re-slots glide.
+        /// HPA-812: `true` once the root has actually RENDERED at least
+        /// once — a member that has never been visible has no meaningful
+        /// rendered position, so its bookkeeping position is written
+        /// directly; previously rendered members move at the bounded
+        /// combat-time glide speed instead (no teleports).
         var presentationSeeded = false
         /// HPA-812: `true` once a pending-removal corpse has been given its
-        /// collision-free reveal cell — afterwards its position stays fixed
-        /// (a dead body does not slide with the formation grid).
+        /// collision-free placement under the CURRENT layout — afterwards
+        /// its position stays fixed (a dead body does not slide with the
+        /// formation grid). A layout remap clears this so the corpse is
+        /// re-placed in the new coordinate system.
         var corpseRevealed = false
+        /// HPA-812: the corpse's ACTUAL reserved footprint (scene space)
+        /// while it is pending removal — the ground live soldiers may not
+        /// claim and may not glide through. Set at placement and kept until
+        /// the node is handed to the fade-out list.
+        var corpseFootprint: CGRect?
+        /// HPA-812: combat-time seconds a rendered member wanted to move
+        /// but every transition was blocked by another rendered footprint.
+        /// Past `presentationBlockedHoldLimit` (+ rank stagger) the member
+        /// folds back into the badge so contested ground always frees —
+        /// a deterministic escape that can never leave the formation
+        /// visually frozen. Protected members (Captain / actual defensive-
+        /// fire target) are exempt: they hold visibly instead. Accrued in
+        /// seconds so the bound is identical at any tick cadence.
+        var presentationBlockedSeconds: TimeInterval = 0
         /// Last HP/fill inputs laid out into the bar paths — unchanged
         /// members (notably the hidden folded roster) skip the CGPath
         /// rebuild entirely.
@@ -174,6 +192,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         /// Post-glide distance (points) under which a promoted soldier is
         /// considered seated on its presented row and may unhide.
         static let presentationArrivalTolerance: CGFloat = 1
+        /// HPA-812 round 2: blocked combat-time seconds before a rendered
+        /// member folds back into the badge to free contested ground.
+        /// 3 s is comfortably past any authored corpse lifetime (~1.1 s)
+        /// so legitimate corpse-side holds never trip it; rank adds a
+        /// 0.1 s-per-rank stagger so a cluster of stuck members releases
+        /// one at a time, not in a batch.
+        static let presentationBlockedHoldLimit: TimeInterval = 3
     }
 
     private struct SoldierFormationLayout {
@@ -181,6 +206,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let column: CGFloat
         let row: CGFloat
         let frontLimit: CGFloat
+        /// Half-width and height of the lane's uniform rendered footprint:
+        /// covers the largest member's body + HP bar at `scale`. Rows are
+        /// `row` points apart and columns `column` points apart, and this
+        /// footprint is `spacing` smaller than each pitch — so equal-size
+        /// footprints seated on distinct cells never intersect.
+        let footprintHalfWidth: CGFloat
+        let footprintHeight: CGFloat
     }
 
     /// A live-objective damage presentation sink (HPA-812 final review):
@@ -207,7 +239,6 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     static let freezeCombatLaunchArgument = "-pyxis-freeze-combat"
     private let isCombatFrozen: Bool
     private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
-    private var lastTowerShotSoldierIDForTestingStorage: BattleCombatState.SoldierID?
     #endif
     private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
     private var guardNodes: [BattleCombatState.GuardID: GuardNodeBundle] = [:]
@@ -260,6 +291,29 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     private var appliedSiegeObjectiveGeometry: BattlefieldLayout?
     private var appliedSiegeObjectiveMaxPower: Int?
     private var pendingAnimatedRemovalSoldierIDs: Set<BattleCombatState.SoldierID> = []
+
+    /// HPA-812: footprints of soldier roots already unregistered from
+    /// `soldierNodes` but still ON SCREEN fading out (`removeSoldierNode(
+    /// animated: true)` — the 0.18 s tail of a casualty). Reserved so live
+    /// soldiers can never be placed or glide onto ground a fading corpse
+    /// still occupies. Keyed by the root node (not soldier id) so a combat
+    /// rebuild reusing ids can never release another soldier's ground.
+    /// Entries are removed by the fade sequence's own release action.
+    private var soldierFadingFootprints: [ObjectIdentifier: (root: SKNode, rect: CGRect)] = [:]
+
+    /// HPA-812: battlefield frame used by the last soldier sync. A change
+    /// means the layout coordinate system moved (resize): the next sync
+    /// re-places every root in the new coordinates immediately, because
+    /// combat-time glides can never repair stale coordinates while ticking
+    /// is paused.
+    private var lastSoldierSyncBattlefieldFrame: CGRect?
+
+    /// HPA-812: the soldier the defensive tower most recently fired at —
+    /// recorded at shot time (production state, not only a test probe) so
+    /// presentation can keep the projectile's actual target rendered; a
+    /// post-movement rank 0 is not necessarily the soldier the preceding
+    /// tower event aimed at.
+    private var lastDefensiveShotTargetID: BattleCombatState.SoldierID?
 
     /// Remaining time (in seconds) of each soldier's authored hit-reaction
     /// animation, decremented per combat tick. Used by
@@ -2989,7 +3043,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 scale: scale,
                 column: maxWidth * scale + SoldierFormation.spacing,
                 row: (maxBodyTop + 6.5) * scale + SoldierFormation.spacing,
-                frontLimit: gateBarBottom.map { $0 - (maxBodyTop + 6.5) * scale - 2 } ?? .greatestFiniteMagnitude
+                frontLimit: gateBarBottom.map { $0 - (maxBodyTop + 6.5) * scale - 2 } ?? .greatestFiniteMagnitude,
+                footprintHalfWidth: maxWidth * scale / 2,
+                footprintHeight: (maxBodyTop + 6.5) * scale
             )
         }
 
@@ -3011,24 +3067,103 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         //   its true depth instead of starving the front rows (independent
         //   bands could cap each other) or folding behind them.
         // * Natural-row claims go to the protected members first — the
-        //   Captain and the lane's foremost fire candidate, which never
-        //   fold and never hide mid-transition — then to everyone in rank
-        //   order. Overflowing members fill the free cells NEAREST their
-        //   own front, so one arrival reallocates at most a few cells and
-        //   never a whole formation.
+        //   Captain(s), the lane's foremost fire candidate, and the soldier
+        //   the tower last actually fired at (the projectile already left
+        //   toward it — re-ranks must not hide it before impact). Overflow
+        //   fills the free cells NEAREST each member's own front, so one
+        //   arrival reallocates at most a few cells.
         // * Members with no cell fold into the lane's non-interactive "+N"
         //   badge: position-synced hidden roots, exact count, no control.
-        // * Re-slots glide at a fixed COMBAT-time speed — frame-rate
-        //   independent, and faster than any march drift so presented
-        //   members always catch up. Rendered members stay rendered through
-        //   the slide (visible continuity); folded members emerge on
-        //   arrival; only the folded count feeds the badge.
-        // * Pending casualties reserve their nearest grid cell until
-        //   removal and reveal on collision-free ground, so the death
-        //   animation is never covered by a promotion landing on it.
+        // * COLLISION RULE (round 2): rendered footprints are RESERVED
+        //   GROUND — corpses (through their final fade), the seats already
+        //   taken this sync, and the CURRENT footprints of members not yet
+        //   moved. A rendered member may only move into a swept footprint
+        //   that is clear of all of them — distinct destination cells alone
+        //   did not stop a re-slot's path or a fresh spawn from landing on
+        //   someone. Blocked members hold their ground visibly; axis-
+        //   aligned fallback steps route around single blockers; a
+        //   persistently stuck member folds back to the badge so contested
+        //   ground always frees (protected members hold instead).
+        // * A never-rendered member (spawn or promotion) is only admitted
+        //   onto ground that is actually clear — it stays folded into the
+        //   badge until it is, so a zero-elapsed deploy/layout sync can
+        //   never pop a root in on top of a visible occupant.
+        // * Pending casualties keep the ACTUAL ground they died on: a
+        //   corpse that was visible stays exactly where it fell; a folded
+        //   casualty reveals at the collision-free spot nearest where it
+        //   lies. The real footprint — not its nearest grid cell — stays
+        //   reserved through the authored hit AND the 0.18 s removal fade.
+        // * A battlefield-frame change (resize) re-places every root and
+        //   corpse in the NEW coordinates this sync — combat-time glides
+        //   can never repair stale coordinates while ticking is paused.
         let battlefieldFloorY = battlefieldLayout.frame.minY
         let presentationStep = SoldierFormation.presentationGlidePointsPerSecond
             * max(0, elapsedCombatTime)
+        let layoutRemapped = lastSoldierSyncBattlefieldFrame != nil
+            && lastSoldierSyncBattlefieldFrame != battlefieldLayout.frame
+        if layoutRemapped {
+            // Pending casualties re-place in the new coordinate system;
+            // mid-fade roots belong to the old one — they are already on
+            // the way out, so the resize simply lands their removal rather
+            // than leaving a stale ghost in old coordinates.
+            for id in pendingAnimatedRemovalSoldierIDs {
+                soldierNodes[id]?.corpseRevealed = false
+                soldierNodes[id]?.corpseFootprint = nil
+            }
+            for entry in soldierFadingFootprints.values {
+                entry.root.removeFromParent()
+            }
+            soldierFadingFootprints.removeAll()
+        }
+        lastSoldierSyncBattlefieldFrame = battlefieldLayout.frame
+
+        // Ground already rendered this frame: fade-tail footprints first,
+        // then the CURRENT footprints of every rendered member — reserved
+        // before any destination is chosen so a claim can never land on a
+        // body that is still standing there.
+        var reservedFootprints: [CGRect] = soldierFadingFootprints.values.map(\.rect)
+        var memberFootprints: [BattleCombatState.SoldierID: CGRect] = [:]
+        if !layoutRemapped {
+            for soldier in liveSoldiers {
+                // Only members that have actually RENDERED reserve ground —
+                // a node created this sync sits at .zero un-seeded and must
+                // not block seats near the origin.
+                guard let bundle = soldierNodes[soldier.id],
+                      bundle.presentationSeeded,
+                      !bundle.root.isHidden,
+                      let formation = formationByLane[soldier.lane] else { continue }
+                memberFootprints[soldier.id] = soldierPresentationFootprint(
+                    at: bundle.root.position,
+                    footMargin: animatedSoldierFootMargin(for: bundle),
+                    formation: formation
+                )
+            }
+        }
+        func isFootprintFree(_ rect: CGRect) -> Bool {
+            for reserved in reservedFootprints where reserved.intersects(rect) {
+                return false
+            }
+            for occupied in memberFootprints.values where occupied.intersects(rect) {
+                return false
+            }
+            return true
+        }
+        func steppedPosition(
+            from position: CGPoint,
+            toward ideal: CGPoint,
+            maxDistance: CGFloat
+        ) -> CGPoint {
+            let dx = ideal.x - position.x
+            let dy = ideal.y - position.y
+            let distance = hypot(dx, dy)
+            guard distance > maxDistance, distance > 0 else {
+                return ideal
+            }
+            return CGPoint(
+                x: position.x + dx / distance * maxDistance,
+                y: position.y + dy / distance * maxDistance
+            )
+        }
         var foldedCountByLane: [BattleLane: Int] = [:]
         var badgeAnchorXByLane: [BattleLane: CGFloat] = [:]
 
@@ -3072,8 +3207,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 return min(max(0, row), rowCount - 1)
             }
 
-            // Grid cells reserved for pending casualties first: the corpse
-            // keeps the ground it died on, so no promotion may land on it.
+            // Pending casualties keep the ACTUAL ground they died on: a
+            // corpse that was rendered stays exactly where it fell — no
+            // snap onto a grid cell, no slide as the grid moves — and a
+            // folded casualty reveals at the collision-free spot nearest
+            // where its body lies. The reserved footprint is the corpse's
+            // real rect, so every grid cell it touches is off-limits to
+            // destinations AND every glide path must route around it.
             var takenColumns: [Int: Set<Int>] = [:]
             // A lane's x is constant along its march, so grid columns are
             // measured from the lane centre — NOT from the corpse's current
@@ -3082,47 +3222,79 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             let laneCenterX = point(forLane: lane, position: 0).x
             for id in pendingAnimatedRemovalSoldierIDs.sorted() {
                 guard let bundle = soldierNodes[id], bundle.lane == lane else { continue }
-                let foot = animatedSoldierFootMargin(for: bundle) * formation.scale
-                let feetY = bundle.root.position.y + foot
-                // Nearest row with a free column; within the row, the
-                // column closest to where the body already lies.
-                let rowsByCloseness = (0..<rowCount).sorted {
-                    abs(rowY($0) - feetY) < abs(rowY($1) - feetY)
-                }
-                var revealCell: (row: Int, column: Int)?
-                for row in rowsByCloseness {
-                    let free = SoldierFormation.columns.indices.filter {
-                        !takenColumns[row, default: []].contains($0)
-                    }
-                    if let column = free.min(by: {
-                        abs(
-                            laneCenterX
-                                + CGFloat(SoldierFormation.columns[$0]) * formation.column
-                                - bundle.root.position.x
-                        ) < abs(
-                            laneCenterX
-                                + CGFloat(SoldierFormation.columns[$1]) * formation.column
-                                - bundle.root.position.x
+                let footMargin = animatedSoldierFootMargin(for: bundle)
+                if !bundle.corpseRevealed {
+                    if !layoutRemapped && !bundle.root.isHidden && bundle.presentationSeeded {
+                        // Died rendered: the ground under it is already the
+                        // truthful footprint — it simply stays there.
+                    } else {
+                        // Died folded/hidden/unseeded, or the layout just
+                        // remapped into stale coordinates: reveal at the
+                        // free spot nearest where the body actually lies —
+                        // grid cells first (on-grid ground), the corpse's
+                        // own position only when it is collision-free.
+                        // The anchor is clamped into the field so a
+                        // never-rendered (0,0) root can't pull the reveal
+                        // off-stage.
+                        let anchor = CGPoint(
+                            x: min(max(bundle.root.position.x, battlefieldLayout.frame.minX),
+                                   battlefieldLayout.frame.maxX),
+                            y: min(max(bundle.root.position.y, battlefieldFloorY),
+                                   battlefieldLayout.frame.maxY)
                         )
-                    }) {
-                        revealCell = (row, column)
-                        break
+                        var candidates: [CGPoint] = []
+                        if !layoutRemapped {
+                            candidates.append(anchor)
+                        }
+                        for row in 0..<rowCount {
+                            for columnIndex in SoldierFormation.columns.indices {
+                                candidates.append(CGPoint(
+                                    x: laneCenterX
+                                        + CGFloat(SoldierFormation.columns[columnIndex])
+                                            * formation.column,
+                                    y: rowY(row) - footMargin * formation.scale
+                                ))
+                            }
+                        }
+                        candidates.sort {
+                            hypot($0.x - anchor.x, $0.y - anchor.y)
+                                < hypot($1.x - anchor.x, $1.y - anchor.y)
+                        }
+                        let landing = candidates.first {
+                            isFootprintFree(soldierPresentationFootprint(
+                                at: $0, footMargin: footMargin, formation: formation
+                            ))
+                        } ?? anchor
+                        bundle.root.position = landing
                     }
+                    soldierNodes[id]?.corpseRevealed = true
+                    soldierNodes[id]?.corpseFootprint = soldierPresentationFootprint(
+                        at: bundle.root.position,
+                        footMargin: footMargin,
+                        formation: formation
+                    )
                 }
-                if let cell = revealCell {
-                    takenColumns[cell.row, default: []].insert(cell.column)
-                    if !bundle.corpseRevealed {
-                        // Reveal on collision-free ground: the body moves to
-                        // its reserved cell once (it is invisible when
-                        // folded, so this is an emergence, not a slide) and
-                        // never slides with the grid afterwards.
-                        bundle.root.position = CGPoint(
-                            x: laneCenterX
-                                + CGFloat(SoldierFormation.columns[cell.column])
-                                    * formation.column,
-                            y: rowY(cell.row) - foot
-                        )
-                        soldierNodes[id]?.corpseRevealed = true
+                if let corpseRect = soldierNodes[id]?.corpseFootprint {
+                    reservedFootprints.append(corpseRect)
+                    // Live destinations never claim ground the corpse still
+                    // occupies: every cell the corpse's real footprint
+                    // touches is taken — not just the nearest one — because
+                    // destination-only bookkeeping let neighbours slide in.
+                    for row in 0..<rowCount {
+                        for columnIndex in SoldierFormation.columns.indices {
+                            let cellRect = CGRect(
+                                x: laneCenterX
+                                    + CGFloat(SoldierFormation.columns[columnIndex])
+                                        * formation.column
+                                    - formation.footprintHalfWidth,
+                                y: rowY(row),
+                                width: formation.footprintHalfWidth * 2,
+                                height: formation.footprintHeight
+                            )
+                            if cellRect.intersects(corpseRect) {
+                                takenColumns[row, default: []].insert(columnIndex)
+                            }
+                        }
                     }
                 }
                 bundle.root.isHidden = false
@@ -3133,6 +3305,13 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
             if let foremost = ranked.first {
                 protectedIDs.insert(foremost.id)
+            }
+            // The tower's live projectile target stays rendered too: the
+            // shot already left toward THIS soldier, so a post-shot re-rank
+            // must not fold it before the arrow lands.
+            if let target = lastDefensiveShotTargetID,
+               laneSoldiers.contains(where: { $0.id == target }) {
+                protectedIDs.insert(target)
             }
 
             func freeColumn(in row: Int, preferring slot: Int) -> Int? {
@@ -3251,42 +3430,219 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                     x: clampedX,
                     y: max(battlefieldFloorY, visualY)
                 )
-                // Every root glides toward its ideal at a bounded
-                // COMBAT-time rate: a pitch-spanning re-slot takes the same
-                // ~0.3 s at any frame cadence, and a marching ideal can
-                // never outrun the glide and park a soldier hidden. The
-                // first placement lands exactly — spawning is an
-                // appearance, not a transition — and a lone soldier keeps
-                // its exact placement so the lane-bound x snap never
-                // leaves its sprite canvas outside the battlefield.
-                if loneSoldier || !bundle.presentationSeeded {
-                    bundle.root.position = ideal
-                    soldierNodes[soldier.id]?.presentationSeeded = true
-                } else {
-                    let dx = ideal.x - bundle.root.position.x
-                    let dy = ideal.y - bundle.root.position.y
-                    let distance = hypot(dx, dy)
-                    if distance <= presentationStep {
-                        bundle.root.position = ideal
-                    } else if distance > 0 {
-                        bundle.root.position = CGPoint(
-                            x: bundle.root.position.x + dx / distance * presentationStep,
-                            y: bundle.root.position.y + dy / distance * presentationStep
+                // This member's seat claim is now decided — its own current
+                // footprint stops being a reservation for itself.
+                memberFootprints.removeValue(forKey: soldier.id)
+                // "Rendered" means it has actually presented a frame — a
+                // node created this sync sits at .zero with seeded=false
+                // and must approach hidden, never glide across the field.
+                let wasRendered = bundle.presentationSeeded && !bundle.root.isHidden
+                let isProtected = protectedIDs.contains(soldier.id)
+
+                if !isPresented {
+                    // Folded into the "+N" badge: hidden and counted; the
+                    // bookkeeping position still glides at the same bounded
+                    // combat-time rate so no root ever teleports — even
+                    // under the fold counter.
+                    bundle.root.isHidden = true
+                    bundle.root.position = layoutRemapped || !bundle.presentationSeeded
+                        ? ideal
+                        : steppedPosition(
+                            from: bundle.root.position,
+                            toward: ideal,
+                            maxDistance: presentationStep
                         )
+                    // First placement seeds the root: from here on its
+                    // bookkeeping position moves at the bounded rate too,
+                    // so an oscillating seat assignment can never produce
+                    // a >presentationStep node jump.
+                    soldierNodes[soldier.id]?.presentationSeeded = true
+                } else if layoutRemapped {
+                    // Layout remap: land on the new-grid seat THIS sync — a
+                    // paused battle can never glide out of stale coords.
+                    bundle.root.position = ideal
+                    bundle.root.isHidden = false
+                    soldierNodes[soldier.id]?.presentationSeeded = true
+                    memberFootprints[soldier.id] = soldierPresentationFootprint(
+                        at: ideal, footMargin: footMargin, formation: formation
+                    )
+                } else if loneSoldier {
+                    // A lone member's clamped ideal is already lane-bound
+                    // by construction, so exact placement is the authored
+                    // semantic — no glide can ever leave its sprite canvas
+                    // outside the battlefield while it waits out a
+                    // contested path. The snap still may not land ON a
+                    // rendered reservation: when the ideal itself is
+                    // occupied (a corpse on the seat), the nearest spot
+                    // whose CANVAS still fits inside the battlefield wins —
+                    // a lone member is not bound to the three-column grid —
+                    // and only when nothing in-field is free does it hold.
+                    let landing = soldierPresentationFootprint(
+                        at: ideal, footMargin: footMargin, formation: formation
+                    )
+                    if isFootprintFree(landing) || bundle.root.position == ideal {
+                        bundle.root.position = ideal
+                        bundle.root.isHidden = false
+                        soldierNodes[soldier.id]?.presentationSeeded = true
+                        memberFootprints[soldier.id] = landing
+                        soldierNodes[soldier.id]?.presentationBlockedSeconds = 0
+                    } else {
+                        let bounds = soldierHorizontalBounds(for: bundle)
+                        let canvasMinX = battlefieldLayout.frame.minX
+                            - bounds.lowerBound * formation.scale
+                        let canvasMaxX = battlefieldLayout.frame.maxX
+                            - bounds.upperBound * formation.scale
+                        var candidates: [CGPoint] = []
+                        for row in 0..<rowCount {
+                            let rowRootY = max(
+                                battlefieldFloorY,
+                                rowY(row) - footMargin * formation.scale
+                            )
+                            candidates.append(CGPoint(x: ideal.x, y: rowRootY))
+                            var step = formation.column / 2
+                            while step <= canvasMaxX - canvasMinX {
+                                candidates.append(CGPoint(x: ideal.x + step, y: rowRootY))
+                                candidates.append(CGPoint(x: ideal.x - step, y: rowRootY))
+                                step += formation.column / 2
+                            }
+                        }
+                        // Prefer the SMALLEST lateral drift: the survivor
+                        // keeps its column and steps back a row before it
+                        // ever slides sideways around a corpse — comrades
+                        // dying must not teleport it across the lane.
+                        candidates.sort {
+                            let lhsX = abs($0.x - ideal.x)
+                            let rhsX = abs($1.x - ideal.x)
+                            if lhsX != rhsX { return lhsX < rhsX }
+                            return abs($0.y - ideal.y) < abs($1.y - ideal.y)
+                        }
+                        let freeSpot = candidates.first { point in
+                            point.x >= canvasMinX - 0.5
+                                && point.x <= canvasMaxX + 0.5
+                                && isFootprintFree(soldierPresentationFootprint(
+                                    at: point, footMargin: footMargin,
+                                    formation: formation
+                                ))
+                        }
+                        if let freeSpot {
+                            bundle.root.position = freeSpot
+                            bundle.root.isHidden = false
+                            soldierNodes[soldier.id]?.presentationSeeded = true
+                            memberFootprints[soldier.id] = soldierPresentationFootprint(
+                                at: freeSpot, footMargin: footMargin, formation: formation
+                            )
+                            soldierNodes[soldier.id]?.presentationBlockedSeconds = 0
+                        } else {
+                            // Nothing in-field is free: hold current ground.
+                            // An unseeded root at .zero must not stay
+                            // visible at the scene origin — it waits hidden.
+                            if !bundle.presentationSeeded {
+                                bundle.root.isHidden = true
+                            }
+                            memberFootprints[soldier.id] = soldierPresentationFootprint(
+                                at: bundle.root.position, footMargin: footMargin,
+                                formation: formation
+                            )
+                        }
+                    }
+                } else if wasRendered {
+                    // Rendered continuity: the member steps only into a
+                    // swept footprint clear of every rendered reservation —
+                    // a distinct destination cell was never enough when the
+                    // PATH crossed occupied ground. Axis-aligned fallback
+                    // steps route around single blockers; all blocked → it
+                    // holds its current ground visibly; persistently stuck
+                    // members fold back so contested ground always frees.
+                    let current = bundle.root.position
+                    if hypot(ideal.x - current.x, ideal.y - current.y)
+                        <= SoldierFormation.presentationArrivalTolerance {
+                        memberFootprints[soldier.id] = soldierPresentationFootprint(
+                            at: current, footMargin: footMargin, formation: formation
+                        )
+                        soldierNodes[soldier.id]?.presentationBlockedSeconds = 0
+                    } else {
+                        var candidates = [
+                            steppedPosition(
+                                from: current,
+                                toward: ideal,
+                                maxDistance: presentationStep
+                            )
+                        ]
+                        let xStep = min(abs(ideal.x - current.x), presentationStep)
+                            * (ideal.x >= current.x ? 1 : -1)
+                        let yStep = min(abs(ideal.y - current.y), presentationStep)
+                            * (ideal.y >= current.y ? 1 : -1)
+                        candidates.append(CGPoint(x: current.x + xStep, y: current.y))
+                        if abs(yStep) > 0.001 {
+                            candidates.append(CGPoint(x: current.x, y: current.y + yStep))
+                        }
+                        var landed = false
+                        for candidate in candidates {
+                            let swept = soldierPresentationFootprint(
+                                at: current, footMargin: footMargin, formation: formation
+                            ).union(soldierPresentationFootprint(
+                                at: candidate, footMargin: footMargin, formation: formation
+                            ))
+                            if isFootprintFree(swept) {
+                                bundle.root.position = candidate
+                                memberFootprints[soldier.id] = soldierPresentationFootprint(
+                                    at: candidate, footMargin: footMargin, formation: formation
+                                )
+                                soldierNodes[soldier.id]?.presentationBlockedSeconds = 0
+                                landed = true
+                                break
+                            }
+                        }
+                        if !landed {
+                            let blocked = (soldierNodes[soldier.id]?.presentationBlockedSeconds ?? 0)
+                                + max(0, elapsedCombatTime)
+                            soldierNodes[soldier.id]?.presentationBlockedSeconds = blocked
+                            if !isProtected,
+                               blocked >= SoldierFormation.presentationBlockedHoldLimit
+                                    + TimeInterval(rankIndex[soldier.id] ?? 0) * 0.1 {
+                                // Bounded release: fold back into the badge
+                                // and re-enter once a free seat appears —
+                                // one disappearance, never a frozen body.
+                                bundle.root.isHidden = true
+                                soldierNodes[soldier.id]?.presentationBlockedSeconds = 0
+                            } else {
+                                memberFootprints[soldier.id] = soldierPresentationFootprint(
+                                    at: current, footMargin: footMargin, formation: formation
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Not yet rendered (fresh spawn or promotion): approach
+                    // hidden — its unseen path may cross rendered ground,
+                    // but it may only EMERGE on ground that is actually
+                    // clear, so a new occupant can never pop in on top of a
+                    // visible one.
+                    bundle.root.isHidden = true
+                    bundle.root.position = bundle.presentationSeeded
+                        ? steppedPosition(
+                            from: bundle.root.position,
+                            toward: ideal,
+                            maxDistance: presentationStep
+                        )
+                        : ideal
+                    // First placement seeds the root — an unseeded member
+                    // re-snapping to a shifting ideal each sync is exactly
+                    // the unbounded node jump the no-teleport rule forbids.
+                    soldierNodes[soldier.id]?.presentationSeeded = true
+                    let arrived = hypot(
+                        ideal.x - bundle.root.position.x,
+                        ideal.y - bundle.root.position.y
+                    ) <= SoldierFormation.presentationArrivalTolerance
+                    let landing = soldierPresentationFootprint(
+                        at: bundle.root.position, footMargin: footMargin, formation: formation
+                    )
+                    if (arrived || isProtected), isFootprintFree(landing) {
+                        bundle.root.isHidden = false
+                        soldierNodes[soldier.id]?.presentationSeeded = true
+                        memberFootprints[soldier.id] = landing
                     }
                 }
-                let hasArrived = hypot(
-                    ideal.x - bundle.root.position.x,
-                    ideal.y - bundle.root.position.y
-                ) <= SoldierFormation.presentationArrivalTolerance
-                // Rendered members keep rendered continuity through every
-                // re-slot — only folded members approach hidden, and they
-                // emerge once seated on their cell. Protected members
-                // (Captain + actual fire candidate) never hide at all.
-                let wasVisible = !bundle.root.isHidden
-                let isProtected = protectedIDs.contains(soldier.id)
-                bundle.root.isHidden = !isPresented
-                    || (!hasArrived && !(wasVisible || isProtected))
                 if bundle.root.isHidden {
                     foldedInLane += 1
                 }
@@ -3317,10 +3673,103 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         // Casualty-in-flight roots in lanes with no live roster left keep
         // their authored hit/fade animations too — corpses never vanish
-        // silently, and the "+N" summary only ever counts live soldiers.
-        for id in pendingAnimatedRemovalSoldierIDs {
-            soldierNodes[id]?.root.isHidden = false
+        // silently, the "+N" summary only ever counts live soldiers, and
+        // their real footprints stay reserved until removal so nothing can
+        // be seated where a corpse still renders.
+        for id in pendingAnimatedRemovalSoldierIDs.sorted() {
+            guard let bundle = soldierNodes[id],
+                  soldiersByLane[bundle.lane] == nil else {
+                soldierNodes[id]?.root.isHidden = false
+                continue
+            }
+            if !bundle.corpseRevealed {
+                // No live formation to anchor on: keep the body where it
+                // fell — unless the layout just remapped (stale coords) or
+                // it sits on another corpse/fade, in which case step to
+                // free ground measured in ITS OWN footprint pitches.
+                let bodyFrame = soldierLogicalBodyFrame(for: bundle)
+                let scale = bundle.root.xScale > 0 ? bundle.root.xScale : 1
+                let footprintWidth = max(
+                    bodyFrame.width,
+                    soldierHPBarWidth(forBodyWidth: bodyFrame.width)
+                ) * scale + SoldierFormation.spacing
+                let footprintHeight = (bodyFrame.maxY + 6.5) * scale
+                    + SoldierFormation.spacing
+                let anchor = CGPoint(
+                    x: min(max(bundle.root.position.x, battlefieldLayout.frame.minX + footprintWidth),
+                           battlefieldLayout.frame.maxX - footprintWidth),
+                    y: min(max(bundle.root.position.y, battlefieldLayout.frame.minY + footprintHeight),
+                           battlefieldLayout.frame.maxY - footprintHeight)
+                )
+                var candidates: [CGPoint] = [anchor]
+                for dy in [0, 1, -1, 2, -2] {
+                    for dx in [1, -1, 2, -2] {
+                        candidates.append(CGPoint(
+                            x: anchor.x + CGFloat(dx) * footprintWidth,
+                            y: anchor.y + CGFloat(dy) * footprintHeight
+                        ))
+                    }
+                    if dy != 0 {
+                        candidates.append(CGPoint(
+                            x: anchor.x, y: anchor.y + CGFloat(dy) * footprintHeight
+                        ))
+                    }
+                }
+                let landing = candidates.first {
+                    isFootprintFree(soldierCorpseOnlyFootprint(at: $0, for: bundle))
+                } ?? anchor
+                bundle.root.position = landing
+                soldierNodes[id]?.corpseRevealed = true
+                soldierNodes[id]?.corpseFootprint = soldierCorpseOnlyFootprint(
+                    at: landing, for: bundle
+                )
+            }
+            if let corpseRect = soldierNodes[id]?.corpseFootprint {
+                reservedFootprints.append(corpseRect)
+            }
+            bundle.root.isHidden = false
         }
+    }
+
+    /// Uniform rendered footprint for a member of `formation` whose root
+    /// sits at `position`: covers the largest lane member's body + HP bar
+    /// at formation scale. Grid rows/columns are `spacing` wider than this
+    /// footprint, so equal footprints seated on distinct cells never
+    /// touch — this rect is the reservation unit for every seat claim,
+    /// spawn admission, and glide path.
+    private func soldierPresentationFootprint(
+        at position: CGPoint,
+        footMargin: CGFloat,
+        formation: SoldierFormationLayout
+    ) -> CGRect {
+        CGRect(
+            x: position.x - formation.footprintHalfWidth,
+            y: position.y + footMargin * formation.scale,
+            width: formation.footprintHalfWidth * 2,
+            height: formation.footprintHeight
+        )
+    }
+
+    /// Footprint synthesized from the bundle's own nodes — used for pending
+    /// corpses in lanes that have no live roster (no formation to read) and
+    /// for fading roots after their bundle is gone.
+    private func soldierCorpseOnlyFootprint(
+        at position: CGPoint,
+        for bundle: SoldierNodeBundle
+    ) -> CGRect {
+        let scale = bundle.root.xScale > 0 ? bundle.root.xScale : 1
+        let bodyFrame = soldierLogicalBodyFrame(for: bundle)
+        let halfWidth = max(
+            bodyFrame.width,
+            soldierHPBarWidth(forBodyWidth: bodyFrame.width)
+        ) * scale / 2
+        let footMargin = animatedSoldierFootMargin(for: bundle)
+        return CGRect(
+            x: position.x - halfWidth,
+            y: position.y + footMargin * scale,
+            width: halfWidth * 2,
+            height: max(4, (bodyFrame.maxY + 6.5 - footMargin) * scale)
+        )
     }
 
     /// HPA-812: the per-lane "+N" overflow summary for folded live soldiers —
@@ -3342,10 +3791,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         if let label = badgeNode.childNode(withName: "count") as? SKLabelNode {
             label.text = "+\(foldedCount)"
             // The count is truthful and unbounded, so the pill fits the
-            // label instead of the other way around: an exact "+N" at any
-            // magnitude keeps its contrasting background.
+            // label — but must stay inside its lane column: past that width
+            // the FONT shrinks until the exact count still fits with
+            // padding, so a three-digit "+N" never crops and never spills
+            // over a neighbouring lane's ground.
+            let maxPillWidth = max(28, battlefieldLayout.frame.width / 3 - 8)
+            var fontSize: CGFloat = 10
+            label.fontSize = fontSize
+            while label.frame.width + 16 > maxPillWidth, fontSize > 6 {
+                fontSize -= 1
+                label.fontSize = fontSize
+            }
             if let pill = badgeNode.childNode(withName: "pill") as? SKShapeNode {
-                let pillWidth = max(36, label.frame.width + 16)
+                let pillWidth = min(maxPillWidth, max(36, label.frame.width + 16))
                 if abs(pill.frame.width - pillWidth) > 0.5 {
                     let height = SoldierFormation.overflowBadgeHeight
                     pill.path = CGPath(
@@ -3360,8 +3818,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 }
             }
         }
+        // Clamp the anchor as well as the pill: a wide count under a lane
+        // edge must not push chrome off the battlefield either way.
+        let pillHalf = (badgeNode.childNode(withName: "pill")?.frame.width ?? 36) / 2
         badgeNode.position = CGPoint(
-            x: anchorX,
+            x: min(
+                max(anchorX, battlefieldLayout.frame.minX + pillHalf),
+                battlefieldLayout.frame.maxX - pillHalf
+            ),
             y: battlefieldLayout.frame.minY + SoldierFormation.overflowBadgeHeight / 2 + 2
         )
     }
@@ -3816,6 +4280,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         guardNodes.removeAll()
         pendingAnimatedRemovalSoldierIDs.removeAll()
         soldierHitAnimationRemaining.removeAll()
+        soldierFadingFootprints.removeAll()
         // The overflow badges belong to the live presentation too: teardown
         // does not run another soldier sync, so they must leave explicitly
         // rather than linger as a stale "+N" in the cleared scene.
@@ -3847,9 +4312,24 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         bundle.body.removeAllActions()
 
         if animated {
+            // The authored 0.18 s fade still renders — the ground stays
+            // reserved until the remove action actually lands, so no live
+            // soldier can ever be seated on a still-visible corpse. The
+            // reservation keys on the root itself (the bundle leaves
+            // `soldierNodes` immediately).
+            let key = ObjectIdentifier(bundle.root)
+            soldierFadingFootprints[key] = (
+                root: bundle.root,
+                rect: bundle.corpseFootprint ?? soldierCorpseOnlyFootprint(
+                    at: bundle.root.position, for: bundle
+                )
+            )
             let fade = SKAction.fadeOut(withDuration: 0.18)
+            let release = SKAction.run { [weak self] in
+                self?.soldierFadingFootprints.removeValue(forKey: key)
+            }
             let remove = SKAction.removeFromParent()
-            bundle.root.run(SKAction.sequence([fade, remove]))
+            bundle.root.run(SKAction.sequence([fade, release, remove]))
         } else {
             bundle.root.removeFromParent()
         }
@@ -4373,9 +4853,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func playTowerShot(at soldierID: BattleCombatState.SoldierID) {
-        #if DEBUG
-        lastTowerShotSoldierIDForTestingStorage = soldierID
-        #endif
+        // Production state: the presentation pass keeps the soldier this
+        // projectile was actually aimed at rendered until it leaves combat
+        // — re-ranks may make a different soldier foremost before impact.
+        lastDefensiveShotTargetID = soldierID
         guard let bundle = soldierNodes[soldierID] else {
             return
         }
@@ -5475,7 +5956,7 @@ extension BattleScene {
     /// combat-chosen target (foremost in-range, Captain tie-preferred), not
     /// an assumed formation rank.
     var lastTowerShotSoldierIDForTesting: BattleCombatState.SoldierID? {
-        lastTowerShotSoldierIDForTestingStorage
+        lastDefensiveShotTargetID
     }
 
     /// Whether a live soldier's root is folded out of the lane's individual
@@ -5505,6 +5986,58 @@ extension BattleScene {
         for id in pendingAnimatedRemovalSoldierIDs {
             removeSoldierNode(id: id, animated: false)
         }
+    }
+
+    /// Footprint the given pending-casualty corpse is actually reserving
+    /// this layout — lets tests assert live soldiers stay off the real
+    /// ground a corpse still occupies through its hit/fade.
+    func soldierCorpseFootprintForTesting(_ id: BattleCombatState.SoldierID) -> CGRect? {
+        soldierNodes[id]?.corpseFootprint
+    }
+
+    /// Runs the production `removeSoldierNode` landing — including the
+    /// 0.18 s fade tail for `animated: true` — so tests can verify the
+    /// corpse's ground stays reserved while the fade still renders.
+    func removeSoldierNodeForTesting(id: BattleCombatState.SoldierID, animated: Bool) {
+        removeSoldierNode(id: id, animated: animated)
+    }
+
+    /// Roots that left `soldierNodes` but still render their fade tail —
+    /// their footprints stay reserved until the remove action lands.
+    var fadingSoldierFootprintsForTesting: [CGRect] {
+        soldierFadingFootprints.values.map(\.rect)
+    }
+
+    /// Scene positions of the roots still rendering their removal fade —
+    /// lets tests identify the fading node among enumerated soldier roots.
+    var fadingSoldierRootPositionsForTesting: [CGPoint] {
+        soldierFadingFootprints.values.map(\.root.position)
+    }
+
+    /// Number of fading-removal reservations still held.
+    var fadingSoldierFootprintCountForTesting: Int {
+        soldierFadingFootprints.count
+    }
+
+    /// Completes the 0.18 s fade tail of every animated-removal soldier —
+    /// the SKAction sequence (fade → release → remove) never advances in
+    /// tests, so this performs its landing: detach + reservation release.
+    func finishFadingSoldierRemovalsForTesting() {
+        for entry in soldierFadingFootprints.values {
+            entry.root.removeFromParent()
+        }
+        soldierFadingFootprints.removeAll()
+    }
+
+    /// Drives the production badge sync directly — lets containment tests
+    /// exercise the real pill-fit path at counts no live battle can
+    /// produce (six+ digits) without faking a roster.
+    func updateSoldierOverflowBadgeForTesting(lane: BattleLane, foldedCount: Int) {
+        syncSoldierOverflowBadge(
+            lane: lane,
+            foldedCount: foldedCount,
+            anchorX: point(forLane: lane, position: 0).x
+        )
     }
 
     var liveSoldierTypesForTesting: [SoldierType] {
