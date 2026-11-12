@@ -195,14 +195,15 @@ struct CountryMapScoutCardLayoutTests {
         #expect(topTraitLine.height == 14)
         #expect(bottomTraitLine.height == 14)
         #expect(bottomTraitLine.maxY == topTraitLine.minY)
-        // Adaptive portrait rows (HPA-812 follow-up): the slack band between
-        // the lane row and Attack buys the authored 8pt inter-row gap first,
-        // then grows the rows evenly toward the authored 30pt scale (≥4pt
-        // left under the lane row, 2pt above Attack). The tightest supported
-        // card keeps the original 14pt adjacent rows.
-        let footerBand = bottomTraitLine.minY - cardLayout.attackFrame.maxY - 2
-        let expectedRowHeight = min(30, max(14, floor((footerBand - 12) / 2)))
-        let expectedRowGap: CGFloat = footerBand >= 2 * expectedRowHeight + 12 ? 8 : 0
+        // Adaptive portrait rows (HPA-812 follow-up): independently locked
+        // outcomes — the tightest supported card (mini, 133pt) keeps the
+        // original 14pt adjacent rows with a 1pt leftover; modern and
+        // large phones (164pt) grow to 24pt rows with the authored 8pt
+        // gap and a 4pt leftover under the lane row. Disadvantaged stays
+        // anchored 2pt above Attack.
+        let expectedRowHeight: CGFloat = fixture.name == "iPhone 12/13 mini" ? 14 : 24
+        let expectedRowGap: CGFloat = fixture.name == "iPhone 12/13 mini" ? 0 : 8
+        let expectedTopLeftover: CGFloat = fixture.name == "iPhone 12/13 mini" ? 1 : 4
         #expect(cardLayout.favorableFrame.size
             == CGSize(width: contentFrame.width, height: expectedRowHeight))
         #expect(cardLayout.disadvantagedFrame.size
@@ -210,8 +211,7 @@ struct CountryMapScoutCardLayoutTests {
         #expect(cardLayout.disadvantagedFrame.minY == cardLayout.attackFrame.maxY + 2)
         #expect(cardLayout.favorableFrame.minY
             == cardLayout.disadvantagedFrame.maxY + expectedRowGap)
-        #expect(bottomTraitLine.minY - cardLayout.favorableFrame.maxY
-            == footerBand - 2 * expectedRowHeight - expectedRowGap)
+        #expect(bottomTraitLine.minY - cardLayout.favorableFrame.maxY == expectedTopLeftover)
         #expect(cardLayout.attackFrame == CGRect(
             x: contentFrame.minX,
             y: cardLayout.cardFrame.minY + 6,
@@ -284,6 +284,63 @@ struct CountryMapScoutCardLayoutTests {
         )
     }
 
+    @Test func adaptivePhoneFooterRowsTransitionAcrossTheSlackBand() throws {
+        // Independently locked outcomes at each authored transition point
+        // (HPA-812 follow-up): adjacent 14pt rows until the slack band
+        // between the lane row and Attack affords the 8pt inter-row gap,
+        // then both rows grow evenly toward the capped 30pt. Fractional
+        // card heights floor the row height; the leftover stays under the
+        // lane row. Heights below 132 use the short-phone path instead.
+        let cases = [
+            AdaptiveFooterCase(height: 132, row: 14, gap: 0, leftover: 0),
+            AdaptiveFooterCase(height: 133, row: 14, gap: 0, leftover: 1),
+            AdaptiveFooterCase(height: 140, row: 14, gap: 0, leftover: 8),
+            AdaptiveFooterCase(height: 143.9, row: 14, gap: 0, leftover: 11.9),
+            AdaptiveFooterCase(height: 144, row: 14, gap: 8, leftover: 4),
+            AdaptiveFooterCase(height: 145.5, row: 14, gap: 8, leftover: 5.5),
+            AdaptiveFooterCase(height: 146, row: 15, gap: 8, leftover: 4),
+            AdaptiveFooterCase(height: 148.5, row: 16, gap: 8, leftover: 4.5),
+            AdaptiveFooterCase(height: 152, row: 18, gap: 8, leftover: 4),
+            AdaptiveFooterCase(height: 160, row: 22, gap: 8, leftover: 4),
+            AdaptiveFooterCase(height: 164, row: 24, gap: 8, leftover: 4),
+            AdaptiveFooterCase(height: 171.9, row: 27, gap: 8, leftover: 5.9),
+            AdaptiveFooterCase(height: 184, row: 30, gap: 8, leftover: 12),
+            AdaptiveFooterCase(height: 200, row: 30, gap: 8, leftover: 28)
+        ]
+        for boundaryCase in cases {
+            let layout = CountryMapScoutCardLayout.compute(
+                in: CGRect(x: 16, y: 100, width: 343, height: boundaryCase.height),
+                layoutClass: .phone
+            )
+            let bottomTraitLine = try #require(layout.traitLineFrames.last)
+            #expect(
+                layout.disadvantagedFrame.height == boundaryCase.row,
+                "h\(boundaryCase.height) disadvantaged"
+            )
+            #expect(
+                layout.favorableFrame.height == boundaryCase.row,
+                "h\(boundaryCase.height) favorable"
+            )
+            #expect(
+                layout.disadvantagedFrame.minY == layout.attackFrame.maxY + 2,
+                "h\(boundaryCase.height) attack gap"
+            )
+            #expect(
+                layout.favorableFrame.minY
+                    == layout.disadvantagedFrame.maxY + boundaryCase.gap,
+                "h\(boundaryCase.height) inter-row gap"
+            )
+            #expect(
+                abs(bottomTraitLine.minY - layout.favorableFrame.maxY
+                    - boundaryCase.leftover) < 0.001,
+                "h\(boundaryCase.height) lane-row leftover"
+            )
+            #expect(!layout.favorableFrame.intersects(layout.disadvantagedFrame))
+            #expect(!layout.favorableFrame.intersects(bottomTraitLine))
+            #expect(!layout.disadvantagedFrame.intersects(layout.attackFrame))
+        }
+    }
+
     @Test func computeIsDeterministicForFixedInformationRegion() {
         let informationRegion = CGRect(x: 16, y: 20, width: 343, height: 64)
         let first = CountryMapScoutCardLayout.compute(in: informationRegion, layoutClass: .phone)
@@ -334,6 +391,13 @@ private func isPhoneFixture(_ fixture: CountryMapLayoutTestFixture) -> Bool {
         return true
     }
     return false
+}
+
+private struct AdaptiveFooterCase {
+    let height: CGFloat
+    let row: CGFloat
+    let gap: CGFloat
+    let leftover: CGFloat
 }
 
 private func isPadFixture(_ fixture: CountryMapLayoutTestFixture) -> Bool {

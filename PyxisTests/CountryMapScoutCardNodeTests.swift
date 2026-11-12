@@ -640,27 +640,38 @@ struct CountryMapScoutCardNodeTests {
                 ) == .presented, "\(name) \(trait) must still present")
                 let rows = [layout.favorableFrame, layout.disadvantagedFrame]
                 let items = [node.favorableItemsForTesting, node.disadvantagedItemsForTesting]
-                var iconFrames = [CGRect]()
+                var renderedFrames = [CGRect]()
                 for (rowItems, row) in zip(items, rows) {
-                    for item in rowItems where item.iconIsInstalled {
+                    for item in rowItems where item.type != nil {
+                        // Presence is required, not a filter: a missing or
+                        // zero-size sprite is a failure, not a skip.
+                        #expect(
+                            item.iconIsInstalled,
+                            "\(name) \(trait) \(String(describing: item.type)) must install a sprite"
+                        )
+                        #expect(item.iconSize.width > 0 && item.iconSize.height > 0)
                         // The portrait slot may grow with the card's slack but
-                        // never drops below today's floor, and it always stays
-                        // inside its row and the contained card.
+                        // never drops below today's floor, and the rendered
+                        // sprite always stays inside its row and the
+                        // contained card.
                         #expect(
                             item.targetFrame.height >= floor,
                             "\(name) \(trait) \(String(describing: item.type)) slot \(item.targetFrame)"
                         )
                         #expect(row.contains(item.targetFrame))
+                        #expect(row.contains(item.iconFrame))
                         #expect(layout.cardFrame.contains(item.targetFrame))
+                        #expect(layout.cardFrame.contains(item.iconFrame))
                         #expect(!item.targetFrame.intersects(layout.attackFrame))
-                        iconFrames.append(item.targetFrame)
+                        #expect(!item.iconFrame.intersects(layout.attackFrame))
+                        renderedFrames.append(item.iconFrame)
                     }
                 }
-                for index in iconFrames.indices {
-                    for other in iconFrames.indices.dropFirst(index + 1) {
+                for index in renderedFrames.indices {
+                    for other in renderedFrames.indices.dropFirst(index + 1) {
                         #expect(
-                            !iconFrames[index].intersects(iconFrames[other]),
-                            "\(name) \(trait): portrait slots \(index)/\(other) overlap"
+                            !renderedFrames[index].intersects(renderedFrames[other]),
+                            "\(name) \(trait): rendered sprites \(index)/\(other) overlap"
                         )
                     }
                 }
@@ -678,16 +689,77 @@ struct CountryMapScoutCardNodeTests {
         }
     }
 
+    @Test("Full-phone cards with degenerate footer rows fail closed instead of hiding portraits (HPA-812 follow-up)")
+    func invalidFullPhoneFooterHeightsFailClosedInsteadOfHidingPortraits() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { completeImageSet()[$0] })
+        let base = try scoutCardLayout(named: "modern phone")
+        #expect(node.apply(
+            content: .scout(testScout(trait: .arcaneWard)),
+            layout: base,
+            isEntryEnabled: true
+        ) == .presented)
+
+        // Degenerate footer rows must fail closed during preparation: an
+        // empty, undersized, or non-finite row would otherwise let the
+        // adaptive slot shrink toward zero while the width check still
+        // passes — presenting an enabled Attack with invisible troop
+        // information.
+        let cases = [
+            DegenerateFooterCase(name: "zero favorable", favorable: 0, disadvantaged: 24),
+            DegenerateFooterCase(name: "zero disadvantaged", favorable: 24, disadvantaged: 0),
+            DegenerateFooterCase(name: "negative favorable", favorable: -4, disadvantaged: 24),
+            DegenerateFooterCase(name: "undersized both rows", favorable: 8, disadvantaged: 8),
+            DegenerateFooterCase(name: "nonfinite favorable", favorable: .nan, disadvantaged: 24),
+            DegenerateFooterCase(name: "nonfinite disadvantaged", favorable: 24, disadvantaged: .infinity)
+        ]
+        for degenerate in cases {
+            let layout = replacing(
+                base,
+                favorableFrame: CGRect(
+                    x: base.favorableFrame.minX,
+                    y: base.favorableFrame.minY,
+                    width: base.favorableFrame.width,
+                    height: degenerate.favorable
+                ),
+                disadvantagedFrame: CGRect(
+                    x: base.disadvantagedFrame.minX,
+                    y: base.disadvantagedFrame.minY,
+                    width: base.disadvantagedFrame.width,
+                    height: degenerate.disadvantaged
+                )
+            )
+            for trait in CityDefenseTrait.allCases {
+                #expect(
+                    node.apply(
+                        content: .scout(testScout(trait: trait)),
+                        layout: layout,
+                        isEntryEnabled: true
+                    ) == .requiredContentDoesNotFit,
+                    "\(degenerate.name) \(trait) must fail closed, not present hidden portraits"
+                )
+            }
+        }
+    }
+
     private func assertLegiblePortraitSlots(
         node: CountryMapScoutCardNode,
         layout: CountryMapScoutCardLayout
     ) {
-        var iconFrames = [CGRect]()
+        var renderedFrames = [CGRect]()
         for (items, footerFrame) in [
             (node.favorableItemsForTesting, layout.favorableFrame),
             (node.disadvantagedItemsForTesting, layout.disadvantagedFrame)
         ] {
-            for item in items where item.iconIsInstalled {
+            for item in items where item.type != nil {
+                // Presence is required, not a filter: every image-backed
+                // troop type must have an installed, positive-size sprite —
+                // a missing or zero-size icon is a failure, not a skip.
+                #expect(
+                    item.iconIsInstalled,
+                    "\(String(describing: item.type)) must install a sprite"
+                )
+                #expect(item.iconSize.width > 0 && item.iconSize.height > 0)
+                #expect(item.targetFrame.width > 0 && item.targetFrame.height > 0)
                 // Legibility: the portrait slot and the rendered body must
                 // recover a meaningful fraction of the authored 30pt mock-up
                 // scale inside the empty band above the rows — not the
@@ -695,20 +767,28 @@ struct CountryMapScoutCardNodeTests {
                 #expect(item.targetFrame.height >= 20)
                 #expect(item.targetFrame.width >= 20)
                 #expect(item.iconSize.height >= 15)
-                // Containment: the slot stays inside its footer row, which
-                // stays inside the contained card and clear of Attack.
+                // Containment of the rendered bounds, not only the allocated
+                // rect: the sprite stays inside its row and the label inside
+                // the card, all clear of Attack and the trait/lane rows.
                 #expect(footerFrame.contains(item.targetFrame))
+                #expect(footerFrame.contains(item.iconFrame))
                 #expect(layout.cardFrame.contains(item.targetFrame))
+                #expect(layout.cardFrame.contains(item.iconFrame))
+                #expect(layout.cardFrame.contains(item.labelFrame))
                 #expect(!item.targetFrame.intersects(layout.attackFrame))
+                #expect(!item.iconFrame.intersects(layout.attackFrame))
+                #expect(!item.labelFrame.intersects(layout.attackFrame))
                 for frame in layout.traitLineFrames + [layout.exposedLaneFrame] {
                     #expect(!item.targetFrame.intersects(frame))
+                    #expect(!item.iconFrame.intersects(frame))
                 }
-                iconFrames.append(item.targetFrame)
+                renderedFrames.append(item.iconFrame)
+                renderedFrames.append(item.labelFrame)
             }
         }
-        for index in iconFrames.indices {
-            for other in iconFrames.indices.dropFirst(index + 1) {
-                #expect(!iconFrames[index].intersects(iconFrames[other]))
+        for index in renderedFrames.indices {
+            for other in renderedFrames.indices.dropFirst(index + 1) {
+                #expect(!renderedFrames[index].intersects(renderedFrames[other]))
             }
         }
         // The enlarged rows still cannot collide with the other required
@@ -1392,6 +1472,7 @@ private func replacing(
     rewardFrame: CGRect? = nil,
     traitLineFrames: [CGRect]? = nil,
     favorableFrame: CGRect? = nil,
+    disadvantagedFrame: CGRect? = nil,
     exposedLaneFrame: CGRect? = nil
 ) -> CountryMapScoutCardLayout {
     .init(
@@ -1403,7 +1484,7 @@ private func replacing(
         rewardFrame: rewardFrame ?? layout.rewardFrame,
         traitLineFrames: traitLineFrames ?? layout.traitLineFrames,
         favorableFrame: favorableFrame ?? layout.favorableFrame,
-        disadvantagedFrame: layout.disadvantagedFrame,
+        disadvantagedFrame: disadvantagedFrame ?? layout.disadvantagedFrame,
         exposedLaneFrame: exposedLaneFrame ?? layout.exposedLaneFrame,
         attackFrame: layout.attackFrame,
         overlayFrame: layout.overlayFrame,
@@ -1415,6 +1496,12 @@ private struct BoundaryPortraitCase {
     let name: String
     let layout: CountryMapScoutCardLayout
     let floor: CGFloat
+}
+
+private struct DegenerateFooterCase {
+    let name: String
+    let favorable: CGFloat
+    let disadvantaged: CGFloat
 }
 
 private enum CountryMapScoutCardNodeTestError: Error {
