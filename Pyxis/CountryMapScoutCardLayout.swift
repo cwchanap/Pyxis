@@ -182,17 +182,28 @@ struct CountryMapScoutCardLayout: Equatable {
             width: goldIconFrame.minX - 4 - (badgeFrame.maxX + 4),
             height: 16
         )
-        let favorableFrame = CGRect(
-            x: contentFrame.minX,
-            y: cardFrame.minY + 66,
-            width: contentFrame.width,
-            height: 14
-        )
+        // Adaptive portrait rows (HPA-812 follow-up): the repacked card
+        // leaves a slack band between the lane row and Attack. The footer
+        // rows buy the authored 8pt inter-row gap first, then grow evenly
+        // toward the authored 30pt scale, keeping a ≥4pt gap under the lane
+        // row and the existing 2pt gap above Attack. The tightest supported
+        // card keeps the original 14pt adjacent rows.
+        let footerBandTop = bottomTraitLine.minY
+        let footerBandBottom = attackFrame.maxY + 2
+        let footerBand = footerBandTop - footerBandBottom
+        let footerRowHeight = min(30, max(14, floor((footerBand - 12) / 2)))
+        let footerRowGap: CGFloat = footerBand >= 2 * footerRowHeight + 12 ? 8 : 0
         let disadvantagedFrame = CGRect(
             x: contentFrame.minX,
-            y: cardFrame.minY + 52,
+            y: footerBandBottom,
             width: contentFrame.width,
-            height: 14
+            height: footerRowHeight
+        )
+        let favorableFrame = CGRect(
+            x: contentFrame.minX,
+            y: disadvantagedFrame.maxY + footerRowGap,
+            width: contentFrame.width,
+            height: footerRowHeight
         )
         let exposedLaneFrame = CGRect(
             x: laneX,

@@ -1124,6 +1124,15 @@ final class CountryMapScoutCardNode: SKNode {
 
         switch layout.layoutClass {
         case .phone:
+            // Portrait slots fill their footer rows (the authored 30/30
+            // pattern): the adaptive phone rows recover toward 30pt where the
+            // card's slack band allows, while the tightest card keeps the
+            // 14pt adjacent rows. `min` over both rows keeps every slot
+            // inside its row.
+            let portraitSlot = min(
+                30,
+                min(layout.favorableFrame.height, layout.disadvantagedFrame.height)
+            )
             return Metrics(
                 titleSize: 14,
                 badgeSize: 10,
@@ -1134,7 +1143,7 @@ final class CountryMapScoutCardNode: SKNode {
                 attackSize: 16,
                 feedbackSize: 13,
                 feedbackHorizontalInset: 6,
-                iconSize: 14,
+                iconSize: portraitSlot,
                 prefixGap: 4,
                 iconLabelGap: 2,
                 itemGap: 4,

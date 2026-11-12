@@ -548,6 +548,181 @@ struct CountryMapScoutCardNodeTests {
         #expect(Set(spy.requestedNames).isSubset(of: allowedNames))
     }
 
+    @Test("Reference phone restores legible portrait slots without overlap or content loss (HPA-812 follow-up)")
+    func referencePhonePortraitsReachLegibleScaleInsideContainedCard() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { completeImageSet()[$0] })
+        let layout = try scoutCardLayout(named: "modern phone")
+
+        // Representative authored city: Falconridge also carries the measured
+        // tactical footer ("L Tower · C/R Gate") in the lane slot.
+        guard case .scout(let falconridge) = CountryMapScoutCardContent.project(
+            from: KingdomGameState(
+                cityLevel: 3, cityNumberInCountry: 3, completedCityCount: 2
+            )
+        ) else {
+            Issue.record("Expected Falconridge Scout projection")
+            return
+        }
+        #expect(node.apply(
+            content: .scout(falconridge),
+            layout: layout,
+            isEntryEnabled: true
+        ) == .presented)
+        #expect(node.laneTextForTesting == "L Tower · C/R Gate")
+        assertLegiblePortraitSlots(node: node, layout: layout)
+
+        // Sweeping every trait exercises all five body crops and the widest
+        // three-icon row (arcaneWard: infantry + cavalry + siege).
+        for trait in CityDefenseTrait.allCases {
+            #expect(node.apply(
+                content: .scout(testScout(trait: trait)),
+                layout: layout,
+                isEntryEnabled: true
+            ) == .presented, "\(trait) must still present")
+            assertLegiblePortraitSlots(node: node, layout: layout)
+            #expect(node.badgeTextForTesting == "CITY 3")
+            #expect(
+                node.traitLineTextsForTesting.joined(separator: " ")
+                    == trait.displayName.uppercased()
+            )
+            #expect(
+                node.favorableItemsForTesting.compactMap(\.type)
+                    == trait.favorableSoldierTypes
+            )
+            #expect(
+                node.disadvantagedItemsForTesting.compactMap(\.type)
+                    == trait.disadvantagedSoldierTypes
+            )
+            #expect(node.laneTextForTesting != nil)
+            #expect(node.rewardTextForTesting == "27")
+            #expect(node.attackHitFrame == layout.attackFrame)
+        }
+    }
+
+    @Test("Boundary phone cards never shrink portraits below today's floor or let them bleed (HPA-812 follow-up)")
+    func boundaryPhonePortraitsKeepFloorAndStayInsideRows() throws {
+        let node = CountryMapScoutCardNode(imageLoader: { completeImageSet()[$0] })
+        // iPhone 12/13 mini is the tightest supported full phone card (133pt);
+        // 145pt exercises the adaptive band between it and the 164pt
+        // reference; 100pt is the short-phone path whose rows stay compact.
+        let cases = [
+            BoundaryPortraitCase(
+                name: "iPhone 12/13 mini",
+                layout: try scoutCardLayout(named: "iPhone 12/13 mini"),
+                floor: 14
+            ),
+            BoundaryPortraitCase(
+                name: "mid 145",
+                layout: CountryMapScoutCardLayout.compute(
+                    in: CGRect(x: 16, y: 100, width: 343, height: 145),
+                    layoutClass: .phone
+                ),
+                floor: 14
+            ),
+            BoundaryPortraitCase(
+                name: "short 100",
+                layout: CountryMapScoutCardLayout.compute(
+                    in: CGRect(x: 16, y: 100, width: 343, height: 100),
+                    layoutClass: .phone
+                ),
+                floor: 10
+            )
+        ]
+        for boundaryCase in cases {
+            let name = boundaryCase.name
+            let layout = boundaryCase.layout
+            let floor = boundaryCase.floor
+            for trait in CityDefenseTrait.allCases {
+                #expect(node.apply(
+                    content: .scout(testScout(trait: trait)),
+                    layout: layout,
+                    isEntryEnabled: true
+                ) == .presented, "\(name) \(trait) must still present")
+                let rows = [layout.favorableFrame, layout.disadvantagedFrame]
+                let items = [node.favorableItemsForTesting, node.disadvantagedItemsForTesting]
+                var iconFrames = [CGRect]()
+                for (rowItems, row) in zip(items, rows) {
+                    for item in rowItems where item.iconIsInstalled {
+                        // The portrait slot may grow with the card's slack but
+                        // never drops below today's floor, and it always stays
+                        // inside its row and the contained card.
+                        #expect(
+                            item.targetFrame.height >= floor,
+                            "\(name) \(trait) \(String(describing: item.type)) slot \(item.targetFrame)"
+                        )
+                        #expect(row.contains(item.targetFrame))
+                        #expect(layout.cardFrame.contains(item.targetFrame))
+                        #expect(!item.targetFrame.intersects(layout.attackFrame))
+                        iconFrames.append(item.targetFrame)
+                    }
+                }
+                for index in iconFrames.indices {
+                    for other in iconFrames.indices.dropFirst(index + 1) {
+                        #expect(
+                            !iconFrames[index].intersects(iconFrames[other]),
+                            "\(name) \(trait): portrait slots \(index)/\(other) overlap"
+                        )
+                    }
+                }
+                #expect(
+                    node.favorableItemsForTesting.compactMap(\.type)
+                        == trait.favorableSoldierTypes,
+                    "\(name) \(trait)"
+                )
+                #expect(
+                    node.disadvantagedItemsForTesting.compactMap(\.type)
+                        == trait.disadvantagedSoldierTypes,
+                    "\(name) \(trait)"
+                )
+            }
+        }
+    }
+
+    private func assertLegiblePortraitSlots(
+        node: CountryMapScoutCardNode,
+        layout: CountryMapScoutCardLayout
+    ) {
+        var iconFrames = [CGRect]()
+        for (items, footerFrame) in [
+            (node.favorableItemsForTesting, layout.favorableFrame),
+            (node.disadvantagedItemsForTesting, layout.disadvantagedFrame)
+        ] {
+            for item in items where item.iconIsInstalled {
+                // Legibility: the portrait slot and the rendered body must
+                // recover a meaningful fraction of the authored 30pt mock-up
+                // scale inside the empty band above the rows — not the
+                // current 14pt smudge.
+                #expect(item.targetFrame.height >= 20)
+                #expect(item.targetFrame.width >= 20)
+                #expect(item.iconSize.height >= 15)
+                // Containment: the slot stays inside its footer row, which
+                // stays inside the contained card and clear of Attack.
+                #expect(footerFrame.contains(item.targetFrame))
+                #expect(layout.cardFrame.contains(item.targetFrame))
+                #expect(!item.targetFrame.intersects(layout.attackFrame))
+                for frame in layout.traitLineFrames + [layout.exposedLaneFrame] {
+                    #expect(!item.targetFrame.intersects(frame))
+                }
+                iconFrames.append(item.targetFrame)
+            }
+        }
+        for index in iconFrames.indices {
+            for other in iconFrames.indices.dropFirst(index + 1) {
+                #expect(!iconFrames[index].intersects(iconFrames[other]))
+            }
+        }
+        // The enlarged rows still cannot collide with the other required
+        // information rows.
+        let frames = [layout.badgeFrame, layout.titleFrame, layout.goldIconFrame,
+                      layout.rewardFrame, layout.favorableFrame, layout.disadvantagedFrame,
+                      layout.exposedLaneFrame, layout.attackFrame] + layout.traitLineFrames
+        for index in frames.indices {
+            for other in frames.indices.dropFirst(index + 1) {
+                #expect(!frames[index].intersects(frames[other]), "\(index)/\(other)")
+            }
+        }
+    }
+
     @Test func missingSoldierImageKeepsTextAndRecomputesWidthWithoutIcon() throws {
         let spy = ScoutCardImageLoaderSpy(images: ["gold-burst": testImage()])
         let node = CountryMapScoutCardNode(imageLoader: spy.load)
@@ -1234,6 +1409,12 @@ private func replacing(
         overlayFrame: layout.overlayFrame,
         nonBlockingOverlayFrame: layout.nonBlockingOverlayFrame
     )
+}
+
+private struct BoundaryPortraitCase {
+    let name: String
+    let layout: CountryMapScoutCardLayout
+    let floor: CGFloat
 }
 
 private enum CountryMapScoutCardNodeTestError: Error {
