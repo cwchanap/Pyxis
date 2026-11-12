@@ -45,6 +45,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         static let cityHPBarFill = "cityHPBarFill"
         static let livingKingdomBattlefieldTreatment = "livingKingdomBattlefieldTreatment"
         static let defensiveFireProjectile = "defensiveFireProjectile"
+        /// HPA-812: per-lane non-interactive "+N" overflow summary appended
+        /// with `BattleLane.rawValue` (`soldierOverflowBadge-2` etc.).
+        static let soldierOverflowBadgePrefix = "soldierOverflowBadge-"
     }
 
     /// Shipping HPA-476 art, bottom-center anchored with `-ruined` structure variants:
@@ -136,12 +139,31 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         /// `soldierTargetHeight()` the accent was authored at; a resize
         /// rebuilds it so the glow tracks the refit body.
         var rallyAccentHeight: CGFloat = 0
+        /// HPA-812: `true` once the root has been placed on its ideal
+        /// formation point at least once — the first placement lands
+        /// directly (spawning IS appearing) while later re-slots glide.
+        var presentationSeeded = false
     }
 
     private enum SoldierFormation {
         static let columns = [0, -1, 1]
         static let crowdedScale: CGFloat = 0.8
         static let spacing: CGFloat = 2
+        /// HPA-812: chrome reserved at the lane's floor for the "+N"
+        /// overflow badge — the deepest presentation band's row budget
+        /// subtracts this so the badge always clears the lowest presented
+        /// soldier inside the battlefield.
+        static let overflowBadgeHeight: CGFloat = 16
+        static let overflowBadgeReserve: CGFloat = 24
+        /// HPA-812: maximum distance a soldier root may glide toward its
+        /// ideal formation point per sync (as a fraction of the soldier's
+        /// target height). Bounded under the 0.2·height no-teleport bound
+        /// the marching tests enforce so fold/unfold and band-boundary
+        /// re-ranks can never jump a root.
+        static let maxPresentationStepFactor: CGFloat = 0.15
+        /// Post-glide distance (points) under which a promoted soldier is
+        /// considered seated on its presented row and may unhide.
+        static let presentationArrivalTolerance: CGFloat = 1
     }
 
     private struct SoldierFormationLayout {
@@ -175,6 +197,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     static let freezeCombatLaunchArgument = "-pyxis-freeze-combat"
     private let isCombatFrozen: Bool
     private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
+    private var lastTowerShotSoldierIDForTestingStorage: BattleCombatState.SoldierID?
     #endif
     private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
     private var guardNodes: [BattleCombatState.GuardID: GuardNodeBundle] = [:]
@@ -2882,6 +2905,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return slot
     }
 
+    /// The pre-overflow formation offset (slot → column/row with asymptotic
+    /// depth compression). Retained for FOLDED soldiers only: folded roots
+    /// are hidden but must keep positions that are inside the battlefield,
+    /// off the floor pile, and stale-free so the `floorCount` formation
+    /// invariants keep describing the visible roster's footprint.
     private func soldierFormationOffset(
         for slot: Int,
         availableDepth: CGFloat,
@@ -2952,53 +2980,265 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
         }
 
-        for soldier in liveSoldiers {
-            guard let bundle = soldierNodes[soldier.id] else {
-                continue
-            }
-            guard let formation = formationByLane[soldier.lane] else { continue }
+        // HPA-812: finite screen depth cannot show arbitrarily many full-size
+        // bodies + HP bars — five level-1 Barracks accumulate ~20 same-lane
+        // soldiers whose asymptotically compressed rows merged into a solid
+        // green block. Presentation is therefore bounded per lane:
+        //
+        // * Live soldiers rank by combat's foremost ordering (position, then
+        //   the Captain on ties, then stable formation slot). The defensive
+        //   tower's per-lane fire candidate is always rank 0 under this
+        //   ordering, so the soldier the tower can actually hit — and the
+        //   Captain while he fights — is never folded out of view.
+        // * Soldiers whose clamped front lines sit within one row pitch form
+        //   a presentation band at the band's head; bands separated by a full
+        //   pitch or more keep their own positions, so a marching second wave
+        //   reads as a trailing cluster near the lane start rather than
+        //   silently joining the folded mass at the gate.
+        // * Each band presents at most `gap / pitch` rows toward the next
+        //   band's head (a row's body+HP-bar footprint spans the whole
+        //   pitch), and the deepest band reserves badge-height chrome above
+        //   the floor. Presented footprints are therefore strictly disjoint
+        //   within AND across bands — no persistent inter-band collisions.
+        // * Members beyond a band's presented budget fold: their roots stay
+        //   position-synced but hidden, and the lane's non-interactive "+N"
+        //   badge reports exactly how many live soldiers are folded. The
+        //   badge is chrome only — no control, no hidden live actors, and no
+        //   change to combat positions.
+        let battlefieldFloorY = battlefieldLayout.frame.minY
+        var foldedCountByLane: [BattleLane: Int] = [:]
+        var badgeAnchorXByLane: [BattleLane: CGFloat] = [:]
 
-            let lanePoint = point(forLane: soldier.lane, position: soldier.position)
-            // Animated sprites use full-canvas frames with a transparent foot
-            // margin (bodyRegion.minY). With anchorPoint.y == 0 the canvas
-            // bottom sits at the root, so the visible feet float above the lane
-            // by that margin. Shift the root down by the scaled margin so the
-            // feet land on the lane baseline.
-            let footMargin = animatedSoldierFootMargin(for: bundle)
-            // Formation rows compress continuously into the available depth
-            // (there is no global live-soldier cap for building-driven spawns).
-            // Overflow soldiers share the lane rather than all being clamped at
-            // the battlefield floor, where their bodies and HP bars would pile up.
-            // Clamp the root y as a final guard against rounding at the floor.
-            // The front row stays near the attack position and overflow
-            // remains visual only; the combat lane and position are unchanged.
-            let battlefieldFloorY = battlefieldLayout.frame.minY
-            let frontY = min(lanePoint.y, formation.frontLimit)
-            let formationOffset = soldierFormationOffset(
-                for: bundle.formationSlot,
-                availableDepth: frontY - footMargin * formation.scale - battlefieldFloorY,
-                columnSpacing: formation.column,
-                rowSpacing: formation.row
-            )
-            let unclampedY = frontY + formationOffset.y - footMargin * formation.scale
-            var visualX = lanePoint.x + formationOffset.x
-            if soldiersByLane[soldier.lane]?.count == 1 {
-                let bounds = soldierHorizontalBounds(for: bundle)
-                let laneWidth = battlefieldLayout.frame.width / 3
-                let padding = min(SoldierFormation.spacing / 2, laneWidth / 2)
-                let minX = lanePoint.x - laneWidth / 2 + padding - bounds.lowerBound * formation.scale
-                let maxX = lanePoint.x + laneWidth / 2 - padding - bounds.upperBound * formation.scale
-                visualX = min(max(visualX, minX), maxX)
+        for (lane, laneSoldiers) in soldiersByLane {
+            guard let formation = formationByLane[lane] else { continue }
+
+            let ranked = laneSoldiers.sorted { lhs, rhs in
+                if lhs.position != rhs.position {
+                    return lhs.position > rhs.position
+                }
+                if lhs.isCaptain != rhs.isCaptain {
+                    return lhs.isCaptain
+                }
+                return (soldierNodes[lhs.id]?.formationSlot ?? .max)
+                    < (soldierNodes[rhs.id]?.formationSlot ?? .max)
             }
-            bundle.root.position = CGPoint(
-                x: visualX,
-                y: max(battlefieldFloorY, unclampedY)
-            )
-            bundle.root.setScale(formation.scale)
-            layoutSoldierHPBar(bundle, soldier: soldier)
-            startSoldierWalkAnimation(for: soldier.id)
-            syncRallyProtectionAccent(for: soldier)
+
+            var bandHeadsY: [CGFloat] = []
+            var bandAnchorXs: [CGFloat] = []
+            var bandMembers: [[BattleCombatState.Soldier]] = []
+            for soldier in ranked {
+                let lanePoint = point(forLane: lane, position: soldier.position)
+                let frontY = min(lanePoint.y, formation.frontLimit)
+                if let headY = bandHeadsY.last, headY - frontY < formation.row {
+                    bandMembers[bandMembers.count - 1].append(soldier)
+                } else {
+                    bandHeadsY.append(frontY)
+                    bandAnchorXs.append(lanePoint.x)
+                    bandMembers.append([soldier])
+                }
+            }
+
+            var foldedInLane = 0
+            for bandIndex in bandMembers.indices {
+                let headY = bandHeadsY[bandIndex]
+                let members = bandMembers[bandIndex]
+                let bandFootMargin = members
+                    .compactMap { soldierNodes[$0.id] }
+                    .map { animatedSoldierFootMargin(for: $0) * formation.scale }
+                    .max() ?? 0
+                let rowBudget: Int
+                if bandIndex + 1 < bandHeadsY.count {
+                    rowBudget = max(
+                        0,
+                        Int(((headY - bandHeadsY[bandIndex + 1]) / formation.row).rounded(.down))
+                    )
+                } else {
+                    rowBudget = max(
+                        1,
+                        Int(((headY - bandFootMargin - battlefieldFloorY
+                            - SoldierFormation.overflowBadgeReserve) / formation.row).rounded(.down)) + 1
+                    )
+                }
+                let presentedCount = min(
+                    members.count,
+                    SoldierFormation.columns.count * rowBudget
+                )
+
+                // Presented columns prefer each soldier's own formation slot
+                // so a survivor's x stays stable across casualty-driven
+                // re-ranking; a same-row slot collision bumps only the
+                // later-ranked member to the row's next free column.
+                var takenColumns: [Int: Set<Int>] = [:]
+
+                for (rank, soldier) in members.enumerated() {
+                    guard let bundle = soldierNodes[soldier.id] else { continue }
+                    let lanePoint = point(forLane: lane, position: soldier.position)
+                    // Animated sprites use full-canvas frames with a
+                    // transparent foot margin (bodyRegion.minY). With
+                    // anchorPoint.y == 0 the canvas bottom sits at the root,
+                    // so the visible feet float above the lane by that
+                    // margin; shift the root down by the scaled margin so
+                    // the feet land on the lane baseline.
+                    let footMargin = animatedSoldierFootMargin(for: bundle)
+                    let frontY = min(lanePoint.y, formation.frontLimit)
+                    let isPresented = rank < presentedCount
+                    let visualX: CGFloat
+                    let visualY: CGFloat
+                    if isPresented {
+                        let row = rank / SoldierFormation.columns.count
+                        let preferredColumn = bundle.formationSlot % SoldierFormation.columns.count
+                        let columnIndex = takenColumns[row, default: []].contains(preferredColumn)
+                            ? (SoldierFormation.columns.indices.first {
+                                !takenColumns[row, default: []].contains($0)
+                            } ?? preferredColumn)
+                            : preferredColumn
+                        takenColumns[row, default: []].insert(columnIndex)
+                        visualX = lanePoint.x
+                            + CGFloat(SoldierFormation.columns[columnIndex]) * formation.column
+                        visualY = headY - CGFloat(row) * formation.row - footMargin * formation.scale
+                    } else {
+                        // Folded: the legacy compressed slot offset — hidden,
+                        // but above the floor pile, spread, and stale-free.
+                        let offset = soldierFormationOffset(
+                            for: bundle.formationSlot,
+                            availableDepth: frontY - footMargin * formation.scale - battlefieldFloorY,
+                            columnSpacing: formation.column,
+                            rowSpacing: formation.row
+                        )
+                        visualX = lanePoint.x + offset.x
+                        visualY = frontY + offset.y - footMargin * formation.scale
+                    }
+                    let loneSoldier = laneSoldiers.count == 1
+                    var clampedX = visualX
+                    if loneSoldier {
+                        let bounds = soldierHorizontalBounds(for: bundle)
+                        let laneWidth = battlefieldLayout.frame.width / 3
+                        let padding = min(SoldierFormation.spacing / 2, laneWidth / 2)
+                        let minX = lanePoint.x - laneWidth / 2 + padding - bounds.lowerBound * formation.scale
+                        let maxX = lanePoint.x + laneWidth / 2 - padding - bounds.upperBound * formation.scale
+                        clampedX = min(max(clampedX, minX), maxX)
+                    }
+                    let ideal = CGPoint(
+                        x: clampedX,
+                        y: max(battlefieldFloorY, visualY)
+                    )
+                    // Fold/unfold and band-boundary re-slots can move a
+                    // member's ideal slot by a full row pitch in one tick.
+                    // Every root glides toward its ideal at a bounded step
+                    // so no placement ever teleports, and a member whose
+                    // ideal is still out of reach stays folded into the
+                    // "+N" badge this sync. As a result every RENDERED
+                    // member sits exactly on its formation point — the
+                    // presented grid stays strictly disjoint — while all
+                    // re-slot transitions glide invisibly. The first
+                    // placement lands exactly: spawning is an appearance,
+                    // not a transition.
+                    //
+                    // A lone soldier has no formation churn to smooth; it
+                    // keeps the exact pre-easing placement so the lane-bound
+                    // x snap (its sprite canvas is wider than the formation
+                    // gap) never leaves the canvas outside the battlefield.
+                    if loneSoldier || !bundle.presentationSeeded {
+                        bundle.root.position = ideal
+                        soldierNodes[soldier.id]?.presentationSeeded = true
+                    } else {
+                        let step = soldierTargetHeight()
+                            * SoldierFormation.maxPresentationStepFactor
+                        let dx = ideal.x - bundle.root.position.x
+                        let dy = ideal.y - bundle.root.position.y
+                        let distance = hypot(dx, dy)
+                        if distance <= step {
+                            bundle.root.position = ideal
+                        } else {
+                            bundle.root.position = CGPoint(
+                                x: bundle.root.position.x + dx / distance * step,
+                                y: bundle.root.position.y + dy / distance * step
+                            )
+                        }
+                    }
+                    let hasArrived = hypot(
+                        ideal.x - bundle.root.position.x,
+                        ideal.y - bundle.root.position.y
+                    ) <= SoldierFormation.presentationArrivalTolerance
+                    // Folded soldiers keep a position-synced root but render
+                    // nothing; the lane's "+N" badge accounts for them.
+                    bundle.root.isHidden = !isPresented || !hasArrived
+                    if bundle.root.isHidden {
+                        foldedInLane += 1
+                    }
+                    bundle.root.setScale(formation.scale)
+                    layoutSoldierHPBar(bundle, soldier: soldier)
+                    startSoldierWalkAnimation(for: soldier.id)
+                    syncRallyProtectionAccent(for: soldier)
+                }
+            }
+            foldedCountByLane[lane] = foldedInLane
+            badgeAnchorXByLane[lane] = bandAnchorXs.last ?? point(forLane: lane, position: 0).x
         }
+
+        for lane in BattleLane.allCases {
+            syncSoldierOverflowBadge(
+                lane: lane,
+                foldedCount: foldedCountByLane[lane] ?? 0,
+                anchorX: badgeAnchorXByLane[lane]
+            )
+        }
+
+        // Casualty-in-flight roots keep their authored hit/fade animations:
+        // a soldier folded into the overflow summary steps back into view for
+        // its death animation, so corpses never vanish silently and the "+N"
+        // summary only ever counts live soldiers.
+        for id in pendingAnimatedRemovalSoldierIDs {
+            soldierNodes[id]?.root.isHidden = false
+        }
+    }
+
+    /// HPA-812: the per-lane "+N" overflow summary for folded live soldiers —
+    /// a small non-interactive pill pinned just above the battlefield floor
+    /// under the lane's column. Created on demand, updated every sync, and
+    /// removed the moment nothing is folded.
+    private func syncSoldierOverflowBadge(
+        lane: BattleLane,
+        foldedCount: Int,
+        anchorX: CGFloat?
+    ) {
+        let name = "\(BattlefieldNodeName.soldierOverflowBadgePrefix)\(lane.rawValue)"
+        let badge = soldierLayer.childNode(withName: name)
+        guard foldedCount > 0, let anchorX else {
+            badge?.removeFromParent()
+            return
+        }
+        let badgeNode = badge ?? makeSoldierOverflowBadge(name: name)
+        if let label = badgeNode.childNode(withName: "count") as? SKLabelNode {
+            label.text = "+\(foldedCount)"
+        }
+        badgeNode.position = CGPoint(
+            x: anchorX,
+            y: battlefieldLayout.frame.minY + SoldierFormation.overflowBadgeHeight / 2 + 2
+        )
+    }
+
+    private func makeSoldierOverflowBadge(name: String) -> SKNode {
+        let badge = SKNode()
+        badge.name = name
+        badge.zPosition = 4
+        let pill = SKShapeNode(
+            rectOf: CGSize(width: 36, height: SoldierFormation.overflowBadgeHeight),
+            cornerRadius: SoldierFormation.overflowBadgeHeight / 2
+        )
+        pill.fillColor = SKColor(white: 0.05, alpha: 0.85)
+        pill.strokeColor = GameUITheme.Color.gold.withAlphaComponent(0.7)
+        pill.lineWidth = 1
+        badge.addChild(pill)
+        let label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
+        label.name = "count"
+        label.fontSize = 10
+        label.fontColor = GameUITheme.Color.gold
+        label.verticalAlignmentMode = .center
+        label.horizontalAlignmentMode = .center
+        badge.addChild(label)
+        soldierLayer.addChild(badge)
+        return badge
     }
 
     /// Keeps one live soldier's Rally protection accent in step with the
@@ -3964,6 +4204,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func playTowerShot(at soldierID: BattleCombatState.SoldierID) {
+        #if DEBUG
+        lastTowerShotSoldierIDForTestingStorage = soldierID
+        #endif
         guard let bundle = soldierNodes[soldierID] else {
             return
         }
@@ -5031,6 +5274,47 @@ extension BattleScene {
         combat.soldiers.filter(\.isAlive).compactMap { soldier in
             soldierNodes[soldier.id].map { (lane: soldier.lane, nodePosition: $0.root.position) }
         }
+    }
+
+    /// Per-live-soldier presentation state (HPA-812): id, lane, folded
+    /// (hidden) vs presented, and the root's node position — so banded
+    /// formation tests can track one soldier through band-boundary
+    /// transitions instead of only sampling aggregate counts.
+    struct SoldierPresentationForTesting {
+        let id: BattleCombatState.SoldierID
+        let lane: BattleLane
+        let isFolded: Bool
+        let position: Double
+        let nodePosition: CGPoint
+    }
+
+    var soldierPresentationsForTesting: [SoldierPresentationForTesting] {
+        combat.soldiers.filter(\.isAlive).compactMap { soldier in
+            soldierNodes[soldier.id].map {
+                SoldierPresentationForTesting(
+                    id: soldier.id,
+                    lane: soldier.lane,
+                    isFolded: $0.root.isHidden,
+                    position: soldier.position,
+                    nodePosition: $0.root.position
+                )
+            }
+        }
+    }
+
+    /// The soldier the defensive tower most recently fired at — the actual
+    /// combat-chosen target (foremost in-range, Captain tie-preferred), not
+    /// an assumed formation rank.
+    var lastTowerShotSoldierIDForTesting: BattleCombatState.SoldierID? {
+        lastTowerShotSoldierIDForTestingStorage
+    }
+
+    /// Whether a live soldier's root is folded out of the lane's individual
+    /// presentation (HPA-812 overflow). `nil` when the soldier has no node
+    /// (already removed), `false` while it renders normally or is animating
+    /// its casualty removal.
+    func soldierRootIsHiddenForTesting(_ id: BattleCombatState.SoldierID) -> Bool? {
+        soldierNodes[id]?.root.isHidden
     }
 
     var liveSoldierTypesForTesting: [SoldierType] {

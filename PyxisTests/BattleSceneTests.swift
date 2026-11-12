@@ -4197,12 +4197,24 @@ struct BattleSceneTests {
             let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
             let placements = scene.soldierLanePlacementsForTesting
             #expect(placements.count == 10)
-            for i in placements.indices {
-                for j in placements.indices where j > i {
-                    let a = placements[i].nodePosition
-                    let b = placements[j].nodePosition
+            // Distinctness is a RENDERED property: the HPA-812 overflow
+            // presentation may fold surplus soldiers into the lane's "+N"
+            // badge — their hidden roots keep in-battlefield bookkeeping
+            // positions, but bounded depth cannot keep unbounded parked
+            // positions pairwise-separated, so the pairwise floor only
+            // applies to soldiers actually on screen.
+            let rendered = scene.soldierPresentationsForTesting.filter { !$0.isFolded }
+            for i in rendered.indices {
+                for j in rendered.indices where j > i {
+                    let a = rendered[i].nodePosition
+                    let b = rendered[j].nodePosition
                     #expect(hypot(a.x - b.x, a.y - b.y) >= scene.soldierTargetHeightForTesting * 0.16)
                 }
+            }
+            // Folded roots must still stay inside the battlefield.
+            for folded in scene.soldierPresentationsForTesting where folded.isFolded {
+                #expect(folded.nodePosition.y >= battlefield.minY - 0.5)
+                #expect(folded.nodePosition.y <= battlefield.maxY + 0.5)
             }
             var roots: [SKNode] = []
             scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
@@ -4396,6 +4408,432 @@ struct BattleSceneTests {
         let towerID = try #require(layout.objectives.first { $0.kind == .arrowTower }?.id)
         state.siegeProgress.damageByObjectiveID[towerID] = maxPowers[towerID, default: 0]
         return state
+    }
+
+    // MARK: Dense live-formation overflow (HPA-812 Task 3)
+
+    /// Scene-space rect of a node's local bounding box, mirroring the
+    /// conversion `denseGateFormationKeepsBodiesAndHPBarsReadable` uses.
+    private func sceneRect(of bounds: CGRect, in node: SKNode, scene: BattleScene) -> CGRect {
+        let minPoint = node.convert(CGPoint(x: bounds.minX, y: bounds.minY), to: scene)
+        let maxPoint = node.convert(CGPoint(x: bounds.maxX, y: bounds.maxY), to: scene)
+        return CGRect(
+            x: minPoint.x, y: minPoint.y,
+            width: maxPoint.x - minPoint.x, height: maxPoint.y - minPoint.y
+        )
+    }
+
+    /// Counts soldier roots by presentation state under the dense-formation
+    /// overflow policy: `presented` roots still render body + HP bar;
+    /// `folded` roots are hidden and must be accounted for by the lane's
+    /// overflow badge. Casualty-in-flight roots keep their nodes until the
+    /// authored hit/fade SKActions land — which never advance under
+    /// `advanceCombatForTesting` — so presented + folded totals equal
+    /// live + pending-removal, not the live count alone.
+    private func soldierPresentationCounts(in scene: BattleScene) -> (presented: Int, folded: Int) {
+        var presented = 0
+        var folded = 0
+        scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+            guard node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }) else {
+                return
+            }
+            if node.isHidden {
+                folded += 1
+            } else {
+                presented += 1
+            }
+        }
+        return (presented, folded)
+    }
+
+    /// The lane's dense-formation overflow badge
+    /// (`soldierOverflowBadge-<lane.rawValue>`): a non-interactive pill
+    /// carrying a "+N" label that reports how many live soldiers are folded
+    /// out of the lane's individual presentation. A nil badge is only
+    /// correct while nothing is folded.
+    private func overflowBadge(in scene: BattleScene, lane: BattleLane) -> SKNode? {
+        var found: SKNode?
+        scene.enumerateChildNodes(withName: "//soldierOverflowBadge-\(lane.rawValue)") { node, _ in
+            found = node
+        }
+        return found
+    }
+
+    /// Parses the "+N" count off the lane's overflow badge label, or nil
+    /// when the badge or its count label is missing.
+    private func overflowBadgeCount(in scene: BattleScene, lane: BattleLane) -> Int? {
+        guard let badge = overflowBadge(in: scene, lane: lane) else {
+            return nil
+        }
+        var text: String?
+        for child in badge.children {
+            if let label = child as? SKLabelNode, let value = label.text, !value.isEmpty {
+                text = value
+            }
+        }
+        guard let text, text.hasPrefix("+"), let value = Int(text.dropFirst()) else {
+            return nil
+        }
+        return value
+    }
+
+    @Test func denseGateLivePileBoundsPresentationAndReportsOverflowCount() throws {
+        // The dense-gate-live evidence scenario (evidence/hpa-812/
+        // dense-gate-live.png): five level-1 Barracks feed the intact
+        // Crownspire east gate on the right lane with the Arrow Tower
+        // destroyed, so twenty soldiers share one lane with no attrition —
+        // the population every manual-only fixture missed (cap 10).
+        let state = try durableRightGateState(buildingCount: 5)
+        let gateID = try #require(state.currentSiegeLayout.objectives.first {
+            $0.kind == .gate && $0.visualLane == .right
+        }?.id)
+        for size in [CGSize(width: 393, height: 700), CGSize(width: 393, height: 852)] {
+            let scene = makeScene(
+                store: try makeStore(initialState: state), combatSeed: 1, size: size
+            )
+            // One 40 s stall resolves all four pending spawn intervals at
+            // once (the same burst the no-teleport regression uses); a short
+            // march then parks all twenty at the gate stop position.
+            scene.advanceCombatSingleStepForTesting(
+                deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+            )
+            #expect(scene.buildingLiveSoldierCountForTesting == 20)
+            scene.advanceCombatForTesting(deltaTime: 2.5)
+            #expect(scene.liveSoldierCountForTesting == 20)
+            #expect(scene.soldierNodeCountForTesting == 20)
+
+            let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+            let gate = try #require(scene.childNode(withName: "//siegeObjective-\(gateID)"))
+            let gateBar = try #require(gate.childNode(withName: "siegeHPBackground") as? SKShapeNode)
+            let gateBounds = try #require(gateBar.path).boundingBox
+            let gateBarFrame = sceneRect(of: gateBounds, in: gateBar, scene: scene)
+
+            // Presented roots keep full bodies + HP bars; folded roots are
+            // hidden and must be counted by the lane's overflow badge.
+            var presented: [(body: CGRect, bar: CGRect)] = []
+            var foldedRoots = 0
+            var malformedRoots = 0
+            scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+                guard node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }) else {
+                    return
+                }
+                if node.isHidden {
+                    foldedRoots += 1
+                    return
+                }
+                guard
+                    let sprite = node.children.first(where: { $0.zPosition == 1 }) as? SKSpriteNode,
+                    let bar = node.children
+                        .compactMap({ $0 as? SKShapeNode })
+                        .first(where: { $0.zPosition == 2 }),
+                    let barPath = bar.path
+                else {
+                    malformedRoots += 1
+                    return
+                }
+                presented.append((
+                    body: sceneRect(
+                        of: SoldierAnimationGeometry(type: .infantry)
+                            .logicalBodyFrame(frameSize: sprite.size),
+                        in: node,
+                        scene: scene
+                    ),
+                    bar: sceneRect(of: barPath.boundingBox, in: node, scene: scene)
+                ))
+            }
+            #expect(malformedRoots == 0)
+            #expect(presented.count + foldedRoots == 20)
+
+            // Bounded: twenty soldiers cannot all render readable bodies and
+            // HP bars — the overflow is folded into a summary instead of
+            // merging into a solid block.
+            #expect(foldedRoots >= 4)
+            #expect(presented.count >= 6)
+
+            // Truthful: the lane's badge reports exactly the folded count.
+            #expect(overflowBadgeCount(in: scene, lane: .right) == foldedRoots)
+
+            // Readable: presented soldiers keep disjoint HP bars, clear of
+            // each other's bodies and of the gate's own HP bar.
+            for index in presented.indices {
+                let frames = presented[index]
+                #expect(battlefield.contains(frames.bar))
+                #expect(battlefield.contains(frames.body))
+                #expect(frames.bar.width >= 22)
+                #expect(frames.body.height >= 30)
+                #expect(!frames.bar.insetBy(dx: -0.5, dy: -0.5).intersects(gateBarFrame))
+                for other in presented.indices where other != index {
+                    #expect(!frames.bar.intersects(presented[other].bar))
+                    #expect(!frames.bar.intersects(presented[other].body))
+                }
+            }
+
+            // The badge is readable chrome: inside the battlefield, clear
+            // of the gate HP bar, and not parked over a presented soldier.
+            let badge = overflowBadge(in: scene, lane: .right)
+            #expect(badge != nil)
+            if let badge {
+                let badgeFrame = badge.calculateAccumulatedFrame()
+                #expect(battlefield.contains(badgeFrame))
+                #expect(!badgeFrame.intersects(gateBarFrame))
+                for frames in presented {
+                    #expect(!badgeFrame.intersects(frames.body))
+                    #expect(!badgeFrame.intersects(frames.bar))
+                }
+            }
+        }
+    }
+
+    @Test func denseGateLivePileCasualtiesKeepAccountingAndForemostTargetPresented() throws {
+        // Same pile with the Arrow Tower left alive: level-8 Barracks
+        // produce 48-HP infantry that still out-pace the tower's ~3.75 s
+        // kill cadence, so the lane stays dense while the foremost soldiers
+        // fall — folded reserves must promote, corpses must not be counted,
+        // and the tower's target must always be a presented body.
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let maxPowers = layout.maxPowerAllocation(
+            totalBudget: KingdomGameState.cityMaxPower(for: city)
+        )
+        let slots = Dictionary(
+            uniqueKeysWithValues: (1...5).map { ($0, CityBuilding(type: .barracks, level: 8)) }
+        )
+        var state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey:
+                    CityBattleState(slots: slots)
+            ]
+        )
+        state.siegeProgress.selectedLane = .right
+        SiegeTestSupport.setKeepRemaining(
+            maxPowers[layout.keepObjective.id, default: 0], on: &state
+        )
+        state = captainless(state)
+
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1,
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+        )
+        #expect(scene.buildingLiveSoldierCountForTesting == 20)
+        // March under fire until the tower schedules its first casualty.
+        advanceCombatUntil(scene) {
+            !scene.pendingAnimatedRemovalSoldierIDsForTesting.isEmpty
+        }
+        #expect(!scene.pendingAnimatedRemovalSoldierIDsForTesting.isEmpty)
+        #expect(scene.liveSoldierCountForTesting < 20)
+
+        // Accounting: live roster + in-flight casualty removals, nothing
+        // stale. Folded roots stay live-only — a fading corpse is neither
+        // presented nor summarized.
+        let live = scene.liveSoldierCountForTesting
+        let pending = scene.pendingAnimatedRemovalSoldierIDsForTesting.count
+        #expect(scene.soldierNodeCountForTesting == live + pending)
+        let counts = soldierPresentationCounts(in: scene)
+        #expect(counts.presented + counts.folded == live + pending)
+        // The lane is still dense after casualties: reserves must be folded,
+        // not merged into the block.
+        #expect(counts.folded >= 4)
+
+        // The badge still reports exactly the folded live remainder —
+        // casualties promote reserves; corpses are never counted.
+        #expect(overflowBadgeCount(in: scene, lane: .right) == counts.folded)
+
+        // The tower's target is the foremost soldier — roster order ties at
+        // the shared stop position — and must always be a presented body,
+        // never one folded into the overflow summary.
+        let body = try #require(scene.firstLiveSoldierBodySpriteForTesting)
+        #expect(body.parent?.isHidden == false)
+        #expect(scene.firstLiveSoldierHPBarFrameForTesting != nil)
+
+        // The ACTUAL combat-chosen tower target — the foremost in-range
+        // soldier the last projectile was aimed at, not an assumed slot-0
+        // rank — resolves to a presented body or an in-flight corpse, never
+        // a silently folded root.
+        let targetID = try #require(scene.lastTowerShotSoldierIDForTesting)
+        #expect(scene.soldierRootIsHiddenForTesting(targetID) != true)
+    }
+
+    @Test func denseGateReinforcementsAtFloorStayPresentedBehindThePile() throws {
+        // After the pile is bounded, fresh building spawns still enter as
+        // visible bodies near the lane start — they are a sparse cluster of
+        // their own, not part of the folded mass. Folding them too would
+        // silently freeze the marching stream the live recording shows.
+        let state = try durableRightGateState(buildingCount: 5)
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1,
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+        )
+        scene.advanceCombatForTesting(deltaTime: 2.5)
+        #expect(scene.liveSoldierCountForTesting == 20)
+        // A second 20 s stall adds ten fresh soldiers at the lane start.
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 2
+        )
+        #expect(scene.liveSoldierCountForTesting == 30)
+
+        let castleGate = try #require(scene.castleGatePointForTesting(lane: .right))
+        var presentedArrivals = 0
+        var presentedBars: [CGRect] = []
+        var presentedBodies: [CGRect] = []
+        scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+            guard
+                node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }),
+                !node.isHidden,
+                let sprite = node.children.first(where: { $0.zPosition == 1 }) as? SKSpriteNode,
+                let bar = node.children
+                    .compactMap({ $0 as? SKShapeNode })
+                    .first(where: { $0.zPosition == 2 }),
+                let barPath = bar.path
+            else { return }
+            if abs(node.position.x - castleGate.x) <= 45, abs(node.position.y - castleGate.y) <= 60 {
+                presentedArrivals += 1
+            }
+            presentedBars.append(sceneRect(of: barPath.boundingBox, in: node, scene: scene))
+            presentedBodies.append(sceneRect(
+                of: SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: sprite.size),
+                in: node,
+                scene: scene
+            ))
+        }
+        #expect(presentedArrivals >= 4)
+
+        // The pile AND the trailing wave present disjoint bodies + HP bars —
+        // the wave is a readable marching column, not a second merged block.
+        for index in presentedBars.indices {
+            for other in presentedBars.indices where other != index {
+                #expect(!presentedBars[index].intersects(presentedBars[other]))
+                #expect(!presentedBars[index].intersects(presentedBodies[other]))
+            }
+        }
+
+        // The badge still covers exactly the folded remainder as the live
+        // population grows.
+        let counts = soldierPresentationCounts(in: scene)
+        #expect(counts.presented + counts.folded == 30)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == counts.folded)
+    }
+
+    @Test func denseGateBandsStepThroughBoundariesWithoutOverlapOrStaleCounts() throws {
+        // The second wave marches the ~60-pt gap between its own head and
+        // the gate pile's head: while separated by a full pitch it is its
+        // own presentation band, then the bands merge as the fronts
+        // converge. Stepping the merge tick-by-tick — not sampling a single
+        // instant — pins the invariants that must hold through every
+        // boundary transition: exact live+pending node accounting, a
+        // truthful badge, disjoint presented HP bars/bodies, a presented
+        // foremost soldier, and no teleport of a soldier that stays
+        // presented across the step.
+        let state = try durableRightGateState(buildingCount: 5)
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1,
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+        )
+        scene.advanceCombatForTesting(deltaTime: 2.5)
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 2
+        )
+        #expect(scene.liveSoldierCountForTesting == 30)
+
+        // A soldier's presented root may slide by a march step — or one
+        // formation row when a casualty closes ranks — but never teleport.
+        let maxPresentedStep = scene.soldierTargetHeightForTesting * 1.2
+        var foldedRange = (min: Int.max, max: Int.min)
+        var previous: [BattleCombatState.SoldierID: (folded: Bool, position: CGPoint, progress: Double)] = [:]
+        for _ in 0..<60 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+
+            let live = scene.liveSoldierCountForTesting
+            let pending = scene.pendingAnimatedRemovalSoldierIDsForTesting.count
+            #expect(scene.soldierNodeCountForTesting == live + pending)
+            let counts = soldierPresentationCounts(in: scene)
+            #expect(counts.presented + counts.folded == live + pending)
+            #expect(overflowBadgeCount(in: scene, lane: .right) == counts.folded)
+            #expect(counts.presented >= 3)
+
+            var presentedBars: [CGRect] = []
+            var presentedBodies: [CGRect] = []
+            scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+                guard
+                    !node.isHidden,
+                    node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }),
+                    let sprite = node.children.first(where: { $0.zPosition == 1 }) as? SKSpriteNode,
+                    let bar = node.children
+                        .compactMap({ $0 as? SKShapeNode })
+                        .first(where: { $0.zPosition == 2 }),
+                    let barPath = bar.path
+                else { return }
+                presentedBars.append(sceneRect(of: barPath.boundingBox, in: node, scene: scene))
+                presentedBodies.append(sceneRect(
+                    of: SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: sprite.size),
+                    in: node,
+                    scene: scene
+                ))
+            }
+            for index in presentedBars.indices {
+                for other in presentedBars.indices where other != index {
+                    #expect(!presentedBars[index].intersects(presentedBars[other]))
+                    #expect(!presentedBars[index].intersects(presentedBodies[other]))
+                }
+            }
+
+            let current = Dictionary(
+                uniqueKeysWithValues: scene.soldierPresentationsForTesting.map {
+                    (
+                        $0.id,
+                        (folded: $0.isFolded, position: $0.nodePosition, progress: $0.position)
+                    )
+                }
+            )
+            foldedRange.min = min(foldedRange.min, counts.folded)
+            foldedRange.max = max(foldedRange.max, counts.folded)
+            #expect(scene.firstLiveSoldierBodySpriteForTesting?.parent?.isHidden == false)
+
+            for (id, after) in current where !after.folded {
+                if let before = previous[id], !before.folded {
+                    #expect(hypot(
+                        after.position.x - before.position.x,
+                        after.position.y - before.position.y
+                    ) < maxPresentedStep)
+                }
+            }
+            previous = current
+        }
+        // The run must actually traverse the boundary regime: a folded mass
+        // existed while the wave was still marching in.
+        #expect(foldedRange.max > 0)
+        #expect(foldedRange.min <= foldedRange.max)
+    }
+
+    @Test func sparseGateFormationNeedsNoOverflowBadge() throws {
+        // The pre-existing readable case must not grow a badge: nine manual
+        // soldiers still fit the lane at full pitch, so nothing is folded
+        // and no overflow summary appears.
+        let state = try durableRightGateState(buildingCount: 0)
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1,
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.spawnManualSoldiersDirectlyForTesting(9)
+        let counts = soldierPresentationCounts(in: scene)
+        #expect(counts.presented == 9)
+        #expect(counts.folded == 0)
+        #expect(overflowBadge(in: scene, lane: .right) == nil)
     }
 
     @Test func soldiersSharingALaneDoNotRenderAtTheSamePoint() throws {
