@@ -75,3 +75,32 @@ evidence is an offscreen SKView render, not a physical compact-device capture.
 iPad was skipped for the follow-up. The simulator's Accessibility settings
 did not offer a VoiceOver control, so real VoiceOver traversal remains
 unverified and needs a supported device.
+
+## Forged mock-up comparison
+
+HPA-812 has no mock-up attached, but the earlier HPA-479 Linear issue links
+the existing [Forged UI references](../../docs/visual-parity/forged-ui/README.md).
+They are the original 393×852 Battle, Camp, Map and Conquest presentation
+mock-ups, not a new HPA-812 design. HPA-812 deliberately changes some of those
+layouts; later features also added a fourth Kingdom tab, Captain and siege
+objectives. There is no Kingdom mock-up in this set.
+
+`mockup-comparison.png` pairs those four original mock-ups with phone captures.
+The Battle result is the seeded, unfrozen Crownspire run described above; the
+Camp result is the live level-1 Barracks capture; the Map and Conquest results
+are the final fixture captures from the earlier before/after boards. Game
+state, scenery and system chrome differ, so the board supports visual review,
+not pixel-perfect or feature parity claims.
+
+- Battle keeps the forged HUD language, but the crowded live formation still
+  merges bodies and health bars, as noted above.
+- Camp keeps the inspector and forged controls; its background is much brighter
+  than the mock-up, and its upgrade control has a stronger gold treatment.
+- Map intentionally fits the Scout card into less vertical space to expose
+  Cities 1 and 2. Troop portraits are considerably smaller than in the mock-up.
+  A dark area above the map remains; the HPA-812 design calls for a subdued
+  treatment rather than remapping the illustration.
+- Conquest keeps the ring and report hierarchy, but the timer and sent/lost
+  glyphs appear black against the dark tiles rather than light as in the mock-up.
+  This is also visible in the HPA-812 baseline capture, so it is not a newly
+  introduced regression.
