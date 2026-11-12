@@ -180,6 +180,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         /// keeps a 0.05 s test tick inside the 0.2·height no-teleport bound
         /// on both portrait layouts (10 pt ≪ 10.8 pt).
         static let presentationGlidePointsPerSecond: CGFloat = 200
+        /// Sub-point distance under which a hidden-converging member counts
+        /// as arrived on its seat — SpriteKit stores node positions at
+        /// Float precision, so exact `==` would keep promoted members
+        /// hidden forever.
+        static let seatArrivalTolerance: CGFloat = 0.75
         /// HPA-812: readability floor for crowded formations. The HP bar
         /// is ≥36 pt local, so ≥0.62 keeps a presented bar ≥22 pt and a
         /// body ≥30 pt. A lane drops to two — then one — columns rather
@@ -3087,6 +3092,137 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
     }
 
+    /// One lane's seat grid for a single sync — pure geometry: rows one
+    /// pitch apart from the lane head's clamped front down to just above
+    /// the "+N" badge reserve, cells the readable-seat rect the seat plan
+    /// claims and the corpse pass invalidates.
+    private struct SoldierSeatGrid {
+        let laneCenterX: CGFloat
+        let columnOffsets: [CGFloat]
+        let columnPitch: CGFloat
+        let rowPitch: CGFloat
+        let headY: CGFloat
+        let rowCount: Int
+        let footprintHalfWidth: CGFloat
+        let footprintHeight: CGFloat
+
+        func rowY(_ row: Int) -> CGFloat {
+            headY - CGFloat(row) * rowPitch
+        }
+
+        /// The readable-seat rect one cell covers — the reservation unit
+        /// seats claim and `soldierSeatFootprintsForTesting` reports.
+        func cellRect(row: Int, column: Int) -> CGRect {
+            CGRect(
+                x: laneCenterX + columnOffsets[column] * columnPitch - footprintHalfWidth,
+                y: rowY(row),
+                width: footprintHalfWidth * 2,
+                height: footprintHeight
+            )
+        }
+    }
+
+    /// One lane's seat claims for a single sync — the small stateful part
+    /// of the presentation. Cells touched by corpse/fade footprints are
+    /// unclaimable; claims are stable across syncs via `previousSeats`.
+    private struct SoldierSeatPlanner {
+        private let grid: SoldierSeatGrid
+        private let previousSeats:
+            [BattleCombatState.SoldierID: (row: Int, column: Int)]
+        private let preferredColumn: (BattleCombatState.SoldierID) -> Int
+        private var taken: [Int: Set<Int>] = [:]
+        var assigned: [BattleCombatState.SoldierID: (row: Int, column: Int)] = [:]
+
+        init(
+            grid: SoldierSeatGrid,
+            reservedFootprints: [CGRect],
+            previousSeats: [BattleCombatState.SoldierID: (row: Int, column: Int)],
+            preferredColumn: @escaping (BattleCombatState.SoldierID) -> Int
+        ) {
+            self.grid = grid
+            self.previousSeats = previousSeats
+            self.preferredColumn = preferredColumn
+            for footprint in reservedFootprints {
+                for row in 0..<grid.rowCount {
+                    for column in grid.columnOffsets.indices
+                    where grid.cellRect(row: row, column: column).intersects(footprint) {
+                        taken[row, default: []].insert(column)
+                    }
+                }
+            }
+        }
+
+        /// Claims a cell on `row` for the soldier — keeping its last-sync
+        /// column while it is still on the same row and still free, else
+        /// its preferred column, else the first free one. `false` when the
+        /// whole row is taken.
+        @discardableResult
+        mutating func claim(_ id: BattleCombatState.SoldierID, row: Int) -> Bool {
+            guard (0..<grid.rowCount).contains(row) else { return false }
+            let blocked = taken[row, default: []]
+            let column: Int?
+            if let previous = previousSeats[id],
+               previous.row == row,
+               previous.column < grid.columnOffsets.count,
+               !blocked.contains(previous.column) {
+                column = previous.column
+            } else {
+                let preferred = preferredColumn(id) % grid.columnOffsets.count
+                if !blocked.contains(preferred) {
+                    column = preferred
+                } else {
+                    column = grid.columnOffsets.indices.first { !blocked.contains($0) }
+                }
+            }
+            guard let column else { return false }
+            taken[row, default: []].insert(column)
+            assigned[id] = (row, column)
+            return true
+        }
+
+        /// The free row (fewer claimed cells than columns) nearest a y —
+        /// used by deferred ordinary members and protected members whose
+        /// natural row is saturated. `nil` when the grid is fully taken.
+        func nearestFreeRow(to targetY: CGFloat) -> Int? {
+            (0..<grid.rowCount)
+                .filter { (taken[$0, default: []]).count < grid.columnOffsets.count }
+                .min {
+                    let d0 = abs(grid.rowY($0) - targetY)
+                    let d1 = abs(grid.rowY($1) - targetY)
+                    if d0 != d1 { return d0 < d1 }
+                    return $0 > $1
+                }
+        }
+
+        /// Moves a claimed cell from an ordinary occupant to a protected
+        /// member — the cell stays marked, only the owner changes.
+        mutating func displace(_ victim: BattleCombatState.SoldierID, by id: BattleCombatState.SoldierID) {
+            guard let seat = assigned.removeValue(forKey: victim) else { return }
+            assigned[id] = seat
+        }
+    }
+
+    /// The per-sync constants shared by every member in a lane: measured
+    /// geometry, already-reserved ground, and the bounded move budget.
+    private struct LanePresentation {
+        let formation: SoldierFormationLayout
+        let grid: SoldierSeatGrid
+        let reservedFootprints: [CGRect]
+        let battlefieldFloorY: CGFloat
+        let presentationStep: CGFloat
+        let layoutRemapped: Bool
+    }
+
+    /// One member's presentation inputs for a single sync.
+    private struct SoldierPlacement {
+        let bundle: SoldierNodeBundle
+        let lanePoint: CGPoint
+        let frontY: CGFloat
+        let footMargin: CGFloat
+        let seat: (row: Int, column: Int)?
+        let unseatedProtected: Bool
+    }
+
     /// `elapsedCombatTime` is the clamped combat delta that produced this
     /// sync — presentation motion is clocked by it, so layout/deploy/redraw
     /// syncs (zero elapsed) refresh ideals without moving roots.
@@ -3122,55 +3258,42 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             )
         }
 
-        // HPA-812 round 3 — bounded stable seats: finite screen depth
-        // cannot show arbitrarily many full-size bodies + HP bars, so each
-        // lane renders at most a grid of DISJOINT seats and folds the
-        // remainder into a truthful "+N" badge. There is deliberately no
-        // path solver: seats are mutually exclusive by construction and
-        // members converge on their own seat at the bounded combat-time
-        // glide, so overlap can only ever be a member still in transit —
-        // never two parked bodies, and it always resolves.
+        // HPA-812 round 4 — bounded stable seats, small state: finite
+        // screen depth cannot show arbitrarily many bodies + HP bars, so
+        // each lane renders at most a grid of DISJOINT stable seats and
+        // folds the remainder into a truthful "+N" badge.
         //
         // * Live soldiers rank by combat's foremost ordering EXACTLY —
         //   position, then the Captain on ties, then roster precedence:
         //   rank 0 is always the soldier the tower can actually shoot.
-        // * Rows sit one pitch apart on a grid anchored at the lane head;
-        //   each member's natural row is its own clamped front line
-        //   rounded onto the grid, so a trailing arrival renders near its
-        //   true depth. A member KEEPS its cell while that cell is still
-        //   its natural row and still free — lateral churn only happens
-        //   when the roster actually changes.
-        // * Pending casualties reserve their ACTUAL node footprint —
-        //   measured through the corpse's own transform (canvas ∪ bar at
-        //   its live scale), not the live formation's — and every cell
-        //   that footprint touches is unclaimable while the corpse is
-        //   on screen, through the authored hit and the removal fade.
-        //   A casualty that died hidden reveals at the free spot nearest
-        //   its body; if nowhere is free it stays hidden and retries —
-        //   it NEVER lands on rendered ground.
-        // * Protected members (Captain(s), the lane's foremost fire
-        //   candidate, and the soldier the tower's in-flight projectile
-        //   was aimed at) claim seats first and displace ordinary
-        //   occupants rather than fold.
-        // * A lone member keeps exact lane-bound placement — the authored
-        //   semantic — bounded so it can never snap across the field.
-        // * A battlefield-frame change re-places every root and corpse in
-        //   the NEW coordinates this sync; combat-time glides can never
-        //   repair stale coordinates while ticking is paused.
+        // * A member KEEPS its seat cell while the cell is still on its
+        //   natural row and still free (`soldierSeats` lane ledger) —
+        //   lateral churn only happens when the roster actually changes.
+        // * A casualty that died RENDERED keeps the ground it fell on:
+        //   its actual footprint is reserved immediately (recomputed per
+        //   sync through the node's own transform) and held until
+        //   removal. A casualty that died hidden STAYS hidden until
+        //   removal — no reveal search; an invisible body can reserve
+        //   nothing and is never badge-counted (the badge only counts
+        //   live soldiers).
+        // * Protected members (Captains, the lane's fire candidate, the
+        //   in-flight tower-shot target) claim seats first and never fold.
+        // * A promoted member converges HIDDEN and unhides only on
+        //   arrival — it never renders at its stale folded spot and never
+        //   glides visibly across ground other bodies occupy.
+        // * Everything moves at the bounded combat-time rate; a
+        //   battlefield-frame change re-places every root in the NEW
+        //   coordinates this sync, since combat-time glides cannot repair
+        //   stale coordinates while ticking is paused.
         let battlefieldFloorY = battlefieldLayout.frame.minY
         let presentationStep = SoldierFormation.presentationGlidePointsPerSecond
             * max(0, elapsedCombatTime)
         let layoutRemapped = lastSoldierSyncBattlefieldFrame != nil
             && lastSoldierSyncBattlefieldFrame != battlefieldLayout.frame
         if layoutRemapped {
-            // Pending casualties re-place in the new coordinate system;
-            // mid-fade roots belong to the old one — they are already on
-            // the way out, so the resize explicitly lands their removal
-            // rather than leaving a stale ghost in old coordinates.
-            for id in pendingAnimatedRemovalSoldierIDs {
-                soldierNodes[id]?.corpseRevealed = false
-                soldierNodes[id]?.corpseFootprint = nil
-            }
+            // Mid-fade roots belong to the old coordinate system — their
+            // removal lands explicitly rather than leaving a stale ghost
+            // in old coordinates.
             for entry in soldierFadingFootprints.values {
                 entry.root.removeFromParent()
             }
@@ -3178,654 +3301,27 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
         lastSoldierSyncBattlefieldFrame = battlefieldLayout.frame
 
-        // Ground rendered as this sync begins: fade-tail footprints first,
-        // then the CURRENT actual footprints of every rendered member —
-        // consulted by corpse reveals and the lone survivor so they can
-        // never land on a body that is still standing there. Member seats
-        // are not reserved here: seats are disjoint by construction.
-        var reservedFootprints: [CGRect] = soldierFadingFootprints.values.map(\.rect)
-        var memberFootprints: [BattleCombatState.SoldierID: CGRect] = [:]
-        if !layoutRemapped {
-            for soldier in liveSoldiers {
-                // Only members that have actually RENDERED count — a node
-                // created this sync sits at .zero un-seeded and must not
-                // block reveals near the origin.
-                guard let bundle = soldierNodes[soldier.id],
-                      bundle.presentationSeeded,
-                      !bundle.root.isHidden else { continue }
-                memberFootprints[soldier.id] = soldierRenderedFootprint(
-                    at: bundle.root.position, for: bundle
-                )
-            }
-        }
-        func isFootprintFree(_ rect: CGRect) -> Bool {
-            for reserved in reservedFootprints where reserved.intersects(rect) {
-                return false
-            }
-            for occupied in memberFootprints.values where occupied.intersects(rect) {
-                return false
-            }
-            return true
-        }
-        func steppedPosition(
-            from position: CGPoint,
-            toward ideal: CGPoint,
-            maxDistance: CGFloat
-        ) -> CGPoint {
-            let dx = ideal.x - position.x
-            let dy = ideal.y - position.y
-            let distance = hypot(dx, dy)
-            guard distance > maxDistance, distance > 0 else {
-                return ideal
-            }
-            return CGPoint(
-                x: position.x + dx / distance * maxDistance,
-                y: position.y + dy / distance * maxDistance
-            )
-        }
+        let casualtyReservationsByLane = syncPendingCasualtyFootprints(
+            layoutRemapped: layoutRemapped
+        )
+        seatFootprintsBySoldierID.removeAll()
         var foldedCountByLane: [BattleLane: Int] = [:]
         var badgeAnchorXByLane: [BattleLane: CGFloat] = [:]
-        seatFootprintsBySoldierID.removeAll()
 
         for (lane, laneSoldiers) in soldiersByLane {
             guard let formation = formationByLane[lane] else { continue }
-
-            let ranked = laneSoldiers.sorted { lhs, rhs in
-                if lhs.position != rhs.position {
-                    return lhs.position > rhs.position
-                }
-                if lhs.isCaptain != rhs.isCaptain {
-                    return lhs.isCaptain
-                }
-                return lhs.id < rhs.id
-            }
-
-            var lanePoints: [BattleCombatState.SoldierID: CGPoint] = [:]
-            var frontYs: [BattleCombatState.SoldierID: CGFloat] = [:]
-            var footMargins: [BattleCombatState.SoldierID: CGFloat] = [:]
-            for soldier in ranked {
-                guard let bundle = soldierNodes[soldier.id] else { continue }
-                let lanePoint = point(forLane: lane, position: soldier.position)
-                lanePoints[soldier.id] = lanePoint
-                frontYs[soldier.id] = min(lanePoint.y, formation.frontLimit)
-                footMargins[soldier.id] = animatedSoldierFootMargin(for: bundle)
-            }
-
-            let headY = ranked.compactMap { frontYs[$0.id] }.max() ?? 0
-            let laneMaxFoot = (footMargins.values.max() ?? 0) * formation.scale
-            let rowCount = max(
-                1,
-                Int(((headY - laneMaxFoot - battlefieldFloorY
-                    - SoldierFormation.overflowBadgeReserve) / formation.row).rounded(.down)) + 1
+            let outcome = syncLaneFormation(
+                lane: lane,
+                laneSoldiers: laneSoldiers,
+                formation: formation,
+                laneReservedFootprints: (casualtyReservationsByLane[lane] ?? [])
+                    + soldierFadingFootprints.values.map(\.rect),
+                battlefieldFloorY: battlefieldFloorY,
+                presentationStep: presentationStep,
+                layoutRemapped: layoutRemapped
             )
-            func rowY(_ row: Int) -> CGFloat {
-                headY - CGFloat(row) * formation.row
-            }
-            func naturalRow(of soldier: BattleCombatState.Soldier) -> Int {
-                guard let frontY = frontYs[soldier.id] else { return 0 }
-                let row = Int(((headY - frontY) / formation.row + 0.5).rounded(.down))
-                return min(max(0, row), rowCount - 1)
-            }
-
-            // Pending casualties keep the ACTUAL ground they died on: a
-            // corpse that was rendered stays exactly where it fell — no
-            // snap onto a grid cell, no slide as the grid moves — and a
-            // folded casualty reveals at the free spot nearest where its
-            // body lies. The reservation is the corpse's own transformed
-            // bounds, recomputed every sync so a transform change (Captain
-            // retreat scale, a refit) stays truthful; every grid cell that
-            // footprint touches is unclaimable by seats.
-            var takenColumns: [Int: Set<Int>] = [:]
-            // A lane's x is constant along its march, so grid columns are
-            // measured from the lane centre — NOT from the corpse's current
-            // root.x, which already carries a column offset (double-offset
-            // would push the body off the lane entirely).
-            let laneCenterX = point(forLane: lane, position: 0).x
-            /// Marks every grid cell a rect touches as unclaimable — the
-            /// marked unit is the READABLE seat rect (no `rootDrop`
-            /// inflation): a member's transient canvas may reach past its
-            /// seat, but its readable body∪bar is what must stay off a
-            /// corpse. Inflating cells by rootDrop let a handful of
-            /// corpses blanket every row and fold the whole lane.
-            func takeCells(under footprint: CGRect) {
-                for row in 0..<rowCount {
-                    for columnIndex in formation.columnOffsets.indices {
-                        let cellRect = CGRect(
-                            x: laneCenterX
-                                + CGFloat(formation.columnOffsets[columnIndex])
-                                    * formation.column
-                                - formation.footprintHalfWidth,
-                            y: rowY(row),
-                            width: formation.footprintHalfWidth * 2,
-                            height: formation.footprintHeight
-                        )
-                        if cellRect.intersects(footprint) {
-                            takenColumns[row, default: []].insert(columnIndex)
-                        }
-                    }
-                }
-            }
-            for id in pendingAnimatedRemovalSoldierIDs.sorted() {
-                guard let bundle = soldierNodes[id], bundle.lane == lane else { continue }
-                let footMargin = animatedSoldierFootMargin(for: bundle)
-                if !bundle.corpseRevealed {
-                    if !layoutRemapped && !bundle.root.isHidden && bundle.presentationSeeded {
-                        // Died rendered: the ground under it is already the
-                        // truthful footprint — it simply stays there.
-                        soldierNodes[id]?.corpseRevealed = true
-                    } else {
-                        // Died folded/hidden/unseeded, or the layout just
-                        // remapped into stale coordinates: reveal at the
-                        // free spot nearest where the body actually lies.
-                        // The anchor is clamped into the field so a
-                        // never-rendered (0,0) root can't pull the reveal
-                        // off-stage, and there is NO fail-open — when every
-                        // candidate is occupied the corpse stays hidden and
-                        // retries next sync instead of landing on someone.
-                        let anchor = CGPoint(
-                            x: min(max(bundle.root.position.x, battlefieldLayout.frame.minX),
-                                   battlefieldLayout.frame.maxX),
-                            y: min(max(bundle.root.position.y, battlefieldFloorY),
-                                   battlefieldLayout.frame.maxY)
-                        )
-                        var candidates: [CGPoint] = []
-                        if !layoutRemapped {
-                            candidates.append(anchor)
-                        }
-                        for row in 0..<rowCount {
-                            for columnIndex in formation.columnOffsets.indices {
-                                candidates.append(CGPoint(
-                                    x: laneCenterX
-                                        + CGFloat(formation.columnOffsets[columnIndex])
-                                            * formation.column,
-                                    y: rowY(row) - footMargin * formation.scale
-                                ))
-                            }
-                        }
-                        candidates.sort {
-                            hypot($0.x - anchor.x, $0.y - anchor.y)
-                                < hypot($1.x - anchor.x, $1.y - anchor.y)
-                        }
-                        if let landing = candidates.first(where: {
-                            isFootprintFree(soldierRenderedFootprint(at: $0, for: bundle))
-                        }) {
-                            bundle.root.position = landing
-                            soldierNodes[id]?.corpseRevealed = true
-                        } else {
-                            // No free reveal ground: the corpse must not
-                            // render without a reservation — an unseeded
-                            // root could still carry stale visibility.
-                            bundle.root.isHidden = true
-                        }
-                    }
-                }
-                if bundle.corpseRevealed, let corpseBundle = soldierNodes[id] {
-                    // The reservation is the node's ACTUAL footprint at its
-                    // CURRENT transform — recomputed each sync, so a retreat
-                    // scale-down or a refit shrinks the claim for real.
-                    corpseBundle.root.isHidden = false
-                    let corpseRect = soldierRenderedFootprint(
-                        at: corpseBundle.root.position, for: corpseBundle
-                    )
-                    soldierNodes[id]?.corpseFootprint = corpseRect
-                    reservedFootprints.append(corpseRect)
-                    // Live seats never claim ground the corpse still
-                    // occupies: every cell the real footprint touches is
-                    // taken — not just the nearest one.
-                    takeCells(under: corpseRect)
-                }
-            }
-
-            // Fading removals reserve ground too: a corpse that just began
-            // its 0.18 s fade may cover a cell already claimed last sync —
-            // that seat drops here so the member re-seats off the fading
-            // body instead of parking on it.
-            for fadeRect in soldierFadingFootprints.values.map(\.rect) {
-                takeCells(under: fadeRect)
-            }
-
-            // Seat claims are STABLE: a member keeps last sync's cell while
-            // it is still on that cell's row and the cell is still free —
-            // lateral churn only happens when the roster or the corpse
-            // layout actually changed. Protected members (Captains, the
-            // lane's foremost fire candidate, and the tower's in-flight
-            // projectile target) claim first and displace rather than
-            // fold; everyone else claims their own natural row in rank
-            // order. Returns the seat map plus any off-grid protected
-            // fallback spots.
-            func assignSeats(
-            ) -> (
-                assigned: [BattleCombatState.SoldierID: (row: Int, column: Int)],
-                fallback: [BattleCombatState.SoldierID: CGPoint]
-            ) {
-                var protectedIDs = Set(
-                    ranked.filter(\.isCaptain).map(\.id)
-                )
-                if let foremost = ranked.first {
-                    protectedIDs.insert(foremost.id)
-                }
-                // The tower's live projectile target stays rendered too: the
-                // shot already left toward THIS soldier, so a post-shot re-rank
-                // must not fold it before the arrow lands. The protection is
-                // tied to the projectile's own lifecycle — it clears when the
-                // shot lands (see `playTowerShot`), never persisting onto a
-                // later reused id.
-                if let target = lastDefensiveShotTargetID,
-                   laneSoldiers.contains(where: { $0.id == target }) {
-                    protectedIDs.insert(target)
-                }
-                let previousSeats = soldierSeats[lane] ?? [:]
-
-                func claimCell(
-                    for soldier: BattleCombatState.Soldier,
-                    bundle: SoldierNodeBundle,
-                    row: Int
-                ) -> Int? {
-                    let taken = takenColumns[row, default: []]
-                    if let previous = previousSeats[soldier.id],
-                       previous.row == row, previous.column < formation.columnOffsets.count,
-                       !taken.contains(previous.column) {
-                        return previous.column
-                    }
-                    let preferred = (previousSeats[soldier.id]?.column
-                        ?? bundle.formationSlot) % formation.columnOffsets.count
-                    if !taken.contains(preferred) {
-                        return preferred
-                    }
-                    return formation.columnOffsets.indices.first { !taken.contains($0) }
-                }
-
-                var assigned: [BattleCombatState.SoldierID: (row: Int, column: Int)] = [:]
-                var rankIndex: [BattleCombatState.SoldierID: Int] = [:]
-                for (index, soldier) in ranked.enumerated() {
-                    rankIndex[soldier.id] = index
-                }
-
-                // Protected members claim their natural rows first — a Captain
-                // recovering behind the pile and the lane's fire candidate stay
-                // rendered regardless of how crowded their depth gets.
-                for soldier in ranked where protectedIDs.contains(soldier.id) {
-                    guard let bundle = soldierNodes[soldier.id] else { continue }
-                    let row = naturalRow(of: soldier)
-                    if let column = claimCell(for: soldier, bundle: bundle, row: row) {
-                        takenColumns[row, default: []].insert(column)
-                        assigned[soldier.id] = (row, column)
-                    }
-                }
-                // Everyone else claims their own natural row in rank order.
-                var deferred: [BattleCombatState.Soldier] = []
-                for soldier in ranked where assigned[soldier.id] == nil {
-                    guard let bundle = soldierNodes[soldier.id] else { continue }
-                    let row = naturalRow(of: soldier)
-                    if let column = claimCell(for: soldier, bundle: bundle, row: row) {
-                        takenColumns[row, default: []].insert(column)
-                        assigned[soldier.id] = (row, column)
-                    } else {
-                        deferred.append(soldier)
-                    }
-                }
-                // Deferred members keep rank order and each takes the free cell
-                // nearest its own front — a single arrival reallocates at most
-                // the cells its own depth could claim, never a whole formation.
-                for soldier in deferred {
-                    guard let frontY = frontYs[soldier.id],
-                          let bundle = soldierNodes[soldier.id] else { continue }
-                    let rowsByCloseness = (0..<rowCount)
-                        .filter { takenColumns[$0, default: []].count < formation.columnOffsets.count }
-                        .sorted {
-                            let d0 = abs(rowY($0) - frontY)
-                            let d1 = abs(rowY($1) - frontY)
-                            if d0 != d1 { return d0 < d1 }
-                            return $0 > $1
-                        }
-                    if let row = rowsByCloseness.first,
-                       let column = claimCell(for: soldier, bundle: bundle, row: row) {
-                        takenColumns[row, default: []].insert(column)
-                        assigned[soldier.id] = (row, column)
-                    }
-                }
-                // A protected member that still has no cell (its depth is
-                // saturated) displaces the lowest-priority ordinary occupant
-                // nearest its natural row — the Captain and the actual fire
-                // candidate never fold.
-                for soldier in ranked
-                where protectedIDs.contains(soldier.id) && assigned[soldier.id] == nil {
-                    let targetRow = naturalRow(of: soldier)
-                    guard let victim = assigned
-                        .filter({ !protectedIDs.contains($0.key) })
-                        .min(by: {
-                            let d0 = abs($0.value.row - targetRow)
-                            let d1 = abs($1.value.row - targetRow)
-                            if d0 != d1 { return d0 < d1 }
-                            return (rankIndex[$0.key] ?? .max) > (rankIndex[$1.key] ?? .max)
-                        }) else { continue }
-                    assigned.removeValue(forKey: victim.key)
-                    assigned[soldier.id] = victim.value
-                }
-                // Last resort for a protected member the whole grid cannot
-                // seat — a dense corpse cluster can blanket every cell — it
-                // renders at the free spot NEAREST its own combat position.
-                // Candidates are a BOUNDED ±2-pitch neighborhood ordered by
-                // drift from the true spot — a corpse canvas (~61 pt) spans
-                // several seat cells, so one-pitch probes can all be blocked
-                // while ground two rows out is free. Disjointness is verified
-                // against every corpse/fade reservation AND every claimed
-                // seat, and the readable unit must stay inside the field — so
-                // parked-overlap cannot occur. No fail-open: when the whole
-                // neighborhood is contested it stays folded rather than
-                // landing on another body.
-                var fallbackSpots: [BattleCombatState.SoldierID: CGPoint] = [:]
-                var fallbackRects: [CGRect] = []
-                for soldier in ranked
-                where protectedIDs.contains(soldier.id) && assigned[soldier.id] == nil {
-                    guard let bundle = soldierNodes[soldier.id],
-                          let lanePoint = lanePoints[soldier.id],
-                          let frontY = frontYs[soldier.id],
-                          let footMargin = footMargins[soldier.id] else { continue }
-                    let anchor = CGPoint(
-                        x: lanePoint.x,
-                        y: max(battlefieldFloorY, frontY - footMargin * formation.scale)
-                    )
-                    let candidates = (-2...2).flatMap { dy in
-                        (-2...2).map { dx in
-                            CGPoint(
-                                x: anchor.x + CGFloat(dx) * formation.column,
-                                y: anchor.y + CGFloat(dy) * formation.row
-                            )
-                        }
-                    }
-                    .sorted {
-                        hypot($0.x - anchor.x, $0.y - anchor.y)
-                            < hypot($1.x - anchor.x, $1.y - anchor.y)
-                    }
-                    if let spot = candidates.first(where: { point in
-                        let rect = soldierReadableFootprint(at: point, for: bundle)
-                        let blocked = !battlefieldLayout.frame.contains(rect)
-                            || reservedFootprints.contains { $0.intersects(rect) }
-                            || fallbackRects.contains { $0.intersects(rect) }
-                            || memberFootprints
-                                .filter { $0.key != soldier.id }
-                                .map(\.value)
-                                .contains { $0.intersects(rect) }
-                            || assigned.values.contains { cell in
-                                CGRect(
-                                    x: laneCenterX
-                                        + CGFloat(formation.columnOffsets[cell.column])
-                                            * formation.column
-                                        - formation.footprintHalfWidth,
-                                    y: rowY(cell.row),
-                                    width: formation.footprintHalfWidth * 2,
-                                    height: formation.footprintHeight
-                                ).intersects(rect)
-                            }
-                        return !blocked
-                    }) {
-                        fallbackSpots[soldier.id] = spot
-                        fallbackRects.append(
-                            soldierReadableFootprint(at: spot, for: bundle)
-                        )
-                    }
-                }
-                return (assigned, fallbackSpots)
-            }
-
-            let seats = assignSeats()
-            let assigned = seats.assigned
-            let fallbackSpots = seats.fallback
-            // Folded members release their seat — `assigned` IS the lane's
-            // seat map for next sync.
-            soldierSeats[lane] = assigned
-
-            /// A lone member's clamped ideal is already lane-bound by
-            /// construction, so exact placement is the authored semantic.
-            /// When that ground is corpse-occupied it takes the nearest
-            /// free in-field spot — BOUNDED to a small drift so it can
-            /// never snap across rows, the whole battlefield, or another
-            /// lane — otherwise it glides at the ordinary bounded rate
-            /// toward a seat that is always reachable (nothing reserves
-            /// paths).
-            func placeLone(
-                ideal: CGPoint,
-                bundle: SoldierNodeBundle,
-                soldier: BattleCombatState.Soldier,
-                lanePoint: CGPoint,
-                footMargin: CGFloat
-            ) {
-                let landing = soldierRenderedFootprint(at: ideal, for: bundle)
-                if isFootprintFree(landing) || bundle.root.position == ideal {
-                    bundle.root.position = ideal
-                    bundle.root.isHidden = false
-                    soldierNodes[soldier.id]?.presentationSeeded = true
-                    return
-                }
-                let bounds = soldierHorizontalBounds(for: bundle)
-                let canvasMinX = battlefieldLayout.frame.minX
-                    - bounds.lowerBound * formation.scale
-                let canvasMaxX = battlefieldLayout.frame.maxX
-                    - bounds.upperBound * formation.scale
-                var candidates: [CGPoint] = []
-                for row in 0..<rowCount {
-                    let rowRootY = max(
-                        battlefieldFloorY,
-                        rowY(row) - footMargin * formation.scale
-                    )
-                    for columnIndex in formation.columnOffsets.indices {
-                        candidates.append(CGPoint(
-                            x: min(max(
-                                lanePoint.x
-                                    + CGFloat(formation.columnOffsets[columnIndex])
-                                        * formation.column,
-                                canvasMinX
-                            ), canvasMaxX),
-                            y: rowRootY
-                        ))
-                    }
-                }
-                // Prefer the SMALLEST lateral drift: the survivor keeps its
-                // column and steps back a row before it ever slides
-                // sideways around a corpse.
-                candidates.sort {
-                    let lhsX = abs($0.x - ideal.x)
-                    let rhsX = abs($1.x - ideal.x)
-                    if lhsX != rhsX { return lhsX < rhsX }
-                    return abs($0.y - ideal.y) < abs($1.y - ideal.y)
-                }
-                let maxDriftX = soldierTargetHeight() * 0.5
-                let maxDriftY = formation.row * 2.5
-                let freeSpot = candidates.first { point in
-                    abs(point.x - bundle.root.position.x) <= maxDriftX
-                        && abs(point.y - bundle.root.position.y) <= maxDriftY
-                        && point.x >= canvasMinX - 0.5
-                        && point.x <= canvasMaxX + 0.5
-                        && isFootprintFree(
-                            soldierRenderedFootprint(at: point, for: bundle)
-                        )
-                }
-                if let freeSpot {
-                    bundle.root.position = freeSpot
-                    bundle.root.isHidden = false
-                    soldierNodes[soldier.id]?.presentationSeeded = true
-                } else if bundle.presentationSeeded {
-                    // No bounded snap qualifies: glide toward the ideal —
-                    // a lone member's seat is never held hostage, it just
-                    // converges a few ticks later.
-                    bundle.root.position = steppedPosition(
-                        from: bundle.root.position,
-                        toward: ideal,
-                        maxDistance: presentationStep
-                    )
-                    bundle.root.isHidden = false
-                } else {
-                    // Never rendered and nowhere bounded to land: stays
-                    // hidden rather than sit at the origin.
-                    bundle.root.isHidden = true
-                }
-            }
-
-            /// Where this member would stand if motion were free: its own
-            /// seat cell, its protected fallback spot, or the hidden
-            /// folded slot — then clamped, for a lone member, inside its
-            /// lane's authored bounds.
-            func idealVisualPosition(
-                for soldier: BattleCombatState.Soldier,
-                bundle: SoldierNodeBundle,
-                lanePoint: CGPoint,
-                frontY: CGFloat,
-                footMargin: CGFloat
-            ) -> CGPoint {
-                let visualX: CGFloat
-                let visualY: CGFloat
-                if let cell = assigned[soldier.id] {
-                    visualX = lanePoint.x
-                        + CGFloat(formation.columnOffsets[cell.column]) * formation.column
-                    visualY = rowY(cell.row) - footMargin * formation.scale
-                } else if let spot = fallbackSpots[soldier.id] {
-                    visualX = spot.x
-                    visualY = spot.y
-                } else {
-                    // Folded: the legacy compressed slot offset — hidden,
-                    // but above the floor pile, spread, and stale-free.
-                    // Bookkeeping positions stay inside the field too: a
-                    // folded member's own readable reach decides the clamp,
-                    // so nothing — visible or hidden — parks off-field.
-                    let offset = soldierFormationOffset(
-                        for: bundle.formationSlot,
-                        availableDepth: frontY - footMargin * formation.scale - battlefieldFloorY,
-                        columnSpacing: formation.column,
-                        rowSpacing: formation.row
-                    )
-                    let reach = soldierReadableFootprint(at: .zero, for: bundle)
-                    visualX = min(
-                        max(lanePoint.x + offset.x,
-                            battlefieldLayout.frame.minX - reach.minX),
-                        battlefieldLayout.frame.maxX - reach.maxX
-                    )
-                    visualY = frontY + offset.y - footMargin * formation.scale
-                }
-                var clampedX = visualX
-                if laneSoldiers.count == 1 {
-                    let bounds = soldierHorizontalBounds(for: bundle)
-                    let laneWidth = battlefieldLayout.frame.width / 3
-                    let padding = min(SoldierFormation.spacing / 2, laneWidth / 2)
-                    let minX = lanePoint.x - laneWidth / 2 + padding - bounds.lowerBound * formation.scale
-                    let maxX = lanePoint.x + laneWidth / 2 - padding - bounds.upperBound * formation.scale
-                    clampedX = min(max(clampedX, minX), maxX)
-                }
-                return CGPoint(
-                    x: clampedX,
-                    y: max(battlefieldFloorY, visualY)
-                )
-            }
-
-            var foldedInLane = 0
-            for soldier in ranked {
-                guard let bundle = soldierNodes[soldier.id],
-                      let lanePoint = lanePoints[soldier.id],
-                      let frontY = frontYs[soldier.id],
-                      let footMargin = footMargins[soldier.id] else { continue }
-                let isPresented = assigned[soldier.id] != nil
-                    || fallbackSpots[soldier.id] != nil
-                let loneSoldier = laneSoldiers.count == 1
-                let ideal = idealVisualPosition(
-                    for: soldier,
-                    bundle: bundle,
-                    lanePoint: lanePoint,
-                    frontY: frontY,
-                    footMargin: footMargin
-                )
-                // The member's own sync-start footprint no longer counts
-                // against itself — placements below only ever consult OTHER
-                // rendered ground.
-                memberFootprints.removeValue(forKey: soldier.id)
-
-                if !isPresented {
-                    // Folded into the "+N" badge: hidden and counted; the
-                    // bookkeeping position still moves at the bounded
-                    // combat-time rate so no root ever teleports — even
-                    // under the fold counter.
-                    bundle.root.isHidden = true
-                    bundle.root.position = layoutRemapped || !bundle.presentationSeeded
-                        ? ideal
-                        : steppedPosition(
-                            from: bundle.root.position,
-                            toward: ideal,
-                            maxDistance: presentationStep
-                        )
-                    soldierNodes[soldier.id]?.presentationSeeded = true
-                } else if layoutRemapped {
-                    // Layout remap: land on the new-grid seat THIS sync — a
-                    // paused battle can never glide out of stale coords.
-                    bundle.root.position = ideal
-                    bundle.root.isHidden = false
-                    soldierNodes[soldier.id]?.presentationSeeded = true
-                } else if loneSoldier {
-                    placeLone(
-                        ideal: ideal,
-                        bundle: bundle,
-                        soldier: soldier,
-                        lanePoint: lanePoint,
-                        footMargin: footMargin
-                    )
-                } else {
-                    // Stable-seat member: fresh roots land directly on
-                    // their own exclusive, corpse-free cell; seated roots
-                    // converge at the bounded combat-time glide. No path
-                    // solving — seats are disjoint by construction, so the
-                    // only possible overlap is a member still in transit
-                    // and it always resolves on arrival.
-                    bundle.root.isHidden = false
-                    if !bundle.presentationSeeded {
-                        bundle.root.position = ideal
-                        soldierNodes[soldier.id]?.presentationSeeded = true
-                    } else {
-                        bundle.root.position = steppedPosition(
-                            from: bundle.root.position,
-                            toward: ideal,
-                            maxDistance: presentationStep
-                        )
-                    }
-                }
-                if bundle.root.isHidden {
-                    foldedInLane += 1
-                }
-                bundle.root.setScale(formation.scale)
-                if !bundle.root.isHidden, let cell = assigned[soldier.id] {
-                    // The claimed reservation is the seat CELL — the same
-                    // readable rect the corpse/fade passes invalidate —
-                    // exclusive across seats by the ≥footprint+spacing
-                    // pitch. A member's transient attack canvas may reach
-                    // past it; the readable body∪bar never does.
-                    seatFootprintsBySoldierID[soldier.id] = CGRect(
-                        x: laneCenterX
-                            + CGFloat(formation.columnOffsets[cell.column])
-                                * formation.column
-                            - formation.footprintHalfWidth,
-                        y: rowY(cell.row),
-                        width: formation.footprintHalfWidth * 2,
-                        height: formation.footprintHeight
-                    )
-                } else if !bundle.root.isHidden,
-                          let spot = fallbackSpots[soldier.id] {
-                    // Off-grid protected fallback: the claim it holds is
-                    // its readable unit AT the verified-free spot — the
-                    // rect the seat contract asserts disjointness on.
-                    seatFootprintsBySoldierID[soldier.id] =
-                        soldierReadableFootprint(at: spot, for: bundle)
-                }
-                // Folded bookkeeping is still O(1) per member — HP path,
-                // walk-cycle check, and Rally accent all stay current so a
-                // member emerging from the badge renders a correct first
-                // frame; the rendered cost itself stays bounded because
-                // SpriteKit never draws hidden subtrees.
-                layoutSoldierHPBar(bundle, soldier: soldier)
-                startSoldierWalkAnimation(for: soldier.id)
-                syncRallyProtectionAccent(for: soldier)
-            }
-
-            foldedCountByLane[lane] = foldedInLane
-            badgeAnchorXByLane[lane] = ranked.last
-                .flatMap { lanePoints[$0.id] }?.x
-                ?? point(forLane: lane, position: 0).x
+            foldedCountByLane[lane] = outcome.foldedCount
+            badgeAnchorXByLane[lane] = outcome.badgeAnchorX
         }
 
         for lane in BattleLane.allCases {
@@ -3835,84 +3331,579 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 anchorX: badgeAnchorXByLane[lane]
             )
         }
+    }
 
-        // Casualty-in-flight roots in lanes with no live roster left keep
-        // their authored hit/fade animations too — corpses never vanish
-        // silently, the "+N" summary only ever counts live soldiers, and
-        // their real footprints stay reserved until removal so nothing can
-        // be seated where a corpse still renders.
-        reserveOrphanedCasualtyFootprints(
-            liveLanes: Set(soldiersByLane.keys),
-            isFootprintFree: isFootprintFree,
-            reserveFootprint: { reservedFootprints.append($0) }
+    /// One lane's presentation for this sync — seat claims, then one
+    /// application pass over the rank-ordered roster. The lane's reserved
+    /// ground is the corpses rendered when they died in this lane plus
+    /// every fading removal; seats never claim the cells those footprints
+    /// touch.
+    private func syncLaneFormation(
+        lane: BattleLane,
+        laneSoldiers: [BattleCombatState.Soldier],
+        formation: SoldierFormationLayout,
+        laneReservedFootprints: [CGRect],
+        battlefieldFloorY: CGFloat,
+        presentationStep: CGFloat,
+        layoutRemapped: Bool
+    ) -> (foldedCount: Int, badgeAnchorX: CGFloat) {
+        let ranked = laneSoldiers.sorted { lhs, rhs in
+            if lhs.position != rhs.position {
+                return lhs.position > rhs.position
+            }
+            if lhs.isCaptain != rhs.isCaptain {
+                return lhs.isCaptain
+            }
+            return lhs.id < rhs.id
+        }
+
+        var lanePoints: [BattleCombatState.SoldierID: CGPoint] = [:]
+        var frontYs: [BattleCombatState.SoldierID: CGFloat] = [:]
+        var footMargins: [BattleCombatState.SoldierID: CGFloat] = [:]
+        for soldier in ranked {
+            guard let bundle = soldierNodes[soldier.id] else { continue }
+            let lanePoint = point(forLane: lane, position: soldier.position)
+            lanePoints[soldier.id] = lanePoint
+            frontYs[soldier.id] = min(lanePoint.y, formation.frontLimit)
+            footMargins[soldier.id] = animatedSoldierFootMargin(for: bundle)
+        }
+
+        let protectedIDs = laneProtectedIDs(ranked: ranked, laneSoldiers: laneSoldiers)
+
+        let headY = ranked.compactMap { frontYs[$0.id] }.max() ?? 0
+        let laneMaxFoot = (footMargins.values.max() ?? 0) * formation.scale
+        let grid = SoldierSeatGrid(
+            laneCenterX: point(forLane: lane, position: 0).x,
+            columnOffsets: formation.columnOffsets,
+            columnPitch: formation.column,
+            rowPitch: formation.row,
+            headY: headY,
+            rowCount: max(
+                1,
+                Int(((headY - laneMaxFoot - battlefieldFloorY
+                    - SoldierFormation.overflowBadgeReserve) / formation.row).rounded(.down)) + 1
+            ),
+            footprintHalfWidth: formation.footprintHalfWidth,
+            footprintHeight: formation.footprintHeight
+        )
+        func naturalRow(of soldier: BattleCombatState.Soldier) -> Int {
+            guard let frontY = frontYs[soldier.id] else { return 0 }
+            let row = Int(((headY - frontY) / formation.row + 0.5).rounded(.down))
+            return min(max(0, row), grid.rowCount - 1)
+        }
+
+        let seatPlan = planSoldierSeats(
+            ranked: ranked,
+            grid: grid,
+            reservedFootprints: laneReservedFootprints,
+            previousSeats: soldierSeats[lane] ?? [:],
+            protectedIDs: protectedIDs,
+            naturalRow: naturalRow,
+            preferredColumn: {
+                self.soldierNodes[$0].map(\.formationSlot) ?? 0
+            },
+            frontY: { frontYs[$0] ?? 0 }
+        )
+        // Folded members release their seat — `assigned` IS the lane's
+        // seat map for next sync.
+        soldierSeats[lane] = seatPlan.assigned
+        // The claimed reservation is the seat CELL — the same readable
+        // rect the corpse/fade passes invalidate — exclusive across
+        // seats by the ≥footprint+spacing pitch. Recorded for every
+        // assigned member, including one still converging hidden.
+        for (id, cell) in seatPlan.assigned {
+            seatFootprintsBySoldierID[id] = grid.cellRect(
+                row: cell.row, column: cell.column
+            )
+        }
+
+        let loneSoldier = laneSoldiers.count == 1
+        let unseatedProtected = Set(seatPlan.unseatedProtected)
+        let presentation = LanePresentation(
+            formation: formation,
+            grid: grid,
+            reservedFootprints: laneReservedFootprints,
+            battlefieldFloorY: battlefieldFloorY,
+            presentationStep: presentationStep,
+            layoutRemapped: layoutRemapped
+        )
+        var foldedInLane = 0
+        for soldier in ranked {
+            guard let bundle = soldierNodes[soldier.id],
+                  let lanePoint = lanePoints[soldier.id],
+                  let frontY = frontYs[soldier.id],
+                  let footMargin = footMargins[soldier.id] else { continue }
+            let placement = SoldierPlacement(
+                bundle: bundle,
+                lanePoint: lanePoint,
+                frontY: frontY,
+                footMargin: footMargin,
+                seat: seatPlan.assigned[soldier.id],
+                unseatedProtected: unseatedProtected.contains(soldier.id)
+            )
+            let presented = placement.seat != nil || placement.unseatedProtected
+            if loneSoldier && presented {
+                // A lone member keeps the exact pre-easing placement: its
+                // own seat cell clamped inside the lane's authored bounds,
+                // landed directly when that ground is free — a lone seat
+                // is never held hostage.
+                if applyLonePlacement(
+                    placement,
+                    ideal: loneIdealPosition(
+                        placement,
+                        baseIdeal: soldierIdealPosition(
+                            placement, in: presentation),
+                        in: presentation
+                    ),
+                    in: presentation
+                ) {
+                    soldierNodes[soldier.id]?.presentationSeeded = true
+                }
+            } else {
+                applySoldierPlacement(
+                    placement,
+                    presented: presented,
+                    ideal: soldierIdealPosition(placement, in: presentation),
+                    // A protected member must stay RENDERED — it is a live
+                    // fire candidate — so a HIDDEN one lands on its seat
+                    // this sync rather than converging hidden while shots
+                    // are already in the air. Visible protected members
+                    // still glide.
+                    landImmediately: bundle.root.isHidden
+                        && protectedIDs.contains(soldier.id),
+                    in: presentation
+                )
+                soldierNodes[soldier.id]?.presentationSeeded = true
+            }
+            if bundle.root.isHidden {
+                foldedInLane += 1
+            }
+            bundle.root.setScale(formation.scale)
+            // Folded bookkeeping is still O(1) per member — HP path,
+            // walk-cycle check, and Rally accent all stay current so
+            // a member emerging from the badge renders a correct
+            // first frame; SpriteKit never draws hidden subtrees.
+            layoutSoldierHPBar(bundle, soldier: soldier)
+            startSoldierWalkAnimation(for: soldier.id)
+            syncRallyProtectionAccent(for: soldier)
+        }
+
+        return (
+            foldedInLane,
+            ranked.last.flatMap { lanePoints[$0.id] }?.x
+                ?? point(forLane: lane, position: 0).x
         )
     }
 
-    /// Reveal/reserve pass for pending casualties whose lane has no live
-    /// soldiers left this sync. No live formation to anchor on: keep the
-    /// body where it fell — unless it sits on another corpse/fade, in
-    /// which case step to free ground measured in ITS OWN footprint
-    /// pitches. No fail-open here either: all contested means it stays
-    /// hidden and retries next sync. Mutates the corpse ledgers; the
-    /// caller's `reservedFootprints`/`memberFootprints` closures supply
-    /// the shared ground map.
-    private func reserveOrphanedCasualtyFootprints(
-        liveLanes: Set<BattleLane>,
-        isFootprintFree: (CGRect) -> Bool,
-        reserveFootprint: (CGRect) -> Void
-    ) {
+    /// The members a lane's presentation must never fold: every Captain,
+    /// combat's foremost rank, the lane's ACTUAL fire candidate — the
+    /// lowest roster id at the maximal position, which differs from the
+    /// visual `ranked` first when a Captain shares the front — and the
+    /// tower's live projectile target: the shot already left toward THIS
+    /// soldier, so a post-shot re-rank must not fold it before the arrow
+    /// lands. That protection is tied to the projectile's own lifecycle —
+    /// it clears when the shot lands (see `playTowerShot`), never
+    /// persisting onto a later reused id.
+    private func laneProtectedIDs(
+        ranked: [BattleCombatState.Soldier],
+        laneSoldiers: [BattleCombatState.Soldier]
+    ) -> Set<BattleCombatState.SoldierID> {
+        var protectedIDs = Set(ranked.filter(\.isCaptain).map(\.id))
+        if let foremost = ranked.first {
+            protectedIDs.insert(foremost.id)
+        }
+        if let maxPosition = laneSoldiers.map(\.position).max(),
+           let candidate = laneSoldiers
+               .filter({ $0.position == maxPosition })
+               .min(by: { $0.id < $1.id }) {
+            protectedIDs.insert(candidate.id)
+        }
+        if let target = lastDefensiveShotTargetID,
+           laneSoldiers.contains(where: { $0.id == target }) {
+            protectedIDs.insert(target)
+        }
+        return protectedIDs
+    }
+
+    /// Corpse pass for every pending casualty — runs before seat claims so
+    /// the ground corpses still hold is unclaimable. A casualty that died
+    /// RENDERED keeps the ground it fell on: its actual footprint is
+    /// reserved immediately (recomputed per sync through the node's own
+    /// transform, so a Captain's retreat scale-down shrinks for real) and
+    /// held until the authored removal lands. A casualty that died hidden
+    /// STAYS hidden until removal — there is no reveal search; lanes with
+    /// no live roster left keep their corpses where they fell as well.
+    private func syncPendingCasualtyFootprints(
+        layoutRemapped: Bool
+    ) -> [BattleLane: [CGRect]] {
+        var byLane: [BattleLane: [CGRect]] = [:]
         for id in pendingAnimatedRemovalSoldierIDs.sorted() {
-            guard let bundle = soldierNodes[id],
-                  !liveLanes.contains(bundle.lane) else {
-                continue
-            }
+            guard let bundle = soldierNodes[id] else { continue }
             if !bundle.corpseRevealed {
-                let footprintSize = soldierRenderedFootprint(
-                    at: bundle.root.position, for: bundle
-                ).size
-                let footprintWidth = footprintSize.width + SoldierFormation.spacing
-                let footprintHeight = footprintSize.height + SoldierFormation.spacing
-                let anchor = CGPoint(
-                    x: min(max(bundle.root.position.x, battlefieldLayout.frame.minX + footprintWidth),
-                           battlefieldLayout.frame.maxX - footprintWidth),
-                    y: min(max(bundle.root.position.y, battlefieldLayout.frame.minY + footprintHeight),
-                           battlefieldLayout.frame.maxY - footprintHeight)
-                )
-                var candidates: [CGPoint] = [anchor]
-                for dy in [0, 1, -1, 2, -2] {
-                    for dx in [1, -1, 2, -2] {
-                        candidates.append(CGPoint(
-                            x: anchor.x + CGFloat(dx) * footprintWidth,
-                            y: anchor.y + CGFloat(dy) * footprintHeight
-                        ))
-                    }
-                    if dy != 0 {
-                        candidates.append(CGPoint(
-                            x: anchor.x, y: anchor.y + CGFloat(dy) * footprintHeight
-                        ))
-                    }
-                }
-                if let landing = candidates.first(where: {
-                    isFootprintFree(soldierRenderedFootprint(at: $0, for: bundle))
-                }) {
-                    bundle.root.position = landing
+                if bundle.presentationSeeded && !bundle.root.isHidden {
+                    // Died rendered: the ground under it is already the
+                    // truthful footprint — it simply stays there.
                     soldierNodes[id]?.corpseRevealed = true
                 } else {
-                    // Contested everywhere: stays hidden (no reservation,
-                    // no render) and retries next sync — never lands on
-                    // another body, never renders unreserved.
-                    bundle.root.isHidden = true
+                    // Died hidden: stays hidden until the authored removal
+                    // lands — never revealed onto another body.
+                    continue
                 }
             }
-            if bundle.corpseRevealed {
-                bundle.root.isHidden = false
-                let corpseRect = soldierRenderedFootprint(
-                    at: bundle.root.position, for: bundle
+            if layoutRemapped {
+                // Keep the corpse inside the NEW field — its reservation
+                // recomputes below from the current transform.
+                bundle.root.position = CGPoint(
+                    x: min(max(bundle.root.position.x, battlefieldLayout.frame.minX),
+                           battlefieldLayout.frame.maxX),
+                    y: min(max(bundle.root.position.y, battlefieldLayout.frame.minY),
+                           battlefieldLayout.frame.maxY)
                 )
-                soldierNodes[id]?.corpseFootprint = corpseRect
-                reserveFootprint(corpseRect)
+            }
+            bundle.root.isHidden = false
+            let rect = soldierRenderedFootprint(at: bundle.root.position, for: bundle)
+            soldierNodes[id]?.corpseFootprint = rect
+            byLane[bundle.lane, default: []].append(rect)
+        }
+        return byLane
+    }
+
+    /// One sync's bounded step toward a point — returns `ideal` when the
+    /// remaining distance fits the step, else the point `maxDistance`
+    /// along the straight line. Motion is clocked by `elapsedCombatTime`,
+    /// so a zero-elapsed sync never moves a root.
+    private func steppedPosition(
+        from position: CGPoint,
+        toward ideal: CGPoint,
+        maxDistance: CGFloat
+    ) -> CGPoint {
+        let dx = ideal.x - position.x
+        let dy = ideal.y - position.y
+        let distance = hypot(dx, dy)
+        guard distance > maxDistance, distance > 0 else {
+            return ideal
+        }
+        return CGPoint(
+            x: position.x + dx / distance * maxDistance,
+            y: position.y + dy / distance * maxDistance
+        )
+    }
+
+    /// One lane's seat plan for this sync (pure claims — no node writes).
+    /// Cells touched by corpse/fade footprints are taken first; protected
+    /// members claim their natural rows first, everyone else claims in
+    /// rank order, deferred members take the free row nearest their own
+    /// front. A protected member the grid cannot seat takes the nearest
+    /// free row, then displaces the lowest-rank ordinary member nearest
+    /// its natural row — only in the corpse-blanketed extreme does one
+    /// stay unseated, rendered at its own true position rather than fold.
+    private func planSoldierSeats(
+        ranked: [BattleCombatState.Soldier],
+        grid: SoldierSeatGrid,
+        reservedFootprints: [CGRect],
+        previousSeats: [BattleCombatState.SoldierID: (row: Int, column: Int)],
+        protectedIDs: Set<BattleCombatState.SoldierID>,
+        naturalRow: (BattleCombatState.Soldier) -> Int,
+        preferredColumn: @escaping (BattleCombatState.SoldierID) -> Int,
+        frontY: (BattleCombatState.SoldierID) -> CGFloat
+    ) -> (
+        assigned: [BattleCombatState.SoldierID: (row: Int, column: Int)],
+        unseatedProtected: [BattleCombatState.SoldierID]
+    ) {
+        var planner = SoldierSeatPlanner(
+            grid: grid,
+            reservedFootprints: reservedFootprints,
+            previousSeats: previousSeats,
+            preferredColumn: preferredColumn
+        )
+        for soldier in ranked where protectedIDs.contains(soldier.id) {
+            planner.claim(soldier.id, row: naturalRow(soldier))
+        }
+        var deferred: [BattleCombatState.Soldier] = []
+        for soldier in ranked where planner.assigned[soldier.id] == nil {
+            if !planner.claim(soldier.id, row: naturalRow(soldier)) {
+                deferred.append(soldier)
             }
         }
+        for soldier in deferred {
+            if let row = planner.nearestFreeRow(to: frontY(soldier.id)) {
+                planner.claim(soldier.id, row: row)
+            }
+        }
+        for soldier in ranked
+        where protectedIDs.contains(soldier.id) && planner.assigned[soldier.id] == nil {
+            if let row = planner.nearestFreeRow(to: frontY(soldier.id)) {
+                planner.claim(soldier.id, row: row)
+            }
+        }
+        displaceOrdinaryOccupantsForProtected(
+            ranked: ranked,
+            protectedIDs: protectedIDs,
+            naturalRow: naturalRow,
+            planner: &planner
+        )
+        let unseatedProtected = ranked.filter {
+            protectedIDs.contains($0.id) && planner.assigned[$0.id] == nil
+        }.map(\.id)
+        return (planner.assigned, unseatedProtected)
+    }
+
+    /// Last-resort seat for a protected member whose whole grid is taken:
+    /// displace the lowest-rank ordinary occupant nearest its natural row
+    /// — the Captain and the tower's actual target never fold.
+    private func displaceOrdinaryOccupantsForProtected(
+        ranked: [BattleCombatState.Soldier],
+        protectedIDs: Set<BattleCombatState.SoldierID>,
+        naturalRow: (BattleCombatState.Soldier) -> Int,
+        planner: inout SoldierSeatPlanner
+    ) {
+        var rankIndex: [BattleCombatState.SoldierID: Int] = [:]
+        for (index, soldier) in ranked.enumerated() {
+            rankIndex[soldier.id] = index
+        }
+        for soldier in ranked
+        where protectedIDs.contains(soldier.id) && planner.assigned[soldier.id] == nil {
+            let targetRow = naturalRow(soldier)
+            guard let victim = planner.assigned
+                .filter({ !protectedIDs.contains($0.key) })
+                .min(by: {
+                    let d0 = abs($0.value.row - targetRow)
+                    let d1 = abs($1.value.row - targetRow)
+                    if d0 != d1 { return d0 < d1 }
+                    return (rankIndex[$0.key] ?? .max) > (rankIndex[$1.key] ?? .max)
+                }) else { continue }
+            planner.displace(victim.key, by: soldier.id)
+        }
+    }
+
+    /// Where a member would stand if motion were free this sync: its own
+    /// seat cell, its true position as an unseated protected member, or
+    /// the hidden folded slot.
+    private func soldierIdealPosition(
+        _ placement: SoldierPlacement,
+        in presentation: LanePresentation
+    ) -> CGPoint {
+        let grid = presentation.grid
+        if let seat = placement.seat {
+            return CGPoint(
+                x: grid.cellRect(row: seat.row, column: seat.column).midX,
+                y: grid.rowY(seat.row)
+                    - placement.footMargin * presentation.formation.scale
+            )
+        }
+        if placement.unseatedProtected {
+            // Protected members never fold — in the corpse-blanketed
+            // extreme one renders at its own true position, still clamped
+            // so the WHOLE canvas stays inside the field.
+            let bounds = soldierHorizontalBounds(for: placement.bundle)
+            return CGPoint(
+                x: min(max(
+                    placement.lanePoint.x,
+                    battlefieldLayout.frame.minX
+                        - bounds.lowerBound * presentation.formation.scale
+                ), battlefieldLayout.frame.maxX
+                        - bounds.upperBound * presentation.formation.scale),
+                y: max(
+                    presentation.battlefieldFloorY,
+                    placement.frontY
+                        - placement.footMargin * presentation.formation.scale
+                )
+            )
+        }
+        // Folded: the legacy compressed slot offset — hidden, but above
+        // the floor pile, spread, and stale-free. Bookkeeping positions
+        // stay inside the field too: a folded member's own readable reach
+        // decides the clamp, so nothing — visible or hidden — parks
+        // off-field.
+        let offset = soldierFormationOffset(
+            for: placement.bundle.formationSlot,
+            availableDepth: placement.frontY
+                - placement.footMargin * presentation.formation.scale
+                - presentation.battlefieldFloorY,
+            columnSpacing: grid.columnPitch,
+            rowSpacing: grid.rowPitch
+        )
+        let reach = soldierReadableFootprint(at: .zero, for: placement.bundle)
+        return CGPoint(
+            x: min(
+                max(placement.lanePoint.x + offset.x,
+                    battlefieldLayout.frame.minX - reach.minX),
+                battlefieldLayout.frame.maxX - reach.maxX
+            ),
+            y: max(
+                presentation.battlefieldFloorY,
+                placement.frontY + offset.y
+                    - placement.footMargin * presentation.formation.scale
+            )
+        )
+    }
+
+    /// A lone member's ideal is its base placement (seat cell or
+    /// protected fallback) with x clamped inside the lane's authored
+    /// bounds — the exact pre-easing placement the lone-survivor
+    /// transition keeps.
+    private func loneIdealPosition(
+        _ placement: SoldierPlacement,
+        baseIdeal: CGPoint,
+        in presentation: LanePresentation
+    ) -> CGPoint {
+        let bounds = soldierHorizontalBounds(for: placement.bundle)
+        let laneWidth = battlefieldLayout.frame.width / 3
+        let padding = min(SoldierFormation.spacing / 2, laneWidth / 2)
+        let minX = placement.lanePoint.x - laneWidth / 2 + padding
+            - bounds.lowerBound * presentation.formation.scale
+        let maxX = placement.lanePoint.x + laneWidth / 2 - padding
+            - bounds.upperBound * presentation.formation.scale
+        return CGPoint(x: min(max(baseIdeal.x, minX), maxX), y: baseIdeal.y)
+    }
+
+    /// Apply a lone member's placement for this sync. Its seat is never
+    /// held hostage: when the ideal's actual rendered footprint is free
+    /// — or it already stands there — it lands directly; otherwise it
+    /// lands on the nearest free grid cell inside the authored drift
+    /// (half a body height laterally, ~2.5 rows deep — never sideways
+    /// around a body, never a snap across rows or the battlefield), and
+    /// only when NOTHING bounded is free does it glide at the ordinary
+    /// combat rate — or stay hidden while never rendered. `true` when the
+    /// member was placed/rendered this sync, `false` only for the
+    /// never-rendered no-free-ground extreme.
+    private func applyLonePlacement(
+        _ placement: SoldierPlacement,
+        ideal: CGPoint,
+        in presentation: LanePresentation
+    ) -> Bool {
+        let bundle = placement.bundle
+        func free(_ point: CGPoint) -> Bool {
+            !presentation.reservedFootprints.contains {
+                $0.intersects(soldierRenderedFootprint(at: point, for: bundle))
+            }
+        }
+        if presentation.layoutRemapped || free(ideal)
+            || bundle.root.position == ideal {
+            bundle.root.position = ideal
+            bundle.root.isHidden = false
+            return true
+        }
+        let grid = presentation.grid
+        let scale = presentation.formation.scale
+        let bounds = soldierHorizontalBounds(for: bundle)
+        let canvasMinX = battlefieldLayout.frame.minX - bounds.lowerBound * scale
+        let canvasMaxX = battlefieldLayout.frame.maxX - bounds.upperBound * scale
+        // A lone member never folds, so the "+N" badge reserve does not
+        // apply: candidates reach the real floor — the deepest row whose
+        // top still sits above it (root y clamps to the floor).
+        let loneRowCount = max(
+            grid.rowCount,
+            Int(((grid.headY - presentation.battlefieldFloorY)
+                / grid.rowPitch).rounded(.down)) + 1
+        )
+        var candidates: [CGPoint] = []
+        for row in 0..<loneRowCount {
+            let rowRootY = max(
+                presentation.battlefieldFloorY,
+                grid.rowY(row) - placement.footMargin * scale
+            )
+            for columnIndex in grid.columnOffsets.indices {
+                candidates.append(CGPoint(
+                    x: min(max(
+                        placement.lanePoint.x
+                            + grid.columnOffsets[columnIndex] * grid.columnPitch,
+                        canvasMinX
+                    ), canvasMaxX),
+                    y: rowRootY
+                ))
+            }
+        }
+        // Prefer the SMALLEST lateral drift: the survivor keeps its column
+        // and steps back a row before it ever slides around a corpse.
+        candidates.sort {
+            let lhsX = abs($0.x - ideal.x)
+            let rhsX = abs($1.x - ideal.x)
+            if lhsX != rhsX { return lhsX < rhsX }
+            return abs($0.y - ideal.y) < abs($1.y - ideal.y)
+        }
+        let maxDriftX = soldierTargetHeight() * 0.5
+        let maxDriftY = grid.rowPitch * 2.5
+        if let freeSpot = candidates.first(where: { point in
+            abs(point.x - bundle.root.position.x) <= maxDriftX
+                && abs(point.y - bundle.root.position.y) <= maxDriftY
+                && point.x >= canvasMinX - 0.5
+                && point.x <= canvasMaxX + 0.5
+                && free(point)
+        }) {
+            bundle.root.position = freeSpot
+            bundle.root.isHidden = false
+            return true
+        }
+        if bundle.presentationSeeded {
+            // No bounded snap qualifies: glide toward the ideal — a lone
+            // member's seat is never held hostage, it just converges a
+            // few ticks later.
+            bundle.root.position = steppedPosition(
+                from: bundle.root.position,
+                toward: ideal,
+                maxDistance: presentation.presentationStep
+            )
+            bundle.root.isHidden = false
+            return true
+        }
+        // Never rendered and nowhere bounded to land: stays hidden rather
+        // than sit at the origin.
+        bundle.root.isHidden = true
+        return false
+    }
+
+    /// Apply one member's presentation for this sync:
+    /// * folded → hidden, bookkeeping converges at the bounded rate;
+    /// * fresh spawn / layout remap → lands directly on its seat;
+    /// * already rendered → converges visibly at the bounded rate;
+    /// * hidden→presented promotion → converges HIDDEN and unhides only
+    ///   on arrival — it never renders at its stale folded spot, so it
+    ///   can never park on other bodies or freeze the overlap on a pause.
+    private func applySoldierPlacement(
+        _ placement: SoldierPlacement,
+        presented: Bool,
+        ideal: CGPoint,
+        landImmediately: Bool,
+        in presentation: LanePresentation
+    ) {
+        let bundle = placement.bundle
+        let step = presentation.presentationStep
+        let fresh = presentation.layoutRemapped || !bundle.presentationSeeded
+        if !presented {
+            bundle.root.isHidden = true
+            bundle.root.position = fresh || landImmediately
+                ? ideal
+                : steppedPosition(
+                    from: bundle.root.position,
+                    toward: ideal,
+                    maxDistance: step
+                )
+            return
+        }
+        if fresh || landImmediately || !bundle.root.isHidden {
+            bundle.root.position = fresh || landImmediately
+                ? ideal
+                : steppedPosition(
+                    from: bundle.root.position,
+                    toward: ideal,
+                    maxDistance: step
+                )
+            bundle.root.isHidden = false
+            return
+        }
+        bundle.root.position = steppedPosition(
+            from: bundle.root.position,
+            toward: ideal,
+            maxDistance: step
+        )
+        // Arrival, not bitwise equality — SpriteKit quantizes node
+        // positions to Float precision, so a converged root reads back a
+        // few micro-points off `ideal` forever.
+        bundle.root.isHidden = hypot(
+            bundle.root.position.x - ideal.x,
+            bundle.root.position.y - ideal.y
+        ) > SoldierFormation.seatArrivalTolerance
     }
 
     /// The rendered reservation unit for a soldier node whose root sits at
