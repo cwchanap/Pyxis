@@ -608,12 +608,9 @@ final class ConquestReportNode: SKNode {
 
     /// Monochrome SF Symbols rasterize black, and `colorBlendFactor` tinting
     /// can only darken texels — the configured tint never reaches the
-    /// framebuffer (HPA-812). `withTintColor` alone only tags the UIImage;
-    /// `SKTexture(image:)` still ingests the black CGImage, so the tint must
-    /// be baked by drawing through `UIGraphicsImageRenderer`. Rasterizing
-    /// white lets the sprite's existing `color`/`colorBlendFactor` colorize
-    /// the glyph, matching the pre-tinted captain-portrait fallback in
-    /// `BattleHUDNode`.
+    /// framebuffer (HPA-812). `withTintColor` only tags the UIImage, so the
+    /// tint is baked by drawing through `UIGraphicsImageRenderer`. White
+    /// texels let the sprite's `color`/`colorBlendFactor` colorize the glyph.
     private static func monochromeSymbolTexture(named symbolName: String) -> SKTexture? {
         guard let symbol = UIImage(systemName: symbolName) else { return nil }
         let image = UIGraphicsImageRenderer(size: symbol.size).image { _ in
