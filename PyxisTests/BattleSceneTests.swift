@@ -4270,24 +4270,29 @@ struct BattleSceneTests {
                     }
                 }
                 #expect(roots.count == initialCount)
-                let survivor = try #require(lane == .left
-                    ? roots.min { $0.position.x < $1.position.x }
-                    : roots.max { $0.position.x < $1.position.x })
                 let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
                 let screen = CGRect(origin: .zero, size: size)
-                var previousX = survivor.position.x
+                // The survivor is identified by LIVE identity after the
+                // kill-down — presentation seat checks may legitimately
+                // move a body outward past an earlier x-ordering, so an
+                // initial outermost-x pick can bind to a corpse root.
+                var previousXs: [ObjectIdentifier: CGFloat] = [:]
                 for _ in 0..<100 where scene.liveSoldierCountForTesting > 1 {
-                    previousX = survivor.position.x
+                    for root in roots {
+                        previousXs[ObjectIdentifier(root)] = root.position.x
+                    }
                     scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
                 }
                 #expect(scene.liveSoldierCountForTesting == 1)
                 let liveBody = try #require(scene.firstLiveSoldierBodySpriteForTesting)
-                #expect(liveBody.parent === survivor)
+                let survivor = try #require(liveBody.parent)
+                #expect(roots.contains { $0 === survivor })
                 #expect(scene.pendingAnimatedRemovalSoldierIDsForTesting.count == initialCount - 1)
                 #expect(survivor.action(forKey: "soldierDelayedRemoval") == nil)
                 for root in roots where root !== survivor {
                     #expect(root.action(forKey: "soldierDelayedRemoval") != nil)
                 }
+                let previousX = previousXs[ObjectIdentifier(survivor)] ?? survivor.position.x
                 #expect(abs(survivor.position.x - previousX) < scene.soldierTargetHeightForTesting * 0.5)
                 let bar = try #require(survivor.children.compactMap { $0 as? SKShapeNode }
                     .first { $0.zPosition == 2 })
@@ -5601,6 +5606,13 @@ struct BattleSceneTests {
         }
         reservations.append(contentsOf: scene.fadingSoldierFootprintsForTesting)
 
+        // Unseated PROTECTED members may lawfully share a fading corpse's
+        // ground — the saturated-extreme share that keeps the lane's fire
+        // candidate truthful (round 5): the corpse is already on its way
+        // out, but two live bodies may still never merge, so only the
+        // corpse checks below relax for them.
+        let unseatedProtected = unseatedProtectedSoldierIDs(in: scene)
+
         // Seats: exclusive by construction and corpse-free — the invariant
         // that makes parked bodies + bars impossible to merge.
         for index in seatRects.indices {
@@ -5647,7 +5659,10 @@ struct BattleSceneTests {
                     "converged members parked overlapping: \(entry.rect) vs \(other.rect)"
                 )
             }
-            // A live member never parks on corpse/fade ground either.
+            // A live member never parks on corpse/fade ground either —
+            // except an unseated protected member in the saturated
+            // extreme, whose lawful share is documented above.
+            guard !unseatedProtected.contains(entry.id) else { continue }
             for reservation in reservations {
                 #expect(
                     !entry.rect.intersects(reservation),
@@ -5673,7 +5688,8 @@ struct BattleSceneTests {
                 nextStreaks[key] = streak
             }
             for (corpseIndex, reservation) in reservations.enumerated()
-            where members[index].rect.intersects(reservation) {
+            where !unseatedProtected.contains(members[index].id)
+                && members[index].rect.intersects(reservation) {
                 let key = "\(members[index].id):corpse\(corpseIndex)"
                 let streak = (overlapStreaks[key] ?? 0) + 1
                 #expect(
@@ -5685,6 +5701,64 @@ struct BattleSceneTests {
         }
         overlapStreaks = nextStreaks
         return moved
+    }
+
+    /// The lane's protected set, recomputed from the same test-visible
+    /// state the production `laneProtectedIDs` reads: every Captain, the
+    /// visual foremost rank, the actual fire candidate (lowest roster id
+    /// at the maximal position), and the in-flight tower-shot target.
+    private func protectedSoldierIDs(
+        in scene: BattleScene,
+        lane: BattleLane
+    ) -> Set<BattleCombatState.SoldierID> {
+        let laneSoldiers = scene.soldierPresentationsForTesting.filter {
+            $0.lane == lane
+        }
+        var ids = Set<BattleCombatState.SoldierID>()
+        let captainID = scene.livingCaptainForTesting?.id
+        if let captainID, laneSoldiers.contains(where: { $0.id == captainID }) {
+            ids.insert(captainID)
+        }
+        let ranked = laneSoldiers.sorted { lhs, rhs in
+            if lhs.position != rhs.position {
+                return lhs.position > rhs.position
+            }
+            if (lhs.id == captainID) != (rhs.id == captainID) {
+                return lhs.id == captainID
+            }
+            return lhs.id < rhs.id
+        }
+        if let foremost = ranked.first {
+            ids.insert(foremost.id)
+        }
+        if let maxPosition = laneSoldiers.map(\.position).max(),
+           let candidate = laneSoldiers
+               .filter({ $0.position == maxPosition })
+               .min(by: { $0.id < $1.id }) {
+            ids.insert(candidate.id)
+        }
+        if let target = scene.lastTowerShotSoldierIDForTesting,
+           laneSoldiers.contains(where: { $0.id == target }) {
+            ids.insert(target)
+        }
+        return ids
+    }
+
+    /// Every lane's protected members holding no claimed seat this sync —
+    /// the set whose lawful saturated-extreme share relaxes the corpse
+    /// checks in `assertStableSeatContract`.
+    private func unseatedProtectedSoldierIDs(
+        in scene: BattleScene
+    ) -> Set<BattleCombatState.SoldierID> {
+        var ids = Set<BattleCombatState.SoldierID>()
+        for lane in BattleLane.allCases {
+            ids.formUnion(
+                protectedSoldierIDs(in: scene, lane: lane).filter {
+                    scene.soldierSeatFootprintsForTesting[$0] == nil
+                }
+            )
+        }
+        return ids
     }
 
     @Test func denseGateStableSeatsStayExclusiveWithOnlyTransientOverlap() throws {
@@ -6119,6 +6193,490 @@ struct BattleSceneTests {
         let counts = soldierPresentationCounts(in: scene)
         #expect(counts.presented + counts.folded == live + pending)
         #expect((overflowBadgeCount(in: scene, lane: .right) ?? 0) == counts.folded - counts.pendingHidden)
+    }
+
+    @Test func loneSurvivorGlidesToFreedSeatAtCombatRateNotInstantly() throws {
+        // Round-5 review repro: a rendered lone survivor's ideal frees
+        // the instant corpse reservations release — the previous apply
+        // path landed it on `free(ideal)` in the SAME sync, so a
+        // zero-elapsed redraw (the paused Settings surface) teleported it
+        // forward, and the bounded free-spot fallback could land it
+        // ~2.5 rows away in one frame. Rendered motion is clocked by
+        // elapsed combat time; only a real battlefield remap may land a
+        // member outright.
+        for lane in [BattleLane.left, .right] {
+            let state = captainless(stateWithBuildings(
+                [],
+                keepRemaining: 100,
+                cityNumberInCountry: 9,
+                completedCityCount: 8,
+                selectedLane: lane
+            ))
+            let scene = makeScene(
+                store: try makeStore(initialState: state),
+                combatSeed: 1,
+                size: CGSize(width: 393, height: 852)
+            )
+            scene.spawnManualSoldiersDirectlyForTesting(lane == .left ? 2 : 3)
+
+            // Tower fire reduces the lane to one survivor while the
+            // casualties are still pending — the review's live repro.
+            for _ in 0..<100 where scene.liveSoldierCountForTesting > 1 {
+                scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            }
+            #expect(scene.liveSoldierCountForTesting == 1)
+            let survivorID = try #require(
+                scene.soldierPresentationsForTesting.first?.id
+            )
+            #expect(!scene.pendingAnimatedRemovalSoldierIDsForTesting.isEmpty)
+
+            // The casualty window is produced — retire the Arrow Tower so
+            // the survivor outlives the bounded-glide phase below.
+            if let towerID = SiegeTestSupport.objectiveID(
+                for: .arrowTower,
+                in: scene.gameStateForTesting
+            ) {
+                scene.applyObjectiveDamageForTesting(
+                    .max,
+                    toObjectiveID: towerID
+                )
+            }
+            let positionBeforeClear = try #require(
+                scene.soldierNodePresentationForTesting(survivorID)?.position
+            )
+            let heldSeat = scene.soldierSeatFootprintsForTesting[survivorID]
+
+            // The authored removals land: reservations release and the
+            // lone ideal frees — then a zero-elapsed redraw runs while
+            // Settings pauses combat.
+            scene.completePendingAnimatedSoldierRemovalsForTesting()
+            scene.dismissMilestoneArrivalForTesting()
+            scene.handleTouchForTesting(
+                at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+            )
+            #expect(scene.isFeedbackSettingsVisibleForTesting)
+            scene.refreshLayoutForCurrentEnvironment()
+            let afterRedraw = try #require(
+                scene.soldierNodePresentationForTesting(survivorID)?.position
+            )
+            #expect(
+                hypot(
+                    afterRedraw.x - positionBeforeClear.x,
+                    afterRedraw.y - positionBeforeClear.y
+                ) <= 0.75,
+                "lane \(lane): zero-elapsed redraw moved the survivor \(positionBeforeClear) → \(afterRedraw)"
+            )
+
+            // Close Settings so combat ticks run again: the freed ideal
+            // is a DESTINATION now — each 0.05 s tick may move the root
+            // at most the authored glide rate, and the survivor parks
+            // somewhere bounded inside the field rather than at the snap
+            // the freed seat used to trigger.
+            let settingsLayout = try #require(FeedbackSettingsLayout.compute(
+                sceneSize: scene.size,
+                safeAreaInsets: .zero
+            ))
+            scene.handleTouchForTesting(at: settingsLayout.closeFrame.center)
+            #expect(!scene.isFeedbackSettingsVisibleForTesting)
+            let battlefield = try #require(
+                scene.battleChromeLayoutForTesting?.battlefieldFrame
+            )
+            var travelled: CGFloat = 0
+            var parked = false
+            var stillCount = 0
+            var lastRect: CGRect?
+            for _ in 0..<90 {
+                let before = try #require(
+                    scene.soldierNodePresentationForTesting(survivorID)?.position
+                )
+                scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+                let after = try #require(
+                    scene.soldierNodePresentationForTesting(survivorID)?.position
+                )
+                let step = hypot(after.x - before.x, after.y - before.y)
+                #expect(
+                    step <= scene.soldierTargetHeightForTesting * 0.2 + 0.5,
+                    "lane \(lane): survivor moved \(step)pt in one 0.05s tick"
+                )
+                travelled += step
+                lastRect = scene.soldierReadableFootprintsForTesting
+                    .first(where: { $0.id == survivorID })?.rect
+                stillCount = step <= 0.5 ? stillCount + 1 : 0
+                if stillCount >= 3 {
+                    parked = true
+                    break
+                }
+            }
+            let nodeReport = String(
+                describing: scene.soldierNodePresentationForTesting(survivorID)
+            )
+            let seatReport = String(
+                describing: scene.soldierSeatFootprintsForTesting[survivorID]
+            )
+            #expect(
+                parked,
+                "lane \(lane): survivor never parked — node \(nodeReport), seat \(seatReport)"
+            )
+            // Wherever the bounded drift left it, the parked survivor's
+            // readable footprint is inside the battlefield and its
+            // reclaimed seat is a different cell than the one the corpse
+            // blanket had pushed it onto.
+            if let lastRect {
+                #expect(
+                    battlefield.contains(lastRect),
+                    "lane \(lane): parked survivor footprint \(lastRect) outside \(battlefield)"
+                )
+            }
+            // Non-vacuous: the corpse pile really had held the survivor
+            // off its natural seat — otherwise clearing reservations
+            // changed nothing and the snap assertions above proved
+            // nothing.
+            let reclaimedSeat = scene.soldierSeatFootprintsForTesting[survivorID]
+            #expect(
+                reclaimedSeat != heldSeat,
+                "lane \(lane): survivor was never displaced off its lone seat — the snap case is unexercised"
+            )
+            #expect(travelled > 1)
+        }
+    }
+
+    @Test func pausedResizeRefitsPendingCasualtyIntoNewField() throws {
+        // Round-5 review repro: a paused 430×932 → 375×667 resize only
+        // clamped a pending casualty's ROOT — the corpse kept its
+        // old-layout canvas and root scale, so its REAL transformed
+        // footprint (sprite ∪ HP bar) escaped the new battlefield and
+        // the reservation tracked the escape. The first resized frame
+        // must refit the body to the new target height, re-scale to the
+        // lane's formation scale, and land the whole footprint inside.
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let maxPowers = layout.maxPowerAllocation(
+            totalBudget: KingdomGameState.cityMaxPower(for: city)
+        )
+        let slots = Dictionary(
+            uniqueKeysWithValues: (1...5).map { ($0, CityBuilding(type: .barracks, level: 8)) }
+        )
+        var state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey:
+                    CityBattleState(slots: slots)
+            ]
+        )
+        state.siegeProgress.selectedLane = .right
+        SiegeTestSupport.setKeepRemaining(
+            maxPowers[layout.keepObjective.id, default: 0], on: &state
+        )
+        state = captainless(state)
+        // The Arrow Tower stays ALIVE — the casualty comes from real
+        // defensive fire on the dense pile.
+
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1,
+            size: CGSize(width: 430, height: 932)
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+        )
+        scene.advanceCombatForTesting(deltaTime: 2.5)
+        // The tower is live: some of the 20 spawned are already casualties.
+        #expect(scene.liveSoldierCountForTesting >= 12)
+
+        // A visible casualty — a corpse that died RENDERED and now
+        // reserves its actual footprint.
+        advanceCombatUntil(scene) {
+            scene.pendingAnimatedRemovalSoldierIDsForTesting.contains {
+                scene.soldierCorpseFootprintForTesting($0) != nil
+            }
+        }
+        let corpseIDs = scene.pendingAnimatedRemovalSoldierIDsForTesting.filter {
+            scene.soldierCorpseFootprintForTesting($0) != nil
+        }
+        #expect(!corpseIDs.isEmpty)
+        let oldBattlefield = try #require(
+            scene.battleChromeLayoutForTesting?.battlefieldFrame
+        )
+
+        // Pause through Settings and resize: the first resized frame must
+        // already hold the refit corpse inside the new field.
+        scene.dismissMilestoneArrivalForTesting()
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        scene.size = CGSize(width: 375, height: 667)
+        scene.refreshLayoutForCurrentEnvironment()
+        let newBattlefield = try #require(
+            scene.battleChromeLayoutForTesting?.battlefieldFrame
+        )
+        #expect(newBattlefield != oldBattlefield)
+
+        let rendered = renderedSoldierFootprints(in: scene)
+        for corpseID in corpseIDs {
+            let presentation = try #require(
+                scene.soldierNodePresentationForTesting(corpseID)
+            )
+            let entry = try #require(
+                rendered.first(where: {
+                    hypot(
+                        $0.node.position.x - presentation.position.x,
+                        $0.node.position.y - presentation.position.y
+                    ) < 0.5
+                }),
+                "pending casualty \(corpseID) is not rendered after the resize"
+            )
+            // The ACTUAL drawn footprint — full canvas ∪ HP bar through
+            // the current transform — is inside the new field, and the
+            // reservation is that same contained rect.
+            #expect(
+                newBattlefield.contains(entry.rect),
+                "corpse \(corpseID) footprint \(entry.rect) outside resized battlefield \(newBattlefield)"
+            )
+            let reservation = try #require(
+                scene.soldierCorpseFootprintForTesting(corpseID)
+            )
+            #expect(
+                newBattlefield.contains(reservation),
+                "corpse \(corpseID) reservation \(reservation) outside resized battlefield \(newBattlefield)"
+            )
+            #expect(reservation.insetBy(dx: -0.5, dy: -0.5).contains(entry.rect))
+
+            // Refit: the body sprite carries the NEW target height's
+            // frame and the root sits at the live lane's formation scale
+            // — coherent geometry, not a stale old-layout transform. The
+            // refit and the analytic expected size run different multiply
+            // orders, so the comparison tolerates ULP drift, not identity.
+            let sprite = entry.node.children
+                .first(where: { $0.zPosition == 1 }) as? SKSpriteNode
+            let expectedSize = SoldierAnimationGeometry(type: .infantry)
+                .frameSize(forBodyHeight: scene.soldierTargetHeightForTesting)
+            #expect(
+                sprite.map {
+                    abs($0.size.width - expectedSize.width) <= 0.01
+                        && abs($0.size.height - expectedSize.height) <= 0.01
+                } == true,
+                "corpse \(corpseID) body size \(String(describing: sprite?.size)) was not refit to \(expectedSize)"
+            )
+            let laneScale = rendered.first(where: { other in
+                other.node !== entry.node
+                    && scene.soldierPresentationsForTesting.contains(where: {
+                        hypot(
+                            $0.nodePosition.x - other.node.position.x,
+                            $0.nodePosition.y - other.node.position.y
+                        ) < 0.5
+                    })
+            })?.node.xScale
+            if let laneScale {
+                #expect(
+                    abs(entry.node.xScale - laneScale) < 0.01,
+                    "corpse \(corpseID) scale \(entry.node.xScale) does not match the live lane's \(laneScale)"
+                )
+            }
+        }
+    }
+
+    @Test func corpseBlanketedLaneKeepsProtectedMembersOnDistinctGround() throws {
+        // Round-5 review repro: in a short mixed-unit lane whose grid is
+        // covered by casualty/fade footprints, every protected member the
+        // planner cannot seat fell back to the SAME unchecked lane point
+        // — a Captain and the tower's ordinary target rendered inside
+        // each other. Protected landings must be checked and distinct
+        // (or the member waits hidden), never an unchecked shared point;
+        // and a member materializing onto a seat must never land on a
+        // body still standing on it.
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let maxPowers = layout.maxPowerAllocation(
+            totalBudget: KingdomGameState.cityMaxPower(for: city)
+        )
+        let slots: [Int: CityBuilding] = [
+            1: CityBuilding(type: .barracks, level: 8),
+            2: CityBuilding(type: .stable, level: 8)
+        ]
+        var state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey:
+                    CityBattleState(slots: slots)
+            ]
+        )
+        state.siegeProgress.selectedLane = .right
+        SiegeTestSupport.setKeepRemaining(
+            maxPowers[layout.keepObjective.id, default: 0], on: &state
+        )
+        // A Captain recovering on the assault lane respawns mid-battle
+        // and trails the parked pile — the review's mixed Captain +
+        // ordinary protected target window.
+        state.siegeProgress.captain = retreatingCaptain(lane: .right, recovery: 8)
+        // The Arrow Tower stays ALIVE: its recorded target is the second
+        // protected identity.
+
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1,
+            size: CGSize(width: 375, height: 667)
+        )
+        let battlefield = try #require(
+            scene.battleChromeLayoutForTesting?.battlefieldFrame
+        )
+
+        // Mixed pile: cavalry (1.45× march) parks while infantry follows.
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnManualSoldiersDirectlyForTesting(4)
+        scene.selectManualSoldierTypeForTesting(.infantry)
+        scene.spawnManualSoldiersDirectlyForTesting(4)
+
+        // The stable-seat contract — converged members never overlap and
+        // never park on reserved ground (bar the lawful unseated-
+        // protected share the saturated extreme below forces), transient
+        // transit overlap must clear inside the bounded glide window —
+        // is asserted on EVERY sync below; it is what the unchecked
+        // shared point violates.
+        var previousPositions: [BattleCombatState.SoldierID: CGPoint] = [:]
+        var overlapStreaks: [String: Int] = [:]
+        // Hidden→visible materializations must never land on an occupied
+        // footprint — a promotion that pops onto a seat its previous
+        // occupant still stands on shows up here even inside the transit
+        // grace the contract check allows.
+        var hiddenBefore = Set(
+            scene.soldierPresentationsForTesting.filter(\.isFolded).map(\.id)
+        )
+        var materializations = 0
+        func assertMaterializationsAreDisjoint() {
+            for member in scene.soldierReadableFootprintsForTesting
+            where hiddenBefore.contains(member.id) {
+                materializations += 1
+                for other in scene.soldierReadableFootprintsForTesting
+                where other.id != member.id {
+                    #expect(
+                        !member.rect.intersects(other.rect),
+                        "member \(member.id) materialized inside member \(other.id): \(member.rect) vs \(other.rect)"
+                    )
+                }
+            }
+            hiddenBefore = Set(
+                scene.soldierPresentationsForTesting.filter(\.isFolded).map(\.id)
+            )
+        }
+
+        // Approach: pile marches to the gate, the Captain respawns and
+        // trails it, the tower records an ordinary target. The contract
+        // checks start AFTER this — a stack of soldiers deployed at the
+        // same instant legitimately shares positions on the march in;
+        // what must hold is the PARKED/coverage geometry below.
+        var sawProtectedWindow = false
+        for _ in 0..<400 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            if let captain = scene.livingCaptainForTesting,
+               scene.lastTowerShotSoldierIDForTesting != nil,
+               let maxPosition = scene.soldierPresentationsForTesting
+                   .filter({ $0.lane == .right }).map(\.position).max(),
+               let captainPresentation = scene.soldierPresentationsForTesting
+                   .first(where: { $0.id == captain.id }),
+               captainPresentation.position < maxPosition {
+                sawProtectedWindow = true
+                break
+            }
+        }
+        #expect(
+            sawProtectedWindow,
+            "Captain never trailed the parked pile with a recorded tower target"
+        )
+
+        // Coverage: fading-removal reservations tile the lane's cells —
+        // each round every live member leaves its actual footprint where
+        // it stood and re-seats on what is still free, until the planner
+        // cannot seat ≥2 PROTECTED members — the review's overlap needs
+        // them. A protected member the grid cannot place is either
+        // rendered on checked free ground or still waiting hidden, so
+        // "unseated" is detected through the seat ledger, not visibility.
+        var unseatedProtectedIDs = Set<BattleCombatState.SoldierID>()
+        for _ in 0..<20 where unseatedProtectedIDs.count < 2 {
+            for member in scene.soldierPresentationsForTesting {
+                scene.removeSoldierNodeForTesting(id: member.id, animated: true)
+            }
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            _ = assertStableSeatContract(
+                in: scene,
+                previousPositions: &previousPositions,
+                overlapStreaks: &overlapStreaks
+            )
+            assertMaterializationsAreDisjoint()
+            unseatedProtectedIDs = protectedSoldierIDs(in: scene, lane: .right)
+                .filter { scene.soldierSeatFootprintsForTesting[$0] == nil }
+        }
+        #expect(unseatedProtectedIDs.count >= 2)
+
+        // Each unseated protected member that IS rendered must hold real
+        // checked ground — inside the field, off every claimed seat, and
+        // off every other LIVE readable body; never the old shared lane
+        // point. Corpse/fade ground may be shared in this saturated
+        // extreme (every reservation-free landing is gone): the corpse
+        // is already on its way out, but the member must never touch a
+        // live body — that is what keeps the fire candidate truthful.
+        let unseatedRendered = scene.soldierReadableFootprintsForTesting.filter {
+            unseatedProtectedIDs.contains($0.id)
+        }
+        let seatRects = Array(scene.soldierSeatFootprintsForTesting.values)
+        for index in unseatedRendered.indices {
+            let member = unseatedRendered[index]
+            #expect(
+                battlefield.contains(member.rect),
+                "unseated member \(member.id) outside the field"
+            )
+            for seat in seatRects {
+                #expect(
+                    !member.rect.intersects(seat),
+                    "unseated member \(member.id) parked on claimed seat \(seat)"
+                )
+            }
+            for other in scene.soldierReadableFootprintsForTesting
+            where other.id != member.id {
+                #expect(
+                    !member.rect.intersects(other.rect),
+                    "unseated member \(member.id) overlaps live body \(other.id): \(member.rect) vs \(other.rect)"
+                )
+            }
+        }
+        // The protected identities keep a tracked node — rendered on
+        // checked ground or lawfully waiting hidden, never dropped.
+        if let captain = scene.livingCaptainForTesting {
+            #expect(scene.soldierRootIsHiddenForTesting(captain.id) != nil)
+        }
+        if let target = scene.lastTowerShotSoldierIDForTesting {
+            #expect(scene.soldierNodePresentationForTesting(target) != nil)
+        }
+
+        // Release the tiled reservations: every hidden member re-seats —
+        // the same materialization-disjointness contract applies to each
+        // promotion back onto real ground, and the Captain must be
+        // rendered again once real ground exists.
+        scene.finishFadingSoldierRemovalsForTesting()
+        scene.completePendingAnimatedSoldierRemovalsForTesting()
+        for _ in 0..<80 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            _ = assertStableSeatContract(
+                in: scene,
+                previousPositions: &previousPositions,
+                overlapStreaks: &overlapStreaks
+            )
+            assertMaterializationsAreDisjoint()
+        }
+        if let captain = scene.livingCaptainForTesting {
+            #expect(
+                scene.soldierRootIsHiddenForTesting(captain.id) == false,
+                "Captain never re-rendered once the blanket cleared"
+            )
+        }
+
+        // Non-vacuous: materializing members really were exercised —
+        // promotions and unseated landings both went through the check.
+        #expect(materializations >= 1)
     }
 
     @Test func denseGateGenuinelyStaggeredSpawnsStayDisjointEachArrival() throws {
