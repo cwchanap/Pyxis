@@ -5758,6 +5758,145 @@ struct BattleSceneTests {
         #expect(glidingTicks >= 10)
     }
 
+    @Test func newlyVisibleCasualtyReservesItsFootprintImmediately() throws {
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let maxPowers = layout.maxPowerAllocation(
+            totalBudget: KingdomGameState.cityMaxPower(for: city)
+        )
+        let slots = Dictionary(
+            uniqueKeysWithValues: (1...5).map { ($0, CityBuilding(type: .barracks, level: 8)) }
+        )
+        var state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey:
+                    CityBattleState(slots: slots)
+            ]
+        )
+        state.siegeProgress.selectedLane = .right
+        SiegeTestSupport.setKeepRemaining(
+            maxPowers[layout.keepObjective.id, default: 0], on: &state
+        )
+        let scene = makeScene(
+            store: try makeStore(initialState: captainless(state)),
+            combatSeed: 1,
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+        )
+        #expect(scene.buildingLiveSoldierCountForTesting == 20)
+        advanceCombatUntil(scene) {
+            !scene.pendingAnimatedRemovalSoldierIDsForTesting.isEmpty
+        }
+
+        let casualty = try #require(scene.pendingAnimatedRemovalSoldierIDsForTesting.first)
+        let presentation = try #require(scene.soldierNodePresentationForTesting(casualty))
+        #expect(!presentation.isHidden)
+        #expect(scene.soldierCorpseStateForTesting(casualty)?.revealed == true)
+        #expect(scene.soldierCorpseFootprintForTesting(casualty) != nil)
+    }
+
+    @Test func promotionsUnhideOnlyAtTheirAssignedSeat() throws {
+        // Round-4 hazard: a folded member promoted to a freed seat must
+        // never unhide at its stale folded spot and glide visibly across
+        // ground other members/corpses occupy — it converges while hidden
+        // and emerges only when it has ARRIVED on the seat it claimed.
+        // Zero-elapsed syncs (pauses, redraws) must not unhide anyone
+        // either: nothing can arrive without elapsed time.
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let maxPowers = layout.maxPowerAllocation(
+            totalBudget: KingdomGameState.cityMaxPower(for: city)
+        )
+        let slots = Dictionary(
+            uniqueKeysWithValues: (1...5).map { ($0, CityBuilding(type: .barracks, level: 8)) }
+        )
+        var state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey:
+                    CityBattleState(slots: slots)
+            ]
+        )
+        state.siegeProgress.selectedLane = .right
+        SiegeTestSupport.setKeepRemaining(
+            maxPowers[layout.keepObjective.id, default: 0], on: &state
+        )
+        state = captainless(state)
+
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1,
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
+        )
+        #expect(scene.buildingLiveSoldierCountForTesting == 20)
+        // March to the gate so the roster piles past capacity — only then
+        // are there folded members to promote (a still-spread march has
+        // everyone seated and the test would pass vacuously).
+        scene.advanceCombatForTesting(deltaTime: 2.5)
+        #expect(
+            scene.soldierPresentationsForTesting.contains { $0.isFolded }
+        )
+        // A real casualty window: the corpse's seat frees when its authored
+        // removal lands, so folded members get promoted into live seats.
+        advanceCombatUntil(scene) {
+            !scene.pendingAnimatedRemovalSoldierIDsForTesting.isEmpty
+        }
+        scene.completePendingAnimatedSoldierRemovalsForTesting()
+
+        var hiddenBefore = Set(
+            scene.soldierPresentationsForTesting.filter { $0.isFolded }.map(\.id)
+        )
+        var transitions = 0
+        for _ in 0..<40 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            let seats = scene.soldierSeatFootprintsForTesting
+            // Every member that becomes visible after a hidden spell must
+            // already stand inside its claimed seat cell — an unhide at the
+            // folded bookkeeping spot parks a body on occupied ground until
+            // the bounded glide catches up (a pause can freeze it there).
+            for member in scene.soldierReadableFootprintsForTesting
+            where hiddenBefore.contains(member.id) {
+                transitions += 1
+                let seat = try #require(
+                    seats[member.id],
+                    "member \(member.id) became visible without a claimed seat"
+                )
+                #expect(
+                    seat.insetBy(dx: -1, dy: -1).contains(member.rect),
+                    "member \(member.id) unhid at \(member.position) outside seat \(seat)"
+                )
+            }
+            hiddenBefore = Set(
+                scene.soldierPresentationsForTesting.filter { $0.isFolded }.map(\.id)
+            )
+        }
+
+        // A zero-elapsed redraw while members still converge hidden must
+        // not change who is visible — nothing can arrive without time.
+        let hiddenAtPause = Set(
+            scene.soldierPresentationsForTesting.filter { $0.isFolded }.map(\.id)
+        )
+        scene.refreshLayoutForCurrentEnvironment()
+        let hiddenAfterPause = Set(
+            scene.soldierPresentationsForTesting.filter { $0.isFolded }.map(\.id)
+        )
+        #expect(hiddenAfterPause == hiddenAtPause)
+
+        // Non-vacuous: the casualty window really produced promotions, so
+        // the seat-arrival contract covered actual hidden→visible entries.
+        #expect(transitions >= 1)
+    }
+
     @Test func denseGateCasualtyKeepsActualFootprintThroughAuthoredFade() throws {
         // N2: the corpse reservation was its nearest grid CELL — a moving
         // grid detached it from where the body really sat — and it ended
