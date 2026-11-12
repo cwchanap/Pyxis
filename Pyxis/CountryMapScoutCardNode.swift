@@ -111,6 +111,10 @@ final class CountryMapScoutCardNode: SKNode {
         let textureRect: CGRect?
         let iconSize: CGSize
         let targetFrame: CGRect
+        // Rendered node bounds in card space — the allocated targetFrame is
+        // the slot; these are what actually lands on screen.
+        let labelFrame: CGRect
+        let iconFrame: CGRect
         let labelIsInstalled: Bool
         let iconIsInstalled: Bool
         let labelFontName: String?
@@ -337,8 +341,7 @@ final class CountryMapScoutCardNode: SKNode {
         layout: CountryMapScoutCardLayout,
         metrics: Metrics
     ) -> PreparedScout? {
-        if layout.layoutClass == .phone && !layout.isCompact
-            && layout.cardFrame.height < 132 && layout.favorableFrame.height < 10 {
+        if footerRowsCannotPresentTroopPortraits(in: layout) {
             return nil
         }
         if layout.isCompact {
@@ -510,6 +513,28 @@ final class CountryMapScoutCardNode: SKNode {
             rewardFontSize: rewardFontSize,
             rewardFrame: rewardFrame
         )
+    }
+
+    // Footer rows that cannot present troop portraits must fail closed
+    // during preparation rather than rendering an enabled Attack over
+    // invisible information. Full-phone rows hold the authored 14pt
+    // floor: a non-finite, empty, or undersized row would otherwise let
+    // the adaptive portrait slot hide both troop groups while the width
+    // check still passes (iconSize only shrinks the slot, it never
+    // rejects). The short-phone row keeps its own 10pt floor.
+    private func footerRowsCannotPresentTroopPortraits(
+        in layout: CountryMapScoutCardLayout
+    ) -> Bool {
+        guard layout.layoutClass == .phone && !layout.isCompact else {
+            return false
+        }
+        if layout.cardFrame.height < 132 {
+            return layout.favorableFrame.height < 10
+        }
+        return !(layout.favorableFrame.height.isFinite
+            && layout.favorableFrame.height >= 14
+            && layout.disadvantagedFrame.height.isFinite
+            && layout.disadvantagedFrame.height >= 14)
     }
 
     private func preparedFooterItems(
@@ -972,6 +997,8 @@ final class CountryMapScoutCardNode: SKNode {
                 textureRect: $0.iconNode?.texture?.textureRect(),
                 iconSize: $0.iconNode?.size ?? .zero,
                 targetFrame: $0.targetFrame,
+                labelFrame: $0.labelNode.frame,
+                iconFrame: $0.iconNode?.frame ?? .zero,
                 labelIsInstalled: $0.labelNode.parent === container,
                 iconIsInstalled: $0.iconNode?.parent === container,
                 labelFontName: $0.labelNode.fontName,
