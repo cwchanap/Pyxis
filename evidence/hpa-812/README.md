@@ -184,10 +184,51 @@ section was subsequently replaced by a bounded stable-seat presentation —
 disjoint seats on a per-lane grid pitched on the readable body∪bar unit,
 with overflow folded truthfully into the same `+N` badge. The captures
 above remain valid evidence of the desired end state; the described
-mechanism is historical.
+mechanism is historical. The later two-rail implementation and its current
+captures are documented below.
 
 Limitations: simulator-only captures; no physical device, VoiceOver, iPad,
 or real-device performance claims. Seat/fade/corpse reservations are a
 presentation invariant — combat, targeting, spawning, economy and
 persistence are unchanged. Audio/CoreSimulator warnings seen during runs
 are environmental and not test failures.
+
+## Two-Rail Follow-Up
+
+The user chose a smaller representative formation: up to two visible soldiers
+per lane, with a `+N` count for other living soldiers. These current-code
+captures use `95e3c3e`, the existing 393×852 iPhone 16 simulator and separate
+synthetic app bundle IDs, leaving the original app's save untouched. Both
+apps launched normally, without fixture or freeze arguments.
+
+- `two-rail-live-early.png` and `two-rail-live-dense.png` show an unfrozen
+  Crownspire battle with five level-1 Barracks on the right lane and the
+  Arrow Tower pre-destroyed. The dense frame has two distinct soldier HP
+  bars and `+29`. `two-rail-live-seed.plist` and `two-rail-live-after.plist`
+  retain the synthetic starting and evolved saves: the latter records 50
+  building infantry deployments and 2,634 east-gate damage. The seed had no
+  east-gate damage. Background and building timestamps were refreshed before
+  launch to avoid loading an old offline interval.
+- `two-rail-live-tower.png` and `two-rail-tower-contact.png` show a separate
+  unfrozen left-lane run with the Arrow Tower initially undamaged, a
+  20-HP Captain, no remaining guards and five level-1 Barracks seeded near
+  their spawn interval. The contact sheet crops 12 screenshots over
+  approximately 14.5 seconds; capture intervals are not uniform. The evolved
+  `two-rail-tower-after.plist` records 60 building infantry deployments,
+  59 infantry losses, Captain recovery and 166 tower damage. The seed is
+  `two-rail-tower-seed.plist`; it had no siege damage or losses. The save
+  also records 5 idle infantry damage after launch.
+
+Compared with the earlier Forged Battle mock-up, the current captures retain
+the illustrated battlefield and gold-framed HUD but show different siege
+art, Captain and tab content from later game features. The two-soldier
+representative group and `+N` indicator are an intentional deviation from
+the mock-up's individually drawn soldiers, chosen to keep crowded lanes
+readable. These screenshots show different city and combat states and are
+not pixel-parity evidence.
+
+The tower remains alive in the captured scenario, but the stills alone do
+not identify a projectile or prove its endpoint, nor do they verify the exact
+duration or completion of a SpriteKit action. Video recording was unavailable
+because the simulator reported another recording already in progress. No
+iPad or physical-device/VoiceOver check was performed.
