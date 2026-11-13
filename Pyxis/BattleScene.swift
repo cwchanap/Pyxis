@@ -2929,7 +2929,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// Fit both rails using the widest supported walk/hit body envelope.
     /// The fixed geometry does not change when the roster changes.
     private func soldierRailBodyHeight() -> CGFloat {
-        let railWidth = max(0, battlefieldLayout.frame.width / 6 - 4)
+        let railWidth = SoldierRailLayout.railWidth(battlefieldFrame: battlefieldLayout.frame)
         return min(soldierTargetHeight(), railWidth * 74 / 98)
     }
 
@@ -3012,6 +3012,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         remapped: Bool,
         elapsedCombatTime: TimeInterval
     ) {
+        let laneLength = battlefieldLayout.laneLength(forLane: lane)
         var owners = soldierRailOwners[lane] ?? [nil, nil]
         for index in owners.indices {
             guard let owner = owners[index] else { continue }
@@ -3082,7 +3083,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             if live || remapped || bundle.root.isHidden {
                 placeSoldierRailOwner(
                     bundle, rail: index, remapped: remapped,
-                    elapsedCombatTime: elapsedCombatTime
+                    elapsedCombatTime: elapsedCombatTime,
+                    marchPointsPerSecond: living.first(where: { $0.id == owner.id }).map {
+                        CGFloat($0.movementSpeed) * laneLength
+                    } ?? 0
                 )
             }
             bundle.root.isHidden = false
@@ -3103,45 +3107,45 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
     }
 
+    /// `marchPointsPerSecond` is the live soldier's model speed projected
+    /// onto the lane (0 for anyone no longer marching): the seat glide can
+    /// ease clamp/seat changes, but never throttles the march itself.
     private func placeSoldierRailOwner(
         _ bundle: SoldierNodeBundle,
         rail: Int,
         remapped: Bool,
-        elapsedCombatTime: TimeInterval
+        elapsedCombatTime: TimeInterval,
+        marchPointsPerSecond: CGFloat
     ) {
-        let laneWidth = battlefieldLayout.frame.width / 3
-        let center = point(forLane: bundle.lane, position: bundle.lastModelProgress)
-        let foot = animatedSoldierFootMargin(for: bundle)
-        let body = soldierLogicalBodyFrame(for: bundle)
-        let canvas = bundle.body.calculateAccumulatedFrame()
-        let scale = bundle.root.yScale
-        let gateBottom = state.currentSiegeLayout.objectives
+        let gateFloor = state.currentSiegeLayout.objectives
             .filter { $0.kind == .gate && state.currentSiegeLayout.routes[bundle.lane]?.contains($0.id) == true }
             .compactMap { objective -> CGFloat? in
                 guard let bar = siegeObjectiveNodes[objective.id]?.childNode(withName: "siegeHPBackground")
                 else { return nil }
                 return sceneFrame(for: bar)?.minY
             }.min() ?? battlefieldLayout.frame.maxY
-        let bottom = battlefieldLayout.frame.minY - min(body.minY, canvas.minY) * scale
-        let top = min(
-            battlefieldLayout.frame.maxY - canvas.maxY * scale,
-            gateBottom - 2 - (body.maxY + 6.5) * scale
-        )
-        let ideal = CGPoint(
-            x: center.x + (rail == 0 ? -laneWidth / 4 : laneWidth / 4),
-            y: min(max(center.y - foot * scale, bottom), max(bottom, top))
+        let ideal = SoldierRailLayout.seat(
+            battlefieldFrame: battlefieldLayout.frame,
+            laneCenter: point(forLane: bundle.lane, position: bundle.lastModelProgress),
+            rail: rail,
+            footMargin: animatedSoldierFootMargin(for: bundle),
+            logicalBody: soldierLogicalBodyFrame(for: bundle),
+            canvas: bundle.body.calculateAccumulatedFrame(),
+            rootScale: bundle.root.yScale,
+            gateFloorY: gateFloor
         )
         if bundle.root.isHidden || remapped || !bundle.presentationSeeded {
             bundle.root.position = ideal
         } else {
-            let delta = CGPoint(x: ideal.x - bundle.root.position.x, y: ideal.y - bundle.root.position.y)
-            let distance = hypot(delta.x, delta.y)
-            let step = SoldierFormation.presentationGlidePointsPerSecond * max(0, elapsedCombatTime)
-            if distance > 0 {
-                let fraction = min(1, step / distance)
-                bundle.root.position.x += delta.x * fraction
-                bundle.root.position.y += delta.y * fraction
-            }
+            bundle.root.position = SoldierRailLayout.advanced(
+                from: bundle.root.position,
+                toward: ideal,
+                maxStep: SoldierRailLayout.maxStep(
+                    marchPointsPerSecond: marchPointsPerSecond,
+                    glidePointsPerSecond: SoldierFormation.presentationGlidePointsPerSecond,
+                    elapsed: elapsedCombatTime
+                )
+            )
         }
     }
 

@@ -143,6 +143,15 @@ struct BattlefieldLayout: Equatable {
         )
     }
 
+    /// Scene-space length of a lane's march path. A model speed in
+    /// progress/sec projects to `speed * laneLength` points/sec, which is
+    /// what presentation motion must at least match to track the model.
+    func laneLength(forLane lane: BattleLane) -> CGFloat {
+        let start = castleGatePoints[lane] ?? .zero
+        let end = enemyGatePoints[lane] ?? start
+        return hypot(end.x - start.x, end.y - start.y)
+    }
+
     /// The scene-space center of the enemy city impact point (center lane gate).
     var enemyCityImpactPoint: CGPoint {
         enemyGatePoints[.center] ?? .zero
