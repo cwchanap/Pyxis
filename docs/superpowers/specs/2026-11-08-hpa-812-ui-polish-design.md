@@ -57,6 +57,16 @@ The locked Battle/Camp tabs during post-conquest Map/Kingdom navigation must loo
 | 16. Soldier crowding / HP behind gate | Make the existing formation's visual offsets readable for typical simultaneous soldiers; avoid the current floor-clamped tail piling at one coordinate. HP strips stay above gate artwork and inside the battlefield when near the enemy gate. Never change soldier combat lane, position, HP, targeting or collision logic. | BattleScene SoldierFormation/syncSoldierNodes/HP presentation and, if needed, BattlefieldLayout's existing frame constraints. |
 | 17. Tiny crest in medallion | Scale the existing conquered-marker proportionally to the 96/118pt medallion while keeping “TAKEN”, ring and safe-area clearance intact. | ConquestReportNode renderTakenMedallion; retain ConquestReportLayout as geometry owner. |
 
+**Crowded-lane follow-up:** The live phone comparison exposed more soldiers
+than a lane can display readably. The chosen presentation is a smaller
+representative formation plus a non-interactive per-lane `+N` count of hidden
+living soldiers. Prioritize the Captain and the actual combat-selected
+target; death animations of folded soldiers may be omitted. This changes
+presentation only: all soldiers remain in combat, and damage, targeting,
+spawning, saves, feedback events, routing and accessibility actions are
+unchanged. Do not replace the simple geometry change with a generalized
+collision or animation system.
+
 ## Non-goals and boundary decisions
 
 - No combat/economy rebalance, save migration, persistence field, new gameplay system, scene rewrite, new art, music, sound or haptics. An asset requiring creation belongs in its own future art ticket, not this PR.

@@ -76,6 +76,32 @@ HPA-812 changes only rendering/interaction affordances. Preserve KingdomGameStat
 
 **Gate:** Repeated gate hits display one reused label per objective without upward drift or unbounded accumulation, overcrowding is visibly improved without simulation changes, and the conquest crest has balanced proportions.
 
+### Crowded-lane follow-up
+
+The phone mock-up review found a live, five-Barracks pile beyond the original
+nine-soldier fixture. Replace the unpushed formation-only experiments with
+the approved representative presentation: show a readable bounded group,
+count omitted living soldiers in a per-lane `+N`, prioritize the Captain and
+actual combat-selected target, and allow folded deaths to finish without an
+on-screen animation. Retain the earlier damage-label work and all unrelated
+scene changes. Do not rewrite commit history or create another worktree.
+
+1. Write failing behavioral regressions for genuine crowded production,
+   truthful live overflow, target/Captain priority, a pending casualty and a
+   paused resize; verify the failures execute for the intended reasons.
+2. Simplify the existing formation presentation to a small bounded visual
+   selection/geometry policy. Keep gameplay, model positions, targeting,
+   spawns, saves, damage, feedback, routing and existing controls untouched.
+   Keep visible soldier bodies and individual HP bars readable; do not
+   require transparent sprite canvases or transient weapon reach to be
+   disjoint. Do not introduce a general collision/path solver.
+3. Run focused Battle and related suites serially; run SwiftLint without
+   errors. Capture an unfrozen crowded phone battle and a live-tower case,
+   with seed and evolved-save provenance, and review against the mock-up.
+4. Review the resulting implementation and report any remaining visual or
+   test limitations. iPad visual validation is explicitly skipped; real
+   VoiceOver traversal remains unverified without a supported device.
+
 
 ## Checkpoint 5 — Focused tests, existing screenshot rigs, final CI
 
