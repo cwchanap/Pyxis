@@ -2044,6 +2044,71 @@ struct BattleSceneTests {
         #expect(hypot(endpoint.x - oldCenter.x, endpoint.y - oldCenter.y) > 1)
     }
 
+    @Test func pausedResizeHidesInFlightTowerShotWithoutCancellingItsLifecycle() throws {
+        let feedback = BattleFeedbackRecorder()
+        let scene = makeScene(
+            store: try makeStore(initialState: captainless(stateWithBarracks(
+                keepRemaining: 100, selectedLane: .right
+            ))),
+            combatSeed: 1, size: CGSize(width: 430, height: 932), feedback: feedback
+        )
+        scene.spawnSoldierForTesting()
+        let id = try #require(scene.soldierPresentationsForTesting.first?.id)
+        let root = try #require(scene.soldierRootForTesting(id))
+        let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+        func renderedCenter() -> CGPoint {
+            let bounds = SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: body.size)
+            return root.convert(CGPoint(x: bounds.midX, y: bounds.midY), to: scene)
+        }
+
+        for _ in 0..<100 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            if !(feedback.lastAutomaticResult?.towerShots.isEmpty ?? true) { break }
+        }
+        let shot = try #require(feedback.lastAutomaticResult?.towerShots.first)
+        #expect(shot.soldierID == id)
+        #expect(shot.damage > 0)
+        let projectile = try #require(scene.childNode(withName: "//defensiveFireProjectile"))
+        #expect(!projectile.isHidden)
+        #expect(projectile.parent?.isHidden == false)
+        #expect(projectile.hasActions())
+        #expect(!scene.isBattlefieldActionLayerPausedForTesting)
+        #expect(scene.lastTowerShotSoldierIDForTesting == id)
+        let oldEndpoint = try #require(scene.lastTowerProjectileEndpointForTesting)
+        let oldCenter = renderedCenter()
+        #expect(hypot(oldEndpoint.x - oldCenter.x, oldEndpoint.y - oldCenter.y) < 0.01)
+
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.isBattlefieldActionLayerPausedForTesting)
+        #expect(!projectile.isHidden)
+        let callsBeforeResize = feedback.calls
+        let automaticCountBeforeResize = feedback.automaticCallCount
+        scene.size = CGSize(width: 375, height: 667)
+        scene.refreshLayoutForCurrentEnvironment()
+
+        let newCenter = renderedCenter()
+        #expect(hypot(newCenter.x - oldEndpoint.x, newCenter.y - oldEndpoint.y) > 1)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        #expect(scene.isBattlefieldActionLayerPausedForTesting)
+        #expect(projectile.isHidden, "the old-coordinate projectile is still visible after resize")
+        #expect(projectile.parent != nil)
+        #expect(projectile.hasActions(), "hiding must not cancel its target-release action")
+        #expect(scene.lastTowerShotSoldierIDForTesting == id)
+        #expect(feedback.calls == callsBeforeResize)
+        #expect(feedback.automaticCallCount == automaticCountBeforeResize)
+
+        let settings = try #require(FeedbackSettingsLayout.compute(sceneSize: scene.size, safeAreaInsets: .zero))
+        scene.handleTouchForTesting(at: settings.closeFrame.center)
+        #expect(!scene.isFeedbackSettingsVisibleForTesting)
+        #expect(!scene.isBattlefieldActionLayerPausedForTesting)
+        #expect(projectile.isHidden)
+        #expect(projectile.hasActions())
+        #expect(scene.lastTowerShotSoldierIDForTesting == id)
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        #expect(scene.lastTowerShotSoldierIDForTesting == nil)
+    }
+
     @Test func towerShotKeepsRenderedCasualtyProjectile() throws {
         let feedback = BattleFeedbackRecorder()
         let state = captainless(stateWithBarracks(
@@ -6257,13 +6322,9 @@ struct BattleSceneTests {
         #expect(scene.soldierCorpseFootprintForTesting(casualty) != nil)
     }
 
-    @Test func promotionsUnhideOnlyAtTheirAssignedSeat() throws {
-        // Round-4 hazard: a folded member promoted to a freed seat must
-        // never unhide at its stale folded spot and glide visibly across
-        // ground other members/corpses occupy — it converges while hidden
-        // and emerges only when it has ARRIVED on the seat it claimed.
-        // Zero-elapsed syncs (pauses, redraws) must not unhide anyone
-        // either: nothing can arrive without elapsed time.
+    @Test func promotionsMaterializeOnAvailableRailWithoutOverlap() throws {
+        // A folded member may immediately appear on a free rail, but must
+        // never appear at its old bookkeeping position or overlap a body.
         let city = 15
         let layout = Country1CityCatalog.definition(for: city).siegeLayout
         let maxPowers = layout.maxPowerAllocation(
@@ -6296,50 +6357,97 @@ struct BattleSceneTests {
             deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
         )
         #expect(scene.buildingLiveSoldierCountForTesting == 20)
-        // March to the gate so the roster piles past capacity — only then
-        // are there folded members to promote (a still-spread march has
-        // everyone seated and the test would pass vacuously).
+        let initial = scene.soldierPresentationsForTesting.filter { !$0.isFolded }
+        try #require(initial.count == 2)
+        let railXs = try initial.map { member in
+            try #require(scene.soldierRootForTesting(member.id)).convert(.zero, to: scene).x
+        }
+        #expect(abs(railXs[0] - railXs[1]) > 1)
+        let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+        let laneFrame = CGRect(
+            x: battlefield.maxX - battlefield.width / 3, y: battlefield.minY,
+            width: battlefield.width / 3, height: battlefield.height
+        )
         scene.advanceCombatForTesting(deltaTime: 2.5)
         #expect(
             scene.soldierPresentationsForTesting.contains { $0.isFolded }
         )
-        // A real casualty window: the corpse's seat frees when its authored
-        // removal lands, so folded members get promoted into live seats.
+        // A real casualty window supplies a rendered rail owner. The
+        // headless test explicitly lands the pending removal action.
         advanceCombatUntil(scene) {
             !scene.pendingAnimatedRemovalSoldierIDsForTesting.isEmpty
         }
-        scene.completePendingAnimatedSoldierRemovalsForTesting()
-
+        let freedRailXs = scene.pendingAnimatedRemovalSoldierIDsForTesting.compactMap { id -> CGFloat? in
+            guard let root = scene.soldierRootForTesting(id), !root.isHidden else { return nil }
+            return root.convert(.zero, to: scene).x
+        }
+        #expect(!freedRailXs.isEmpty)
         var hiddenBefore = Set(
             scene.soldierPresentationsForTesting.filter { $0.isFolded }.map(\.id)
         )
         var transitions = 0
-        for _ in 0..<40 {
-            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
-            let seats = scene.soldierSeatFootprintsForTesting
-            // Every member that becomes visible after a hidden spell must
-            // already stand inside its claimed seat cell — an unhide at the
-            // folded bookkeeping spot parks a body on occupied ground until
-            // the bounded glide catches up (a pause can freeze it there).
-            for member in scene.soldierReadableFootprintsForTesting
-            where hiddenBefore.contains(member.id) {
-                transitions += 1
-                let seat = try #require(
-                    seats[member.id],
-                    "member \(member.id) became visible without a claimed seat"
-                )
-                #expect(
-                    seat.insetBy(dx: -1, dy: -1).contains(member.rect),
-                    "member \(member.id) unhid at \(member.position) outside seat \(seat)"
-                )
-            }
-            hiddenBefore = Set(
-                scene.soldierPresentationsForTesting.filter { $0.isFolded }.map(\.id)
+        var comparisons = 0
+
+        func measuredFrames(_ root: SKNode) throws -> (body: CGRect, bar: CGRect) {
+            let sprite = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+            let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }
+                .first { $0.zPosition == 2 }?.path)
+            let body = SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: sprite.size)
+            return (
+                sceneRect(of: body, in: root, scene: scene),
+                sceneRect(of: bar.boundingBox, in: root, scene: scene)
             )
         }
 
-        // A zero-elapsed redraw while members still converge hidden must
-        // not change who is visible — nothing can arrive without time.
+        func checkPromotions(freed: [CGFloat]? = nil) throws -> Int {
+            let members = scene.soldierPresentationsForTesting
+            var rendered: [SKNode] = []
+            scene.enumerateChildNodes(withName: "//normal-soldier") { node, _ in
+                if !node.isHidden, node.children.contains(where: { $0 is SKShapeNode && $0.zPosition == 2 }) {
+                    rendered.append(node)
+                }
+            }
+            var promoted = 0
+            for member in members where !member.isFolded && hiddenBefore.contains(member.id) {
+                promoted += 1
+                transitions += 1
+                let root = try #require(scene.soldierRootForTesting(member.id))
+                #expect(rendered.contains { $0 === root })
+                let rootX = root.convert(.zero, to: scene).x
+                #expect(member.lane == .right)
+                #expect(railXs.contains { abs(rootX - $0) < 0.1 })
+                if let freed {
+                    #expect(freed.contains { abs(rootX - $0) < 0.1 })
+                }
+                let frames = try measuredFrames(root)
+                #expect(battlefield.contains(frames.body))
+                #expect(battlefield.contains(frames.bar))
+                #expect(laneFrame.contains(frames.body))
+                #expect(laneFrame.contains(frames.bar))
+                for other in rendered where other !== root {
+                    comparisons += 1
+                    let otherFrames = try measuredFrames(other)
+                    #expect(!frames.body.intersects(otherFrames.body))
+                    #expect(!frames.body.intersects(otherFrames.bar))
+                    #expect(!frames.bar.intersects(otherFrames.body))
+                    #expect(!frames.bar.intersects(otherFrames.bar))
+                }
+            }
+            hiddenBefore = Set(members.filter(\.isFolded).map(\.id))
+            return promoted
+        }
+
+        // A free rail can admit a representative on a zero-elapsed redraw.
+        scene.completePendingAnimatedSoldierRemovalsForTesting()
+        scene.refreshLayoutForCurrentEnvironment()
+        let immediatePromotions = try checkPromotions(freed: freedRailXs)
+        #expect(immediatePromotions >= 1)
+        for _ in 0..<40 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            _ = try checkPromotions()
+        }
+
+        // An unchanged zero-elapsed redraw keeps the existing owners.
         let hiddenAtPause = Set(
             scene.soldierPresentationsForTesting.filter { $0.isFolded }.map(\.id)
         )
@@ -6349,9 +6457,9 @@ struct BattleSceneTests {
         )
         #expect(hiddenAfterPause == hiddenAtPause)
 
-        // Non-vacuous: the casualty window really produced promotions, so
-        // the seat-arrival contract covered actual hidden→visible entries.
+        // The checks covered an actual hidden→visible transition.
         #expect(transitions >= 1)
+        #expect(comparisons >= 1)
     }
 
     @Test func denseGateCasualtyKeepsActualFootprintThroughAuthoredFade() throws {

@@ -2976,6 +2976,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let remapped = lastSoldierSyncBattlefieldFrame != nil
             && lastSoldierSyncBattlefieldFrame != battlefieldLayout.frame
         if remapped {
+            // Its move action targets old coordinates. Hide the stale shot,
+            // but let that action finish and release its protected target.
+            for shot in effectsLayer.children where shot.name == BattlefieldNodeName.defensiveFireProjectile {
+                shot.isHidden = true
+            }
             for entry in soldierFadingFootprints.values {
                 releaseSoldierRail(root: entry.root, lane: soldierRailLane(for: entry.root))
                 entry.root.removeFromParent()
