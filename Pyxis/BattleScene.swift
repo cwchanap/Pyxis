@@ -3545,8 +3545,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// STAYS hidden until removal — there is no reveal search; lanes with
     /// no live roster left keep their corpses where they fell as well.
     /// A battlefield remap refits the corpse into the NEW layout's
-    /// geometry — body canvas, HP bar, and the lane's formation scale —
-    /// then lands its WHOLE transformed footprint inside the new field;
+    /// geometry — body canvas, HP bar, and ordinary casualty formation scale —
+    /// then lands its WHOLE transformed footprint inside the new field.
+    /// A retreating Captain keeps the scale driven by its in-flight action;
     /// clamping only the root would let the canvas and bar escape.
     private func syncPendingCasualtyFootprints(
         layoutRemapped: Bool,
@@ -3576,17 +3577,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                     targetHeight: soldierTargetHeight(),
                     isAnimatedCanvas: bundle.isAnimatedCanvas
                 )
-                // The corpse's own lane formation scale is the coherent
-                // one; a lane with no live roster left falls back to the
-                // scale this corpse alone would form at.
-                bundle.root.setScale(
-                    formationByLane[bundle.lane]?.scale
-                        ?? soldierFormationLayout(
-                            lane: bundle.lane,
-                            soldiers: [],
-                            bundles: [bundle]
-                        ).scale
-                )
+                // Ordinary casualties use their lane's formation scale.
+                // A Captain's root scale is owned by its retreat action:
+                // preserve its current progress rather than resetting it.
+                if !bundle.isCaptain {
+                    bundle.root.setScale(
+                        formationByLane[bundle.lane]?.scale
+                            ?? soldierFormationLayout(
+                                lane: bundle.lane,
+                                soldiers: [],
+                                bundles: [bundle]
+                            ).scale
+                    )
+                }
                 // The Soldier has already left `combat.soldiers`, so the
                 // bar cannot be relaid out from live state — replay the
                 // fill it rendered with against the refit body. A corpse

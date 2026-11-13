@@ -7695,6 +7695,58 @@ struct BattleSceneTests {
         #expect(persisted.stageStatus == .battleActive)
     }
 
+    @Test("Paused resize preserves the Captain's in-flight retreat scale")
+    func pausedResizePreservesCaptainRetreatScale() throws {
+        let (scene, _) = try makeCaptainScene(
+            state: makeCaptainState(
+                selectedLane: .left,
+                captain: damagedCaptain(lane: .left, hp: 1)
+            ),
+            size: CGSize(width: 430, height: 932)
+        )
+        let captainID = try #require(scene.livingCaptainForTesting?.id)
+        let rendered = renderedSoldierFootprints(in: scene)
+        #expect(rendered.count == 1)
+        let captainRoot = try #require(rendered.first?.node)
+        let captainPresentation = try #require(scene.soldierNodePresentationForTesting(captainID))
+        #expect(captainRoot.position == captainPresentation.position)
+        advanceCombatUntil(scene) {
+            scene.pendingAnimatedRemovalSoldierIDsForTesting.contains(captainID)
+        }
+        #expect(scene.pendingAnimatedRemovalSoldierIDsForTesting.contains(captainID))
+        #expect(scene.soldierNodeHasDelayedRemovalActionForTesting(captainID))
+        #expect(!captainRoot.isHidden)
+        let body = try #require(captainRoot.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+        let oldBodySize = body.size
+
+        // The test scene has no render loop: put the existing retreat action
+        // partway through its scale animation before pausing and resizing.
+        captainRoot.setScale(0.7)
+        scene.handleTouchForTesting(
+            at: try #require(scene.feedbackSettingsGearFrameForTesting).center
+        )
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        let oldBattlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+        scene.size = CGSize(width: 375, height: 667)
+        scene.refreshLayoutForCurrentEnvironment()
+
+        let newBattlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+        #expect(newBattlefield != oldBattlefield)
+        let expectedSize = SoldierAnimationGeometry(type: .infantry)
+            .frameSize(forBodyHeight: scene.soldierTargetHeightForTesting)
+        #expect(body.size != oldBodySize)
+        #expect(abs(body.size.width - expectedSize.width) < 0.01)
+        #expect(abs(body.size.height - expectedSize.height) < 0.01)
+        let captainFootprint = try #require(
+            renderedSoldierFootprints(in: scene).first { $0.node === captainRoot }?.rect
+        )
+        #expect(newBattlefield.insetBy(dx: -0.1, dy: -0.1).contains(captainFootprint))
+        #expect(abs(captainRoot.xScale - 0.7) < 0.001)
+        #expect(abs(captainRoot.yScale - 0.7) < 0.001)
+        #expect(scene.soldierNodeHasDelayedRemovalActionForTesting(captainID))
+        #expect(captainRoot.parent != nil)
+    }
+
     @Test("Captain never consumes manual cap or arms the navigation lock")
     func captainIgnoresManualCapAndNavigationLock() throws {
         let router = BattleRouterSpy()
