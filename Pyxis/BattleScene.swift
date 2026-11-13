@@ -245,6 +245,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     static let freezeCombatLaunchArgument = "-pyxis-freeze-combat"
     private let isCombatFrozen: Bool
     private var lastAdvanceCombatDeltaForTestingStorage: TimeInterval?
+    private var lastTowerProjectileEndpointForTestingStorage: CGPoint?
     #endif
     private var soldierNodes: [BattleCombatState.SoldierID: SoldierNodeBundle] = [:]
     private var guardNodes: [BattleCombatState.GuardID: GuardNodeBundle] = [:]
@@ -2364,6 +2365,11 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         }
 
         syncSoldierNodes(elapsedCombatTime: clampedDeltaTime)
+        // Teardown can clear the target during the result sinks above. Never
+        // restore it (or create a shot for a reused id) after that happens.
+        for shot in result.towerShots where lastDefensiveShotTargetID == shot.soldierID {
+            playTowerShot(at: shot.soldierID)
+        }
         syncGuardNodes()
         // City 3+ Captain strip content (live HP, Rally countdown, recovery
         // countdown) changes over time, so while a Captain is in play the
@@ -2662,8 +2668,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// Returns whether durable state changed (the tick saves once at the end).
     @discardableResult
     private func applyCombatResult(_ result: BattleCombatState.TickResult) -> Bool {
-        for towerShot in result.towerShots {
-            playTowerShot(at: towerShot.soldierID)
+        for towerShot in result.towerShots where soldierNodes[towerShot.soldierID] != nil {
+            // Protect the combat-selected identity during the formation sync.
+            // The projectile itself uses the target's post-sync transform.
+            lastDefensiveShotTargetID = towerShot.soldierID
         }
 
         playGuardEventFeedback(for: result)
@@ -3510,8 +3518,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// combat's foremost rank, the lane's ACTUAL fire candidate — the
     /// lowest roster id at the maximal position, which differs from the
     /// visual `ranked` first when a Captain shares the front — and the
-    /// tower's live projectile target: the shot already left toward THIS
-    /// soldier, so a post-shot re-rank must not fold it before the arrow
+    /// tower's live projectile target: combat fired at THIS soldier, so
+    /// a post-shot re-rank must not fold it before the arrow
     /// lands. That protection is tied to the projectile's own lifecycle —
     /// it clears when the shot lands (see `playTowerShot`), never
     /// persisting onto a later reused id.
@@ -4851,6 +4859,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         seatFootprintsBySoldierID.removeAll()
         lastSoldierSyncBattlefieldFrame = nil
         lastDefensiveShotTargetID = nil
+        #if DEBUG
+        lastTowerProjectileEndpointForTestingStorage = nil
+        #endif
         // The overflow badges belong to the live presentation too: teardown
         // does not run another soldier sync, so they must leave explicitly
         // rather than linger as a stale "+N" in the cleared scene.
@@ -5425,15 +5436,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     }
 
     private func playTowerShot(at soldierID: BattleCombatState.SoldierID) {
-        // Production state: the presentation pass keeps the soldier this
-        // projectile was actually aimed at rendered until it leaves combat
-        // — re-ranks may make a different soldier foremost before impact.
-        lastDefensiveShotTargetID = soldierID
         guard let bundle = soldierNodes[soldierID] else {
+            if lastDefensiveShotTargetID == soldierID {
+                lastDefensiveShotTargetID = nil
+            }
             return
         }
 
         let target = towerShotTargetPoint(for: bundle)
+        #if DEBUG
+        lastTowerProjectileEndpointForTestingStorage = target
+        #endif
         let shot: SKNode
         if UIImage(named: BattleAssetName.towerProjectile) != nil {
             let sprite = SKSpriteNode(imageNamed: BattleAssetName.towerProjectile)
@@ -6499,6 +6512,20 @@ extension BattleScene {
         effectsLayer.children.first {
             $0.name == BattlefieldNodeName.defensiveFireProjectile
         }?.position
+    }
+
+    var lastTowerProjectileEndpointForTesting: CGPoint? {
+        lastTowerProjectileEndpointForTestingStorage
+    }
+
+    var defensiveFireProjectileCountForTesting: Int {
+        effectsLayer.children.filter {
+            $0.name == BattlefieldNodeName.defensiveFireProjectile
+        }.count
+    }
+
+    func soldierRootForTesting(_ id: BattleCombatState.SoldierID) -> SKNode? {
+        soldierNodes[id]?.root
     }
 
     var soldierLanePlacementsForTesting: [(lane: BattleLane, nodePosition: CGPoint)] {
