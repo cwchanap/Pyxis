@@ -28,7 +28,9 @@ struct BattleSceneTests {
     private final class BattleFeedbackRecorder: GameplayFeedbackProviding {
         private(set) var calls: [BattleFeedbackCall] = []
         private(set) var automaticCallCount = 0
+        private(set) var lastAutomaticResult: BattleCombatState.TickResult?
         var onDiscreteEvent: ((GameplayFeedbackEvent) -> Void)?
+        var onAutomaticCombat: ((BattleCombatState.TickResult) -> Void)?
 
         func emit(_ event: GameplayFeedbackEvent) {
             calls.append(.discrete(event))
@@ -37,6 +39,8 @@ struct BattleSceneTests {
 
         func emitAutomaticCombat(_ result: BattleCombatState.TickResult) {
             automaticCallCount += 1
+            lastAutomaticResult = result
+            onAutomaticCombat?(result)
         }
 
         func reset() {
@@ -2001,6 +2005,143 @@ struct BattleSceneTests {
         // The target must not be the raw root position (which sits below the
         // body after the foot-margin offset is applied).
         #expect(abs(target.y - placement.nodePosition.y) > 1)
+    }
+
+    @Test func towerShotEndpointUsesSameTickSyncedBodyCenter() throws {
+        let feedback = BattleFeedbackRecorder()
+        let scene = makeScene(
+            store: try makeStore(initialState: stateWithBarracks(keepRemaining: 100, selectedLane: .right)),
+            combatSeed: 1,
+            feedback: feedback
+        )
+        scene.spawnSoldierForTesting()
+        let id = try #require(scene.soldierPresentationsForTesting.first?.id)
+        let root = try #require(scene.soldierRootForTesting(id))
+        let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+        let geometry = SoldierAnimationGeometry(type: .infantry)
+        func renderedCenter() -> CGPoint {
+            let frame = geometry.logicalBodyFrame(frameSize: body.size)
+            return root.convert(CGPoint(x: frame.midX, y: frame.midY), to: scene)
+        }
+
+        var oldCenter = renderedCenter()
+        for _ in 0..<100 {
+            oldCenter = renderedCenter()
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            if !(feedback.lastAutomaticResult?.towerShots.isEmpty ?? true) { break }
+        }
+
+        let shot = try #require(feedback.lastAutomaticResult?.towerShots.first)
+        #expect(shot.soldierID == id)
+        #expect(shot.damage > 0)
+        #expect(scene.lastTowerShotSoldierIDForTesting == id)
+        #expect(scene.defensiveFireProjectileCountForTesting == 1)
+        #expect(scene.soldierPresentationsForTesting.contains { $0.id == id && !$0.isFolded })
+        let newCenter = renderedCenter()
+        #expect(hypot(newCenter.x - oldCenter.x, newCenter.y - oldCenter.y) > 1)
+        let endpoint = try #require(scene.lastTowerProjectileEndpointForTesting)
+        #expect(hypot(endpoint.x - newCenter.x, endpoint.y - newCenter.y) < 0.01)
+        #expect(hypot(endpoint.x - oldCenter.x, endpoint.y - oldCenter.y) > 1)
+    }
+
+    @Test func towerShotKeepsRenderedCasualtyProjectile() throws {
+        let feedback = BattleFeedbackRecorder()
+        let state = captainless(stateWithBarracks(
+            keepRemaining: 10_000, cityNumberInCountry: 15, completedCityCount: 14, selectedLane: .right
+        ))
+        let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1, feedback: feedback)
+        scene.spawnSoldierForTesting()
+        let id = try #require(scene.soldierPresentationsForTesting.first?.id)
+        let root = try #require(scene.soldierRootForTesting(id))
+        #expect(!root.isHidden)
+        for _ in 0..<100 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            if !(feedback.lastAutomaticResult?.towerShots.isEmpty ?? true) { break }
+        }
+
+        let result = try #require(feedback.lastAutomaticResult)
+        #expect(try #require(result.towerShots.first).soldierID == id)
+        #expect(result.soldierLosses.contains { $0.soldierID == id })
+        #expect(scene.pendingAnimatedRemovalSoldierIDsForTesting.contains(id))
+        #expect(scene.soldierNodeHasDelayedRemovalActionForTesting(id))
+        #expect(scene.soldierRootForTesting(id) === root)
+        #expect(!root.isHidden)
+        let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+        let frame = SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: body.size)
+        let center = root.convert(CGPoint(x: frame.midX, y: frame.midY), to: scene)
+        let endpoint = try #require(scene.lastTowerProjectileEndpointForTesting)
+        #expect(hypot(endpoint.x - center.x, endpoint.y - center.y) < 0.01)
+        #expect(scene.defensiveFireProjectileCountForTesting == 1)
+
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        #expect(scene.soldierRootForTesting(id) == nil)
+        #expect(scene.lastTowerShotSoldierIDForTesting == nil)
+        #expect(scene.lastTowerProjectileEndpointForTesting == nil)
+    }
+
+    @Test func backgroundDuringShotDoesNotRecreateTargetOrProjectile() throws {
+        let feedback = BattleFeedbackRecorder()
+        let scene = makeScene(
+            store: try makeStore(initialState: stateWithBarracks(keepRemaining: 100, selectedLane: .right)),
+            combatSeed: 1,
+            feedback: feedback
+        )
+        scene.spawnSoldierForTesting()
+        let id = try #require(scene.soldierPresentationsForTesting.first?.id)
+        var backgroundShotID: BattleCombatState.SoldierID?
+        feedback.onAutomaticCombat = { [weak scene] result in
+            guard let shot = result.towerShots.first else { return }
+            backgroundShotID = shot.soldierID
+            scene?.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        }
+        for _ in 0..<100 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+            if backgroundShotID != nil { break }
+        }
+
+        #expect(backgroundShotID == id)
+        #expect(scene.soldierRootForTesting(id) == nil)
+        #expect(scene.lastTowerShotSoldierIDForTesting == nil)
+        #expect(scene.lastTowerProjectileEndpointForTesting == nil)
+        #expect(scene.defensiveFireProjectileCountForTesting == 0)
+    }
+
+    @Test func sameTickConquestDoesNotRecreateTowerProjectileOrTarget() throws {
+        let feedback = BattleFeedbackRecorder()
+        let state = stateWithBuildings([.siegeWorkshop], keepRemaining: 1, selectedLane: .right)
+        let scene = makeScene(store: try makeStore(initialState: state), combatSeed: 1, feedback: feedback)
+        scene.selectManualSoldierTypeForTesting(.siege)
+        scene.spawnSoldierForTesting()
+        #expect(scene.liveSoldierCountForTesting == 1)
+        feedback.reset()
+        var outcomeSawAutomaticConquest = [Bool]()
+        feedback.onDiscreteEvent = { [weak feedback] _ in
+            outcomeSawAutomaticConquest.append(feedback?.lastAutomaticResult?.didReachConquest == true)
+        }
+
+        var projectileCountBeforeConquest = 0
+        for _ in 0..<40 {
+            projectileCountBeforeConquest = scene.defensiveFireProjectileCountForTesting
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.25)
+            if scene.gameStateForTesting.pendingBattleResult != nil { break }
+        }
+
+        let result = try #require(feedback.lastAutomaticResult)
+        #expect(result.didReachConquest)
+        #expect(result.towerShots.count == 1)
+        #expect(!result.soldierAttacks.isEmpty)
+        #expect(projectileCountBeforeConquest > 0)
+        #expect(feedback.discreteEvents == [.goldReward, .cityConquest])
+        #expect(outcomeSawAutomaticConquest == [true, true])
+        #expect(scene.gameStateForTesting.stageStatus == .cityConqueredPendingMap)
+        #expect(scene.soldierNodeCountForTesting == 0)
+        #expect(scene.lastTowerShotSoldierIDForTesting == nil)
+        #expect(scene.lastTowerProjectileEndpointForTesting == nil)
+        #expect(scene.defensiveFireProjectileCountForTesting == projectileCountBeforeConquest)
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.25)
+        #expect(scene.lastTowerShotSoldierIDForTesting == nil)
+        #expect(scene.lastTowerProjectileEndpointForTesting == nil)
+        #expect(scene.defensiveFireProjectileCountForTesting == projectileCountBeforeConquest)
     }
 
     @Test func towerShotTargetsScaledFormationSoldierBodyCenters() throws {
