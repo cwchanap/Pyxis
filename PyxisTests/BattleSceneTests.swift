@@ -2145,12 +2145,9 @@ struct BattleSceneTests {
     }
 
     @Test func towerShotTargetsScaledFormationSoldierBodyCenters() throws {
-        // A lane holding more than one soldier scales every formation root
-        // (at most 0.8, less when bodies are wide). The tower-shot endpoint
-        // must convert the logical body midpoint through that root
-        // transform — adding the unscaled midpoint instead would float the
-        // endpoint visibly above the rendered body center (HPA-812 final
-        // review: ~8pt for infantry, ~19pt for siege at this size).
+        // Rails fit the sprite rather than scaling its root. Explicitly
+        // exercise a scaled root so the endpoint still respects transforms
+        // (including the Captain's in-flight retreat scale).
         for (soldierType, buildings) in [
             (SoldierType.infantry, [BuildingType.barracks]),
             (.siege, [.siegeWorkshop])
@@ -2164,6 +2161,9 @@ struct BattleSceneTests {
             let scene = makeScene(store: store)
             scene.selectManualSoldierTypeForTesting(soldierType)
             scene.spawnManualSoldiersDirectlyForTesting(4)
+            for soldier in scene.soldierPresentationsForTesting {
+                try #require(scene.soldierRootForTesting(soldier.id)).setScale(0.7)
+            }
 
             let targets = scene.liveSoldierTowerShotTargetsForTesting
             #expect(targets.count == 4)
@@ -4348,10 +4348,9 @@ struct BattleSceneTests {
             // positions, but bounded depth cannot keep unbounded parked
             // positions pairwise-separated, so the pairwise floor only
             // applies to soldiers actually on screen. The rendered cohort
-            // itself must be non-vacuous: ten soldiers in one lane present
-            // a real formation, not a token one- or two-man front.
+            // itself must be non-vacuous: the approved policy uses two rails.
             let rendered = scene.soldierPresentationsForTesting.filter { !$0.isFolded }
-            #expect(rendered.count >= 6)
+            #expect(rendered.count == 2)
             for i in rendered.indices {
                 for j in rendered.indices where j > i {
                     let a = rendered[i].nodePosition
@@ -4371,7 +4370,7 @@ struct BattleSceneTests {
                 }
             }
             #expect(roots.count == 10)
-            for root in roots {
+            for root in roots where !root.isHidden {
                 let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }.first { $0.zPosition == 2 })
                 let path = try #require(bar.path)
                 func sceneFrame(_ bounds: CGRect) -> CGRect {
@@ -4434,7 +4433,16 @@ struct BattleSceneTests {
                     #expect(root.action(forKey: "soldierDelayedRemoval") != nil)
                 }
                 let previousX = previousXs[ObjectIdentifier(survivor)] ?? survivor.position.x
-                #expect(abs(survivor.position.x - previousX) < scene.soldierTargetHeightForTesting * 0.5)
+                if !survivor.isHidden {
+                    #expect(abs(survivor.position.x - previousX) < scene.soldierTargetHeightForTesting * 0.5)
+                }
+                // Headless stepping does not advance SKActions. Complete the
+                // already-asserted pending removals before checking the
+                // survivor's visible placement, as a real fade would.
+                scene.completePendingAnimatedSoldierRemovalsForTesting()
+                scene.refreshLayoutForCurrentEnvironment()
+                #expect(!survivor.isHidden)
+                let railX = survivor.position.x
                 let bar = try #require(survivor.children.compactMap { $0 as? SKShapeNode }
                     .first { $0.zPosition == 2 })
                 let barPath = try #require(bar.path)
@@ -4450,13 +4458,13 @@ struct BattleSceneTests {
                     let canvas = sceneFrame(liveBody.frame)
                     let hp = sceneFrame(barPath.boundingBox.insetBy(dx: -0.5, dy: -0.5))
                     #expect(battlefield.contains(body), "\(lane) \(size) body \(body) battlefield \(battlefield)")
-                    #expect(battlefield.contains(canvas), "\(lane) \(size) canvas \(canvas) battlefield \(battlefield)")
                     #expect(battlefield.contains(hp), "\(lane) \(size) HP \(hp) battlefield \(battlefield)")
                     #expect(screen.contains(body))
                     #expect(screen.contains(canvas))
                     #expect(screen.contains(hp))
                     scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
                     #expect(scene.liveSoldierCountForTesting == 1)
+                    #expect(abs(survivor.position.x - railX) < 0.01)
                 }
             }
         }
@@ -4519,7 +4527,7 @@ struct BattleSceneTests {
             #expect(roots.count == 9)
             var bodies: [CGRect] = []
             var bars: [CGRect] = []
-            for root in roots {
+            for root in roots where !root.isHidden {
                 let sprite = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
                 let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }.first { $0.zPosition == 2 })
                 let barPath = try #require(bar.path)
@@ -4661,6 +4669,393 @@ struct BattleSceneTests {
         return value
     }
 
+    @Test func representativeRailsKeepExistingRootsAndCountOnlyOmittedLiving() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: captainless(stateWithBuildings(
+                [.barracks], keepRemaining: 10_000, selectedLane: .right
+            ))),
+            size: CGSize(width: 393, height: 852)
+        )
+        #expect(scene.soldierPresentationsForTesting.isEmpty)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == nil)
+        var originalRoots: [SKNode] = []
+        for expected in 1...3 {
+            scene.spawnManualSoldiersDirectlyForTesting(1)
+            let live = scene.soldierPresentationsForTesting.filter { $0.lane == .right }
+            #expect(live.count == expected)
+            let rendered = live.filter { !$0.isFolded }
+            #expect(rendered.count == min(expected, 2))
+            #expect(overflowBadgeCount(in: scene, lane: .right) == (expected > 2 ? 1 : nil))
+            if expected <= 2 {
+                let added = try #require(live.last)
+                originalRoots.append(try #require(scene.soldierRootForTesting(added.id)))
+            } else {
+                for root in originalRoots {
+                    #expect(!root.isHidden)
+                    #expect(root.parent != nil)
+                }
+            }
+        }
+    }
+
+    @Test func representativeRailsCountThirtyRealBarracksSpawns() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: durableRightGateState(buildingCount: 5)),
+            combatSeed: 1,
+            size: CGSize(width: 393, height: 852)
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 6
+        )
+        #expect(scene.buildingLiveSoldierCountForTesting == 30)
+        let live = scene.soldierPresentationsForTesting.filter { $0.lane == .right }
+        #expect(live.count == 30)
+        #expect(live.filter { !$0.isFolded }.count == 2)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == 28)
+        #expect(overflowBadgeCount(in: scene, lane: .left) == nil)
+        #expect(overflowBadgeCount(in: scene, lane: .center) == nil)
+    }
+
+    @Test func representativeRailsKeepAllLanesReadableAcrossPausedResize() throws {
+        let scene = makeScene(
+            store: try makeStore(initialState: durableRightGateState(buildingCount: 0)),
+            combatSeed: 1, size: CGSize(width: 393, height: 852)
+        )
+        scene.dismissMilestoneArrivalForTesting()
+        let layout = try #require(scene.battleChromeLayoutForTesting)
+        for lane in BattleLane.allCases {
+            let hit = try #require(layout.laneChipHitFrames[lane])
+            scene.handleTouchForTesting(at: hit.center)
+            scene.spawnManualSoldiersDirectlyForTesting(3)
+            #expect(scene.soldierPresentationsForTesting.filter { $0.lane == lane }.count == 3)
+        }
+        #expect(scene.soldierPresentationsForTesting.count == 9)
+        #expect(scene.soldierPresentationsForTesting.allSatisfy { $0.position == 0 })
+
+        func assertReadable() throws {
+            let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+            let live = scene.soldierPresentationsForTesting
+            var frames: [CGRect] = []
+            for lane in BattleLane.allCases {
+                let members = live.filter { $0.lane == lane }
+                #expect(members.count == 3)
+                #expect(members.filter { !$0.isFolded }.count == 2)
+                #expect(overflowBadgeCount(in: scene, lane: lane) == 1)
+                for member in members where !member.isFolded {
+                    let root = try #require(scene.soldierRootForTesting(member.id))
+                    let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+                    let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }
+                        .first { $0.zPosition == 2 })
+                    let bodyFrame = sceneRect(
+                        of: SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: body.size),
+                        in: root, scene: scene
+                    )
+                    let barFrame = sceneRect(of: try #require(bar.path).boundingBox, in: root, scene: scene)
+                    #expect(battlefield.contains(bodyFrame))
+                    #expect(battlefield.contains(barFrame))
+                    #expect(barFrame.width >= 30)
+                    frames.append(bodyFrame.union(barFrame))
+                }
+            }
+            #expect(frames.count == 6)
+            for index in frames.indices {
+                for other in frames.indices where other > index {
+                    #expect(!frames[index].intersects(frames[other]))
+                }
+            }
+        }
+
+        try assertReadable()
+        let before = Dictionary(uniqueKeysWithValues: scene.soldierPresentationsForTesting
+            .filter { !$0.isFolded }.map { ($0.id, $0.nodePosition) })
+        scene.refreshLayoutForCurrentEnvironment()
+        for member in scene.soldierPresentationsForTesting where !member.isFolded {
+            #expect(member.nodePosition == before[member.id])
+        }
+        scene.handleTouchForTesting(at: try #require(scene.feedbackSettingsGearFrameForTesting).center)
+        #expect(scene.isFeedbackSettingsVisibleForTesting)
+        scene.size = CGSize(width: 375, height: 667)
+        scene.refreshLayoutForCurrentEnvironment()
+        try assertReadable()
+        let paused = scene.soldierPresentationsForTesting
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.25)
+        #expect(scene.soldierPresentationsForTesting.map(\.nodePosition) == paused.map(\.nodePosition))
+        scene.enterBackgroundForTesting(at: Date(timeIntervalSince1970: 1_000))
+        #expect(scene.soldierNodeCountForTesting == 0)
+        for lane in BattleLane.allCases {
+            #expect(overflowBadgeCount(in: scene, lane: lane) == nil)
+        }
+    }
+
+    @Test func representativeRailPreemptionKeepsReplacementAfterOldFadeCompletes() throws {
+        var state = try durableRightGateState(buildingCount: 0)
+        state.siegeProgress.captain = retreatingCaptain(lane: .right, recovery: 0.4)
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1, size: CGSize(width: 393, height: 852)
+        )
+        scene.spawnManualSoldiersDirectlyForTesting(2)
+        let initial = scene.soldierPresentationsForTesting.filter { !$0.isFolded }
+        #expect(initial.count == 2)
+        let oldID = try #require(initial.first?.id)
+        let oldRoot = try #require(scene.soldierRootForTesting(oldID))
+        let retainedID = try #require(initial.last?.id)
+        let retainedRoot = try #require(scene.soldierRootForTesting(retainedID))
+        let retainedX = retainedRoot.position.x
+
+        // The seam lands the actual 0.18-second fade action. The live model
+        // actor remains, so the next sync recreates its root with the same id:
+        // this also exercises identity protection against an old callback.
+        scene.removeSoldierNodeForTesting(id: oldID, animated: true)
+        #expect(oldRoot.parent != nil)
+        #expect(!oldRoot.isHidden)
+        scene.advanceCombatForTesting(deltaTime: 0.6)
+        let captainID = try #require(scene.livingCaptainForTesting?.id)
+        let captainRoot = try #require(scene.soldierRootForTesting(captainID))
+        let replacement = try #require(scene.soldierRootForTesting(oldID))
+        #expect(replacement !== oldRoot)
+        #expect(oldRoot.isHidden)
+        #expect(oldRoot.parent != nil)
+        #expect(!captainRoot.isHidden)
+        #expect(!retainedRoot.isHidden)
+        #expect(retainedRoot.position.x == retainedX)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == 1)
+
+        // Finish the old fade and invoke the same identity-checked callback
+        // an old delayed action would use; neither may release a new owner.
+        scene.finishFadingSoldierRemovalsForTesting()
+        scene.completeSoldierRemovalForTesting(id: oldID, root: oldRoot)
+        #expect(oldRoot.parent == nil)
+        #expect(scene.soldierRootForTesting(oldID) === replacement)
+        scene.refreshLayoutForCurrentEnvironment()
+        #expect(scene.soldierRootForTesting(captainID) === captainRoot)
+        #expect(!captainRoot.isHidden)
+        #expect(!retainedRoot.isHidden)
+        #expect(retainedRoot.position.x == retainedX)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == 1)
+    }
+
+    @Test func hiddenLethalTowerTargetAndCaptainShareReadableRails() throws {
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let powers = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: city))
+        var state = KingdomGameState(
+            gold: 100,
+            cityNumberInCountry: city,
+            completedCityCount: city - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey: CityBattleState(slots: [
+                    1: CityBuilding(type: .barracks, level: 8),
+                    2: CityBuilding(type: .stable, level: 1)
+                ])
+            ]
+        )
+        state.siegeProgress.selectedLane = .right
+        state.siegeProgress.captain = .freshCaptain(selectedLane: .right, captainLevel: 8)
+        SiegeTestSupport.setKeepRemaining(powers[layout.keepObjective.id, default: 0], on: &state)
+        let feedback = BattleFeedbackRecorder()
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1, size: CGSize(width: 375, height: 667), feedback: feedback
+        )
+        let captain = try #require(scene.livingCaptainForTesting)
+        let captainRoot = try #require(scene.soldierRootForTesting(captain.id))
+        scene.spawnManualSoldiersDirectlyForTesting(1)
+        let sameY = scene.soldierPresentationsForTesting
+        #expect(sameY.count == 2)
+        #expect(sameY.allSatisfy { !$0.isFolded && $0.position == 0 })
+        #expect(scene.soldierReadableFootprintsForTesting.count == 2)
+        let initialFrames = scene.soldierReadableFootprintsForTesting
+        #expect(!initialFrames[0].rect.intersects(initialFrames[1].rect))
+        let infantryID = try #require(sameY.first { $0.id != captain.id }?.id)
+        let infantryRoot = try #require(scene.soldierRootForTesting(infantryID))
+        let captainX = captainRoot.position.x
+
+        // Infantry and Captain occupy both rails. Faster, low-HP cavalry
+        // spawn behind them, catch up, and are lethal to the real tower.
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnManualSoldiersDirectlyForTesting(4)
+        let cavalryIDs = Set(scene.soldierPresentationsForTesting.map(\.id))
+            .subtracting([captain.id, infantryID])
+        #expect(cavalryIDs.count == 4)
+        #expect(cavalryIDs.allSatisfy { scene.soldierRootIsHiddenForTesting($0) == true })
+
+        var witnessedHiddenLethalShot = false
+        for _ in 0..<240 {
+            let hiddenBefore = Set(scene.soldierPresentationsForTesting.filter(\.isFolded).map(\.id))
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            guard let result = feedback.lastAutomaticResult,
+                  let shot = result.towerShots.first,
+                  cavalryIDs.contains(shot.soldierID),
+                  hiddenBefore.contains(shot.soldierID),
+                  result.soldierLosses.contains(where: { $0.soldierID == shot.soldierID })
+            else { continue }
+            let target = try #require(scene.soldierRootForTesting(shot.soldierID))
+            #expect(scene.livingCaptainForTesting?.id == captain.id)
+            #expect(scene.soldierRootForTesting(captain.id) === captainRoot)
+            #expect(!captainRoot.isHidden)
+            #expect(captainRoot.position.x == captainX)
+            #expect(infantryRoot.isHidden)
+            #expect(!target.isHidden)
+            #expect(target.parent != nil)
+            #expect(scene.pendingAnimatedRemovalSoldierIDsForTesting.contains(shot.soldierID))
+            #expect(scene.soldierNodeHasDelayedRemovalActionForTesting(shot.soldierID))
+
+            func readableFrame(_ root: SKNode, type: SoldierType) throws -> CGRect {
+                let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+                let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }
+                    .first { $0.zPosition == 2 })
+                let bodyFrame = sceneRect(
+                    of: SoldierAnimationGeometry(type: type).logicalBodyFrame(frameSize: body.size),
+                    in: root, scene: scene
+                )
+                return bodyFrame.union(sceneRect(of: try #require(bar.path).boundingBox, in: root, scene: scene))
+            }
+            let captainFrame = try readableFrame(captainRoot, type: .infantry)
+            let targetFrame = try readableFrame(target, type: .cavalry)
+            let battlefield = try #require(scene.battleChromeLayoutForTesting?.battlefieldFrame)
+            #expect(battlefield.contains(captainFrame))
+            #expect(battlefield.contains(targetFrame))
+            #expect(!captainFrame.intersects(targetFrame))
+            let targetBody = try #require(target.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+            let localBody = SoldierAnimationGeometry(type: .cavalry).logicalBodyFrame(frameSize: targetBody.size)
+            let center = target.convert(CGPoint(x: localBody.midX, y: localBody.midY), to: scene)
+            let endpoint = try #require(scene.lastTowerProjectileEndpointForTesting)
+            #expect(hypot(center.x - endpoint.x, center.y - endpoint.y) < 0.01)
+            let living = scene.soldierPresentationsForTesting.filter { $0.lane == .right }
+            #expect((overflowBadgeCount(in: scene, lane: .right) ?? 0) == living.filter(\.isFolded).count)
+            witnessedHiddenLethalShot = true
+            break
+        }
+        #expect(witnessedHiddenLethalShot, "fixture must shoot and kill a previously folded cavalry actor")
+    }
+
+    @Test func representativesFollowTheirOwnDifferentModelProgress() throws {
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let powers = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: city))
+        var state = captainless(stateWithBuildings(
+            [.barracks, .stable], keepRemaining: powers[layout.keepObjective.id, default: 0],
+            cityNumberInCountry: city, completedCityCount: city - 1, selectedLane: .right
+        ))
+        let towerID = try #require(layout.objectives.first { $0.kind == .arrowTower }?.id)
+        state.siegeProgress.damageByObjectiveID[towerID] = powers[towerID, default: 0]
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1, size: CGSize(width: 393, height: 852)
+        )
+        scene.spawnManualSoldiersDirectlyForTesting(1)
+        let infantryID = try #require(scene.soldierPresentationsForTesting.first?.id)
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.2)
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnManualSoldiersDirectlyForTesting(1)
+        let cavalryID = try #require(scene.soldierPresentationsForTesting.first { $0.id != infantryID }?.id)
+        let infantryRoot = try #require(scene.soldierRootForTesting(infantryID))
+        let cavalryRoot = try #require(scene.soldierRootForTesting(cavalryID))
+        #expect(!infantryRoot.isHidden && !cavalryRoot.isHidden)
+        let before = scene.soldierPresentationsForTesting
+        let start = try #require(scene.castleGatePointForTesting(lane: .right))
+        let end = try #require(scene.enemyGatePointForTesting(lane: .right))
+        let initialXs = (infantryRoot.position.x, cavalryRoot.position.x)
+        for _ in 0..<8 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            let members = scene.soldierPresentationsForTesting
+            for (id, root, type) in [(infantryID, infantryRoot, SoldierType.infantry),
+                                     (cavalryID, cavalryRoot, .cavalry)] {
+                let progress = try #require(members.first { $0.id == id }?.position)
+                let sprite = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+                let foot = SoldierAnimationGeometry(type: type).bodyRegion.minY * sprite.size.height
+                let modelY = start.y + (end.y - start.y) * CGFloat(progress) - foot
+                #expect(abs(root.position.y - modelY) < 0.05)
+            }
+            #expect(infantryRoot.position.x == initialXs.0)
+            #expect(cavalryRoot.position.x == initialXs.1)
+        }
+        let after = scene.soldierPresentationsForTesting
+        let infantryAdvance = try #require(after.first { $0.id == infantryID }?.position)
+            - #require(before.first { $0.id == infantryID }?.position)
+        let cavalryAdvance = try #require(after.first { $0.id == cavalryID }?.position)
+            - #require(before.first { $0.id == cavalryID }?.position)
+        #expect(infantryAdvance > 0)
+        #expect(cavalryAdvance > infantryAdvance)
+    }
+
+    @Test func crowdedTowerTargetRemainsReadableBesideRealCasualties() throws {
+        let city = 15
+        let layout = Country1CityCatalog.definition(for: city).siegeLayout
+        let maximums = layout.maxPowerAllocation(totalBudget: KingdomGameState.cityMaxPower(for: city))
+        let buildings = Dictionary(
+            uniqueKeysWithValues: (1...5).map { ($0, CityBuilding(type: .barracks, level: 8)) }
+        )
+        var state = KingdomGameState(
+            gold: 100, cityNumberInCountry: city, completedCityCount: city - 1,
+            cityBattleStates: [
+                CityKey(countryNumber: 1, cityNumber: city).storageKey: CityBattleState(slots: buildings)
+            ]
+        )
+        state.siegeProgress.selectedLane = .right
+        SiegeTestSupport.setKeepRemaining(maximums[layout.keepObjective.id, default: 0], on: &state)
+        let feedback = BattleFeedbackRecorder()
+        let scene = makeScene(
+            store: try makeStore(initialState: captainless(state)),
+            combatSeed: 1, size: CGSize(width: 375, height: 667), feedback: feedback
+        )
+        scene.advanceCombatSingleStepForTesting(
+            deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 6
+        )
+        #expect(scene.buildingLiveSoldierCountForTesting == 30)
+
+        func frames(_ root: SKNode) throws -> (body: CGRect, bar: CGRect) {
+            let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+            let bar = try #require(root.children.compactMap { $0 as? SKShapeNode }.first { $0.zPosition == 2 })
+            let path = try #require(bar.path)
+            return (
+                sceneRect(
+                    of: SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: body.size),
+                    in: root, scene: scene
+                ),
+                sceneRect(of: path.boundingBox, in: root, scene: scene)
+            )
+        }
+
+        var shotsBesideCasualties = 0
+        var hiddenTargets = 0
+        var obscuredTargets = 0
+        // Stress the saturation fallback. The headless test does not advance
+        // SpriteKit actions, so casualties accumulate here beyond their real
+        // hit/fade durations; this is not proof of a reachable live window.
+        for _ in 0..<400 {
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            guard let shot = feedback.lastAutomaticResult?.towerShots.first else { continue }
+            let casualties = scene.pendingAnimatedRemovalSoldierIDsForTesting
+                .filter { $0 != shot.soldierID }
+                .compactMap { scene.soldierRootForTesting($0) }
+                .filter { !$0.isHidden }
+            guard !casualties.isEmpty else { continue }
+            shotsBesideCasualties += 1
+            let target = try #require(scene.soldierRootForTesting(shot.soldierID))
+            if target.isHidden {
+                hiddenTargets += 1
+                continue
+            }
+            let targetFrames = try frames(target)
+            for casualty in casualties {
+                let casualtyFrames = try frames(casualty)
+                if targetFrames.bar.intersects(casualtyFrames.body)
+                    || targetFrames.bar.intersects(casualtyFrames.bar)
+                    || casualtyFrames.bar.intersects(targetFrames.body) {
+                    obscuredTargets += 1
+                }
+            }
+            let lane = scene.soldierPresentationsForTesting.filter { $0.lane == .right }
+            #expect((overflowBadgeCount(in: scene, lane: .right) ?? 0) == lane.filter(\.isFolded).count)
+        }
+        #expect(shotsBesideCasualties > 0)
+        #expect(hiddenTargets == 0, "actual tower targets were folded beside pending casualties")
+        #expect(obscuredTargets == 0, "actual tower target HP/body was obscured by a pending casualty")
+    }
+
     @Test func denseGateLivePileBoundsPresentationAndReportsOverflowCount() throws {
         // The dense-gate-live evidence scenario (evidence/hpa-812/
         // dense-gate-live.png): five level-1 Barracks feed the intact
@@ -4747,8 +5142,8 @@ struct BattleSceneTests {
             // Bounded: thirty soldiers cannot all render readable bodies
             // and HP bars — the overflow is folded into a summary instead
             // of merging into a solid block.
-            #expect(foldedRoots >= 4)
-            #expect(presented.count >= 6)
+            #expect(foldedRoots == 28)
+            #expect(presented.count == 2)
 
             // Truthful: the lane's badge reports exactly the folded count.
             #expect(overflowBadgeCount(in: scene, lane: .right) == foldedRoots)
@@ -4877,10 +5272,9 @@ struct BattleSceneTests {
     }
 
     @Test func denseGateReinforcementsAtFloorStayPresentedBehindThePile() throws {
-        // After the pile is bounded, fresh building spawns still enter as
-        // visible bodies near the lane start — they are a sparse cluster of
-        // their own, not part of the folded mass. Folding them too would
-        // silently freeze the marching stream the live recording shows.
+        // Under two rails, trailing reinforcements remain in the model and
+        // badge without displacing the existing visible representatives.
+        // This test retains its historical name from the multi-row policy.
         let state = try durableRightGateState(buildingCount: 5)
         let scene = makeScene(
             store: try makeStore(initialState: state),
@@ -4892,28 +5286,22 @@ struct BattleSceneTests {
         )
         scene.advanceCombatForTesting(deltaTime: 2.5)
         #expect(scene.liveSoldierCountForTesting == 20)
+        let originalOwners = Set(scene.soldierPresentationsForTesting.filter { !$0.isFolded }.map(\.id))
+        #expect(originalOwners.count == 2)
         // A second 20 s stall adds ten fresh soldiers at the lane start.
         scene.advanceCombatSingleStepForTesting(
             deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 2
         )
         #expect(scene.liveSoldierCountForTesting == 30)
 
-        let castleGate = try #require(scene.castleGatePointForTesting(lane: .right))
-        let presentedArrivals = scene.soldierPresentationsForTesting.filter {
-            !$0.isFolded
-                && abs($0.nodePosition.x - castleGate.x) <= 45
-                && abs($0.nodePosition.y - castleGate.y) <= 60
-        }.count
-        #expect(presentedArrivals >= 4)
+        let members = scene.soldierPresentationsForTesting
+        let progress = members.map(\.position)
+        #expect(try #require(progress.min()) < #require(progress.max()))
+        #expect(Set(members.filter { !$0.isFolded }.map(\.id)) == originalOwners)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == 28)
 
-        // The pile AND the trailing wave present disjoint bodies + HP bars —
-        // the wave is a readable marching column, not a second merged block.
-        // The disjointness unit is the READABLE footprint (logical body ∪
-        // HP bar): transient attack canvas reach is pose art, and members
-        // still gliding to their seat are legitimately in transit — parked
-        // members are the ones that must never merge. Settle one tick so
-        // members whose seats re-anchored have converged, then check the
-        // members that did not move.
+        // The two retained representatives' readable footprints (logical
+        // body ∪ HP bar) must remain disjoint as the trailing wave arrives.
         let settle = scene.soldierReadableFootprintsForTesting
         scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
         let parked = scene.soldierReadableFootprintsForTesting.filter { entry in
@@ -4925,7 +5313,7 @@ struct BattleSceneTests {
                     ) <= 1
             }
         }
-        #expect(parked.count >= 6)
+        #expect(parked.count == 2)
         for index in parked.indices {
             for other in parked.indices where other != index {
                 #expect(
@@ -4943,15 +5331,9 @@ struct BattleSceneTests {
     }
 
     @Test func denseGateBandsStepThroughBoundariesWithoutOverlapOrStaleCounts() throws {
-        // The second wave marches the ~60-pt gap between its own head and
-        // the gate pile's head: while separated by a full pitch it is its
-        // own presentation band, then the bands merge as the fronts
-        // converge. Stepping the merge tick-by-tick — not sampling a single
-        // instant — pins the invariants that must hold through every
-        // boundary transition: exact live+pending node accounting, a
-        // truthful badge, disjoint presented HP bars/bodies, a presented
-        // foremost soldier, and no teleport of a soldier that stays
-        // presented across the step.
+        // This historical band-transition fixture now verifies stable rail
+        // ownership while two model waves converge: exact accounting, a
+        // truthful badge, disjoint bodies/bars and bounded visible motion.
         let state = try durableRightGateState(buildingCount: 5)
         let scene = makeScene(
             store: try makeStore(initialState: state),
@@ -4983,7 +5365,7 @@ struct BattleSceneTests {
             let counts = soldierPresentationCounts(in: scene)
             #expect(counts.presented + counts.folded == live + pending)
             #expect((overflowBadgeCount(in: scene, lane: .right) ?? 0) == counts.folded - counts.pendingHidden)
-            #expect(counts.presented >= 6)
+            #expect(counts.presented == 2)
 
             // Disjointness is a RESTING invariant: soldiers seated on their
             // formation cells keep disjoint bodies and HP bars. A root
@@ -5025,12 +5407,8 @@ struct BattleSceneTests {
             foldedRange.max = max(foldedRange.max, counts.folded)
             #expect(scene.firstLiveSoldierBodySpriteForTesting?.parent?.isHidden == false)
 
-            // Identity must survive every presentation transition: a live
-            // soldier keeps its node across fold/unfold boundaries and every
-            // root — rendered or bookkeeping — moves at a bounded step. A
-            // member that stays VISIBLE through a row re-slot glides a full
-            // pitch; that is an actual boundary transition, which this test
-            // must observe at least once (not merely tolerate).
+            // Existing identities keep bounded motion; the stable-rail
+            // policy does not re-slot or fold either owner during this run.
             for (id, after) in current {
                 if let before = previous[id] {
                     #expect(hypot(
@@ -5051,18 +5429,13 @@ struct BattleSceneTests {
             }
             previous = current
         }
-        // The run must actually traverse the boundary regime: a folded mass
-        // existed while the wave was still marching in, and at least one
-        // soldier visibly crossed a row boundary — otherwise the merge
-        // scenario under test never happened.
+        // The folded regime was exercised without a visible-owner transition.
         #expect(foldedRange.max > 0)
-        #expect(visibleRowTransitions + foldTransitions > 0)
+        #expect(visibleRowTransitions + foldTransitions == 0)
     }
 
-    @Test func sparseGateFormationNeedsNoOverflowBadge() throws {
-        // The pre-existing readable case must not grow a badge: nine manual
-        // soldiers still fit the lane at full pitch, so nothing is folded
-        // and no overflow summary appears.
+    @Test func nineSoldiersShowTwoRailsAndSevenOverflow() throws {
+        // Nine living soldiers exceed the fixed two-body presentation budget.
         let state = try durableRightGateState(buildingCount: 0)
         let scene = makeScene(
             store: try makeStore(initialState: state),
@@ -5071,9 +5444,9 @@ struct BattleSceneTests {
         )
         scene.spawnManualSoldiersDirectlyForTesting(9)
         let counts = soldierPresentationCounts(in: scene)
-        #expect(counts.presented == 9)
-        #expect(counts.folded == 0)
-        #expect(overflowBadge(in: scene, lane: .right) == nil)
+        #expect(counts.presented == 2)
+        #expect(counts.folded == 7)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == 7)
     }
 
     @Test func denseGateStaggeredArrivalsNeverVanishVisibleSoldiersInBatches() throws {
@@ -5336,20 +5709,16 @@ struct BattleSceneTests {
                 }
             }
             seriesByStep[step] = presentedSeries
-            // The marching pile stays readable at BOTH cadences — no
-            // hidden-until-stopped regime at the coarse one (the old
-            // frame-quantized easing parked it at ≤3 mid-march).
-            #expect(presentedSeries.last ?? 0 >= 12)
+            // Both representatives remain visible at both cadences.
+            #expect(presentedSeries.allSatisfy { $0 == 2 })
         }
-        // Same combat time → same bounded presentation: per-instant counts
-        // may jitter by a member still gliding between cells, but never by
-        // the everyone-hidden divergence frame-quantized easing produced.
+        // At matched combat times the visible counts must also agree.
         let fine = try #require(seriesByStep[0.05])
         let coarse = try #require(seriesByStep[0.25])
         #expect(fine.count == coarse.count)
         for (index, pair) in zip(fine, coarse).enumerated() {
             #expect(
-                abs(pair.0 - pair.1) <= 4,
+                pair.0 == pair.1,
                 "instant \(index): 0.05s cadence=\(pair.0) vs 0.25s cadence=\(pair.1)"
             )
         }
@@ -5454,11 +5823,9 @@ struct BattleSceneTests {
     }
 
     @Test func denseGateOldestFrontlineSoldierIsCombatTargetCandidate() throws {
-        // Combat's `.max` foremost selection keeps roster precedence at a
-        // shared stop position: the OLDEST soldier — lowest id — is the
-        // defensive-fire candidate, not the lowest reused formation slot.
-        // As waves die and respawn, low slots recycle onto new soldiers;
-        // presentation must still keep the combat candidate rendered.
+        // Several living soldiers share a combat stop while the real tower
+        // fires. Only its actual shot target, not a predicted future target,
+        // is priority in the two-rail presentation.
         let city = 15
         let layout = Country1CityCatalog.definition(for: city).siegeLayout
         let maxPowers = layout.maxPowerAllocation(
@@ -5482,10 +5849,12 @@ struct BattleSceneTests {
         )
         state = captainless(state)
 
+        let feedback = BattleFeedbackRecorder()
         let scene = makeScene(
             store: try makeStore(initialState: state),
             combatSeed: 1,
-            size: CGSize(width: 393, height: 852)
+            size: CGSize(width: 393, height: 852),
+            feedback: feedback
         )
         scene.advanceCombatSingleStepForTesting(
             deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 4
@@ -5493,12 +5862,19 @@ struct BattleSceneTests {
         #expect(scene.buildingLiveSoldierCountForTesting == 20)
 
         var sharedStopSamples = 0
+        var actualShots = 0
         for _ in 0..<240 {
             scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
-            // The tower kills the FOREMOST — the oldest member at the
-            // shared stop is routinely a pending corpse, which correctly
-            // folds when no safe reveal exists. Combat's target candidate
-            // is the foremost LIVE soldier, so pending removals are out.
+            if let shot = feedback.lastAutomaticResult?.towerShots.first {
+                actualShots += 1
+                let root = try #require(scene.soldierRootForTesting(shot.soldierID))
+                #expect(!root.isHidden)
+                let body = try #require(root.children.first { $0.zPosition == 1 } as? SKSpriteNode)
+                let bodyFrame = SoldierAnimationGeometry(type: .infantry).logicalBodyFrame(frameSize: body.size)
+                let center = root.convert(CGPoint(x: bodyFrame.midX, y: bodyFrame.midY), to: scene)
+                let endpoint = try #require(scene.lastTowerProjectileEndpointForTesting)
+                #expect(hypot(center.x - endpoint.x, center.y - endpoint.y) < 0.01)
+            }
             let pending = scene.pendingAnimatedRemovalSoldierIDsForTesting
             let lane = scene.soldierPresentationsForTesting.filter {
                 $0.lane == .right && !pending.contains($0.id)
@@ -5509,34 +5885,9 @@ struct BattleSceneTests {
             // stop position — the tie regime the finding is about.
             guard cohort.count > 1 else { continue }
             sharedStopSamples += 1
-            // Combat picks the first maximal roster index: the lowest id.
-            if let candidate = cohort.min(by: { $0.id < $1.id }) {
-                let corpseRects = pending.map {
-                    "\($0):\(scene.soldierCorpseFootprintForTesting($0) ?? .null)"
-                }
-                let cohortReport = cohort.map {
-                    "\($0.id):\($0.isFolded ? "folded" : "presented")@\($0.nodePosition)"
-                }
-                let diagnostics = "seats=\(scene.soldierSeatFootprintsForTesting)"
-                    + " corpses=\(corpseRects)"
-                    + " fades=\(scene.fadingSoldierFootprintsForTesting)"
-                    + " pending=\(pending) cohort=\(cohortReport)"
-                #expect(
-                    !candidate.isFolded,
-                    "candidate \(candidate.id) folded; \(diagnostics)"
-                )
-            }
-            // And the whole cohort presents in combat order: every
-            // presented member must outrank every folded one, so the folded
-            // remainder is always the newest soldiers at the shared stop —
-            // never a recycled low slot evicting an older body.
-            for presented in cohort where !presented.isFolded {
-                for folded in cohort where folded.isFolded {
-                    #expect(presented.id < folded.id)
-                }
-            }
         }
         #expect(sharedStopSamples >= 5)
+        #expect(actualShots > 0)
     }
 
     @Test func overflowBadgePillContainsItsCount() throws {
@@ -5712,132 +6063,36 @@ struct BattleSceneTests {
         return footprints
     }
 
-    /// One sync's worth of the round-3 stable-seat contract, asserted from
-    /// rendered state — not from the production formula:
-    /// * every rendered member's claimed seat CELL is pairwise disjoint
-    ///   from the others AND from every corpse/fade reservation;
-    /// * a member that did not move this sync is CONVERGED — its READABLE
-    ///   footprint (logical body ∪ HP bar, the unit seats are pitched on)
-    ///   overlaps no other readable footprint and no reserved ground;
-    /// * any residual overlap involves a member still in transit and must
-    ///   clear within `transitLimit` consecutive syncs — a pair parked
-    ///   overlapping is a real bug, not an exemption.
-    /// The full animation canvas is intentionally NOT the member
-    /// disjointness unit: attack/hit reach is transient pose art. Corpses
-    /// and fades keep their ACTUAL canvas reservations — seats and
-    /// readable bodies must stay off them.
-    /// Returns whether any member moved (for non-vacuousness counters).
+    /// Every displayed live body + HP bar must stay disjoint, even while
+    /// marching. Full transparent canvases and hidden fades are not rail
+    /// reservations. Actual-target/casualty separation is asserted directly
+    /// in `crowdedTowerTargetRemainsReadableBesideRealCasualties`.
     @discardableResult
     private func assertStableSeatContract(
         in scene: BattleScene,
         previousPositions: inout [BattleCombatState.SoldierID: CGPoint],
-        overlapStreaks: inout [String: Int],
-        transitLimit: Int = 15
+        overlapStreaks: inout [String: Int]
     ) -> Bool {
         let members = scene.soldierReadableFootprintsForTesting
-        let seatRects = Array(scene.soldierSeatFootprintsForTesting.values)
-        // Reservations are the corpses'/fades' ACTUAL canvas footprints.
-        // Live members only — a corpse's own root is not in `members`, so
-        // self-intersection is impossible by construction.
-        var reservations: [CGRect] = []
-        for id in scene.pendingAnimatedRemovalSoldierIDsForTesting {
-            if let rect = scene.soldierCorpseFootprintForTesting(id) {
-                reservations.append(rect)
-            }
-        }
-        reservations.append(contentsOf: scene.fadingSoldierFootprintsForTesting)
-
-        // Unseated PROTECTED members may lawfully share a fading corpse's
-        // ground — the saturated-extreme share that keeps the lane's fire
-        // candidate truthful (round 5): the corpse is already on its way
-        // out, but two live bodies may still never merge, so only the
-        // corpse checks below relax for them.
-        let unseatedProtected = unseatedProtectedSoldierIDs(in: scene)
-
-        // Seats: exclusive by construction and corpse-free — the invariant
-        // that makes parked bodies + bars impossible to merge.
-        for index in seatRects.indices {
-            for other in seatRects.indices where other > index {
-                #expect(
-                    !seatRects[index].intersects(seatRects[other]),
-                    "claimed seats overlap: \(seatRects[index]) vs \(seatRects[other])"
-                )
-            }
-            for reservation in reservations {
-                #expect(
-                    !seatRects[index].intersects(reservation),
-                    "seat \(seatRects[index]) overlaps corpse/fade \(reservation)"
-                )
-            }
-        }
-
-        var stationary = Set<BattleCombatState.SoldierID>()
-        var moved = false
-        for member in members {
-            if let before = previousPositions[member.id],
-               hypot(
-                member.position.x - before.x,
-                member.position.y - before.y
-               ) <= 1 {
-                stationary.insert(member.id)
-            } else {
-                moved = true
-            }
+        let moved = members.contains { member in
+            guard let before = previousPositions[member.id] else { return true }
+            return hypot(member.position.x - before.x, member.position.y - before.y) > 1
         }
         previousPositions = Dictionary(
             uniqueKeysWithValues: members.map { ($0.id, $0.position) }
         )
 
-        // Two CONVERGED members never overlap — parked bodies are the bug
-        // the seat model exists to prevent. A member still in transit may
-        // legitimately brush a seated one (paths are not reservations);
-        // the streak bound below is what keeps that transient.
-        for entry in members where stationary.contains(entry.id) {
-            for other in members
-            where other.id != entry.id && stationary.contains(other.id) {
-                #expect(
-                    !entry.rect.intersects(other.rect),
-                    "converged members parked overlapping: \(entry.rect) vs \(other.rect)"
-                )
-            }
-            // A live member never parks on corpse/fade ground either —
-            // except an unseated protected member in the saturated
-            // extreme, whose lawful share is documented above.
-            guard !unseatedProtected.contains(entry.id) else { continue }
-            for reservation in reservations {
-                #expect(
-                    !entry.rect.intersects(reservation),
-                    "converged member \(entry.rect) overlaps corpse/fade \(reservation)"
-                )
-            }
-        }
-
-        // Transit bound: any overlap that DOES occur must resolve inside
-        // the bounded glide window — parked overlap is the bug.
         var nextStreaks: [String: Int] = [:]
         for index in members.indices {
             for other in members.indices where other > index {
-                guard members[index].rect.intersects(members[other].rect) else {
-                    continue
+                if members[index].rect.intersects(members[other].rect) {
+                    let key = "\(members[index].id):\(members[other].id)"
+                    nextStreaks[key] = (overlapStreaks[key] ?? 0) + 1
                 }
-                let key = "\(members[index].id):\(members[other].id)"
-                let streak = (overlapStreaks[key] ?? 0) + 1
                 #expect(
-                    streak <= transitLimit,
-                    "footprint overlap parked \(streak) syncs: \(members[index].rect) vs \(members[other].rect)"
+                    !members[index].rect.intersects(members[other].rect),
+                    "readable footprints overlap: \(members[index].rect) vs \(members[other].rect)"
                 )
-                nextStreaks[key] = streak
-            }
-            for (corpseIndex, reservation) in reservations.enumerated()
-            where !unseatedProtected.contains(members[index].id)
-                && members[index].rect.intersects(reservation) {
-                let key = "\(members[index].id):corpse\(corpseIndex)"
-                let streak = (overlapStreaks[key] ?? 0) + 1
-                #expect(
-                    streak <= transitLimit,
-                    "corpse overlap parked \(streak) syncs: \(members[index].rect) vs \(reservation)"
-                )
-                nextStreaks[key] = streak
             }
         }
         overlapStreaks = nextStreaks
@@ -5902,11 +6157,10 @@ struct BattleSceneTests {
         return ids
     }
 
-    @Test func denseGateStableSeatsStayExclusiveWithOnlyTransientOverlap() throws {
-        // N1 repro under the round-3 stable-seat model: no path solver —
-        // seats are exclusive by construction, converged members never
-        // overlap, and transit overlap must resolve in bounded time.
-        // Marching, re-slots, and a mid-run deploy all count.
+    @Test func denseGateRailsStayExclusiveAndRetainOwners() throws {
+        // A trailing wave and a manual deploy must not replace either
+        // existing representative. Their readable footprints stay disjoint
+        // on every tick, not merely once they stop moving.
         let state = try durableRightGateState(buildingCount: 5)
         let scene = makeScene(
             store: try makeStore(initialState: state),
@@ -5919,8 +6173,8 @@ struct BattleSceneTests {
         scene.advanceCombatForTesting(deltaTime: 2.5)
         #expect(scene.liveSoldierCountForTesting == 20)
 
-        // A second wave marches in: the merge regime re-slots and promotes
-        // members every tick while the seat contract must hold.
+        let originalOwners = Set(scene.soldierPresentationsForTesting.filter { !$0.isFolded }.map(\.id))
+        #expect(originalOwners.count == 2)
         scene.advanceCombatSingleStepForTesting(
             deltaTime: KingdomGameState.activeSpawnInterval(for: .barracks) * 2
         )
@@ -5928,27 +6182,23 @@ struct BattleSceneTests {
 
         var previousPositions: [BattleCombatState.SoldierID: CGPoint] = [:]
         var overlapStreaks: [String: Int] = [:]
-        var glidingTicks = 0
-        var seatCountSeen = 0
         for _ in 0..<70 {
             scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
-            #expect(scene.soldierReadableFootprintsForTesting.count >= 6)
-            seatCountSeen = max(seatCountSeen, scene.soldierSeatFootprintsForTesting.count)
-            if assertStableSeatContract(
+            #expect(scene.soldierReadableFootprintsForTesting.count == 2)
+            #expect(Set(scene.soldierPresentationsForTesting.filter { !$0.isFolded }.map(\.id)) == originalOwners)
+            _ = assertStableSeatContract(
                 in: scene,
                 previousPositions: &previousPositions,
                 overlapStreaks: &overlapStreaks
-            ) {
-                glidingTicks += 1
-            }
+            )
         }
 
-        // The review repro: a fresh deploy behind the occupied pile — the
-        // zero-elapsed deploy sync already ran inside spawn, so the FIRST
-        // frame after it must already satisfy the seat contract.
+        // The zero-elapsed deploy sync already ran, so check its first frame.
         scene.selectManualSoldierTypeForTesting(.infantry)
         scene.spawnManualSoldiersDirectlyForTesting(1)
         #expect(scene.liveSoldierCountForTesting == 31)
+        #expect(overflowBadgeCount(in: scene, lane: .right) == 29)
+        #expect(Set(scene.soldierPresentationsForTesting.filter { !$0.isFolded }.map(\.id)) == originalOwners)
         _ = assertStableSeatContract(
             in: scene,
             previousPositions: &previousPositions,
@@ -5956,21 +6206,13 @@ struct BattleSceneTests {
         )
         for _ in 0..<30 {
             scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
-            #expect(scene.soldierReadableFootprintsForTesting.count >= 6)
-            if assertStableSeatContract(
+            #expect(scene.soldierReadableFootprintsForTesting.count == 2)
+            _ = assertStableSeatContract(
                 in: scene,
                 previousPositions: &previousPositions,
                 overlapStreaks: &overlapStreaks
-            ) {
-                glidingTicks += 1
-            }
+            )
         }
-
-        // Non-vacuous: the lane really ran a multi-seat formation with
-        // members in motion across most of the run — the seat contract
-        // covered actual transitions, not a parked formation.
-        #expect(seatCountSeen >= 6)
-        #expect(glidingTicks >= 10)
     }
 
     @Test func newlyVisibleCasualtyReservesItsFootprintImmediately() throws {
@@ -6307,7 +6549,7 @@ struct BattleSceneTests {
         // READABLE footprint (logical body ∪ bar) is the containment
         // unit — transient canvas reach is pose art, not stale coords.
         let footprints = scene.soldierReadableFootprintsForTesting
-        #expect(footprints.count >= 8)
+        #expect(footprints.count == 2)
         for entry in footprints {
             #expect(
                 newBattlefield.contains(entry.rect),
@@ -6336,15 +6578,11 @@ struct BattleSceneTests {
         #expect((overflowBadgeCount(in: scene, lane: .right) ?? 0) == counts.folded - counts.pendingHidden)
     }
 
-    @Test func loneSurvivorGlidesToFreedSeatAtCombatRateNotInstantly() throws {
-        // Round-5 review repro: a rendered lone survivor's ideal frees
-        // the instant corpse reservations release — the previous apply
-        // path landed it on `free(ideal)` in the SAME sync, so a
-        // zero-elapsed redraw (the paused Settings surface) teleported it
-        // forward, and the bounded free-spot fallback could land it
-        // ~2.5 rows away in one frame. Rendered motion is clocked by
-        // elapsed combat time; only a real battlefield remap may land a
-        // member outright.
+    @Test func loneSurvivorKeepsRailAcrossRemovalAndPausedRedraw() throws {
+        // Clearing casualties must not teleport an already-rendered
+        // survivor or recenter it; a previously folded survivor may be
+        // admitted directly when a rail becomes free.
+        var initiallyRendered = 0
         for lane in [BattleLane.left, .right] {
             let state = captainless(stateWithBuildings(
                 [],
@@ -6382,10 +6620,10 @@ struct BattleSceneTests {
                     toObjectiveID: towerID
                 )
             }
-            let positionBeforeClear = try #require(
-                scene.soldierNodePresentationForTesting(survivorID)?.position
-            )
-            let heldSeat = scene.soldierSeatFootprintsForTesting[survivorID]
+            let beforeClear = try #require(scene.soldierNodePresentationForTesting(survivorID))
+            if !beforeClear.isHidden {
+                initiallyRendered += 1
+            }
 
             // The authored removals land: reservations release and the
             // lone ideal frees — then a zero-elapsed redraw runs while
@@ -6400,13 +6638,13 @@ struct BattleSceneTests {
             let afterRedraw = try #require(
                 scene.soldierNodePresentationForTesting(survivorID)?.position
             )
-            #expect(
-                hypot(
-                    afterRedraw.x - positionBeforeClear.x,
-                    afterRedraw.y - positionBeforeClear.y
-                ) <= 0.75,
-                "lane \(lane): zero-elapsed redraw moved the survivor \(positionBeforeClear) → \(afterRedraw)"
-            )
+            #expect(scene.soldierRootIsHiddenForTesting(survivorID) == false)
+            if !beforeClear.isHidden {
+                #expect(
+                    hypot(afterRedraw.x - beforeClear.position.x, afterRedraw.y - beforeClear.position.y) <= 0.75,
+                    "lane \(lane): zero-elapsed redraw moved the visible survivor"
+                )
+            }
 
             // Close Settings so combat ticks run again: the freed ideal
             // is a DESTINATION now — each 0.05 s tick may move the root
@@ -6435,6 +6673,7 @@ struct BattleSceneTests {
                     scene.soldierNodePresentationForTesting(survivorID)?.position
                 )
                 let step = hypot(after.x - before.x, after.y - before.y)
+                #expect(abs(after.x - afterRedraw.x) < 0.01)
                 #expect(
                     step <= scene.soldierTargetHeightForTesting * 0.2 + 0.5,
                     "lane \(lane): survivor moved \(step)pt in one 0.05s tick"
@@ -6468,17 +6707,9 @@ struct BattleSceneTests {
                     "lane \(lane): parked survivor footprint \(lastRect) outside \(battlefield)"
                 )
             }
-            // Non-vacuous: the corpse pile really had held the survivor
-            // off its natural seat — otherwise clearing reservations
-            // changed nothing and the snap assertions above proved
-            // nothing.
-            let reclaimedSeat = scene.soldierSeatFootprintsForTesting[survivorID]
-            #expect(
-                reclaimedSeat != heldSeat,
-                "lane \(lane): survivor was never displaced off its lone seat — the snap case is unexercised"
-            )
             #expect(travelled > 1)
         }
+        #expect(initiallyRendered > 0)
     }
 
     @Test func pausedResizeRefitsPendingCasualtyIntoNewField() throws {
@@ -6620,14 +6851,9 @@ struct BattleSceneTests {
     }
 
     @Test func corpseBlanketedLaneKeepsProtectedMembersOnDistinctGround() throws {
-        // Round-5 review repro: in a short mixed-unit lane whose grid is
-        // covered by casualty/fade footprints, every protected member the
-        // planner cannot seat fell back to the SAME unchecked lane point
-        // — a Captain and the tower's ordinary target rendered inside
-        // each other. Protected landings must be checked and distinct
-        // (or the member waits hidden), never an unchecked shared point;
-        // and a member materializing onto a seat must never land on a
-        // body still standing on it.
+        // The old grid could put a trailing Captain and the tower's
+        // ordinary target at the same unchecked point. Exercise the same
+        // mixed-unit window and subsequent handovers with two fixed rails.
         let city = 15
         let layout = Country1CityCatalog.definition(for: city).siegeLayout
         let maxPowers = layout.maxPowerAllocation(
@@ -6672,18 +6898,13 @@ struct BattleSceneTests {
         scene.selectManualSoldierTypeForTesting(.infantry)
         scene.spawnManualSoldiersDirectlyForTesting(4)
 
-        // The stable-seat contract — converged members never overlap and
-        // never park on reserved ground (bar the lawful unseated-
-        // protected share the saturated extreme below forces), transient
-        // transit overlap must clear inside the bounded glide window —
-        // is asserted on EVERY sync below; it is what the unchecked
-        // shared point violates.
+        // Live readable bodies remain disjoint on every sampled sync.
         var previousPositions: [BattleCombatState.SoldierID: CGPoint] = [:]
         var overlapStreaks: [String: Int] = [:]
         // Hidden→visible materializations must never land on an occupied
         // footprint — a promotion that pops onto a seat its previous
         // occupant still stands on shows up here even inside the transit
-        // grace the contract check allows.
+        // handover.
         var hiddenBefore = Set(
             scene.soldierPresentationsForTesting.filter(\.isFolded).map(\.id)
         )
@@ -6705,21 +6926,32 @@ struct BattleSceneTests {
             )
         }
 
-        // Approach: pile marches to the gate, the Captain respawns and
-        // trails it, the tower records an ordinary target. The contract
-        // checks start AFTER this — a stack of soldiers deployed at the
-        // same instant legitimately shares positions on the march in;
-        // what must hold is the PARKED/coverage geometry below.
+        // The Captain respawns behind the pile while the tower has a
+        // distinct actual target. Check those roots, not predicted ranks.
         var sawProtectedWindow = false
         for _ in 0..<400 {
             scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
             if let captain = scene.livingCaptainForTesting,
-               scene.lastTowerShotSoldierIDForTesting != nil,
+               let targetID = scene.lastTowerShotSoldierIDForTesting,
+               targetID != captain.id,
                let maxPosition = scene.soldierPresentationsForTesting
                    .filter({ $0.lane == .right }).map(\.position).max(),
                let captainPresentation = scene.soldierPresentationsForTesting
                    .first(where: { $0.id == captain.id }),
                captainPresentation.position < maxPosition {
+                let captainRoot = try #require(scene.soldierRootForTesting(captain.id))
+                let targetRoot = try #require(scene.soldierRootForTesting(targetID))
+                #expect(!captainRoot.isHidden)
+                #expect(!targetRoot.isHidden)
+                let captainBar = try #require(captainRoot.children.compactMap { $0 as? SKShapeNode }
+                    .first { $0.zPosition == 2 }?.path)
+                let targetBar = try #require(targetRoot.children.compactMap { $0 as? SKShapeNode }
+                    .first { $0.zPosition == 2 }?.path)
+                let captainFrame = sceneRect(of: captainBar.boundingBox, in: captainRoot, scene: scene)
+                let targetFrame = sceneRect(of: targetBar.boundingBox, in: targetRoot, scene: scene)
+                #expect(battlefield.contains(captainFrame))
+                #expect(battlefield.contains(targetFrame))
+                #expect(!captainFrame.intersects(targetFrame))
                 sawProtectedWindow = true
                 break
             }
@@ -6729,15 +6961,10 @@ struct BattleSceneTests {
             "Captain never trailed the parked pile with a recorded tower target"
         )
 
-        // Coverage: fading-removal reservations tile the lane's cells —
-        // each round every live member leaves its actual footprint where
-        // it stood and re-seats on what is still free, until the planner
-        // cannot seat ≥2 PROTECTED members — the review's overlap needs
-        // them. A protected member the grid cannot place is either
-        // rendered on checked free ground or still waiting hidden, so
-        // "unseated" is detected through the seat ledger, not visibility.
-        var unseatedProtectedIDs = Set<BattleCombatState.SoldierID>()
-        for _ in 0..<20 where unseatedProtectedIDs.count < 2 {
+        // Exercise repeated handovers with fading roots. These forced fades
+        // do not advance SpriteKit action time and are a stress fixture, not
+        // evidence that a blanket of corpses is reachable in live play.
+        for _ in 0..<20 {
             for member in scene.soldierPresentationsForTesting {
                 scene.removeSoldierNodeForTesting(id: member.id, animated: true)
             }
@@ -6748,44 +6975,12 @@ struct BattleSceneTests {
                 overlapStreaks: &overlapStreaks
             )
             assertMaterializationsAreDisjoint()
-            unseatedProtectedIDs = protectedSoldierIDs(in: scene, lane: .right)
-                .filter { scene.soldierSeatFootprintsForTesting[$0] == nil }
-        }
-        #expect(unseatedProtectedIDs.count >= 2)
-
-        // Each unseated protected member that IS rendered must hold real
-        // checked ground — inside the field, off every claimed seat, and
-        // off every other LIVE readable body; never the old shared lane
-        // point. Corpse/fade ground may be shared in this saturated
-        // extreme (every reservation-free landing is gone): the corpse
-        // is already on its way out, but the member must never touch a
-        // live body — that is what keeps the fire candidate truthful.
-        let unseatedRendered = scene.soldierReadableFootprintsForTesting.filter {
-            unseatedProtectedIDs.contains($0.id)
-        }
-        let seatRects = Array(scene.soldierSeatFootprintsForTesting.values)
-        for index in unseatedRendered.indices {
-            let member = unseatedRendered[index]
-            #expect(
-                battlefield.contains(member.rect),
-                "unseated member \(member.id) outside the field"
-            )
-            for seat in seatRects {
-                #expect(
-                    !member.rect.intersects(seat),
-                    "unseated member \(member.id) parked on claimed seat \(seat)"
-                )
-            }
-            for other in scene.soldierReadableFootprintsForTesting
-            where other.id != member.id {
-                #expect(
-                    !member.rect.intersects(other.rect),
-                    "unseated member \(member.id) overlaps live body \(other.id): \(member.rect) vs \(other.rect)"
-                )
+            #expect(scene.fadingSoldierRootsForTesting.filter { !$0.isHidden }.count <= 2)
+            for member in scene.soldierReadableFootprintsForTesting {
+                #expect(battlefield.contains(member.rect))
             }
         }
-        // The protected identities keep a tracked node — rendered on
-        // checked ground or lawfully waiting hidden, never dropped.
+        // The protected identities remain tracked through the handovers.
         if let captain = scene.livingCaptainForTesting {
             #expect(scene.soldierRootIsHiddenForTesting(captain.id) != nil)
         }
@@ -6793,10 +6988,8 @@ struct BattleSceneTests {
             #expect(scene.soldierNodePresentationForTesting(target) != nil)
         }
 
-        // Release the tiled reservations: every hidden member re-seats —
-        // the same materialization-disjointness contract applies to each
-        // promotion back onto real ground, and the Captain must be
-        // rendered again once real ground exists.
+        // Complete the forced fades and pending removals, then continue
+        // checking disjoint promotions and Captain visibility.
         scene.finishFadingSoldierRemovalsForTesting()
         scene.completePendingAnimatedSoldierRemovalsForTesting()
         for _ in 0..<80 {
@@ -7005,8 +7198,10 @@ struct BattleSceneTests {
         // pool only allows three real taps.
         scene.spawnManualSoldiersDirectlyForTesting(6)
 
-        let placementsByLane = Dictionary(grouping: scene.soldierLanePlacementsForTesting, by: \.lane)
+        let rendered = scene.soldierPresentationsForTesting.filter { !$0.isFolded }
+        let placementsByLane = Dictionary(grouping: rendered, by: \.lane)
         #expect(scene.soldierLanePlacementsForTesting.count == 6)
+        #expect(rendered.count == 2)
         #expect(placementsByLane.values.contains { $0.count > 1 })
         for placements in placementsByLane.values where placements.count > 1 {
             for firstIndex in placements.indices {
