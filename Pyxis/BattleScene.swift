@@ -5734,6 +5734,12 @@ extension BattleScene {
         return bundle.body.name
     }
 
+    /// The unfitted height policy, independent of whether a battlefield exists.
+    var soldierBaseTargetHeightForTesting: CGFloat {
+        soldierTargetHeight()
+    }
+
+    /// The fitted body height used by the rail presentation.
     var soldierTargetHeightForTesting: CGFloat {
         soldierRailBodyHeight()
     }
