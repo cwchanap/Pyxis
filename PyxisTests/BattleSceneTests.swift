@@ -5056,6 +5056,77 @@ struct BattleSceneTests {
         #expect(witnessedGuardAttackPromotion, "fixture must let a Guard hit and reveal a folded soldier")
     }
 
+    @Test func towerShotDisplacesLowerPriorityGuardReservation() throws {
+        // HPA-812 review: a Guard reservation is only a rail claim. When the
+        // Captain and a Guard-recorded soldier already hold both seats and a
+        // NEW folded soldier becomes the tower's target, the Guard
+        // reservation — the lowest-priority claim — must yield, because the
+        // projectile is already in flight toward the target's transform.
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 9,
+            gold: 100,
+            keepRemaining: 1_000_000_000,
+            supportDamage: [.arrowTower: 100_000],
+            selectedLane: .left
+        )
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: [
+            1: CityBuilding(type: .barracks, level: 1),
+            2: CityBuilding(type: .stable, level: 1)
+        ])
+        state.siegeProgress.captain = .freshCaptain(selectedLane: .left, captainLevel: 1)
+        state.siegeProgress.guardReinforcements = .freshCountry1()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ]
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1, size: CGSize(width: 393, height: 852)
+        )
+        let captain = try #require(scene.livingCaptainForTesting)
+        scene.spawnManualSoldiersDirectlyForTesting(1)
+        let infantryID = try #require(
+            scene.soldierPresentationsForTesting.first { $0.id != captain.id }?.id
+        )
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnManualSoldiersDirectlyForTesting(2)
+
+        // Fixture: Captain + infantry own both rails; the cavalry fold.
+        #expect(
+            Set(scene.soldierRailOwnerIDsForTesting(.left).compactMap { $0 })
+                == [captain.id, infantryID]
+        )
+        let foldedTarget = try #require(
+            scene.soldierPresentationsForTesting.first {
+                $0.isFolded && $0.id != captain.id && $0.id != infantryID
+            }?.id
+        )
+
+        // Stage the reviewed conflict exactly as one tick's
+        // `applyCombatResult` leaves it: the infantry is a Guard's recorded
+        // target and the tower's fresh pick is the folded cavalry soldier.
+        scene.setGuardAttackTargetForTesting(infantryID, guardID: 1)
+        scene.setLastDefensiveShotTargetForTesting(foldedTarget)
+        scene.resyncSoldierNodesForTesting()
+
+        // The lower-priority Guard reservation yields its rail: the tower
+        // target is promoted and the Captain's seat is never touched.
+        #expect(
+            Set(scene.soldierRailOwnerIDsForTesting(.left).compactMap { $0 })
+                == [captain.id, foldedTarget]
+        )
+        #expect(scene.soldierRootIsHiddenForTesting(foldedTarget) == false)
+        #expect(scene.soldierRootIsHiddenForTesting(captain.id) == false)
+        #expect(scene.soldierRootIsHiddenForTesting(infantryID) == true)
+
+        // The stale reservation must not oscillate the seat back.
+        scene.resyncSoldierNodesForTesting()
+        #expect(
+            Set(scene.soldierRailOwnerIDsForTesting(.left).compactMap { $0 })
+                == [captain.id, foldedTarget]
+        )
+    }
+
     @Test func representativesFollowTheirOwnDifferentModelProgress() throws {
         let city = 15
         let layout = Country1CityCatalog.definition(for: city).siegeLayout

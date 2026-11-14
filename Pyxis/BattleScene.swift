@@ -3160,12 +3160,21 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         protected: [BattleCombatState.SoldierID],
         liveIDs: Set<BattleCombatState.SoldierID>
     ) {
-        let protectedSet = Set(protected)
-        for id in protected {
+        // `protected` is priority-ordered (live tower target, then Captains,
+        // then Guard-recorded targets). A claimant that needs a seat may only
+        // displace a strictly LOWER-priority owner — e.g. a fresh tower
+        // target displaces an older Guard reservation, while a Guard
+        // reservation can never evict the tower target or a Captain — so
+        // effective protection is capped at the available seats.
+        let protectedRank = Dictionary(
+            uniqueKeysWithValues: protected.enumerated().map { ($0.element, $0.offset) }
+        )
+        for (rank, id) in protected.enumerated() {
             guard let bundle = soldierNodes[id],
                   !owners.contains(where: { $0?.root === bundle.root }) else { continue }
             guard let index = replacementRailIndex(
-                in: owners, protected: protectedSet, liveIDs: liveIDs
+                in: owners, protectedRank: protectedRank,
+                claimantRank: rank, liveIDs: liveIDs
             ) else { continue }
             if let displaced = owners[index] {
                 hideDisplacedRailOwner(displaced)
@@ -3176,34 +3185,48 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     private func replacementRailIndex(
         in owners: [SoldierRailOwner?],
-        protected: Set<BattleCombatState.SoldierID>,
+        protectedRank: [BattleCombatState.SoldierID: Int],
+        claimantRank: Int,
         liveIDs: Set<BattleCombatState.SoldierID>
     ) -> Int? {
         if let empty = owners.firstIndex(where: { $0 == nil }) {
             return empty
         }
-        if let casualty = owners.firstIndex(where: {
-            isDisplaceableOwner($0, protected: protected, liveIDs: liveIDs, requireDead: true)
-        }) {
-            return casualty
+        // Prefer a fading seat first, then evict the lowest-priority
+        // displaceable owner (unprotected owners outrank nothing, so they
+        // still yield before any reserved seat).
+        for requireDead in [true, false] {
+            var victim: (index: Int, rank: Int)?
+            for (index, owner) in owners.enumerated() {
+                guard let rank = displaceableRank(
+                    of: owner, protectedRank: protectedRank,
+                    claimantRank: claimantRank, liveIDs: liveIDs,
+                    requireDead: requireDead
+                ), rank > (victim?.rank ?? -1) else { continue }
+                victim = (index, rank)
+            }
+            if let victim { return victim.index }
         }
-        return owners.firstIndex(where: {
-            isDisplaceableOwner($0, protected: protected, liveIDs: liveIDs, requireDead: false)
-        })
+        return nil
     }
 
-    private func isDisplaceableOwner(
-        _ owner: SoldierRailOwner?,
-        protected: Set<BattleCombatState.SoldierID>,
+    /// The priority at which `owner` yields its seat to the claimant, or
+    /// `nil` when it must not move. Unprotected owners always yield (ranked
+    /// lowest); a protected owner only yields to a strictly higher-priority
+    /// claimant. Captains never yield.
+    private func displaceableRank(
+        of owner: SoldierRailOwner?,
+        protectedRank: [BattleCombatState.SoldierID: Int],
+        claimantRank: Int,
         liveIDs: Set<BattleCombatState.SoldierID>,
         requireDead: Bool
-    ) -> Bool {
-        guard let owner else { return false }
+    ) -> Int? {
+        guard let owner, !owner.isCaptain else { return nil }
         let isCurrentRoot = soldierNodes[owner.id]?.root === owner.root
-        guard !owner.isCaptain && !(isCurrentRoot && protected.contains(owner.id)) else {
-            return false
-        }
-        return !requireDead || !(isCurrentRoot && liveIDs.contains(owner.id))
+        let ownerRank = isCurrentRoot ? protectedRank[owner.id] : nil
+        if let ownerRank, ownerRank <= claimantRank { return nil }
+        if requireDead, isCurrentRoot, liveIDs.contains(owner.id) { return nil }
+        return ownerRank ?? .max
     }
 
     private func hideDisplacedRailOwner(_ displaced: SoldierRailOwner) {
@@ -5654,6 +5677,29 @@ extension BattleScene {
         lastDefensiveShotTargetID
     }
 
+    /// Injects the tower's latest combat-chosen target directly — lets rail
+    /// tests stage the protected set a real `towerShots` event would leave
+    /// behind without re-running combat selection.
+    func setLastDefensiveShotTargetForTesting(_ id: BattleCombatState.SoldierID?) {
+        lastDefensiveShotTargetID = id
+    }
+
+    /// Injects a Guard's latest recorded attack target — the reservation a
+    /// real `guardAttacks` event leaves behind until overwritten or the
+    /// node is removed.
+    func setGuardAttackTargetForTesting(
+        _ id: BattleCombatState.SoldierID,
+        guardID: BattleCombatState.GuardID
+    ) {
+        lastGuardAttackTargetByGuardID[guardID] = id
+    }
+
+    /// Runs one rail/node sync pass outside a combat tick, after a test has
+    /// staged protected state directly.
+    func resyncSoldierNodesForTesting() {
+        syncSoldierNodes()
+    }
+
     /// Whether a live soldier's root is folded out of the lane's individual
     /// presentation (HPA-812 overflow). `nil` when the soldier has no node
     /// (already removed), `false` while it renders normally or is animating
@@ -5702,6 +5748,16 @@ extension BattleScene {
     /// Readable rectangles of the living owners of the two rails.
     var soldierSeatFootprintsForTesting: [BattleCombatState.SoldierID: CGRect] {
         Dictionary(uniqueKeysWithValues: soldierReadableFootprintsForTesting.map { ($0.id, $0.rect) })
+    }
+
+    /// Rail-seat owner identities for a lane — includes pending casualties
+    /// whose corpses still hold their seat through the removal animation,
+    /// which live-only accessors like `soldierSeatFootprintsForTesting`
+    /// miss. Lets tests assert exactly which soldiers block replacements.
+    func soldierRailOwnerIDsForTesting(
+        _ lane: BattleLane
+    ) -> [BattleCombatState.SoldierID?] {
+        (soldierRailOwners[lane] ?? [nil, nil]).map { $0?.id }
     }
 
     /// One presented live soldier's READABLE footprint — logical body ∪
