@@ -89,6 +89,9 @@ struct CampChromeLayout: Equatable {
     static let minimumInteractiveSize: CGFloat = 44
     static let lotTargetSize: CGFloat = 44
     static let selectionBudget: CGFloat = 114
+    static let feedbackBackplateHorizontalPadding: CGFloat = 10
+    static let feedbackBackplateVerticalPadding: CGFloat = 6
+    static let feedbackBandHeight: CGFloat = 32
 
     let sceneFrame: CGRect
     let safeFrame: CGRect
@@ -263,22 +266,35 @@ struct CampChromeLayout: Equatable {
 
         let feedbackFrame = CGRect(
             x: lotRegionFrame.minX + 16,
-            y: lotRegionFrame.minY + 4,
+            y: lotRegionFrame.minY + feedbackBackplateVerticalPadding,
             width: lotRegionFrame.width - 32,
-            height: 20
+            height: feedbackBandHeight - feedbackBackplateVerticalPadding * 2
+        )
+        let feedbackBackplateBudgetFrame = CGRect(
+            x: feedbackFrame.minX,
+            y: lotRegionFrame.minY,
+            width: feedbackFrame.width,
+            height: feedbackBandHeight
         )
         guard lotRegionFrame.contains(feedbackFrame),
-              !feedbackFrame.intersects(tabBarFrame),
-              !feedbackFrame.intersects(selectionFrame) else {
+              lotRegionFrame.contains(feedbackBackplateBudgetFrame),
+              !feedbackBackplateBudgetFrame.intersects(tabBarFrame),
+              !feedbackBackplateBudgetFrame.intersects(selectionFrame) else {
             return nil
         }
 
+        let lotGridFrame = CGRect(
+            x: lotRegionFrame.minX,
+            y: feedbackBackplateBudgetFrame.maxY,
+            width: lotRegionFrame.width,
+            height: lotRegionFrame.maxY - feedbackBackplateBudgetFrame.maxY
+        )
         let lotPositions = Dictionary(uniqueKeysWithValues: scenicLotAnchors.map { anchor in
             (
                 anchor.slot,
                 CGPoint(
-                    x: lotRegionFrame.minX + lotRegionFrame.width * anchor.x,
-                    y: lotRegionFrame.minY + lotRegionFrame.height * anchor.y
+                    x: lotGridFrame.minX + lotGridFrame.width * anchor.x,
+                    y: lotGridFrame.minY + lotGridFrame.height * anchor.y
                 )
             )
         })
@@ -297,7 +313,11 @@ struct CampChromeLayout: Equatable {
             )
         })
         guard lotHitFrames.count == CityBattleState.slotRange.count,
-              lotHitFrames.values.allSatisfy({ safeFrame.contains($0) && lotRegionFrame.contains($0) }) else {
+              lotHitFrames.values.allSatisfy({
+                  safeFrame.contains($0)
+                      && lotGridFrame.contains($0)
+                      && !$0.intersects(feedbackBackplateBudgetFrame)
+              }) else {
             return nil
         }
 
@@ -382,7 +402,10 @@ struct CampChromeLayout: Equatable {
     }
 
     static func feedbackBackplate(textBounds: CGRect) -> FeedbackBackplate {
-        let frame = textBounds.insetBy(dx: -10, dy: -6)
+        let frame = textBounds.insetBy(
+            dx: -feedbackBackplateHorizontalPadding,
+            dy: -feedbackBackplateVerticalPadding
+        )
         return FeedbackBackplate(
             frame: frame,
             pathRect: CGRect(
