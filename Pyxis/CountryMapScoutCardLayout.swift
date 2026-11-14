@@ -15,9 +15,22 @@ struct CountryMapScoutCardLayout: Equatable {
     let overlayFrame: CGRect
     let nonBlockingOverlayFrame: CGRect
 
+    static let minimumFullPhoneHeight: CGFloat = 132
+
     var isCompact: Bool {
         layoutClass == .phone
             && cardFrame.height <= CountryMapLayout.minimumCompactInformationHeight
+    }
+
+    var isShortPhone: Bool {
+        layoutClass == .phone
+            && !isCompact
+            && cardFrame.height < Self.minimumFullPhoneHeight
+    }
+
+    static func shortPhoneRowHeight(for cardHeight: CGFloat) -> CGFloat {
+        let usesSingleTraitRow = cardHeight < 54
+        return min(14, (cardHeight - 4) / (usesSingleTraitRow ? 4 : 5))
     }
 
     static func compute(
@@ -39,7 +52,7 @@ struct CountryMapScoutCardLayout: Equatable {
 
         switch layoutClass {
         case .phone:
-            if informationRegionFrame.height < 132 {
+            if informationRegionFrame.height < Self.minimumFullPhoneHeight {
                 return shortPhone(in: informationRegionFrame)
             }
             return phone(in: informationRegionFrame)
@@ -53,7 +66,7 @@ struct CountryMapScoutCardLayout: Equatable {
         let attack = CGRect(x: cardFrame.maxX - 84, y: cardFrame.midY - 22, width: 76, height: 44)
         let infoMaxX = attack.minX - 8
         let usesSingleTraitRow = cardFrame.height < 54
-        let row = min(14, (cardFrame.height - 4) / (usesSingleTraitRow ? 4 : 5))
+        let row = shortPhoneRowHeight(for: cardFrame.height)
         let top = cardFrame.maxY - 2
         let badge = CGRect(x: left, y: top - row, width: 36, height: row)
         let gold = CGRect(x: infoMaxX - 54, y: top - row, width: min(14, row), height: row)
