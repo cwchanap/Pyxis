@@ -4283,15 +4283,18 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
         objectiveDamageLabels = objectiveDamageLabels.filter { $0.value.parent === effectsLayer }
         let label: SKLabelNode
+        let reused: Bool
         if let objectiveID, let existing = objectiveDamageLabels[objectiveID] {
             label = existing
             label.removeAction(forKey: EffectName.floatingFeedback)
+            reused = true
         } else {
             label = SKLabelNode(fontNamed: GameUITheme.Font.bold)
             effectsLayer.addChild(label)
             if let objectiveID {
                 objectiveDamageLabels[objectiveID] = label
             }
+            reused = false
         }
         let shadow = NSShadow()
         shadow.shadowColor = SKColor(white: 0, alpha: 0.85)
@@ -4314,8 +4317,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         label.verticalAlignmentMode = .center
         label.position = CGPoint(x: position.x, y: position.y - 20)
         label.zPosition = EffectStyle.floatingFeedbackZ
-        label.alpha = 0
-        label.setScale(reduceMotion ? 1 : 0.7)
+        // A reused label keeps its on-screen state — the replayed
+        // sequence animates alpha and scale FROM current values, so
+        // staggered hits landing inside the 0.2s entrance can never
+        // starve the readout: each refresh continues the fade instead
+        // of restarting it at zero.
+        if !reused {
+            label.alpha = 0
+            label.setScale(reduceMotion ? 1 : 0.7)
+        }
 
         // Reduce Motion keeps the text but drops the movement: fade in
         // place, then fade out — no rise, no scale.

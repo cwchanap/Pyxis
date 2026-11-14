@@ -3015,7 +3015,7 @@ struct BattleSceneTests {
         }
     }
 
-    @Test func repeatedGateDamageReusesAndResetsTheLatestTickLabel() throws {
+    @Test func repeatedGateDamageReusesTheLatestTickLabel() throws {
         let state = captainless(SiegeTestSupport.makeBattleState(
             atCity: 3, keepRemaining: 26, selectedLane: .center
         ))
@@ -3054,10 +3054,14 @@ struct BattleSceneTests {
             #expect(labels.count == 1)
             #expect(labels.first === first)
             #expect(first.text == "-\(CompactNumberFormatter.string(from: delta))")
+            // Position re-anchors on every hit, but alpha/scale carry
+            // over: the replayed sequence animates from current values,
+            // so hits arriving inside the entrance can't starve the
+            // readout by restarting the fade at zero.
             #expect(first.position == origin)
-            #expect(first.alpha == 0)
-            #expect(abs(first.xScale - (reducedMotion ? 1 : 0.7)) < 0.001)
-            #expect(abs(first.yScale - (reducedMotion ? 1 : 0.7)) < 0.001)
+            #expect(abs(first.alpha - 0.6) < 0.001)
+            #expect(abs(first.xScale - 1.4) < 0.001)
+            #expect(abs(first.yScale - 1.4) < 0.001)
             #expect(first.action(forKey: "floatingFeedback") != nil)
         }
 
