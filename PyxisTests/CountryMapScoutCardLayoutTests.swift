@@ -341,6 +341,32 @@ struct CountryMapScoutCardLayoutTests {
         }
     }
 
+    @Test func shortPhoneThresholdsAndRowHeightUseFourOrFiveRowDivision() {
+        let singleTrait = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 100, width: 343, height: 51),
+            layoutClass: .phone
+        )
+        #expect(singleTrait.isShortPhone)
+        #expect(!singleTrait.isCompact)
+        #expect(singleTrait.traitLineFrames.count == 1)
+        #expect(abs(CountryMapScoutCardLayout.shortPhoneRowHeight(for: 51) - (51 - 4) / 4) < 0.001)
+
+        let doubleTrait = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 100, width: 343, height: 54),
+            layoutClass: .phone
+        )
+        #expect(doubleTrait.isShortPhone)
+        #expect(doubleTrait.traitLineFrames.count == 2)
+        #expect(abs(CountryMapScoutCardLayout.shortPhoneRowHeight(for: 54) - (54 - 4) / 5) < 0.001)
+
+        let fullPhone = CountryMapScoutCardLayout.compute(
+            in: CGRect(x: 16, y: 100, width: 343, height: 132),
+            layoutClass: .phone
+        )
+        #expect(!fullPhone.isShortPhone)
+        #expect(!fullPhone.isCompact)
+    }
+
     @Test func computeIsDeterministicForFixedInformationRegion() {
         let informationRegion = CGRect(x: 16, y: 20, width: 343, height: 64)
         let first = CountryMapScoutCardLayout.compute(in: informationRegion, layoutClass: .phone)

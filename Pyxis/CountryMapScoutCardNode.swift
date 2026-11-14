@@ -528,7 +528,7 @@ final class CountryMapScoutCardNode: SKNode {
         guard layout.layoutClass == .phone && !layout.isCompact else {
             return false
         }
-        if layout.cardFrame.height < 132 {
+        if layout.isShortPhone {
             return layout.favorableFrame.height < 10
         }
         return !(layout.favorableFrame.height.isFinite
@@ -812,7 +812,7 @@ final class CountryMapScoutCardNode: SKNode {
         layout: CountryMapScoutCardLayout
     ) {
         guard !layout.isCompact,
-              layout.cardFrame.height >= 132 || layout.layoutClass == .pad,
+              !layout.isShortPhone,
               let image = prepared.cityImage,
               let assetName = prepared.cityAssetName else {
             cityArt.isHidden = true
@@ -1137,9 +1137,9 @@ final class CountryMapScoutCardNode: SKNode {
             )
         }
 
-        if layout.layoutClass == .phone && layout.cardFrame.height < 132 {
-            let row = min(14, (layout.cardFrame.height - 4) / 5)
-            let textSize = max(8, min(11, row - 2))
+        if layout.isShortPhone {
+            let row = CountryMapScoutCardLayout.shortPhoneRowHeight(for: layout.cardFrame.height)
+            let textSize = max(8, min(11, row - 3))
             return Metrics(
                 titleSize: textSize, badgeSize: textSize, rewardSize: textSize,
                 fallbackRewardSize: 8, traitSize: textSize, footerSize: textSize,
