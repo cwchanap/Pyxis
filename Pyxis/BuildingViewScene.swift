@@ -469,20 +469,19 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         feedbackLabel.shrinkFontSize(toFitWidth: layout.safeFrame.width - 32, floor: 8)
         feedbackBackplate.isHidden = feedbackLabel.isHidden
         if !feedbackLabel.isHidden {
-            let textFrame = feedbackLabel.frame
-            let backplateRect = textFrame.insetBy(dx: -10, dy: -6)
+            let backplate = CampChromeLayout.feedbackBackplate(
+                textBounds: feedbackLabel.frame
+            )
             feedbackBackplate.path = CGPath(
-                roundedRect: CGRect(
-                    x: -backplateRect.width / 2,
-                    y: -backplateRect.height / 2,
-                    width: backplateRect.width,
-                    height: backplateRect.height
-                ),
-                cornerWidth: 6,
-                cornerHeight: 6,
+                roundedRect: backplate.pathRect,
+                cornerWidth: backplate.cornerRadius,
+                cornerHeight: backplate.cornerRadius,
                 transform: nil
             )
-            feedbackBackplate.position = CGPoint(x: textFrame.midX, y: textFrame.midY)
+            feedbackBackplate.position = CGPoint(
+                x: backplate.frame.midX,
+                y: backplate.frame.midY
+            )
         }
 
         for slot in CityBattleState.slotRange {

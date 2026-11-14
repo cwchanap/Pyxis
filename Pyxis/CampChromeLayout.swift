@@ -58,6 +58,17 @@ struct CampChromeLayout: Equatable {
         case occupiedLot(slot: Int)
     }
 
+    /// Chrome geometry `compute(_:)` cannot know up front: the transient
+    /// feedback backplate wraps whatever bounds the label renders into.
+    struct FeedbackBackplate: Equatable {
+        /// Scene-coordinate frame the backplate node centers on.
+        let frame: CGRect
+        /// Rounded-rect path bounds in the node's local space, centered on
+        /// its origin.
+        let pathRect: CGRect
+        let cornerRadius: CGFloat
+    }
+
     struct Input: Equatable {
         let sceneSize: CGSize
         let safeAreaInsets: CampSafeAreaInsets
@@ -367,6 +378,20 @@ struct CampChromeLayout: Equatable {
             tabBarFrame: tabBarFrame,
             tabHitFrames: tabHitFrames,
             selection: input.selection
+        )
+    }
+
+    static func feedbackBackplate(textBounds: CGRect) -> FeedbackBackplate {
+        let frame = textBounds.insetBy(dx: -10, dy: -6)
+        return FeedbackBackplate(
+            frame: frame,
+            pathRect: CGRect(
+                x: -frame.width / 2,
+                y: -frame.height / 2,
+                width: frame.width,
+                height: frame.height
+            ),
+            cornerRadius: 6
         )
     }
 

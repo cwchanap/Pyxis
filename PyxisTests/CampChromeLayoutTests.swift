@@ -141,6 +141,18 @@ struct CampChromeLayoutTests {
         }
     }
 
+    @Test func feedbackBackplatePadsMeasuredTextBoundsAndCentersItsPath() {
+        let textBounds = CGRect(x: 141, y: 219, width: 92, height: 15)
+        let backplate = CampChromeLayout.feedbackBackplate(textBounds: textBounds)
+
+        #expect(backplate.frame == CGRect(x: 131, y: 213, width: 112, height: 27))
+        #expect(backplate.frame.contains(textBounds))
+        #expect(backplate.frame.midX == textBounds.midX)
+        #expect(backplate.frame.midY == textBounds.midY)
+        #expect(backplate.pathRect == CGRect(x: -56, y: -13.5, width: 112, height: 27))
+        #expect(backplate.cornerRadius == 6)
+    }
+
     @Test func smallestPhoneKeepsLotsAboveTheRegionFloorForEverySelection() throws {
         for selection in [
             CampChromeLayout.Selection.none,
