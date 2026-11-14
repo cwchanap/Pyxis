@@ -3235,22 +3235,31 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             return
         }
         let badgeNode = badge ?? makeSoldierOverflowBadge(name: name)
+        let laneBudget = SoldierRailLayout.overflowBadgeLaneBudget(
+            battlefieldFrame: battlefieldLayout.frame
+        )
         if let label = badgeNode.childNode(withName: "count") as? SKLabelNode {
             label.text = "+\(foldedCount)"
             // The count is truthful and unbounded, so the pill fits the
-            // label — but must stay inside its lane column: past that width
+            // label — but must stay inside its lane budget: past that width
             // the FONT shrinks until the exact count still fits with
             // padding, so a three-digit "+N" never crops and never spills
-            // over a neighbouring lane's ground.
-            let maxPillWidth = max(28, battlefieldLayout.frame.width / 3 - 8)
+            // over a neighbouring lane's ground. `label.frame` is the
+            // SpriteKit measurement the pure layout cannot take, so the
+            // shrink loop stays here while the containment rules live in
+            // `SoldierRailLayout`.
             var fontSize: CGFloat = 10
             label.fontSize = fontSize
-            while label.frame.width + 16 > maxPillWidth, fontSize > 6 {
+            while label.frame.width + SoldierRailLayout.overflowBadgeTextPadding > laneBudget,
+                  fontSize > 6 {
                 fontSize -= 1
                 label.fontSize = fontSize
             }
             if let pill = badgeNode.childNode(withName: "pill") as? SKShapeNode {
-                let pillWidth = min(maxPillWidth, max(36, label.frame.width + 16))
+                let pillWidth = SoldierRailLayout.overflowBadgePillWidth(
+                    labelWidth: label.frame.width,
+                    laneBudget: laneBudget
+                )
                 if abs(pill.frame.width - pillWidth) > 0.5 {
                     let height = SoldierFormation.overflowBadgeHeight
                     pill.path = CGPath(
@@ -3265,15 +3274,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 }
             }
         }
-        // Clamp the anchor as well as the pill: a wide count under a lane
-        // edge must not push chrome off the battlefield either way.
-        let pillHalf = (badgeNode.childNode(withName: "pill")?.frame.width ?? 36) / 2
-        badgeNode.position = CGPoint(
-            x: min(
-                max(anchorX, battlefieldLayout.frame.minX + pillHalf),
-                battlefieldLayout.frame.maxX - pillHalf
-            ),
-            y: battlefieldLayout.frame.minY + SoldierFormation.overflowBadgeHeight / 2 + 2
+        badgeNode.position = SoldierRailLayout.overflowBadgeCenter(
+            battlefieldFrame: battlefieldLayout.frame,
+            anchorX: anchorX,
+            pillWidth: badgeNode.childNode(withName: "pill")?.frame.width
+                ?? SoldierRailLayout.overflowBadgeMinPillWidth,
+            badgeHeight: SoldierFormation.overflowBadgeHeight
         )
     }
 
@@ -3282,7 +3288,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         badge.name = name
         badge.zPosition = 4
         let pill = SKShapeNode(
-            rectOf: CGSize(width: 36, height: SoldierFormation.overflowBadgeHeight),
+            rectOf: CGSize(
+                width: SoldierRailLayout.overflowBadgeMinPillWidth,
+                height: SoldierFormation.overflowBadgeHeight
+            ),
             cornerRadius: SoldierFormation.overflowBadgeHeight / 2
         )
         pill.name = "pill"

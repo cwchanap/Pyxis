@@ -163,6 +163,47 @@ struct SoldierRailLayoutTests {
         #expect(frozen == .zero)
     }
 
+    // MARK: - overflow badge geometry
+
+    @Test func overflowBadgeLaneBudgetIsOneLaneColumnMinusPadding() {
+        // 600/3 - 8 = 192; a narrow frame falls back to the 28pt floor.
+        #expect(abs(SoldierRailLayout.overflowBadgeLaneBudget(battlefieldFrame: frame) - 192) < 0.01)
+        #expect(SoldierRailLayout.overflowBadgeLaneBudget(
+            battlefieldFrame: CGRect(x: 0, y: 0, width: 60, height: 50)
+        ) == 28)
+    }
+
+    @Test func overflowBadgePillPadsLabelAndFloorsAtMinimum() {
+        // A short count still gets the 36pt pill; a longer one gets
+        // label + 16 padding.
+        #expect(SoldierRailLayout.overflowBadgePillWidth(labelWidth: 4, laneBudget: 200) == 36)
+        #expect(SoldierRailLayout.overflowBadgePillWidth(labelWidth: 40, laneBudget: 200) == 56)
+    }
+
+    @Test func overflowBadgePillNeverOutgrowsItsLaneBudget() {
+        #expect(SoldierRailLayout.overflowBadgePillWidth(labelWidth: 500, laneBudget: 192) == 192)
+    }
+
+    @Test func overflowBadgeCenterClampsWholePillInsideBattlefield() {
+        // Pill half-width 50: an anchor under the left edge pins at
+        // minX + 50, under the right edge at maxX - 50, and an interior
+        // anchor passes through untouched.
+        let left = SoldierRailLayout.overflowBadgeCenter(
+            battlefieldFrame: frame, anchorX: 2, pillWidth: 100, badgeHeight: 16
+        )
+        #expect(left.x == frame.minX + 50)
+        let right = SoldierRailLayout.overflowBadgeCenter(
+            battlefieldFrame: frame, anchorX: 590, pillWidth: 100, badgeHeight: 16
+        )
+        #expect(right.x == frame.maxX - 50)
+        let mid = SoldierRailLayout.overflowBadgeCenter(
+            battlefieldFrame: frame, anchorX: 300, pillWidth: 100, badgeHeight: 16
+        )
+        #expect(mid.x == 300)
+        // The badge always rests just above the battlefield floor.
+        #expect(mid.y == frame.minY + 16 / 2 + 2)
+    }
+
     // MARK: - BattlefieldLayout.laneLength
 
     @Test func laneLengthMatchesProjectedGateDistance() {
