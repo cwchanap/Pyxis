@@ -3054,11 +3054,13 @@ struct BattleSceneTests {
             #expect(labels.count == 1)
             #expect(labels.first === first)
             #expect(first.text == "-\(CompactNumberFormatter.string(from: delta))")
-            // Position re-anchors on every hit, but alpha/scale carry
-            // over: the replayed sequence animates from current values,
-            // so hits arriving inside the entrance can't starve the
-            // readout by restarting the fade at zero.
-            #expect(first.position == origin)
+            // Reusing a mid-flight animated label keeps its current position
+            // (and alpha/scale) so rapid hits do not snap back to `y - 20`;
+            // reduce-motion labels have no motion so they anchor at origin.
+            let expectedPosition = reducedMotion
+                ? origin
+                : CGPoint(x: origin.x, y: origin.y + 47)
+            #expect(first.position == expectedPosition)
             #expect(abs(first.alpha - 0.6) < 0.001)
             #expect(abs(first.xScale - 1.4) < 0.001)
             #expect(abs(first.yScale - 1.4) < 0.001)
@@ -4998,6 +5000,60 @@ struct BattleSceneTests {
             break
         }
         #expect(witnessedHiddenLethalShot, "fixture must shoot and kill a previously folded cavalry actor")
+    }
+
+    @Test func guardAttackPromotesHiddenForemostSoldierAndKeepsCaptainVisible() throws {
+        var state = SiegeTestSupport.makeBattleState(
+            atCity: 9,
+            gold: 100,
+            keepRemaining: 1_000_000_000,
+            supportDamage: [.arrowTower: 100_000],
+            selectedLane: .left
+        )
+        state.cityBattleStates[state.currentCityKey.storageKey] = CityBattleState(slots: [
+            1: CityBuilding(type: .barracks, level: 1),
+            2: CityBuilding(type: .stable, level: 1)
+        ])
+        state.siegeProgress.captain = .freshCaptain(selectedLane: .left, captainLevel: 1)
+        state.siegeProgress.guardReinforcements = .freshCountry1()
+        state.siegeProgress.guardReinforcements?.unresolvedGuards = [
+            GuardSnapshot(lane: .left, remainingHP: 12)
+        ]
+        let feedback = BattleFeedbackRecorder()
+        let scene = makeScene(
+            store: try makeStore(initialState: state),
+            combatSeed: 1, size: CGSize(width: 393, height: 852), feedback: feedback
+        )
+        let captain = try #require(scene.livingCaptainForTesting)
+        let captainRoot = try #require(scene.soldierRootForTesting(captain.id))
+        scene.spawnManualSoldiersDirectlyForTesting(1)
+        let infantryID = try #require(scene.soldierPresentationsForTesting.first { $0.id != captain.id }?.id)
+        let infantryRoot = try #require(scene.soldierRootForTesting(infantryID))
+
+        scene.advanceCombatSingleStepForTesting(deltaTime: 0.1)
+        scene.selectManualSoldierTypeForTesting(.cavalry)
+        scene.spawnManualSoldiersDirectlyForTesting(2)
+        let cavalryIDs = Set(scene.soldierPresentationsForTesting.map(\.id))
+            .subtracting([captain.id, infantryID])
+        #expect(cavalryIDs.count == 2)
+        #expect(cavalryIDs.allSatisfy { scene.soldierRootIsHiddenForTesting($0) == true })
+
+        var witnessedGuardAttackPromotion = false
+        for _ in 0..<240 {
+            let hiddenBefore = Set(scene.soldierPresentationsForTesting.filter(\.isFolded).map(\.id))
+            scene.advanceCombatSingleStepForTesting(deltaTime: 0.05)
+            guard let result = feedback.lastAutomaticResult,
+                  let attack = result.guardAttacks.first(where: { hiddenBefore.contains($0.soldierID) }),
+                  cavalryIDs.contains(attack.soldierID)
+            else { continue }
+            let targetRoot = try #require(scene.soldierRootForTesting(attack.soldierID))
+            #expect(!targetRoot.isHidden)
+            #expect(!captainRoot.isHidden)
+            #expect(infantryRoot.isHidden)
+            witnessedGuardAttackPromotion = true
+            break
+        }
+        #expect(witnessedGuardAttackPromotion, "fixture must let a Guard hit and reveal a folded soldier")
     }
 
     @Test func representativesFollowTheirOwnDifferentModelProgress() throws {

@@ -221,4 +221,43 @@ struct SoldierRailLayoutTests {
             #expect(abs(layout.laneLength(forLane: lane) - hypot(end.x - start.x, end.y - start.y)) < 0.01)
         }
     }
+
+    @Test func hpBarMetricsAndPureHelpersComputeRailAndFootprintBounds() {
+        #expect(SoldierRailLayout.hpBarTopOffset == SoldierRailLayout.hpBarHeight + SoldierRailLayout.hpBarBodyGap)
+
+        let field = CGRect(x: 0, y: 120, width: 393, height: 480)
+        let expectedRailHeight = SoldierRailLayout.railWidth(battlefieldFrame: field) * 74 / 98
+        let scaledBodyHeight = SoldierRailLayout.railBodyHeight(battlefieldFrame: field, targetHeight: 49)
+        #expect(abs(scaledBodyHeight - expectedRailHeight) < 0.001)
+
+        let wideField = CGRect(x: 0, y: 120, width: 1_200, height: 480)
+        let unshrunkBodyHeight = SoldierRailLayout.railBodyHeight(battlefieldFrame: wideField, targetHeight: 49)
+        #expect(unshrunkBodyHeight == 49)
+
+        let folded = SoldierRailLayout.foldedPosition(
+            battlefieldFrame: field,
+            laneCenter: CGPoint(x: 196.5, y: 700),
+            logicalBodyMaxY: 37
+        )
+        #expect(folded.x == 196.5)
+        #expect(folded.y == field.maxY - 37 - SoldierRailLayout.hpBarTopOffset)
+
+        let rendered = SoldierRailLayout.renderedFootprint(
+            at: CGPoint(x: 100, y: 200),
+            scale: 1,
+            horizontalBounds: -14...14,
+            verticalBounds: (footMargin: -2, bodyMaxY: 30),
+            accumulatedBodyFrame: CGRect(x: -10, y: 0, width: 20, height: 32)
+        )
+        #expect(rendered == CGRect(x: 86, y: 198, width: 28, height: 32 + SoldierRailLayout.hpBarTopOffset))
+
+        let readable = SoldierRailLayout.readableFootprint(
+            at: CGPoint(x: 100, y: 200),
+            scale: 1,
+            logicalBody: CGRect(x: -10, y: 0, width: 20, height: 30),
+            barExtentWidth: 32,
+            footMargin: 0
+        )
+        #expect(readable == CGRect(x: 84, y: 200, width: 32, height: 30 + SoldierRailLayout.hpBarTopOffset))
+    }
 }
