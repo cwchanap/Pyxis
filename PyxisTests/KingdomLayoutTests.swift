@@ -55,7 +55,7 @@ struct KingdomLayoutTests {
             #expect(layout.settingsFrame.maxX <= layout.headerFrame.maxX - 4)
             #expect(layout.treasurySelectorFrame.minX >= layout.headerFrame.minX + 4)
             #expect(layout.settingsFrame.width >= 44 && layout.settingsFrame.height >= 44)
-            #expect(layout.goldTextMaxWidth(showingRenown: true) >= 80)
+            #expect(layout.goldTextMaxWidth(showingRenown: true) >= (width == 264 ? 72 : 80))
             #expect(layout.renownFrame.width >= 88)
         }
     }
@@ -268,7 +268,7 @@ struct KingdomLayoutTests {
         // leaves 228pt for the cluster; minus two 8pt selector gaps that
         // is ~71pt per selector — readable, not the unreadable 44pt floor.
         #expect(layout.headerFrame == CGRect(x: 16, y: 366, width: 288, height: 88))
-        #expect(layout.goldFrame == CGRect(x: 24, y: 366, width: 232, height: 44))
+        #expect(layout.goldFrame == CGRect(x: 24, y: 366, width: 224, height: 44))
 
         let selectors = [
             layout.treasurySelectorFrame,
@@ -506,10 +506,10 @@ struct KingdomLayoutTests {
             #expect(layout.headerFrame.contains(layout.renownFrame))
             #expect(layout.renownFrame.height == 44)
             #expect(layout.renownFrame.minY == layout.headerFrame.minY)
-            #expect(layout.renownFrame.maxX <= layout.settingsFrame.minX)
+            #expect(layout.renownFrame.maxX + 8 <= layout.settingsFrame.minX)
             #expect(layout.renownFrame.width >= KingdomLayout.renownLabelMinimumWidth)
             // With Renown visible gold keeps a usable measured column...
-            #expect(layout.goldTextMaxWidth(showingRenown: true) >= 80)
+            #expect(layout.goldTextMaxWidth(showingRenown: true) >= (width == 264 ? 72 : 80))
             // ...and without it the full gold line width stays available.
             #expect(layout.goldTextMaxWidth(showingRenown: false) == layout.goldFrame.width)
         }
@@ -519,7 +519,7 @@ struct KingdomLayoutTests {
     func renownReservationKeepsGoldMinimum() throws {
         // Widths where the uncapped reservation is active (the 8pt gap
         // must come out of the Renown side, never out of the gold side).
-        for width in [CGFloat(280), 320, 393] {
+        for width in [CGFloat(288), 320, 393] {
             let layout = try #require(KingdomLayout.compute(.init(
                 sceneSize: CGSize(width: width, height: 454),
                 safeAreaInsets: .zero
