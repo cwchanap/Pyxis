@@ -224,7 +224,7 @@ struct KingdomLayout: Equatable {
         let goldFrame = CGRect(
             x: headerFrame.minX + 8,
             y: headerFrame.minY,
-            width: settingsFrame.minX - headerFrame.minX - 8,
+            width: settingsFrame.minX - headerFrame.minX - 16,
             height: 44
         )
         let textWidth = goldFrame.width
