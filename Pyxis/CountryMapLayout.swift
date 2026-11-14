@@ -63,7 +63,8 @@ struct CountryMapLayout: Equatable {
         static let progressLabelWidth: CGFloat = 36
         static let progressLabelGap: CGFloat = 4
         static let progressSegmentGap: CGFloat = 1.5
-        static let progressSegmentCount = 15
+        static let minimumProgressSegmentWidth: CGFloat = 2
+        static let progressSegmentCount = KingdomGameState.firstCountryCityCount
     }
 
     static let tabBarHeight: CGFloat = 72
@@ -166,6 +167,9 @@ struct CountryMapLayout: Equatable {
         let segmentCount = TitleControlMetrics.progressSegmentCount
         let segmentWidth = (progressLabelFrame.minX - TitleControlMetrics.progressLabelGap - header.progress.minX
             - segmentGap * CGFloat(segmentCount - 1)) / CGFloat(segmentCount)
+        guard segmentWidth >= TitleControlMetrics.minimumProgressSegmentWidth else {
+            return .unsupported(.unsupportedGeometry)
+        }
         let progressSegmentFrames = (0..<segmentCount).map { index in
             CGRect(
                 x: header.progress.minX + CGFloat(index) * (segmentWidth + segmentGap),
