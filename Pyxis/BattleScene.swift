@@ -142,17 +142,30 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         var rallyAccentHeight: CGFloat = 0
         /// Whether this node has been presented at least once.
         var presentationSeeded = false
+        #if DEBUG
         /// Whether this casualty is currently rendered.
         var corpseRevealed = false
         /// Last rendered casualty bounds, retained for lifecycle diagnostics.
         var corpseFootprint: CGRect?
-        /// Last fill/width inputs laid out into the bar paths — the fill
+        #endif
+        /// Last fill/width/maxY inputs laid out into the bar paths — the fill
         /// as a 1/4096-quantized percent so a pending casualty (whose
         /// `Soldier` is already gone from combat) can replay its
         /// last-rendered fill across a layout refit — unchanged members
-        /// (notably the hidden folded roster) skip the CGPath rebuild
-        /// entirely.
-        var hpBarSignature: (percent: Int, width: Int)?
+        /// skip the CGPath rebuild entirely.
+        var hpBarSignature: HPBarSignature?
+    }
+
+    private struct HPBarSignature: Equatable {
+        let percent: Int
+        let width: Int
+        let maxY: Int
+    }
+
+    private struct OverflowBadgeSignature: Equatable {
+        let foldedCount: Int
+        let laneBudget: CGFloat
+        let pillWidth: CGFloat
     }
 
     private enum SoldierFormation {
@@ -246,7 +259,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
 
     /// Roots still parented during their 0.18 s fade, keyed by identity so
     /// teardown can detach them and old actions cannot affect replacements.
-    private var soldierFadingFootprints: [ObjectIdentifier: (root: SKNode, rect: CGRect)] = [:]
+    private var soldierFadingRoots: [ObjectIdentifier: SKNode] = [:]
+    #if DEBUG
+    private var soldierFadingFootprintRects: [ObjectIdentifier: CGRect] = [:]
+    #endif
 
     /// HPA-812: battlefield frame used by the last soldier sync. A change
     /// means the layout coordinate system moved (resize): the next sync
@@ -259,6 +275,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// a late removal action must never free a replacement's rail.
     private var soldierRailOwners: [BattleLane: [SoldierRailOwner?]] = [:]
 
+    /// Cached per-lane overflow badge fit inputs so unchanged counts and
+    /// lane budgets skip re-measuring the label and rebuilding the pill path.
+    private var soldierOverflowBadgeSignatures: [BattleLane: OverflowBadgeSignature] = [:]
+
     /// HPA-812: the soldier the defensive tower most recently fired at —
     /// recorded at shot time (production state, not only a test probe) so
     /// presentation can keep the projectile's actual target rendered; a
@@ -267,6 +287,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// action (see `playTowerShot`) and on combat teardown, so protection
     /// never outlives the shot it belongs to or bleeds onto a reused id.
     private var lastDefensiveShotTargetID: BattleCombatState.SoldierID?
+
+    /// Most recent soldier targeted by each living Guard so melee targets on
+    /// folded rails are promoted just like tower-shot targets.
+    private var lastGuardAttackTargetByGuardID: [BattleCombatState.GuardID: BattleCombatState.SoldierID] = [:]
 
     /// Remaining time (in seconds) of each soldier's authored hit-reaction
     /// animation, decremented per combat tick. Used by
@@ -2211,7 +2235,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 maxHPMultiplier: state.equipmentMaxHPMultiplier(for: spawn.soldierType),
                 specialistBonus: state.equipmentSpecialistBonus(for: spawn.soldierType)
             )
-            if let soldier = combat.soldiers.last, soldier.id == soldierID {
+            if let soldier = combat.soldier(id: soldierID) {
                 state.recordSoldierDeployment(type: soldier.type, source: soldier.source, lane: soldier.lane)
                 createSoldierNode(id: soldierID, soldier: soldier)
             }
@@ -2603,6 +2627,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             // The projectile itself uses the target's post-sync transform.
             lastDefensiveShotTargetID = towerShot.soldierID
         }
+        for guardAttack in result.guardAttacks where soldierNodes[guardAttack.soldierID] != nil {
+            lastGuardAttackTargetByGuardID[guardAttack.guardID] = guardAttack.soldierID
+        }
+        for guardLoss in result.guardLosses {
+            lastGuardAttackTargetByGuardID.removeValue(forKey: guardLoss.guardID)
+        }
 
         playGuardEventFeedback(for: result)
 
@@ -2904,8 +2934,20 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         root.addChild(hpBackground)
         root.addChild(hpFill)
         root.isHidden = true
+        let initialBodyHeight = soldierRailBodyHeight()
+        fitSoldierBodyNode(
+            body,
+            type: soldier.type,
+            targetHeight: initialBodyHeight,
+            isAnimatedCanvas: isAnimatedCanvas
+        )
+        root.position = SoldierRailLayout.foldedPosition(
+            battlefieldFrame: battlefieldLayout.frame,
+            laneCenter: point(forLane: soldier.lane, position: soldier.position),
+            logicalBodyMaxY: initialBodyHeight
+        )
         soldierLayer.addChild(root)
-        soldierNodes[id] = SoldierNodeBundle(
+        let bundle = SoldierNodeBundle(
             root: root,
             body: body,
             hpBarBackground: hpBackground,
@@ -2917,20 +2959,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             isAnimatedCanvas: isAnimatedCanvas,
             rallyAccent: nil
         )
-        if let bundle = soldierNodes[id] {
-            fitSoldierBodyNode(
-                bundle.body, type: bundle.type,
-                targetHeight: soldierRailBodyHeight(), isAnimatedCanvas: bundle.isAnimatedCanvas
-            )
-            layoutSoldierHPBar(bundle, soldier: soldier)
-        }
+        soldierNodes[id] = bundle
+        // Seed the initial HP bar once at creation so folded soldiers still
+        // carry a valid initial bar without per-tick layout updates.
+        layoutSoldierHPBar(bundle, soldier: soldier)
     }
 
     /// Fit both rails using the widest supported walk/hit body envelope.
     /// The fixed geometry does not change when the roster changes.
     private func soldierRailBodyHeight() -> CGFloat {
-        let railWidth = SoldierRailLayout.railWidth(battlefieldFrame: battlefieldLayout.frame)
-        return min(soldierTargetHeight(), railWidth * 74 / 98)
+        SoldierRailLayout.railBodyHeight(
+            battlefieldFrame: battlefieldLayout.frame,
+            targetHeight: soldierTargetHeight()
+        )
     }
 
     private func releaseSoldierRail(root: SKNode, lane: BattleLane) {
@@ -2953,24 +2994,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             if soldierNodes[soldier.id] == nil {
                 createSoldierNode(id: soldier.id, soldier: soldier)
             }
-            guard let bundle = soldierNodes[soldier.id] else { continue }
             soldierNodes[soldier.id]?.lastModelProgress = soldier.position
-            fitSoldierBodyNode(
-                bundle.body, type: bundle.type,
-                targetHeight: soldierRailBodyHeight(), isAnimatedCanvas: bundle.isAnimatedCanvas
-            )
-            layoutSoldierHPBar(bundle, soldier: soldier)
-            if bundle.root.isHidden {
-                let point = point(forLane: soldier.lane, position: soldier.position)
-                let body = soldierLogicalBodyFrame(for: bundle)
-                let frame = battlefieldLayout.frame
-                bundle.root.position = CGPoint(
-                    x: point.x,
-                    y: min(max(point.y, frame.minY), max(frame.minY, frame.maxY - body.maxY - 6.5))
-                )
-            }
-            startSoldierWalkAnimation(for: soldier.id)
-            syncRallyProtectionAccent(for: soldier)
         }
 
         let remapped = lastSoldierSyncBattlefieldFrame != nil
@@ -2981,11 +3005,14 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             for shot in effectsLayer.children where shot.name == BattlefieldNodeName.defensiveFireProjectile {
                 shot.isHidden = true
             }
-            for entry in soldierFadingFootprints.values {
-                releaseSoldierRail(root: entry.root, lane: soldierRailLane(for: entry.root))
-                entry.root.removeFromParent()
+            for root in soldierFadingRoots.values {
+                releaseSoldierRail(root: root, lane: soldierRailLane(for: root))
+                root.removeFromParent()
             }
-            soldierFadingFootprints.removeAll()
+            soldierFadingRoots.removeAll()
+            #if DEBUG
+            soldierFadingFootprintRects.removeAll()
+            #endif
         }
         lastSoldierSyncBattlefieldFrame = battlefieldLayout.frame
         let byLane = Dictionary(grouping: living, by: \.lane)
@@ -2994,6 +3021,26 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 lane, living: byLane[lane] ?? [], liveIDs: liveIDs,
                 remapped: remapped, elapsedCombatTime: elapsedCombatTime
             )
+        }
+        if remapped {
+            let foldedBodyHeight = soldierRailBodyHeight()
+            for soldier in living {
+                guard let bundle = soldierNodes[soldier.id], bundle.root.isHidden else {
+                    continue
+                }
+                fitSoldierBodyNode(
+                    bundle.body,
+                    type: bundle.type,
+                    targetHeight: foldedBodyHeight,
+                    isAnimatedCanvas: bundle.isAnimatedCanvas
+                )
+                layoutSoldierHPBar(bundle, soldier: soldier)
+                bundle.root.position = SoldierRailLayout.foldedPosition(
+                    battlefieldFrame: battlefieldLayout.frame,
+                    laneCenter: point(forLane: soldier.lane, position: soldier.position),
+                    logicalBodyMaxY: foldedBodyHeight
+                )
+            }
         }
     }
 
@@ -3005,6 +3052,24 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         return .center
     }
 
+    private func gateFloorY(for lane: BattleLane) -> CGFloat {
+        state.currentSiegeLayout.objectives
+            .filter { $0.kind == .gate && state.currentSiegeLayout.routes[lane]?.contains($0.id) == true }
+            .compactMap { objective -> CGFloat? in
+                guard let bar = siegeObjectiveNodes[objective.id]?.childNode(withName: "siegeHPBackground")
+                else { return nil }
+                return sceneFrame(for: bar)?.minY
+            }.min() ?? battlefieldLayout.frame.maxY
+    }
+
+    private struct RailPlacementContext {
+        let remapped: Bool
+        let elapsedCombatTime: TimeInterval
+        let laneLength: CGFloat
+        let targetBodyHeight: CGFloat
+        let gateFloorY: CGFloat
+    }
+
     private func syncSoldierRailLane(
         _ lane: BattleLane,
         living: [BattleCombatState.Soldier],
@@ -3013,90 +3078,39 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         elapsedCombatTime: TimeInterval
     ) {
         let laneLength = battlefieldLayout.laneLength(forLane: lane)
-        var owners = soldierRailOwners[lane] ?? [nil, nil]
-        for index in owners.indices {
-            guard let owner = owners[index] else { continue }
-            let currentRoot = soldierNodes[owner.id]?.root
-            if currentRoot !== owner.root && soldierFadingFootprints[ObjectIdentifier(owner.root)] == nil {
-                owners[index] = nil
-            }
-        }
-
-        var protected: [BattleCombatState.SoldierID] = []
-        if let target = lastDefensiveShotTargetID,
-           soldierNodes[target]?.lane == lane {
-            protected.append(target)
-        }
-        for captain in living where captain.isCaptain && !protected.contains(captain.id) {
-            protected.append(captain.id)
-        }
-        for id in protected {
-            guard let bundle = soldierNodes[id],
-                  !owners.contains(where: { $0?.root === bundle.root }) else { continue }
-            let empty = owners.firstIndex { $0 == nil }
-            let casualty = owners.firstIndex {
-                guard let owner = $0 else { return false }
-                let isCurrentRoot = soldierNodes[owner.id]?.root === owner.root
-                return !owner.isCaptain && !(isCurrentRoot && protected.contains(owner.id))
-                    && !(isCurrentRoot && liveIDs.contains(owner.id))
-            }
-            let ordinary = owners.firstIndex {
-                guard let owner = $0 else { return false }
-                let isCurrentRoot = soldierNodes[owner.id]?.root === owner.root
-                return !owner.isCaptain && !(isCurrentRoot && protected.contains(owner.id))
-            }
-            guard let index = empty ?? casualty ?? ordinary else { continue }
-            if let displaced = owners[index] {
-                displaced.root.isHidden = true
-                if soldierNodes[displaced.id]?.root === displaced.root {
-                    soldierNodes[displaced.id]?.corpseRevealed = false
-                    soldierNodes[displaced.id]?.corpseFootprint = nil
-                }
-            }
-            owners[index] = SoldierRailOwner(id: id, root: bundle.root, isCaptain: bundle.isCaptain)
-        }
-        for soldier in living {
-            guard let index = owners.firstIndex(where: { $0 == nil }) else { break }
-            guard let bundle = soldierNodes[soldier.id],
-                  !owners.contains(where: { $0?.root === bundle.root }) else { continue }
-            owners[index] = SoldierRailOwner(
-                id: soldier.id, root: bundle.root, isCaptain: bundle.isCaptain
-            )
-        }
+        var owners = prunedRailOwners(for: lane)
+        let protected = protectedSoldierIDs(on: lane, living: living)
+        assignProtectedRails(in: &owners, protected: protected, liveIDs: liveIDs)
+        fillVacantRails(in: &owners, living: living)
         soldierRailOwners[lane] = owners
+
+        let livingByID = Dictionary(uniqueKeysWithValues: living.map { ($0.id, $0) })
+        let targetBodyHeight = soldierRailBodyHeight()
+        var cachedGateFloor: CGFloat?
+        func resolvedGateFloor() -> CGFloat {
+            if let cachedGateFloor {
+                return cachedGateFloor
+            }
+            let floor = gateFloorY(for: lane)
+            cachedGateFloor = floor
+            return floor
+        }
 
         for (index, owner) in owners.enumerated() {
             guard let owner, let bundle = soldierNodes[owner.id], bundle.root === owner.root else {
                 continue // a fading node holds its last position until its action lands
             }
-            let live = liveIDs.contains(owner.id)
-            if remapped && !live {
-                fitSoldierBodyNode(
-                    bundle.body, type: bundle.type,
-                    targetHeight: soldierRailBodyHeight(), isAnimatedCanvas: bundle.isAnimatedCanvas
-                )
-                layoutSoldierHPBar(
-                    bundle, id: owner.id,
-                    hpPercent: bundle.hpBarSignature.map { CGFloat($0.percent) / 4096 } ?? 0
-                )
-            }
-            if live || remapped || bundle.root.isHidden {
-                placeSoldierRailOwner(
-                    bundle, rail: index, remapped: remapped,
-                    elapsedCombatTime: elapsedCombatTime,
-                    marchPointsPerSecond: living.first(where: { $0.id == owner.id }).map {
-                        CGFloat($0.movementSpeed) * laneLength
-                    } ?? 0
-                )
-            }
-            bundle.root.isHidden = false
-            soldierNodes[owner.id]?.presentationSeeded = true
-            if !live {
-                soldierNodes[owner.id]?.corpseRevealed = true
-                soldierNodes[owner.id]?.corpseFootprint = soldierRenderedFootprint(
-                    at: bundle.root.position, for: bundle
-                )
-            }
+            let context = RailPlacementContext(
+                remapped: remapped,
+                elapsedCombatTime: elapsedCombatTime,
+                laneLength: laneLength,
+                targetBodyHeight: targetBodyHeight,
+                gateFloorY: resolvedGateFloor()
+            )
+            presentRailOwner(
+                bundle, id: owner.id, rail: index,
+                liveSoldier: livingByID[owner.id], context: context
+            )
         }
         let shownLiving = owners.compactMap { $0 }.filter {
             liveIDs.contains($0.id) && soldierNodes[$0.id]?.root === $0.root && !$0.root.isHidden
@@ -3107,23 +3121,168 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
     }
 
+    private func prunedRailOwners(for lane: BattleLane) -> [SoldierRailOwner?] {
+        var owners = soldierRailOwners[lane] ?? [nil, nil]
+        for index in owners.indices {
+            guard let owner = owners[index] else { continue }
+            let currentRoot = soldierNodes[owner.id]?.root
+            if currentRoot !== owner.root && soldierFadingRoots[ObjectIdentifier(owner.root)] == nil {
+                owners[index] = nil
+            }
+        }
+        return owners
+    }
+
+    private func protectedSoldierIDs(
+        on lane: BattleLane,
+        living: [BattleCombatState.Soldier]
+    ) -> [BattleCombatState.SoldierID] {
+        var protected: [BattleCombatState.SoldierID] = []
+        if let target = lastDefensiveShotTargetID,
+           soldierNodes[target]?.lane == lane {
+            protected.append(target)
+        }
+        for captain in living where captain.isCaptain && !protected.contains(captain.id) {
+            protected.append(captain.id)
+        }
+        for guardID in lastGuardAttackTargetByGuardID.keys.sorted() {
+            if let target = lastGuardAttackTargetByGuardID[guardID],
+               soldierNodes[target]?.lane == lane,
+               !protected.contains(target) {
+                protected.append(target)
+            }
+        }
+        return protected
+    }
+
+    private func assignProtectedRails(
+        in owners: inout [SoldierRailOwner?],
+        protected: [BattleCombatState.SoldierID],
+        liveIDs: Set<BattleCombatState.SoldierID>
+    ) {
+        let protectedSet = Set(protected)
+        for id in protected {
+            guard let bundle = soldierNodes[id],
+                  !owners.contains(where: { $0?.root === bundle.root }) else { continue }
+            guard let index = replacementRailIndex(
+                in: owners, protected: protectedSet, liveIDs: liveIDs
+            ) else { continue }
+            if let displaced = owners[index] {
+                hideDisplacedRailOwner(displaced)
+            }
+            owners[index] = SoldierRailOwner(id: id, root: bundle.root, isCaptain: bundle.isCaptain)
+        }
+    }
+
+    private func replacementRailIndex(
+        in owners: [SoldierRailOwner?],
+        protected: Set<BattleCombatState.SoldierID>,
+        liveIDs: Set<BattleCombatState.SoldierID>
+    ) -> Int? {
+        if let empty = owners.firstIndex(where: { $0 == nil }) {
+            return empty
+        }
+        if let casualty = owners.firstIndex(where: {
+            isDisplaceableOwner($0, protected: protected, liveIDs: liveIDs, requireDead: true)
+        }) {
+            return casualty
+        }
+        return owners.firstIndex(where: {
+            isDisplaceableOwner($0, protected: protected, liveIDs: liveIDs, requireDead: false)
+        })
+    }
+
+    private func isDisplaceableOwner(
+        _ owner: SoldierRailOwner?,
+        protected: Set<BattleCombatState.SoldierID>,
+        liveIDs: Set<BattleCombatState.SoldierID>,
+        requireDead: Bool
+    ) -> Bool {
+        guard let owner else { return false }
+        let isCurrentRoot = soldierNodes[owner.id]?.root === owner.root
+        guard !owner.isCaptain && !(isCurrentRoot && protected.contains(owner.id)) else {
+            return false
+        }
+        return !requireDead || !(isCurrentRoot && liveIDs.contains(owner.id))
+    }
+
+    private func hideDisplacedRailOwner(_ displaced: SoldierRailOwner) {
+        displaced.root.isHidden = true
+        guard soldierNodes[displaced.id]?.root === displaced.root else { return }
+        soldierNodes[displaced.id]?.rallyAccent?.isHidden = true
+        #if DEBUG
+        soldierNodes[displaced.id]?.corpseRevealed = false
+        soldierNodes[displaced.id]?.corpseFootprint = nil
+        #endif
+    }
+
+    private func fillVacantRails(
+        in owners: inout [SoldierRailOwner?],
+        living: [BattleCombatState.Soldier]
+    ) {
+        for soldier in living {
+            guard let index = owners.firstIndex(where: { $0 == nil }) else { break }
+            guard let bundle = soldierNodes[soldier.id],
+                  !owners.contains(where: { $0?.root === bundle.root }) else { continue }
+            owners[index] = SoldierRailOwner(
+                id: soldier.id, root: bundle.root, isCaptain: bundle.isCaptain
+            )
+        }
+    }
+
+    private func presentRailOwner(
+        _ bundle: SoldierNodeBundle,
+        id: BattleCombatState.SoldierID,
+        rail: Int,
+        liveSoldier: BattleCombatState.Soldier?,
+        context: RailPlacementContext
+    ) {
+        if let liveSoldier {
+            fitSoldierBodyNode(
+                bundle.body, type: bundle.type,
+                targetHeight: context.targetBodyHeight, isAnimatedCanvas: bundle.isAnimatedCanvas
+            )
+            layoutSoldierHPBar(bundle, soldier: liveSoldier)
+            startSoldierWalkAnimation(for: id)
+            syncRallyProtectionAccent(for: liveSoldier)
+        } else if context.remapped || bundle.root.isHidden || bundle.hpBarSignature == nil {
+            fitSoldierBodyNode(
+                bundle.body, type: bundle.type,
+                targetHeight: context.targetBodyHeight, isAnimatedCanvas: bundle.isAnimatedCanvas
+            )
+            layoutSoldierHPBar(
+                bundle, id: id,
+                hpPercent: bundle.hpBarSignature.map { CGFloat($0.percent) / 4096 } ?? 0
+            )
+        }
+        if liveSoldier != nil || context.remapped || bundle.root.isHidden {
+            guard let currentBundle = soldierNodes[id] else { return }
+            let speed = liveSoldier.map { CGFloat($0.movementSpeed) * context.laneLength } ?? 0
+            placeSoldierRailOwner(
+                currentBundle, rail: rail, marchPointsPerSecond: speed, context: context
+            )
+        }
+        bundle.root.isHidden = false
+        soldierNodes[id]?.presentationSeeded = true
+        #if DEBUG
+        if liveSoldier == nil, let currentBundle = soldierNodes[id] {
+            soldierNodes[id]?.corpseRevealed = true
+            soldierNodes[id]?.corpseFootprint = soldierRenderedFootprint(
+                at: currentBundle.root.position, for: currentBundle
+            )
+        }
+        #endif
+    }
+
     /// `marchPointsPerSecond` is the live soldier's model speed projected
     /// onto the lane (0 for anyone no longer marching): the seat glide can
     /// ease clamp/seat changes, but never throttles the march itself.
     private func placeSoldierRailOwner(
         _ bundle: SoldierNodeBundle,
         rail: Int,
-        remapped: Bool,
-        elapsedCombatTime: TimeInterval,
-        marchPointsPerSecond: CGFloat
+        marchPointsPerSecond: CGFloat,
+        context: RailPlacementContext
     ) {
-        let gateFloor = state.currentSiegeLayout.objectives
-            .filter { $0.kind == .gate && state.currentSiegeLayout.routes[bundle.lane]?.contains($0.id) == true }
-            .compactMap { objective -> CGFloat? in
-                guard let bar = siegeObjectiveNodes[objective.id]?.childNode(withName: "siegeHPBackground")
-                else { return nil }
-                return sceneFrame(for: bar)?.minY
-            }.min() ?? battlefieldLayout.frame.maxY
         let ideal = SoldierRailLayout.seat(
             battlefieldFrame: battlefieldLayout.frame,
             laneCenter: point(forLane: bundle.lane, position: bundle.lastModelProgress),
@@ -3132,9 +3291,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             logicalBody: soldierLogicalBodyFrame(for: bundle),
             canvas: bundle.body.calculateAccumulatedFrame(),
             rootScale: bundle.root.yScale,
-            gateFloorY: gateFloor
+            gateFloorY: context.gateFloorY
         )
-        if bundle.root.isHidden || remapped || !bundle.presentationSeeded {
+        if bundle.root.isHidden || context.remapped || !bundle.presentationSeeded {
             bundle.root.position = ideal
         } else {
             bundle.root.position = SoldierRailLayout.advanced(
@@ -3143,7 +3302,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 maxStep: SoldierRailLayout.maxStep(
                     marchPointsPerSecond: marchPointsPerSecond,
                     glidePointsPerSecond: SoldierFormation.presentationGlidePointsPerSecond,
-                    elapsed: elapsedCombatTime
+                    elapsed: context.elapsedCombatTime
                 )
             )
         }
@@ -3156,68 +3315,41 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         syncSoldierRails(elapsedCombatTime: elapsedCombatTime)
     }
 
-    /// The rendered reservation unit for a soldier node whose root sits at
-    /// `position`: its ACTUAL horizontal bounds — the whole sprite canvas
-    /// plus the HP bar — and its visual top at the root's CURRENT scale.
-    /// Measured from the bundle's own nodes rather than the lane's shared
-    /// formation constants, so a pending corpse reserves its real
-    /// transformed bounds (a Captain mid-retreat scale-down shrinks for
-    /// real), and attack/hit art that reaches past the walk-pose logical
-    /// body is still covered.
+    #if DEBUG
     private func soldierRenderedFootprint(
         at position: CGPoint,
         for bundle: SoldierNodeBundle
     ) -> CGRect {
         let scale = bundle.root.xScale > 0 ? bundle.root.xScale : 1
-        let bounds = soldierHorizontalBounds(for: bundle)
-        let width = (bounds.upperBound - bounds.lowerBound) * scale
-        let footMargin = animatedSoldierFootMargin(for: bundle)
-        let accumulated = bundle.body.calculateAccumulatedFrame()
-        // The rect covers everything the node can draw: its bottom is the
-        // LOWER of the logical foot margin and the sprite's own accumulated
-        // bounds (a full-canvas frame reaches below the walk pose's feet),
-        // its top the higher of body+bar and the canvas top, and its
-        // horizontal extent the actual (possibly asymmetric) bounds — all
-        // through the root's current scale.
-        let bottom = min(footMargin, accumulated.minY)
-        let top = max(
-            soldierLogicalBodyFrame(for: bundle).maxY + 6.5,
-            accumulated.maxY
-        )
-        return CGRect(
-            x: position.x + bounds.lowerBound * scale,
-            y: position.y + bottom * scale,
-            width: width,
-            height: max(4, (top - bottom) * scale)
+        return SoldierRailLayout.renderedFootprint(
+            at: position,
+            scale: scale,
+            horizontalBounds: soldierHorizontalBounds(for: bundle),
+            verticalBounds: (
+                footMargin: animatedSoldierFootMargin(for: bundle),
+                bodyMaxY: soldierLogicalBodyFrame(for: bundle).maxY
+            ),
+            accumulatedBodyFrame: bundle.body.calculateAccumulatedFrame()
         )
     }
 
-    /// The READABLE presentation unit for a soldier node whose root sits at
-    /// `position`: the logical walk-pose body unioned with its HP bar —
-    /// exactly the parts that merge into an unreadable block when they
-    /// overlap, and the unit the seat grid is pitched on. Transient
-    /// attack/hit canvas reach beyond this rect is pose art, not standing
-    /// ground; corpses and fades keep the full `soldierRenderedFootprint`.
     private func soldierReadableFootprint(
         at position: CGPoint,
         for bundle: SoldierNodeBundle
     ) -> CGRect {
         let scale = bundle.root.xScale > 0 ? bundle.root.xScale : 1
         let bodyFrame = soldierLogicalBodyFrame(for: bundle)
-        let barHalfWidth = (
-            soldierHPBarWidth(forBodyWidth: bodyFrame.width)
-                + bundle.hpBarBackground.lineWidth
-        ) / 2
-        let minX = min(bodyFrame.minX, -barHalfWidth)
-        let maxX = max(bodyFrame.maxX, barHalfWidth)
-        let footMargin = animatedSoldierFootMargin(for: bundle)
-        return CGRect(
-            x: position.x + minX * scale,
-            y: position.y + footMargin * scale,
-            width: (maxX - minX) * scale,
-            height: (bodyFrame.maxY + 6.5 - footMargin) * scale
+        let barExtentWidth = soldierHPBarWidth(forBodyWidth: bodyFrame.width)
+            + bundle.hpBarBackground.lineWidth
+        return SoldierRailLayout.readableFootprint(
+            at: position,
+            scale: scale,
+            logicalBody: bodyFrame,
+            barExtentWidth: barExtentWidth,
+            footMargin: animatedSoldierFootMargin(for: bundle)
         )
     }
+    #endif
 
     /// HPA-812: the per-lane "+N" overflow summary for folded live soldiers —
     /// a small non-interactive pill pinned just above the battlefield floor
@@ -3232,53 +3364,68 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         let badge = soldierLayer.childNode(withName: name)
         guard foldedCount > 0, let anchorX else {
             badge?.removeFromParent()
+            soldierOverflowBadgeSignatures.removeValue(forKey: lane)
             return
         }
         let badgeNode = badge ?? makeSoldierOverflowBadge(name: name)
         let laneBudget = SoldierRailLayout.overflowBadgeLaneBudget(
             battlefieldFrame: battlefieldLayout.frame
         )
-        if let label = badgeNode.childNode(withName: "count") as? SKLabelNode {
-            label.text = "+\(foldedCount)"
-            // The count is truthful and unbounded, so the pill fits the
-            // label — but must stay inside its lane budget: past that width
-            // the FONT shrinks until the exact count still fits with
-            // padding, so a three-digit "+N" never crops and never spills
-            // over a neighbouring lane's ground. `label.frame` is the
-            // SpriteKit measurement the pure layout cannot take, so the
-            // shrink loop stays here while the containment rules live in
-            // `SoldierRailLayout`.
-            var fontSize: CGFloat = 10
-            label.fontSize = fontSize
-            while label.frame.width + SoldierRailLayout.overflowBadgeTextPadding > laneBudget,
-                  fontSize > 6 {
-                fontSize -= 1
+        let pillWidth: CGFloat
+        if badge != nil,
+           let cached = soldierOverflowBadgeSignatures[lane],
+           cached.foldedCount == foldedCount,
+           cached.laneBudget == laneBudget {
+            pillWidth = cached.pillWidth
+        } else {
+            var computedPillWidth = SoldierRailLayout.overflowBadgeMinPillWidth
+            if let label = badgeNode.childNode(withName: "count") as? SKLabelNode {
+                label.text = "+\(foldedCount)"
+                // The count is truthful and unbounded, so the pill fits the
+                // label — but must stay inside its lane budget: past that width
+                // the FONT shrinks until the exact count still fits with
+                // padding, so a three-digit "+N" never crops and never spills
+                // over a neighbouring lane's ground. `label.frame` is the
+                // SpriteKit measurement the pure layout cannot take, so the
+                // shrink loop stays here while the containment rules live in
+                // `SoldierRailLayout`.
+                var fontSize: CGFloat = 10
                 label.fontSize = fontSize
-            }
-            if let pill = badgeNode.childNode(withName: "pill") as? SKShapeNode {
-                let pillWidth = SoldierRailLayout.overflowBadgePillWidth(
-                    labelWidth: label.frame.width,
-                    laneBudget: laneBudget
-                )
-                if abs(pill.frame.width - pillWidth) > 0.5 {
-                    let height = SoldierFormation.overflowBadgeHeight
-                    pill.path = CGPath(
-                        roundedRect: CGRect(
-                            x: -pillWidth / 2, y: -height / 2,
-                            width: pillWidth, height: height
-                        ),
-                        cornerWidth: height / 2,
-                        cornerHeight: height / 2,
-                        transform: nil
+                while label.frame.width + SoldierRailLayout.overflowBadgeTextPadding > laneBudget,
+                      fontSize > 6 {
+                    fontSize -= 1
+                    label.fontSize = fontSize
+                }
+                if let pill = badgeNode.childNode(withName: "pill") as? SKShapeNode {
+                    computedPillWidth = SoldierRailLayout.overflowBadgePillWidth(
+                        labelWidth: label.frame.width,
+                        laneBudget: laneBudget
                     )
+                    if abs((pill.path?.boundingBox.width ?? 0) - computedPillWidth) > 0.5 {
+                        let height = SoldierFormation.overflowBadgeHeight
+                        pill.path = CGPath(
+                            roundedRect: CGRect(
+                                x: -computedPillWidth / 2, y: -height / 2,
+                                width: computedPillWidth, height: height
+                            ),
+                            cornerWidth: height / 2,
+                            cornerHeight: height / 2,
+                            transform: nil
+                        )
+                    }
                 }
             }
+            pillWidth = computedPillWidth
+            soldierOverflowBadgeSignatures[lane] = OverflowBadgeSignature(
+                foldedCount: foldedCount,
+                laneBudget: laneBudget,
+                pillWidth: pillWidth
+            )
         }
         badgeNode.position = SoldierRailLayout.overflowBadgeCenter(
             battlefieldFrame: battlefieldLayout.frame,
             anchorX: anchorX,
-            pillWidth: badgeNode.childNode(withName: "pill")?.frame.width
-                ?? SoldierRailLayout.overflowBadgeMinPillWidth,
+            pillWidth: badgeNode.childNode(withName: "pill")?.frame.width ?? pillWidth,
             badgeHeight: SoldierFormation.overflowBadgeHeight
         )
     }
@@ -3656,16 +3803,17 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         // and the fill ratio — identical inputs rebuild an identical path,
         // so unchanged members skip the CGPath work entirely (HPA-812
         // hidden-roster perf).
-        let signature = (
+        let signature = HPBarSignature(
             percent: Int((min(max(percent, 0), 1) * 4096).rounded()),
-            width: Int((width * 4 + bodyFrame.maxY * 4).rounded())
+            width: Int((width * 4).rounded()),
+            maxY: Int((bodyFrame.maxY * 4).rounded())
         )
-        if bundle.hpBarSignature.map({ $0 == signature }) == true {
+        if bundle.hpBarSignature == signature {
             return
         }
         soldierNodes[id]?.hpBarSignature = signature
-        let height: CGFloat = 5
-        let y = bodyFrame.maxY + 1.5
+        let height = SoldierRailLayout.hpBarHeight
+        let y = bodyFrame.maxY + SoldierRailLayout.hpBarBodyGap
         let percent = min(max(percent, 0), 1)
 
         bundle.hpBarBackground.path = CGPath(
@@ -3757,14 +3905,19 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         pendingAnimatedRemovalSoldierIDs.removeAll()
         soldierHitAnimationRemaining.removeAll()
         // Fading roots are still parented and must be detached on teardown.
-        for entry in soldierFadingFootprints.values {
-            entry.root.removeAllActions()
-            entry.root.removeFromParent()
+        for root in soldierFadingRoots.values {
+            root.removeAllActions()
+            root.removeFromParent()
         }
-        soldierFadingFootprints.removeAll()
+        soldierFadingRoots.removeAll()
+        #if DEBUG
+        soldierFadingFootprintRects.removeAll()
+        #endif
         soldierRailOwners.removeAll()
+        soldierOverflowBadgeSignatures.removeAll()
         lastSoldierSyncBattlefieldFrame = nil
         lastDefensiveShotTargetID = nil
+        lastGuardAttackTargetByGuardID.removeAll()
         #if DEBUG
         lastTowerProjectileEndpointForTestingStorage = nil
         #endif
@@ -3797,6 +3950,9 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         soldierNodes.removeValue(forKey: id)
         pendingAnimatedRemovalSoldierIDs.remove(id)
         soldierHitAnimationRemaining.removeValue(forKey: id)
+        for (guardID, targetID) in lastGuardAttackTargetByGuardID where targetID == id {
+            lastGuardAttackTargetByGuardID.removeValue(forKey: guardID)
+        }
 
         bundle.root.removeAllActions()
         // Body actions (walk/attack/hit) live on `bundle.body`, not `root`.
@@ -3807,12 +3963,12 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         if animated {
             // A fading root keeps its rail unless a priority actor preempts it.
             let key = ObjectIdentifier(bundle.root)
-            soldierFadingFootprints[key] = (
-                root: bundle.root,
-                rect: bundle.corpseFootprint ?? soldierRenderedFootprint(
-                    at: bundle.root.position, for: bundle
-                )
+            soldierFadingRoots[key] = bundle.root
+            #if DEBUG
+            soldierFadingFootprintRects[key] = bundle.corpseFootprint ?? soldierRenderedFootprint(
+                at: bundle.root.position, for: bundle
             )
+            #endif
             let fade = SKAction.fadeOut(withDuration: 0.18)
             let root = bundle.root
             let lane = bundle.lane
@@ -3820,7 +3976,10 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
                 if let root {
                     self?.releaseSoldierRail(root: root, lane: lane)
                 }
-                self?.soldierFadingFootprints.removeValue(forKey: key)
+                self?.soldierFadingRoots.removeValue(forKey: key)
+                #if DEBUG
+                self?.soldierFadingFootprintRects.removeValue(forKey: key)
+                #endif
             }
             let remove = SKAction.removeFromParent()
             bundle.root.run(SKAction.sequence([fade, release, remove]))
@@ -4315,13 +4474,15 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
         )
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
-        label.position = CGPoint(x: position.x, y: position.y - 20)
         label.zPosition = EffectStyle.floatingFeedbackZ
-        // A reused label keeps its on-screen state — the replayed
-        // sequence animates alpha and scale FROM current values, so
-        // staggered hits landing inside the 0.2s entrance can never
-        // starve the readout: each refresh continues the fade instead
-        // of restarting it at zero.
+        // A reused label keeps its on-screen position, alpha, and scale —
+        // the replayed sequence animates FROM current values toward absolute
+        // target points, so staggered hits landing mid-flight neither snap
+        // backward to `y - 20`, starve alpha at zero, nor drift infinitely
+        // upward across repeated hits.
+        if !reused || reduceMotion {
+            label.position = CGPoint(x: position.x, y: position.y - 20)
+        }
         if !reused {
             label.alpha = 0
             label.setScale(reduceMotion ? 1 : 0.7)
@@ -4333,7 +4494,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             ? SKAction.fadeIn(withDuration: 0.2)
             : SKAction.group([
                 SKAction.fadeIn(withDuration: 0.2),
-                SKAction.moveBy(x: 0, y: 14, duration: 0.2),
+                SKAction.move(to: CGPoint(x: position.x, y: position.y - 6), duration: 0.2),
                 SKAction.scale(to: 1.12, duration: 0.2)
             ])
         appear.timingMode = .easeOut
@@ -4341,7 +4502,7 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
             ? SKAction.fadeOut(withDuration: 0.9)
             : SKAction.group([
                 SKAction.fadeOut(withDuration: 0.9),
-                SKAction.moveBy(x: 0, y: 50, duration: 0.9),
+                SKAction.move(to: CGPoint(x: position.x, y: position.y + 44), duration: 0.9),
                 SKAction.scale(to: 0.94, duration: 0.9)
             ])
         floatAway.timingMode = .easeOut
@@ -4424,9 +4585,8 @@ final class BattleScene: SKScene, LayoutGateLifecycleHandling, SceneLayoutRefres
     /// than the raw root position, which — after the foot-margin offset is
     /// applied to animated soldiers — sits below the lane baseline. The
     /// root-local midpoint is converted through the root's own transform so
-    /// crowded scaled-down formation roots (`root.setScale(formation.scale)`
-    /// in `syncSoldierNodes`) land the endpoint on the rendered body center;
-    /// adding the unscaled midpoint would float it above the soldier.
+    /// scaled roots land the endpoint on the rendered body center; adding the
+    /// unscaled midpoint would float it above the soldier.
     private func towerShotTargetPoint(for bundle: SoldierNodeBundle) -> CGPoint {
         let bodyFrame = soldierLogicalBodyFrame(for: bundle)
         return bundle.root.convert(
@@ -5571,7 +5731,7 @@ extension BattleScene {
     /// nodes are actually detached (not just unreserved) when teardown or a
     /// resize retires them.
     var fadingSoldierRootsForTesting: [SKNode] {
-        soldierFadingFootprints.values.map(\.root)
+        Array(soldierFadingRoots.values)
     }
 
     /// Whether the pending casualty still carries its authored
@@ -5599,35 +5759,38 @@ extension BattleScene {
     /// Roots that left `soldierNodes` but still render their fade tail —
     /// their footprints stay reserved until the remove action lands.
     var fadingSoldierFootprintsForTesting: [CGRect] {
-        soldierFadingFootprints.values.map(\.rect)
+        Array(soldierFadingFootprintRects.values)
     }
 
     /// Scene positions of the roots still rendering their removal fade —
     /// lets tests identify the fading node among enumerated soldier roots.
     var fadingSoldierRootPositionsForTesting: [CGPoint] {
-        soldierFadingFootprints.values.map(\.root.position)
+        soldierFadingRoots.values.map(\.position)
     }
 
     /// Number of fading-removal reservations still held.
     var fadingSoldierFootprintCountForTesting: Int {
-        soldierFadingFootprints.count
+        soldierFadingRoots.count
     }
 
     /// Completes the 0.18 s fade tail of every animated-removal soldier —
     /// the SKAction sequence (fade → release → remove) never advances in
     /// tests, so this performs its landing: detach + reservation release.
     func finishFadingSoldierRemovalsForTesting() {
-        for entry in soldierFadingFootprints.values {
-            releaseSoldierRail(root: entry.root, lane: soldierRailLane(for: entry.root))
-            entry.root.removeAllActions()
-            entry.root.removeFromParent()
+        for root in soldierFadingRoots.values {
+            releaseSoldierRail(root: root, lane: soldierRailLane(for: root))
+            root.removeAllActions()
+            root.removeFromParent()
         }
-        soldierFadingFootprints.removeAll()
+        soldierFadingRoots.removeAll()
+        soldierFadingFootprintRects.removeAll()
     }
 
     /// Completes one fade when a test supplies its elapsed action time.
     func finishFadingSoldierRemovalForTesting(root: SKNode) {
-        guard soldierFadingFootprints.removeValue(forKey: ObjectIdentifier(root)) != nil else { return }
+        let key = ObjectIdentifier(root)
+        guard soldierFadingRoots.removeValue(forKey: key) != nil else { return }
+        soldierFadingFootprintRects.removeValue(forKey: key)
         releaseSoldierRail(root: root, lane: soldierRailLane(for: root))
         root.removeAllActions()
         root.removeFromParent()
@@ -5722,10 +5885,9 @@ extension BattleScene {
 
     /// One live soldier's tower-shot endpoint paired with the root
     /// transform terms the conversion must respect. Lets tests prove a
-    /// crowded scaled formation (`root.setScale(formation.scale)` in
-    /// `syncSoldierNodes`) shrinks the endpoint onto the rendered body
-    /// midpoint instead of landing at the unscaled logical midpoint
-    /// (HPA-812 final review).
+    /// scaled root shrinks the endpoint onto the rendered body midpoint
+    /// instead of landing at the unscaled logical midpoint (HPA-812 final
+    /// review).
     struct LiveSoldierTowerShotTargetForTesting {
         let type: SoldierType
         let rootPosition: CGPoint

@@ -12,10 +12,39 @@ import CoreGraphics
 /// march-through values computed here — keeping the containment and motion
 /// invariants testable without a running scene.
 enum SoldierRailLayout {
+    /// HP-bar dimensions shared by `BattleScene.layoutSoldierHPBar` and the
+    /// rail/footprint containment bounds below.
+    static let hpBarHeight: CGFloat = 5
+    static let hpBarBodyGap: CGFloat = 1.5
+    static var hpBarTopOffset: CGFloat { hpBarHeight + hpBarBodyGap }
+
     /// Horizontal room each rail seat budgets inside its lane column —
     /// one sixth of the battlefield per rail, minus padding.
     static func railWidth(battlefieldFrame: CGRect) -> CGFloat {
         max(0, battlefieldFrame.width / 6 - 4)
+    }
+
+    /// Target body height for a rail owner — capped by the rail width's
+    /// 74:98 widest-frame envelope so neighbours stay clear of each other.
+    static func railBodyHeight(battlefieldFrame: CGRect, targetHeight: CGFloat) -> CGFloat {
+        min(targetHeight, railWidth(battlefieldFrame: battlefieldFrame) * 74 / 98)
+    }
+
+    /// Bookkeeping position for a folded (hidden) soldier root, kept inside
+    /// `battlefieldFrame` without touching rail placement.
+    static func foldedPosition(
+        battlefieldFrame: CGRect,
+        laneCenter: CGPoint,
+        logicalBodyMaxY: CGFloat
+    ) -> CGPoint {
+        let maxY = max(
+            battlefieldFrame.minY,
+            battlefieldFrame.maxY - logicalBodyMaxY - hpBarTopOffset
+        )
+        return CGPoint(
+            x: laneCenter.x,
+            y: min(max(laneCenter.y, battlefieldFrame.minY), maxY)
+        )
     }
 
     /// The seated position for a rail owner: `laneCenter` is the model
@@ -39,11 +68,51 @@ enum SoldierRailLayout {
         let bottom = battlefieldFrame.minY - min(logicalBody.minY, canvas.minY) * rootScale
         let top = min(
             battlefieldFrame.maxY - canvas.maxY * rootScale,
-            gateFloorY - 2 - (logicalBody.maxY + 6.5) * rootScale
+            gateFloorY - 2 - (logicalBody.maxY + hpBarTopOffset) * rootScale
         )
         return CGPoint(
             x: laneCenter.x + (rail == 0 ? -laneWidth / 4 : laneWidth / 4),
             y: min(max(laneCenter.y - footMargin * rootScale, bottom), max(bottom, top))
+        )
+    }
+
+    /// Rendered reservation rectangle for a soldier node at `position`
+    /// covering the full sprite canvas unioned with its HP bar.
+    static func renderedFootprint(
+        at position: CGPoint,
+        scale: CGFloat,
+        horizontalBounds: ClosedRange<CGFloat>,
+        verticalBounds: (footMargin: CGFloat, bodyMaxY: CGFloat),
+        accumulatedBodyFrame: CGRect
+    ) -> CGRect {
+        let width = (horizontalBounds.upperBound - horizontalBounds.lowerBound) * scale
+        let bottom = min(verticalBounds.footMargin, accumulatedBodyFrame.minY)
+        let top = max(verticalBounds.bodyMaxY + hpBarTopOffset, accumulatedBodyFrame.maxY)
+        return CGRect(
+            x: position.x + horizontalBounds.lowerBound * scale,
+            y: position.y + bottom * scale,
+            width: width,
+            height: max(4, (top - bottom) * scale)
+        )
+    }
+
+    /// Readable presentation rectangle for a soldier node at `position` —
+    /// logical walk-pose body unioned with its HP bar at `scale`.
+    static func readableFootprint(
+        at position: CGPoint,
+        scale: CGFloat,
+        logicalBody: CGRect,
+        barExtentWidth: CGFloat,
+        footMargin: CGFloat
+    ) -> CGRect {
+        let barHalfWidth = barExtentWidth / 2
+        let minX = min(logicalBody.minX, -barHalfWidth)
+        let maxX = max(logicalBody.maxX, barHalfWidth)
+        return CGRect(
+            x: position.x + minX * scale,
+            y: position.y + footMargin * scale,
+            width: (maxX - minX) * scale,
+            height: (logicalBody.maxY + hpBarTopOffset - footMargin) * scale
         )
     }
 
