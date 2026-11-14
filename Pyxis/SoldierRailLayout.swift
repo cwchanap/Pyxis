@@ -74,4 +74,48 @@ enum SoldierRailLayout {
         let fraction = min(1, max(0, maxStep) / distance)
         return CGPoint(x: current.x + deltaX * fraction, y: current.y + deltaY * fraction)
     }
+
+    /// Horizontal padding the "+N" overflow pill adds around its measured
+    /// count text — also the shrink loop's fit budget: the font shrinks
+    /// until `labelWidth + padding` clears the lane budget, so a truthful
+    /// count never crops.
+    static let overflowBadgeTextPadding: CGFloat = 16
+
+    /// The smallest "+N" pill — short counts still get a readable badge.
+    static let overflowBadgeMinPillWidth: CGFloat = 36
+
+    /// Horizontal room the "+N" overflow pill may occupy: its lane column
+    /// minus padding, floored so narrow battlefields keep a usable budget.
+    /// Past this width the font shrinks rather than the pill spilling over
+    /// a neighbouring lane's ground.
+    static func overflowBadgeLaneBudget(battlefieldFrame: CGRect) -> CGFloat {
+        max(28, battlefieldFrame.width / 3 - 8)
+    }
+
+    /// The pill width for a measured count label: padded, floored for
+    /// short counts, and capped by the lane budget so a long count can
+    /// never outgrow its lane column.
+    static func overflowBadgePillWidth(labelWidth: CGFloat, laneBudget: CGFloat) -> CGFloat {
+        min(laneBudget, max(overflowBadgeMinPillWidth, labelWidth + overflowBadgeTextPadding))
+    }
+
+    /// The badge center: `anchorX` clamped so the whole pill stays inside
+    /// the battlefield either way — a wide count under a lane edge must
+    /// not push chrome off the field — pinned just above the floor under
+    /// its lane column.
+    static func overflowBadgeCenter(
+        battlefieldFrame: CGRect,
+        anchorX: CGFloat,
+        pillWidth: CGFloat,
+        badgeHeight: CGFloat
+    ) -> CGPoint {
+        let pillHalf = pillWidth / 2
+        return CGPoint(
+            x: min(
+                max(anchorX, battlefieldFrame.minX + pillHalf),
+                battlefieldFrame.maxX - pillHalf
+            ),
+            y: battlefieldFrame.minY + badgeHeight / 2 + 2
+        )
+    }
 }
