@@ -431,24 +431,21 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         titleLabel.text = "Camp"
         titleLabel.position = CGPoint(x: layout.titleFrame.minX, y: layout.titleFrame.midY)
         titleLabel.horizontalAlignmentMode = .left
-        let goldInset: CGFloat = min(6, max(4, layout.goldFrame.width * 0.06))
-        let goldIconSide = min(28, max(16, layout.goldFrame.width * 0.24))
         goldIcon.size = aspectFitSize(
             for: goldIcon.texture,
-            maximumSize: CGSize(width: goldIconSide, height: goldIconSide)
+            maximumSize: layout.goldIconFrame.size
         )
         goldIcon.position = CGPoint(
-            x: layout.goldFrame.minX + goldInset + goldIcon.size.width / 2,
-            y: layout.goldFrame.midY
+            x: layout.goldIconFrame.midX,
+            y: layout.goldIconFrame.midY
         )
         goldIcon.isHidden = goldIcon.texture == nil
         goldLabel.text = CompactNumberFormatter.string(from: state.gold)
         goldLabel.fontSize = 17
-        let goldTextX = layout.goldFrame.minX + goldInset + goldIcon.size.width + 3
-        goldLabel.position = CGPoint(x: goldTextX, y: layout.goldFrame.midY)
+        goldLabel.position = CGPoint(x: layout.goldTextFrame.minX, y: layout.goldTextFrame.midY)
         goldLabel.horizontalAlignmentMode = .left
         goldLabel.shrinkFontSize(
-            toFitWidth: layout.goldFrame.maxX - goldTextX - 4,
+            toFitWidth: layout.goldTextFrame.width,
             floor: 8
         )
         let occupied = state.cityBattleStateForCurrentCity.occupiedSlotCount
