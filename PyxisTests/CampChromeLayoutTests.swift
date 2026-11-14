@@ -168,4 +168,24 @@ struct CampChromeLayoutTests {
             #expect(layout.lotRegionFrame.minY > layout.tabBarFrame.maxY)
         }
     }
+
+    @Test func feedbackBackplateBudgetNeverIntersectsAnyLotHitFrame() throws {
+        for size in [
+            CGSize(width: 320, height: 568),
+            CGSize(width: 375, height: 667),
+            CGSize(width: 393, height: 852)
+        ] {
+            let layout = try #require(CampChromeLayout.compute(.init(
+                sceneSize: size,
+                safeAreaInsets: .zero,
+                selection: .none
+            )))
+            let maxBackplate = CampChromeLayout.feedbackBackplate(textBounds: layout.feedbackFrame).frame
+            #expect(maxBackplate.contains(layout.feedbackFrame))
+            for slot in CityBattleState.slotRange {
+                let hitFrame = try #require(layout.lotHitFrames[slot])
+                #expect(!hitFrame.intersects(maxBackplate), "size \(size) slot \(slot) overlaps feedback backplate")
+            }
+        }
+    }
 }

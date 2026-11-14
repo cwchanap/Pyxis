@@ -466,7 +466,10 @@ final class BuildingViewScene: SKScene, LayoutGateLifecycleHandling, SceneLayout
         // shrinkFontSize only ever shrinks the font; short messages must
         // restart from the authored size instead of inheriting the previous fit.
         feedbackLabel.fontSize = 14
-        feedbackLabel.shrinkFontSize(toFitWidth: layout.safeFrame.width - 32, floor: 8)
+        feedbackLabel.shrinkFontSize(
+            toFitWidth: feedbackFrame.width - CampChromeLayout.feedbackBackplateHorizontalPadding * 2,
+            floor: 8
+        )
         feedbackBackplate.isHidden = feedbackLabel.isHidden
         if !feedbackLabel.isHidden {
             let backplate = CampChromeLayout.feedbackBackplate(
