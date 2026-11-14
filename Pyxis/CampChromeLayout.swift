@@ -83,6 +83,8 @@ struct CampChromeLayout: Equatable {
     let safeFrame: CGRect
     let headerFrame: CGRect
     let goldFrame: CGRect
+    let goldIconFrame: CGRect
+    let goldTextFrame: CGRect
     let titleFrame: CGRect
     let progressFrame: CGRect
     let settingsFrame: CGRect
@@ -210,12 +212,28 @@ struct CampChromeLayout: Equatable {
             width: max(60, settingsFrame.minX - titleFrame.maxX - 20),
             height: 6
         )
+        let goldInset = min(6, max(4, goldFrame.width * 0.06))
+        let goldIconSide = min(28, max(16, goldFrame.width * 0.24))
+        let goldIconFrame = CGRect(
+            x: goldFrame.minX + goldInset,
+            y: goldFrame.midY - goldIconSide / 2,
+            width: goldIconSide,
+            height: goldIconSide
+        )
+        let goldTextFrame = CGRect(
+            x: goldIconFrame.maxX + 3,
+            y: goldFrame.minY,
+            width: max(0, goldFrame.maxX - 4 - goldIconFrame.maxX - 3),
+            height: goldFrame.height
+        )
         guard headerFrame.minX >= safeFrame.minX,
               headerFrame.maxX <= safeFrame.maxX,
               headerFrame.contains(goldFrame),
               headerFrame.contains(settingsFrame),
               headerFrame.contains(titleFrame),
-              headerFrame.contains(progressFrame) else {
+              headerFrame.contains(progressFrame),
+              goldFrame.contains(goldIconFrame),
+              goldFrame.contains(goldTextFrame) else {
             return nil
         }
 
@@ -332,6 +350,8 @@ struct CampChromeLayout: Equatable {
             safeFrame: safeFrame,
             headerFrame: headerFrame,
             goldFrame: goldFrame,
+            goldIconFrame: goldIconFrame,
+            goldTextFrame: goldTextFrame,
             titleFrame: titleFrame,
             progressFrame: progressFrame,
             settingsFrame: settingsFrame,

@@ -119,6 +119,28 @@ struct CampChromeLayoutTests {
         }
     }
 
+    @Test func goldHeaderFramesStayInsideThePanelAndReserveATextBudget() throws {
+        let cases: [(CGSize, CampSafeAreaInsets)] = [
+            (CGSize(width: 393, height: 852), CampSafeAreaInsets(top: 59, left: 0, bottom: 34, right: 0)),
+            (CGSize(width: 320, height: 568), .zero)
+        ]
+        for (size, insets) in cases {
+            let layout = try #require(CampChromeLayout.compute(.init(
+                sceneSize: size,
+                safeAreaInsets: insets
+            )))
+
+            #expect(layout.goldFrame.contains(layout.goldIconFrame))
+            #expect(layout.goldFrame.contains(layout.goldTextFrame))
+            #expect(layout.goldIconFrame.width == layout.goldIconFrame.height)
+            #expect(layout.goldIconFrame.width >= 16 && layout.goldIconFrame.width <= 28)
+            #expect(layout.goldIconFrame.minX - layout.goldFrame.minX >= 4)
+            #expect(layout.goldTextFrame.minX == layout.goldIconFrame.maxX + 3)
+            #expect(layout.goldTextFrame.midY == layout.goldFrame.midY)
+            #expect(layout.goldTextFrame.width > 0)
+        }
+    }
+
     @Test func smallestPhoneKeepsLotsAboveTheRegionFloorForEverySelection() throws {
         for selection in [
             CampChromeLayout.Selection.none,
