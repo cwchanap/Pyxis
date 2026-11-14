@@ -209,6 +209,23 @@ struct CountryMapLayoutTests {
         #expect(result == .unsupported(.invalidAuthoredData))
     }
 
+    @Test func progressSegmentsMatchCountryCityCountAndFailClosedWhenTooNarrow() throws {
+        let layout = try supportedLayout(
+            size: CGSize(width: 393, height: 852),
+            insets: .zero,
+            layoutClass: .phone
+        )
+        #expect(layout.progressSegmentFrames.count == KingdomGameState.firstCountryCityCount)
+        // Narrow header leaving < 91pt for the 15 segments + 14×2pt gaps fails
+        // closed instead of emitting zero- or negative-width segments.
+        let narrow = result(
+            size: CGSize(width: 375, height: 667),
+            insets: .init(top: 20, left: 70, bottom: 20, right: 70),
+            layoutClass: .phone
+        )
+        #expect(narrow == .unsupported(.unsupportedGeometry))
+    }
+
     @Test(arguments: supportedFixtures)
     private func supportedFixturesSatisfyCompleteLayoutInvariants(
         fixture: CountryMapLayoutTestFixture
