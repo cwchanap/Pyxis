@@ -1,5 +1,7 @@
 # HPA-672 evidence captures
 
+> Evidence retention: this checkout keeps a representative subset of the captures. Filenames and results below describe the original capture set. The [complete original evidence](https://github.com/cwchanap/Pyxis/tree/56d8d04250d3ca8e3036b3a48f28677aedac1837/evidence/hpa-672) is available at the pre-cleanup commit.
+
 Real-routing Ascension flow screenshots from the seeded DEBUG
 `map-country-complete` fixture (every catalog item owned at Lv1 through the
 `KingdomGameState` initializer; `.map`/`.mapPartial` untouched). Captured by

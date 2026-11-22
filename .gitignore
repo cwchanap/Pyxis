@@ -6,5 +6,24 @@ __pycache__/
 *.pyc
 /.worktrees/
 
-# visual-parity docs are local-only (large art references)
-docs/visual-parity/
+# Keep non-Forged visual-parity exports local. Keep Forged inputs and curated examples.
+/docs/visual-parity/*
+!/docs/visual-parity/forged-ui/
+/docs/visual-parity/forged-ui/**/*-side-by-side.png
+/docs/visual-parity/forged-ui/**/*-overlay.png
+!/docs/visual-parity/forged-ui/battle-style-side-by-side.png
+!/docs/visual-parity/forged-ui/overlays/battle-normal-50-overlay.png
+
+# Put raw simulator captures and reports in verification-output/ or a generated subfolder.
+/verification-output/
+/test-results/
+/test-results-*/
+/playwright-report/
+/docs/visual-parity/forged-ui/**/_generated/
+/docs/visual-parity/forged-ui/**/generated/
+/docs/superpowers/evidence/**/_generated/
+/docs/superpowers/evidence/**/generated/
+/docs/superpowers/evidence/**/artifacts/
+/evidence/**/_generated/
+/evidence/**/generated/
+/evidence/**/artifacts/
