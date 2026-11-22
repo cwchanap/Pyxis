@@ -6,41 +6,24 @@ __pycache__/
 *.pyc
 /.worktrees/
 
-# Keep local visual-parity exports out of Git. Keep the curated Forged inputs.
+# Keep non-Forged visual-parity exports local. Keep Forged inputs and curated examples.
 /docs/visual-parity/*
 !/docs/visual-parity/forged-ui/
-/docs/visual-parity/forged-ui/**
-!/docs/visual-parity/forged-ui/README.md
-!/docs/visual-parity/forged-ui/native/
-!/docs/visual-parity/forged-ui/overlays/
+/docs/visual-parity/forged-ui/**/*-side-by-side.png
+/docs/visual-parity/forged-ui/**/*-overlay.png
 !/docs/visual-parity/forged-ui/battle-style-side-by-side.png
-!/docs/visual-parity/forged-ui/battle.png
-!/docs/visual-parity/forged-ui/camp.png
-!/docs/visual-parity/forged-ui/conquest.png
-!/docs/visual-parity/forged-ui/map.png
-!/docs/visual-parity/forged-ui/native/battle-blocked-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/battle-live-damage-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/battle-live-damage-close-up.png
-!/docs/visual-parity/forged-ui/native/battle-normal-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/camp-empty-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/camp-occupied-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/conquest-idle-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/conquest-live-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/map-attackable-locked-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/map-complete-393x852@3x.png
-!/docs/visual-parity/forged-ui/native/settings-toggle-393x852@3x.png
 !/docs/visual-parity/forged-ui/overlays/battle-normal-50-overlay.png
-!/docs/visual-parity/forged-ui/settings.png
 
-# Ignore simulator screenshots except the checked-in representative frames.
-/docs/superpowers/evidence/hpa-477/**/*.png
-!/docs/superpowers/evidence/hpa-477/city15-crownspire-iphone16.png
-!/docs/superpowers/evidence/hpa-477/city15-crownspire-ruined-iphone16.png
-/evidence/hpa-672/**/*.png
-!/evidence/hpa-672/iphone-17/hpa672-02-kingdom-ascend-armed.png
-!/evidence/hpa-672/iphone-17/hpa672-05-kingdom-renown-armory-lv2.png
-/evidence/hpa-812/**/*.png
-!/evidence/hpa-812/conquest-icons-mockup-followup.png
-!/evidence/hpa-812/map-scout-mockup-followup.png
-!/evidence/hpa-812/two-rail-live-dense.png
-!/evidence/hpa-812/two-rail-live-early.png
+# Put raw simulator captures and reports in verification-output/ or a generated subfolder.
+/verification-output/
+/test-results/
+/test-results-*/
+/playwright-report/
+/docs/visual-parity/forged-ui/**/_generated/
+/docs/visual-parity/forged-ui/**/generated/
+/docs/superpowers/evidence/**/_generated/
+/docs/superpowers/evidence/**/generated/
+/docs/superpowers/evidence/**/artifacts/
+/evidence/**/_generated/
+/evidence/**/generated/
+/evidence/**/artifacts/
