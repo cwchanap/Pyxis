@@ -1,5 +1,7 @@
 # HPA-812 visual evidence
 
+> Evidence retention: this checkout keeps a representative subset of the captures. Filenames and results below describe the original capture set. The [complete original evidence](https://github.com/cwchanap/Pyxis/tree/56d8d04250d3ca8e3036b3a48f28677aedac1837/evidence/hpa-812) is available at the pre-cleanup commit.
+
 These are simulator captures, not physical-device screenshots. All use the
 iPhone 16 simulator, iOS 26.5, logical 393×852 pt. The baseline production and
 tests are identical to `main@bb390f0`; the final captures use code at
